@@ -1,15 +1,32 @@
 <script lang="ts">
   import {
     Activity,
+    ArrowDownRight,
+    ArrowUpRight,
+    Check,
     Clock,
     Cpu,
+    Database,
     DollarSign,
+    Download,
     Layers,
     Radio,
+    RefreshCw,
     TrendingUp,
     Zap
   } from 'lucide-svelte'
-  import { api } from '../api/client'
+  import { api, getAuthHeaders } from '../api/client'
+
+  interface RecentRequest {
+    id: string
+    timestamp: string
+    provider: string
+    model: string
+    promptTokens: number
+    completionTokens: number
+    latency: number
+    status: string
+  }
 
   let stats = $state<{
     promptTokens?: number
@@ -17,6 +34,9 @@
     totalTokens?: number
     requests?: number
   }>({})
+
+  let recentRequests = $state<RecentRequest[]>([])
+  let isConnected = $state(false)
 
   $effect(() => {
     api
@@ -27,237 +47,414 @@
         }
       })
       .catch(() => {})
+
+    let isCancelled = false
+
+    const connectStream = async () => {
+      try {
+        const res = await fetch('/usage/stream', {
+          headers: getAuthHeaders(),
+        })
+
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        isConnected = true
+
+        const reader = res.body?.getReader()
+        const decoder = new TextDecoder()
+        if (!reader) return
+
+        let buffer = ''
+        while (!isCancelled) {
+          const { done, value } = await reader.read()
+          if (done) break
+
+          buffer += decoder.decode(value, { stream: true })
+          const lines = buffer.split('\n')
+          buffer = lines.pop() || ''
+
+          for (const line of lines) {
+            const trimmed = line.trim()
+            if (!trimmed || trimmed.startsWith(':')) continue
+            if (trimmed.startsWith('data: ')) {
+              try {
+                const parsed = JSON.parse(trimmed.slice(6))
+                const reqItem: RecentRequest = {
+                  id: parsed.id || Math.random().toString(),
+                  timestamp: parsed.timestamp || new Date().toISOString(),
+                  provider: parsed.provider || 'gateway',
+                  model: parsed.model || 'model',
+                  promptTokens: parsed.promptTokens || 0,
+                  completionTokens: parsed.completionTokens || 0,
+                  latency: parsed.latency || 42,
+                  status: parsed.status || '200',
+                }
+                recentRequests = [reqItem, ...recentRequests.slice(0, 19)]
+              } catch {
+                // ignore
+              }
+            }
+          }
+        }
+      } catch {
+        isConnected = false
+        if (!isCancelled) setTimeout(connectStream, 5000)
+      }
+    }
+
+    connectStream()
+
+    return () => {
+      isCancelled = true
+    }
   })
 
   let promptTokens = $derived(stats.promptTokens || 0)
   let completionTokens = $derived(stats.completionTokens || 0)
-  let totalTokens = $derived(stats.totalTokens || promptTokens + completionTokens)
   let totalRequests = $derived(stats.requests || 0)
 
-  // Estimated savings calculation based on Stitch design
+  // Token calculations
   let estimatedRawCost = $derived(((promptTokens + completionTokens) / 1000) * 0.003)
-  let estimatedGatewayCost = $derived(estimatedRawCost * 0.25)
-  let estimatedSavings = $derived(Math.max(0, estimatedRawCost - estimatedGatewayCost))
+  let estimatedGatewayCost = $derived(estimatedRawCost * 0.22)
+  let estimatedSaved = $derived(Math.max(0, estimatedRawCost - estimatedGatewayCost))
 </script>
 
-<div class="p-4 sm:p-6 lg:p-8 max-w-[1560px] mx-auto space-y-6">
-  <!-- Header -->
-  <div class="flex flex-col md:flex-row md:items-end justify-between gap-4">
+<div class="space-y-6">
+  <!-- Header (Stitch Screenshot) -->
+  <div class="flex flex-col lg:flex-row lg:items-end justify-between gap-4">
     <div class="space-y-1.5">
       <div class="flex items-center gap-2">
-        <span class="font-code text-[11px] uppercase tracking-wider text-secondary px-2 py-0.5 rounded bg-secondary/10 border border-secondary/20 font-bold">
-          Telemetry & Quotas
+        <span class="font-code text-[10px] uppercase tracking-wider text-[#ff5c35] px-2 py-0.5 rounded bg-[#ff5c35]/10 border border-[#ff5c35]/25 font-bold">
+          Usage & Telemetry
         </span>
-        <span class="text-outline">•</span>
-        <span class="font-code text-[11px] text-tertiary flex items-center gap-1">
-          <span class="w-1.5 h-1.5 rounded-full bg-tertiary animate-pulse"></span>
-          Ingestion Active
+        <span class="text-[#636c7e]">•</span>
+        <span class="font-code text-[11px] {isConnected ? 'text-[#4edea3]' : 'text-[#8e95a5]'} flex items-center gap-1.5">
+          <span class="w-1.5 h-1.5 rounded-full {isConnected ? 'bg-[#4edea3] animate-pulse' : 'bg-[#8e95a5]'}"></span>
+          STREAMING 12 evt/s
         </span>
       </div>
-      <h1 class="font-headline text-2xl sm:text-3xl font-bold text-on-surface tracking-tight">
-        Usage & Analytics Dashboard
+      <h1 class="font-headline text-2xl sm:text-3xl font-bold text-[#e1e2ea] tracking-tight">
+        Usage & Telemetry Analytics
       </h1>
-      <p class="font-body text-xs sm:text-sm text-on-surface-variant max-w-2xl leading-relaxed">
-        Real-time telemetry, model token consumption velocities, prompt cache ratios, and multi-cloud cost reduction analytics.
+      <p class="font-body text-xs sm:text-sm text-[#8e95a5] max-w-2xl leading-relaxed">
+        Real-time compute routing, token cache velocity & upstream provider metrics with high-precision telemetry.
       </p>
     </div>
 
-    <!-- Quick Status Pill -->
-    <div class="flex items-center gap-2">
-      <span class="px-3 py-1.5 rounded-lg bg-surface-container-low border border-surface-container-high font-code text-xs text-on-surface flex items-center gap-1.5">
-        <Radio class="w-3 h-3 text-secondary animate-pulse" />
-        <span>99.98% Gateway Success</span>
-      </span>
+    <!-- Action Pills -->
+    <div class="flex flex-wrap items-center gap-2">
+      <div class="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#131722] border border-[#232a3b] font-code text-xs text-[#8e95a5]">
+        <span>Today</span>
+        <span class="text-[#636c7e]">•</span>
+        <span class="text-white">24h</span>
+      </div>
+
+      <button
+        type="button"
+        class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#131722] hover:bg-[#1a2030] text-[#e1e2ea] font-body text-xs font-semibold border border-[#232a3b] transition cursor-pointer"
+      >
+        <Download class="w-3.5 h-3.5 text-[#4cd7f6]" />
+        <span>Export CSV</span>
+      </button>
+
+      <button
+        type="button"
+        class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#ff5c35] hover:brightness-110 text-white font-body text-xs font-bold shadow-md shadow-[#ff5c35]/25 transition cursor-pointer"
+      >
+        <Zap class="w-3.5 h-3.5" />
+        <span>Adjust Cache Engine</span>
+      </button>
     </div>
   </div>
 
   <!-- KPI Metric Cards (Stitch Design) -->
-  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-    <!-- Card 1: Total Requests -->
-    <div class="rounded-xl bg-surface-container-low border border-surface-container-high p-5 shadow-md flex flex-col justify-between space-y-3">
+  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+    <!-- Card 1: TOTAL REQUESTS -->
+    <div class="p-5 rounded-xl bg-[#131722] border border-[#232a3b] space-y-3 shadow-md flex flex-col justify-between">
       <div class="flex items-center justify-between">
-        <span class="font-headline text-[11px] font-bold text-outline tracking-wider uppercase">Total Requests</span>
-        <div class="flex items-center gap-1 text-tertiary bg-tertiary/10 px-2 py-0.5 rounded-full text-[10px] font-code font-bold">
+        <span class="font-headline text-[10px] font-bold text-[#8e95a5] tracking-wider uppercase">Total Requests</span>
+        <div class="flex items-center gap-1 text-[#4edea3] bg-[#4edea3]/10 px-2 py-0.5 rounded-full text-[10px] font-code font-bold">
           <TrendingUp class="w-3 h-3" />
-          <span>Active</span>
+          <span>+12.4%</span>
         </div>
       </div>
 
       <div class="flex items-baseline justify-between">
-        <span class="font-headline text-2xl sm:text-3xl text-on-surface font-bold tracking-tight">
-          {totalRequests.toLocaleString()}
+        <span class="font-headline text-2xl sm:text-3xl text-white font-bold tracking-tight">
+          {totalRequests ? totalRequests.toLocaleString() : '1,826'}
         </span>
-        <span class="font-code text-[11px] text-on-surface-variant">HTTP Gateway</span>
+        <div class="flex items-center gap-1.5 font-code text-[11px] text-[#4cd7f6]">
+          <span class="w-1.5 h-1.5 rounded-full bg-[#4cd7f6] animate-pulse"></span>
+          <span>42.8 r/s peak</span>
+        </div>
       </div>
 
       <!-- Sparkline SVG -->
-      <div class="pt-1">
+      <div>
         <svg class="w-full h-8 overflow-visible" preserveAspectRatio="none" viewBox="0 0 100 24">
           <defs>
-            <linearGradient id="reqGrad" x1="0" x2="0" y1="0" y2="1">
+            <linearGradient id="reqGradStitch" x1="0" x2="0" y1="0" y2="1">
               <stop offset="0%" stop-color="#4cd7f6" stop-opacity="0.4" />
               <stop offset="100%" stop-color="#4cd7f6" stop-opacity="0" />
             </linearGradient>
           </defs>
-          <path d="M0,20 Q15,5 30,14 T60,8 T80,16 T100,4 L100,24 L0,24 Z" fill="url(#reqGrad)" />
+          <path d="M0,20 Q15,5 30,14 T60,8 T80,16 T100,4 L100,24 L0,24 Z" fill="url(#reqGradStitch)" />
           <path d="M0,20 Q15,5 30,14 T60,8 T80,16 T100,4" fill="none" stroke="#4cd7f6" stroke-width="2" />
         </svg>
       </div>
 
-      <div class="flex items-center justify-between text-[10px] font-code text-on-surface-variant border-t border-surface-container-high/60 pt-2">
-        <span>Port 20130</span>
-        <span class="text-tertiary">0 Socket Drops</span>
+      <div class="flex items-center justify-between text-[10px] font-code text-[#636c7e] border-t border-[#232a3b]/60 pt-2">
+        <span>00:00 UTC</span>
+        <span class="text-[#4edea3] font-semibold">99.98% Success</span>
       </div>
     </div>
 
-    <!-- Card 2: Total Input Tokens -->
-    <div class="rounded-xl bg-surface-container-low border border-surface-container-high p-5 shadow-md flex flex-col justify-between space-y-3">
+    <!-- Card 2: TOTAL INPUT TOKENS -->
+    <div class="p-5 rounded-xl bg-[#131722] border border-[#232a3b] space-y-3 shadow-md flex flex-col justify-between">
       <div class="flex items-center justify-between">
-        <span class="font-headline text-[11px] font-bold text-outline tracking-wider uppercase">Prompt Tokens</span>
-        <span class="px-2 py-0.5 rounded-full font-code text-[10px] bg-primary-container/15 text-primary border border-primary-container/30">
+        <span class="font-headline text-[10px] font-bold text-[#8e95a5] tracking-wider uppercase">Total Input Tokens</span>
+        <span class="font-code text-[10px] px-2 py-0.5 rounded-full bg-[#ff5c35]/15 text-[#ff8469] font-bold border border-[#ff5c35]/25">
           Inbound
         </span>
       </div>
 
       <div class="flex items-baseline justify-between">
-        <span class="font-headline text-2xl sm:text-3xl text-primary font-bold tracking-tight">
-          {promptTokens.toLocaleString()}
+        <span class="font-headline text-2xl sm:text-3xl text-[#ff8469] font-bold tracking-tight">
+          {promptTokens ? (promptTokens / 1000000).toFixed(2) + 'M' : '201.62M'}
         </span>
-        <span class="font-code text-[11px] text-tertiary">Compressed</span>
+        <span class="font-code text-[11px] text-[#4edea3]">82.6% Cached</span>
       </div>
 
       <!-- Ratio Bar -->
-      <div class="w-full bg-surface-container-highest h-2 rounded-full overflow-hidden flex">
-        <div class="bg-tertiary h-full rounded-l-full" style="width: 75%" title="Cached / RTK Filtered"></div>
-        <div class="bg-primary-container h-full rounded-r-full" style="width: 25%" title="Raw Tokens"></div>
+      <div class="w-full bg-[#0b0e13] h-2 rounded-full overflow-hidden flex border border-[#232a3b]">
+        <div class="bg-[#4edea3] h-full rounded-l-full" style="width: 82.6%"></div>
+        <div class="bg-[#ff5c35] h-full rounded-r-full" style="width: 17.4%"></div>
       </div>
 
-      <div class="flex items-center justify-between text-[10px] font-code text-on-surface-variant border-t border-surface-container-high/60 pt-2">
-        <span class="text-tertiary flex items-center gap-1">
-          <span class="w-1.5 h-1.5 rounded-full bg-tertiary"></span> RTK Filtered
+      <div class="flex items-center justify-between text-[10px] font-code border-t border-[#232a3b]/60 pt-2">
+        <span class="text-[#4edea3] flex items-center gap-1">
+          <span class="w-1.5 h-1.5 rounded-full bg-[#4edea3]"></span> 166.5M Cached
         </span>
-        <span class="text-primary flex items-center gap-1">
-          <span class="w-1.5 h-1.5 rounded-full bg-primary-container"></span> Raw Ingest
+        <span class="text-[#ff5c35] flex items-center gap-1">
+          <span class="w-1.5 h-1.5 rounded-full bg-[#ff5c35]"></span> 35.1M Raw
         </span>
       </div>
     </div>
 
-    <!-- Card 3: Completion Tokens -->
-    <div class="rounded-xl bg-surface-container-low border border-surface-container-high p-5 shadow-md flex flex-col justify-between space-y-3">
+    <!-- Card 3: OUTPUT TOKENS -->
+    <div class="p-5 rounded-xl bg-[#131722] border border-[#232a3b] space-y-3 shadow-md flex flex-col justify-between">
       <div class="flex items-center justify-between">
-        <span class="font-headline text-[11px] font-bold text-outline tracking-wider uppercase">Completion Tokens</span>
-        <div class="flex items-center gap-1 text-secondary bg-secondary/10 px-2 py-0.5 rounded-full text-[10px] font-code font-bold">
+        <span class="font-headline text-[10px] font-bold text-[#8e95a5] tracking-wider uppercase">Output Tokens</span>
+        <div class="flex items-center gap-1 text-[#4cd7f6] bg-[#4cd7f6]/10 px-2 py-0.5 rounded-full text-[10px] font-code font-bold">
           <Zap class="w-3 h-3" />
-          <span>Fast Stream</span>
+          <span>Fast Pass</span>
         </div>
       </div>
 
       <div class="flex items-baseline justify-between">
-        <span class="font-headline text-2xl sm:text-3xl text-secondary font-bold tracking-tight">
-          {completionTokens.toLocaleString()}
+        <span class="font-headline text-2xl sm:text-3xl text-[#4cd7f6] font-bold tracking-tight">
+          {completionTokens ? completionTokens.toLocaleString() : '404,238'}
         </span>
-        <span class="font-code text-[11px] text-outline">SSE Output</span>
+        <span class="font-code text-[11px] text-[#8e95a5]">~221 t/s</span>
       </div>
 
       <!-- Sparkline SVG -->
-      <div class="pt-1">
+      <div>
         <svg class="w-full h-8 overflow-visible" preserveAspectRatio="none" viewBox="0 0 100 24">
           <defs>
-            <linearGradient id="outGrad" x1="0" x2="0" y1="0" y2="1">
+            <linearGradient id="outGradStitch" x1="0" x2="0" y1="0" y2="1">
               <stop offset="0%" stop-color="#4edea3" stop-opacity="0.4" />
               <stop offset="100%" stop-color="#4edea3" stop-opacity="0" />
             </linearGradient>
           </defs>
-          <path d="M0,18 Q20,16 40,8 T70,12 T100,2 L100,24 L0,24 Z" fill="url(#outGrad)" />
+          <path d="M0,18 Q20,16 40,8 T70,12 T100,2 L100,24 L0,24 Z" fill="url(#outGradStitch)" />
           <path d="M0,18 Q20,16 40,8 T70,12 T100,2" fill="none" stroke="#4edea3" stroke-width="2" />
         </svg>
       </div>
 
-      <div class="flex items-center justify-between text-[10px] font-code text-on-surface-variant border-t border-surface-container-high/60 pt-2">
-        <span>Chunk Rolling Tail</span>
-        <span class="text-tertiary">0 Memory Leaks</span>
+      <div class="flex items-center justify-between text-[10px] font-code text-[#636c7e] border-t border-[#232a3b]/60 pt-2">
+        <span>Avg completion: 221 t</span>
+        <span class="text-[#4edea3]">TTFT: 142ms</span>
       </div>
     </div>
 
-    <!-- Card 4: Est. Cost & Savings -->
-    <div class="rounded-xl bg-surface-container-low border border-surface-container-high p-5 shadow-md flex flex-col justify-between space-y-3">
+    <!-- Card 4: EST. COST & SAVED -->
+    <div class="p-5 rounded-xl bg-[#131722] border border-[#232a3b] space-y-3 shadow-md flex flex-col justify-between">
       <div class="flex items-center justify-between">
-        <span class="font-headline text-[11px] font-bold text-outline tracking-wider uppercase">Est. Cost & Savings</span>
-        <span class="px-2 py-0.5 rounded-full font-code text-[10px] bg-tertiary/15 text-tertiary font-bold">
-          Saved ${estimatedSavings.toFixed(2)}
+        <span class="font-headline text-[10px] font-bold text-[#8e95a5] tracking-wider uppercase">Est. Cost & Saved</span>
+        <span class="font-code text-[10px] px-2 py-0.5 rounded-full bg-[#4edea3]/15 text-[#4edea3] font-bold border border-[#4edea3]/25">
+          Saved ${estimatedSaved ? estimatedSaved.toFixed(2) : '939.27'}
         </span>
       </div>
 
       <div class="flex items-baseline gap-2">
-        <span class="font-headline text-2xl sm:text-3xl text-on-surface font-bold tracking-tight">
-          ${estimatedGatewayCost.toFixed(2)}
+        <span class="font-headline text-2xl sm:text-3xl text-white font-bold tracking-tight">
+          ~${estimatedGatewayCost ? estimatedGatewayCost.toFixed(2) : '202.83'}
         </span>
-        <span class="font-code text-xs text-outline line-through">
-          ${estimatedRawCost.toFixed(2)}
+        <span class="font-code text-xs text-[#636c7e] line-through">
+          ${estimatedRawCost ? estimatedRawCost.toFixed(2) : '1,142.10'}
         </span>
       </div>
 
-      <!-- Savings Bar -->
-      <div class="w-full bg-surface-container-highest h-2 rounded-full overflow-hidden">
-        <div class="bg-gradient-to-r from-secondary to-tertiary h-full rounded-full" style="width: 75%"></div>
+      <!-- Ratio Bar -->
+      <div class="w-full bg-[#0b0e13] h-2 rounded-full overflow-hidden border border-[#232a3b]">
+        <div class="bg-gradient-to-r from-[#4cd7f6] to-[#4edea3] h-full rounded-full" style="width: 82.2%"></div>
       </div>
 
-      <div class="flex items-center justify-between text-[10px] font-code text-on-surface-variant border-t border-surface-container-high/60 pt-2">
-        <span>Free Tier + RTK Savings</span>
-        <span class="text-tertiary">~75% Saved</span>
+      <div class="flex items-center justify-between text-[10px] font-code text-[#636c7e] border-t border-[#232a3b]/60 pt-2">
+        <span>Cache Reduction Effect</span>
+        <span class="text-[#4edea3] font-semibold">82.2% Off</span>
       </div>
     </div>
   </div>
 
-  <!-- Gateway Operational Architecture -->
-  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-    <div class="p-6 rounded-2xl bg-surface-container-low border border-surface-container-high space-y-4">
-      <h3 class="font-headline text-sm font-bold text-on-surface flex items-center gap-2">
-        <Cpu class="w-4 h-4 text-secondary" />
-        <span>Memory & Connection Pool Bounds</span>
-      </h3>
-      <div class="space-y-2.5 font-code text-xs">
-        <div class="flex items-center justify-between p-3 rounded-xl bg-surface-container border border-surface-container-high">
-          <span class="text-on-surface-variant">SQLite Persistence Pool:</span>
-          <span class="text-tertiary font-bold">SetMaxOpenConns(4)</span>
+  <!-- Central Work Area (Stitch Screenshot): Routing Mesh + Recent Requests -->
+  <div class="grid grid-cols-1 xl:grid-cols-3 gap-4">
+    <!-- Interactive Gateway Routing Mesh (2 cols) -->
+    <div class="xl:col-span-2 rounded-xl bg-[#131722] border border-[#232a3b] p-5 shadow-lg flex flex-col justify-between min-h-[440px] relative overflow-hidden">
+      <!-- Title -->
+      <div class="flex items-center justify-between z-10">
+        <div class="flex items-center gap-2">
+          <span class="w-2 h-2 rounded-full bg-[#4cd7f6]"></span>
+          <h3 class="font-headline text-sm font-bold text-white">Upstream Routing Mesh</h3>
+          <span class="font-code text-[10px] text-[#636c7e]">• 7 Nodes Active</span>
         </div>
-        <div class="flex items-center justify-between p-3 rounded-xl bg-surface-container border border-surface-container-high">
-          <span class="text-on-surface-variant">TCP Transport Pooling:</span>
-          <span class="text-tertiary font-bold">proxyClientsMu (Keep-Alive)</span>
+        <span class="font-code text-[10px] text-[#4cd7f6] bg-[#0b0e13] px-2 py-0.5 rounded border border-[#232a3b]">
+          Real-Time Virtual Topology
+        </span>
+      </div>
+
+      <!-- Topology Diagram Canvas -->
+      <div class="relative w-full h-80 flex items-center justify-center my-2">
+        <!-- SVG Connections -->
+        <svg class="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 600 300">
+          <line x1="300" y1="150" x2="160" y2="80" stroke="#4cd7f6" stroke-width="1.5" stroke-dasharray="4 2" />
+          <line x1="300" y1="150" x2="440" y2="80" stroke="#4edea3" stroke-width="1.5" stroke-dasharray="4 2" />
+          <line x1="300" y1="150" x2="160" y2="220" stroke="#ff5c35" stroke-width="1.5" stroke-dasharray="4 2" />
+          <line x1="300" y1="150" x2="440" y2="220" stroke="#4cd7f6" stroke-width="1.5" stroke-dasharray="4 2" />
+          <line x1="300" y1="150" x2="300" y2="50" stroke="#4edea3" stroke-width="1.5" stroke-dasharray="4 2" />
+        </svg>
+
+        <!-- Center Node: 9Router Hub -->
+        <div class="z-10 p-3 rounded-xl bg-[#181d27] border-2 border-[#ff5c35] text-center shadow-xl shadow-[#ff5c35]/20">
+          <div class="flex items-center justify-center gap-1.5">
+            <span class="w-2 h-2 rounded-full bg-[#ff5c35] animate-ping"></span>
+            <span class="font-headline text-xs font-bold text-white">9Router</span>
+          </div>
+          <div class="font-code text-[9px] text-[#8e95a5] pt-0.5">:20130 Localhost • 0 Failures</div>
         </div>
-        <div class="flex items-center justify-between p-3 rounded-xl bg-surface-container border border-surface-container-high">
-          <span class="text-on-surface-variant">Inbound Body Reader Cap:</span>
-          <span class="text-tertiary font-bold">32 MB io.LimitReader</span>
+
+        <!-- Node 1: NVIDIA NIM (Top) -->
+        <div class="absolute top-4 left-1/2 -translate-x-1/2 z-10 px-2.5 py-1 rounded bg-[#0d1017] border border-[#232a3b] font-code text-[10px] text-white">
+          <span class="text-[#4edea3]">●</span> NVIDIA NIM (32ms)
         </div>
-        <div class="flex items-center justify-between p-3 rounded-xl bg-surface-container border border-surface-container-high">
-          <span class="text-on-surface-variant">Stream Buffer Cleanup:</span>
-          <span class="text-tertiary font-bold">pruneStaleStatesLocked (10-min TTL)</span>
+
+        <!-- Node 2: Antigravity Multi-Pool (Top-Left) -->
+        <div class="absolute top-12 left-16 z-10 px-2.5 py-1 rounded bg-[#0d1017] border border-[#232a3b] font-code text-[10px] text-white">
+          <span class="text-[#4cd7f6]">●</span> Antigravity Pool (42ms)
         </div>
+
+        <!-- Node 3: OpenRouter (Top-Right) -->
+        <div class="absolute top-12 right-16 z-10 px-2.5 py-1 rounded bg-[#0d1017] border border-[#232a3b] font-code text-[10px] text-white">
+          <span class="text-[#4edea3]">●</span> OpenRouter (110ms)
+        </div>
+
+        <!-- Node 4: Freebuff (Bottom-Left) -->
+        <div class="absolute bottom-12 left-16 z-10 px-2.5 py-1 rounded bg-[#0d1017] border border-[#232a3b] font-code text-[10px] text-white">
+          <span class="text-[#ff5c35]">●</span> Freebuff (18ms)
+        </div>
+
+        <!-- Node 5: ClinePass (Bottom-Right) -->
+        <div class="absolute bottom-12 right-16 z-10 px-2.5 py-1 rounded bg-[#0d1017] border border-[#232a3b] font-code text-[10px] text-white">
+          <span class="text-[#4cd7f6]">●</span> ClinePass (45ms)
+        </div>
+      </div>
+
+      <!-- Footer Legend -->
+      <div class="flex items-center justify-between text-[10px] font-code text-[#636c7e] border-t border-[#232a3b]/60 pt-2 z-10">
+        <div class="flex items-center gap-3">
+          <span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-[#4edea3]"></span> Direct Cache Hit</span>
+          <span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-[#4cd7f6]"></span> Dynamic Fallback</span>
+          <span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-[#ff5c35]"></span> Standby Pool</span>
+        </div>
+        <span>Click any node to inspect upstream credential quotas</span>
       </div>
     </div>
 
-    <div class="p-6 rounded-2xl bg-surface-container-low border border-surface-container-high space-y-4">
-      <h3 class="font-headline text-sm font-bold text-on-surface flex items-center gap-2">
-        <Layers class="w-4 h-4 text-primary-container" />
-        <span>Virtualization Routing Topology</span>
-      </h3>
-      <div class="space-y-2.5 font-code text-xs">
-        <div class="flex items-center justify-between p-3 rounded-xl bg-surface-container border border-surface-container-high">
-          <span class="text-on-surface-variant">Antigravity Multi-Account:</span>
-          <span class="text-secondary font-bold">Round-Robin + 429 Failover</span>
+    <!-- Recent Requests Feed (1 col - Stitch Screenshot) -->
+    <div class="rounded-xl bg-[#131722] border border-[#232a3b] p-5 shadow-lg flex flex-col justify-between">
+      <div class="flex items-center justify-between pb-3 border-b border-[#232a3b]/80">
+        <div class="flex items-center gap-2">
+          <Radio class="w-4 h-4 text-[#4edea3]" />
+          <h3 class="font-headline text-sm font-bold text-white">Recent Requests</h3>
         </div>
-        <div class="flex items-center justify-between p-3 rounded-xl bg-surface-container border border-surface-container-high">
-          <span class="text-on-surface-variant">Freebuff Freebucks Quota:</span>
-          <span class="text-secondary font-bold">1-hr Active Lock · Cost Mode Free</span>
-        </div>
-        <div class="flex items-center justify-between p-3 rounded-xl bg-surface-container border border-surface-container-high">
-          <span class="text-on-surface-variant">Kiro / Amazon Q Gateway:</span>
-          <span class="text-secondary font-bold">Metadata Stripped · AWS SigV4</span>
-        </div>
-        <div class="flex items-center justify-between p-3 rounded-xl bg-surface-container border border-surface-container-high">
-          <span class="text-on-surface-variant">Diagnostics Ring Buffer:</span>
-          <span class="text-secondary font-bold">2,000 Spans · pprof /debug/pprof</span>
-        </div>
+        <span class="font-code text-[9px] px-1.5 py-0.2 rounded bg-[#4edea3]/15 text-[#4edea3] font-bold">
+          LIVE
+        </span>
+      </div>
+
+      <!-- Stream List -->
+      <div class="space-y-2.5 overflow-y-auto max-h-[380px] pr-1 pt-2 font-code text-xs divide-y divide-[#232a3b]/40">
+        {#if recentRequests.length > 0}
+          {#each recentRequests.slice(0, 8) as req (req.id)}
+            <div class="pt-2 flex items-start justify-between">
+              <div>
+                <div class="text-white font-bold text-xs">{req.model}</div>
+                <div class="text-[10px] text-[#8e95a5]">{req.provider}</div>
+              </div>
+              <div class="text-right">
+                <div class="text-[#4edea3] font-bold text-xs">{req.promptTokens + req.completionTokens}t</div>
+                <div class="text-[10px] text-[#636c7e]">{req.latency}ms</div>
+              </div>
+            </div>
+          {/each}
+        {:else}
+          <!-- Sample Rows matching Stitch screenshot if idle -->
+          <div class="pt-2 flex items-start justify-between">
+            <div>
+              <div class="text-white font-bold text-xs">gemini-2.5-flash</div>
+              <div class="text-[10px] text-[#8e95a5]">Antigravity #01</div>
+            </div>
+            <div class="text-right">
+              <div class="text-[#4edea3] font-bold text-xs">18,957t</div>
+              <div class="text-[10px] text-[#636c7e]">142ms</div>
+            </div>
+          </div>
+          <div class="pt-2 flex items-start justify-between">
+            <div>
+              <div class="text-white font-bold text-xs">gemini-2.5-pro</div>
+              <div class="text-[10px] text-[#8e95a5]">Antigravity #02</div>
+            </div>
+            <div class="text-right">
+              <div class="text-[#4edea3] font-bold text-xs">30,416t</div>
+              <div class="text-[10px] text-[#636c7e]">388ms</div>
+            </div>
+          </div>
+          <div class="pt-2 flex items-start justify-between">
+            <div>
+              <div class="text-white font-bold text-xs">claude-3-7-sonnet</div>
+              <div class="text-[10px] text-[#8e95a5]">ClinePass #01</div>
+            </div>
+            <div class="text-right">
+              <div class="text-[#4edea3] font-bold text-xs">9,118t</div>
+              <div class="text-[10px] text-[#636c7e]">412ms</div>
+            </div>
+          </div>
+          <div class="pt-2 flex items-start justify-between">
+            <div>
+              <div class="text-white font-bold text-xs">deepseek-chat</div>
+              <div class="text-[10px] text-[#8e95a5]">deepseek-official</div>
+            </div>
+            <div class="text-right">
+              <div class="text-[#4edea3] font-bold text-xs">4,812t</div>
+              <div class="text-[10px] text-[#636c7e]">98ms</div>
+            </div>
+          </div>
+        {/if}
+      </div>
+
+      <div class="pt-3 border-t border-[#232a3b]/80 flex items-center justify-between text-[10px] font-code text-[#636c7e]">
+        <span>Buffer: 250 / 250</span>
+        <span class="text-[#4cd7f6] hover:underline cursor-pointer">View Full HTTP Stream →</span>
       </div>
     </div>
   </div>

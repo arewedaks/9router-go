@@ -1,5 +1,18 @@
 <script lang="ts">
-  import { Check, Loader2, RefreshCw, Save, Shield, Zap } from 'lucide-svelte'
+  import {
+    Check,
+    Copy,
+    Database,
+    Download,
+    Key,
+    Loader2,
+    Lock,
+    RefreshCw,
+    Save,
+    Shield,
+    Upload,
+    Zap
+  } from 'lucide-svelte'
   import { api, type Settings } from '../api/client'
 
   let {
@@ -24,7 +37,7 @@
       isSaving = true
       await api.updateSettings(formData)
       onRefresh()
-      alert('Settings updated successfully!')
+      alert('System configuration and token savers updated successfully!')
     } catch (err) {
       alert(`Failed to save settings: ${err instanceof Error ? err.message : String(err)}`)
     } finally {
@@ -45,20 +58,20 @@
   }
 </script>
 
-<div class="p-4 sm:p-6 lg:p-8 max-w-4xl mx-auto space-y-6">
-  <!-- Header -->
-  <div class="flex items-center justify-between">
+<div class="space-y-6">
+  <!-- Header (Stitch Screenshot) -->
+  <div class="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
     <div class="space-y-1.5">
       <div class="flex items-center gap-2">
-        <span class="font-code text-[11px] uppercase tracking-wider text-primary-container px-2 py-0.5 rounded bg-primary-container/10 border border-primary-container/20 font-bold">
+        <span class="font-code text-[10px] uppercase tracking-wider text-[#ff5c35] px-2 py-0.5 rounded bg-[#ff5c35]/10 border border-[#ff5c35]/25 font-bold">
           System Control
         </span>
       </div>
-      <h1 class="font-headline text-2xl sm:text-3xl font-bold text-on-surface tracking-tight">
-        Gateway & Security Settings
+      <h1 class="font-headline text-2xl sm:text-3xl font-bold text-[#e1e2ea] tracking-tight">
+        Local Mode & Gateway Configuration
       </h1>
-      <p class="font-body text-xs sm:text-sm text-on-surface-variant leading-relaxed">
-        Configure gateway security, client authorization, token saving engines, and failover health caches.
+      <p class="font-body text-xs sm:text-sm text-[#8e95a5] max-w-2xl leading-relaxed">
+        Manage persistent SQLite state, master auth credentials, and load routing algorithms.
       </p>
     </div>
 
@@ -66,154 +79,181 @@
       type="button"
       onclick={handleSave}
       disabled={isSaving}
-      class="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary-container hover:brightness-110 text-on-primary font-body text-xs font-bold shadow-md shadow-primary-container/25 transition cursor-pointer"
+      class="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[#ff5c35] hover:brightness-110 text-white font-body text-xs font-bold shadow-md shadow-[#ff5c35]/25 transition cursor-pointer"
     >
       {#if isSaving}
         <Loader2 class="w-3.5 h-3.5 animate-spin" />
       {:else}
         <Save class="w-3.5 h-3.5" />
       {/if}
-      <span>Save Settings</span>
+      <span>Save System State</span>
     </button>
   </div>
 
-  <!-- Security Section -->
-  <div class="bg-surface-container-low border border-surface-container-high rounded-2xl p-6 shadow-xl space-y-4">
-    <h3 class="font-headline text-sm font-bold text-on-surface flex items-center gap-2">
-      <Shield class="w-4 h-4 text-primary-container" />
-      <span>Security & Access Control</span>
-    </h3>
+  <!-- 3 Main Configuration Cards (Stitch Design) -->
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+    <!-- Card 1: Local Machine Mode & Database -->
+    <div class="p-6 rounded-xl bg-[#131722] border border-[#232a3b] space-y-4 shadow-xl flex flex-col justify-between">
+      <div class="space-y-3">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <Database class="w-4 h-4 text-[#4edea3]" />
+            <h3 class="font-headline text-sm font-bold text-white">Local Machine Mode</h3>
+          </div>
+          <span class="font-code text-[10px] text-[#4edea3] bg-[#4edea3]/10 px-2 py-0.5 rounded border border-[#4edea3]/20">
+            Running on :20130
+          </span>
+        </div>
 
-    <div class="flex items-center justify-between p-4 rounded-xl bg-surface-container border border-surface-container-high">
-      <div>
-        <div class="font-body text-xs font-bold text-on-surface">Require Client API Key</div>
-        <div class="font-body text-[11px] text-on-surface-variant">
-          When enabled, incoming client requests must supply a valid Bearer token from the API Keys table
+        <div class="p-3 rounded-lg bg-[#0b0e13] border border-[#232a3b] space-y-1 font-code text-xs">
+          <div class="text-[10px] text-[#8e95a5] uppercase">Database File Location</div>
+          <div class="text-[#4cd7f6] font-semibold">~/.9router/db/data.sqlite</div>
+          <div class="text-[10px] text-[#636c7e] pt-1">18.4 MB • SQLite WAL Mode • SetMaxOpenConns(4)</div>
         </div>
       </div>
 
-      <label class="relative inline-flex items-center cursor-pointer">
-        <input
-          type="checkbox"
-          checked={!!formData.requireApiKey}
-          onchange={(e) => (formData.requireApiKey = e.currentTarget.checked)}
-          class="sr-only peer"
-        />
-        <div class="w-11 h-6 bg-surface-container-highest peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-container"></div>
-      </label>
+      <div class="flex items-center gap-2 pt-2">
+        <button
+          type="button"
+          class="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg bg-[#1c2230] hover:bg-[#272f42] text-[#e1e2ea] font-body text-xs font-semibold border border-[#2b354a] transition cursor-pointer"
+        >
+          <Download class="w-3.5 h-3.5 text-[#4cd7f6]" />
+          <span>Download Backup</span>
+        </button>
+
+        <button
+          type="button"
+          class="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg bg-[#1c2230] hover:bg-[#272f42] text-[#e1e2ea] font-body text-xs font-semibold border border-[#2b354a] transition cursor-pointer"
+        >
+          <Upload class="w-3.5 h-3.5 text-[#ff8469]" />
+          <span>Import Backup</span>
+        </button>
+      </div>
     </div>
-  </div>
 
-  <!-- Token Savers Section (From Stitch Design) -->
-  <div class="bg-surface-container-low border border-surface-container-high rounded-2xl p-6 shadow-xl space-y-4">
-    <h3 class="font-headline text-sm font-bold text-on-surface flex items-center gap-2">
-      <Zap class="w-4 h-4 text-tertiary" />
-      <span>Token Saver Engines</span>
-    </h3>
-
-    <div class="space-y-3">
-      <!-- RTK -->
-      <div class="flex items-center justify-between p-4 rounded-xl bg-surface-container border border-surface-container-high">
-        <div>
-          <div class="font-body text-xs font-bold text-on-surface flex items-center gap-2">
-            <span>RTK Token Filter</span>
-            <span class="font-code text-[9px] px-1.5 py-0.2 rounded bg-tertiary/10 text-tertiary border border-tertiary/20">
-              Recommended (60-80% savings)
-            </span>
-          </div>
-          <div class="font-body text-[11px] text-on-surface-variant">
-            Filters repetitive CLI, build, test, and git output without losing code context or model instruction quality
-          </div>
+    <!-- Card 2: Routing Strategy & Token Saver Engines -->
+    <div class="p-6 rounded-xl bg-[#131722] border border-[#232a3b] space-y-4 shadow-xl">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <Zap class="w-4 h-4 text-[#ff5c35]" />
+          <h3 class="font-headline text-sm font-bold text-white">Routing Strategy & Token Saver</h3>
         </div>
+        <span class="font-code text-[10px] text-[#4cd7f6] bg-[#4cd7f6]/10 px-2 py-0.5 rounded border border-[#4cd7f6]/20">
+          Active Engine
+        </span>
+      </div>
 
-        <label class="relative inline-flex items-center cursor-pointer">
+      <div class="space-y-3 font-body text-xs">
+        <!-- RTK -->
+        <div class="flex items-center justify-between p-3 rounded-lg bg-[#0b0e13] border border-[#232a3b]">
+          <div>
+            <div class="font-bold text-white flex items-center gap-1.5">
+              <span>RTK Compression</span>
+              <span class="text-[9px] px-1.5 py-0.2 rounded bg-[#4edea3]/15 text-[#4edea3] font-code">60-80% Savings</span>
+            </div>
+            <div class="text-[11px] text-[#8e95a5]">Filters repetitive CLI, build, and git output</div>
+          </div>
           <input
             type="checkbox"
             checked={!!formData.rtkEnabled}
             onchange={(e) => (formData.rtkEnabled = e.currentTarget.checked)}
-            class="sr-only peer"
+            class="w-4 h-4 accent-[#4edea3] cursor-pointer"
           />
-          <div class="w-11 h-6 bg-surface-container-highest peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-tertiary-container"></div>
-        </label>
-      </div>
-
-      <!-- Caveman -->
-      <div class="flex items-center justify-between p-4 rounded-xl bg-surface-container border border-surface-container-high">
-        <div>
-          <div class="font-body text-xs font-bold text-on-surface">Caveman Terse Mode</div>
-          <div class="font-body text-[11px] text-on-surface-variant">
-            Instructs model to reply in ultra-succinct, non-hedging language to conserve completion tokens
-          </div>
         </div>
 
-        <label class="relative inline-flex items-center cursor-pointer">
+        <!-- Caveman -->
+        <div class="flex items-center justify-between p-3 rounded-lg bg-[#0b0e13] border border-[#232a3b]">
+          <div>
+            <div class="font-bold text-white">Caveman Terse Output</div>
+            <div class="text-[11px] text-[#8e95a5]">Instructs model to reply in concise, zero-filler language</div>
+          </div>
           <input
             type="checkbox"
             checked={!!formData.cavemanEnabled}
             onchange={(e) => (formData.cavemanEnabled = e.currentTarget.checked)}
-            class="sr-only peer"
+            class="w-4 h-4 accent-[#ff5c35] cursor-pointer"
           />
-          <div class="w-11 h-6 bg-surface-container-highest peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-container"></div>
-        </label>
-      </div>
-
-      <!-- Ponytail -->
-      <div class="flex items-center justify-between p-4 rounded-xl bg-surface-container border border-surface-container-high">
-        <div>
-          <div class="font-body text-xs font-bold text-on-surface">Ponytail Code Style</div>
-          <div class="font-body text-[11px] text-on-surface-variant">
-            Enforces pragmatic, minimal boilerplate clean code conventions across coding turns
-          </div>
         </div>
 
-        <label class="relative inline-flex items-center cursor-pointer">
+        <!-- Ponytail -->
+        <div class="flex items-center justify-between p-3 rounded-lg bg-[#0b0e13] border border-[#232a3b]">
+          <div>
+            <div class="font-bold text-white">Ponytail Code Style</div>
+            <div class="text-[11px] text-[#8e95a5]">Enforces pragmatic, minimal boilerplate code style</div>
+          </div>
           <input
             type="checkbox"
             checked={!!formData.ponytailEnabled}
             onchange={(e) => (formData.ponytailEnabled = e.currentTarget.checked)}
-            class="sr-only peer"
+            class="w-4 h-4 accent-[#ff5c35] cursor-pointer"
           />
-          <div class="w-11 h-6 bg-surface-container-highest peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-container"></div>
-        </label>
+        </div>
       </div>
     </div>
   </div>
 
-  <!-- Failover Health Cache Reset -->
-  <div class="bg-surface-container-low border border-surface-container-high rounded-2xl p-6 shadow-xl space-y-4">
-    <h3 class="font-headline text-sm font-bold text-on-surface flex items-center gap-2">
-      <RefreshCw class="w-4 h-4 text-secondary" />
-      <span>Manual Health & Rate Limit Cache Reset</span>
-    </h3>
-    <p class="font-body text-xs text-on-surface-variant">
-      If an account encountered HTTP 429 and was temporarily locked in cooldown, you can manually clear its lockout state here.
-    </p>
+  <!-- Bottom Row: Security & Rate Limit Reset -->
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+    <!-- Security & Master Access -->
+    <div class="p-6 rounded-xl bg-[#131722] border border-[#232a3b] space-y-4 shadow-xl">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <Shield class="w-4 h-4 text-[#4cd7f6]" />
+          <h3 class="font-headline text-sm font-bold text-white">Security & Master Access</h3>
+        </div>
+        <div class="flex items-center gap-2 font-code text-xs">
+          <span class="text-[#8e95a5]">Require Login:</span>
+          <input
+            type="checkbox"
+            checked={!!formData.requireApiKey}
+            onchange={(e) => (formData.requireApiKey = e.currentTarget.checked)}
+            class="w-4 h-4 accent-[#ff5c35] cursor-pointer"
+          />
+        </div>
+      </div>
 
-    <div class="flex items-center gap-3">
-      <select
-        bind:value={resetProvider}
-        class="px-3 py-2 rounded-lg bg-surface-container border border-surface-container-high font-code text-xs text-on-surface focus:outline-none focus:border-primary-container"
-      >
-        <option value="antigravity">antigravity (Google AI)</option>
-        <option value="freebuff">freebuff (Codebuff)</option>
-        <option value="clinepass">clinepass (Cline Pass)</option>
-        <option value="deepseek">deepseek</option>
-        <option value="groq">groq</option>
-      </select>
+      <p class="font-body text-xs text-[#8e95a5]">
+        When enabled, client requests to <code class="font-code text-[#4cd7f6]">/v1/chat/completions</code> must provide a valid Bearer token from the CLI & Remote Access table.
+      </p>
+    </div>
 
-      <button
-        type="button"
-        onclick={handleResetHealth}
-        disabled={isResetting}
-        class="px-4 py-2 rounded-lg bg-surface-container-high hover:bg-surface-container-highest text-on-surface font-body text-xs font-bold flex items-center gap-2 transition cursor-pointer border border-surface-container-highest"
-      >
-        {#if isResetting}
-          <Loader2 class="w-3.5 h-3.5 animate-spin" />
-        {:else}
-          <Check class="w-3.5 h-3.5" />
-        {/if}
-        <span>Clear Rate Limit Lock</span>
-      </button>
+    <!-- Health & Rate Limit Cache Reset -->
+    <div class="p-6 rounded-xl bg-[#131722] border border-[#232a3b] space-y-4 shadow-xl">
+      <div class="flex items-center gap-2">
+        <RefreshCw class="w-4 h-4 text-[#ff8469]" />
+        <h3 class="font-headline text-sm font-bold text-white">Failover Health Cache Reset</h3>
+      </div>
+
+      <p class="font-body text-xs text-[#8e95a5]">
+        If an upstream credential hit HTTP 429 and was placed in cooldown, clear its lockout state manually:
+      </p>
+
+      <div class="flex items-center gap-2">
+        <select
+          bind:value={resetProvider}
+          class="flex-1 px-3 py-2 rounded-lg bg-[#0b0e13] border border-[#232a3b] font-code text-xs text-white focus:outline-none focus:border-[#ff5c35]"
+        >
+          <option value="antigravity">antigravity (Google AI)</option>
+          <option value="freebuff">freebuff (Codebuff)</option>
+          <option value="clinepass">clinepass</option>
+          <option value="deepseek">deepseek</option>
+          <option value="groq">groq</option>
+        </select>
+
+        <button
+          type="button"
+          onclick={handleResetHealth}
+          disabled={isResetting}
+          class="px-4 py-2 rounded-lg bg-[#1c2230] hover:bg-[#272f42] text-white font-body text-xs font-bold flex items-center gap-1.5 transition cursor-pointer border border-[#2b354a]"
+        >
+          {#if isResetting}
+            <Loader2 class="w-3.5 h-3.5 animate-spin text-[#4cd7f6]" />
+          {:else}
+            <Check class="w-3.5 h-3.5 text-[#4edea3]" />
+          {/if}
+          <span>Reset Cooldown</span>
+        </button>
+      </div>
     </div>
   </div>
 </div>

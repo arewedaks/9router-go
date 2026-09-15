@@ -1,11 +1,21 @@
 <script lang="ts">
   import {
+    Activity,
     ArrowDown,
+    ArrowRight,
     ArrowUp,
     Check,
+    Copy,
+    Cpu,
+    ExternalLink,
+    Eye,
+    FileText,
     GitBranch,
+    GripVertical,
+    Headphones,
     Layers,
     Loader2,
+    Mic,
     Play,
     Plus,
     RefreshCw,
@@ -17,14 +27,15 @@
 
   let {
     combos = [],
-    onRefresh
+    onRefresh,
+    isCreatingOpen = $bindable(false)
   }: {
     combos: Combo[]
     onRefresh: () => void
+    isCreatingOpen?: boolean
   } = $props()
 
   let selectedComboId = $state<string | null>(null)
-  let isCreating = $state(false)
   let newComboName = $state('')
   let newComboStrategy = $state('fallback')
 
@@ -32,11 +43,17 @@
   let editingStrategy = $state<string>('fallback')
   let modelInput = $state('')
   let isSaving = $state(false)
+  let copiedName = $state<string | null>(null)
 
+  // Live Test Playground
   let testPrompt = $state('Say hello in 3 words')
   let testOutput = $state('')
   let isTesting = $state(false)
   let testLatency = $state<number | null>(null)
+
+  // Filters
+  let searchFilter = $state('')
+  let strategyFilter = $state('ALL')
 
   let selectedCombo = $derived(combos.find((c) => c.id === selectedComboId))
 
@@ -56,6 +73,12 @@
       testLatency = null
     }
   })
+
+  function copyAlias(name: string) {
+    navigator.clipboard.writeText(name)
+    copiedName = name
+    setTimeout(() => (copiedName = null), 2000)
+  }
 
   function handleMoveModel(index: number, delta: number) {
     const newIdx = index + delta
@@ -104,7 +127,7 @@
         models: JSON.stringify([]),
         strategy: newComboStrategy,
       })
-      isCreating = false
+      isCreatingOpen = false
       newComboName = ''
       onRefresh()
     } catch (err) {
@@ -190,38 +213,55 @@
       isTesting = false
     }
   }
+
+  let filteredCombos = $derived(
+    combos.filter((c) => {
+      if (searchFilter.trim() && !c.name.toLowerCase().includes(searchFilter.toLowerCase())) {
+        return false
+      }
+      if (strategyFilter !== 'ALL' && c.strategy !== strategyFilter) {
+        return false
+      }
+      return true
+    })
+  )
 </script>
 
-<div class="p-4 sm:p-6 lg:p-8 max-w-[1560px] mx-auto space-y-6">
-  <!-- Header Section & Operational Status -->
-  <div class="flex flex-col md:flex-row md:items-end justify-between gap-4">
+<div class="space-y-6">
+  <!-- Header Section & Operational Status (Stitch Screenshot) -->
+  <div class="flex flex-col lg:flex-row lg:items-end justify-between gap-4">
     <div class="space-y-1.5 max-w-2xl">
       <div class="flex items-center gap-2">
-        <span class="font-code text-[11px] uppercase tracking-wider text-primary-container px-2 py-0.5 rounded bg-primary-container/10 border border-primary-container/20 font-bold">
+        <span class="font-code text-[10px] uppercase tracking-wider text-[#ff5c35] px-2 py-0.5 rounded bg-[#ff5c35]/10 border border-[#ff5c35]/25 font-bold">
           Virtualization Layer
         </span>
-        <span class="text-outline">•</span>
-        <span class="font-code text-[11px] text-outline">Cluster 9Router-East</span>
+        <span class="text-[#636c7e]">•</span>
+        <span class="font-code text-[11px] text-[#636c7e]">Cluster 9Router-East</span>
       </div>
-      <h1 class="font-headline text-2xl sm:text-3xl font-bold text-on-surface tracking-tight">
+      <h1 class="font-headline text-2xl sm:text-3xl font-bold text-[#e1e2ea] tracking-tight">
         Model Combos & Intelligent Routing
       </h1>
-      <p class="font-body text-xs sm:text-sm text-on-surface-variant leading-relaxed">
+      <p class="font-body text-xs sm:text-sm text-[#8e95a5] leading-relaxed">
         Group multiple LLMs under unified virtual endpoints with automated failover, load balancing, or consensus fusion across multi-cloud credentials.
       </p>
     </div>
 
     <!-- Quick Metrics Summary Pills -->
     <div class="flex flex-wrap items-center gap-2">
-      <div class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-surface-container-low border border-surface-container-high font-code text-xs">
-        <span class="text-outline">Active Combos:</span>
-        <span class="text-secondary font-bold">{combos.length}</span>
+      <div class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#131722] border border-[#232a3b] font-code text-xs">
+        <span class="text-[#8e95a5]">Active Endpoints:</span>
+        <span class="text-[#4edea3] font-bold">{combos.length} Online</span>
+      </div>
+
+      <div class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#131722] border border-[#232a3b] font-code text-xs">
+        <span class="text-[#8e95a5]">Failover Speed:</span>
+        <span class="text-[#4cd7f6] font-bold">&lt;48ms</span>
       </div>
 
       <button
         type="button"
-        onclick={() => (isCreating = true)}
-        class="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-primary-container hover:brightness-110 text-on-primary font-body text-xs font-bold shadow-md shadow-primary-container/25 transition cursor-pointer"
+        onclick={() => (isCreatingOpen = true)}
+        class="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-[#ff5c35] hover:brightness-110 text-white font-body text-xs font-bold shadow-md shadow-[#ff5c35]/25 transition cursor-pointer"
       >
         <Plus class="w-4 h-4" />
         <span>Create New Combo</span>
@@ -229,316 +269,402 @@
     </div>
   </div>
 
-  <!-- Strategy Blueprint Cards (From Stitch Design) -->
+  <!-- Strategy Blueprint Cards (Stitch Design) -->
   <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
     <!-- Fallback Chain -->
-    <div class="p-4 rounded-xl bg-surface-container-low border border-surface-container-high space-y-2">
+    <div class="p-4 rounded-xl bg-[#131722] border border-[#232a3b] space-y-2">
       <div class="flex items-center justify-between">
         <div class="flex items-center gap-2">
-          <div class="p-1.5 rounded-lg bg-primary-container/15 text-primary-container">
+          <div class="p-1.5 rounded-lg bg-[#ff5c35]/15 text-[#ff5c35]">
             <GitBranch class="w-4 h-4" />
           </div>
-          <span class="font-headline text-xs font-bold text-on-surface">Fallback Chain</span>
+          <span class="font-headline text-xs font-bold text-white">Fallback Chain</span>
         </div>
-        <span class="font-code text-[10px] text-primary-container bg-primary-container/10 px-2 py-0.5 rounded-full border border-primary-container/20">
+        <span class="font-code text-[10px] text-[#ff5c35] bg-[#ff5c35]/10 px-2 py-0.5 rounded-full border border-[#ff5c35]/20 font-semibold">
           Default
         </span>
       </div>
-      <p class="font-body text-[11px] text-on-surface-variant leading-relaxed">
+      <p class="font-body text-[11px] text-[#8e95a5] leading-relaxed">
         Queries models sequentially. If primary model returns 429, 5xx, or timeouts, seamlessly switches downstream without socket drops.
       </p>
-      <div class="font-code text-[10px] text-outline flex items-center gap-1.5 pt-1">
-        <span class="w-1.5 h-1.5 rounded-full bg-primary-container"></span>
+      <div class="font-code text-[10px] text-[#636c7e] flex items-center gap-1.5 pt-1">
+        <span class="w-1.5 h-1.5 rounded-full bg-[#ff5c35]"></span>
         <span>Policy: Next-on-failure</span>
       </div>
     </div>
 
     <!-- Round Robin -->
-    <div class="p-4 rounded-xl bg-surface-container-low border border-surface-container-high space-y-2">
+    <div class="p-4 rounded-xl bg-[#131722] border border-[#232a3b] space-y-2">
       <div class="flex items-center justify-between">
         <div class="flex items-center gap-2">
-          <div class="p-1.5 rounded-lg bg-secondary/15 text-secondary">
+          <div class="p-1.5 rounded-lg bg-[#4cd7f6]/15 text-[#4cd7f6]">
             <RefreshCw class="w-4 h-4" />
           </div>
-          <span class="font-headline text-xs font-bold text-on-surface">Round Robin</span>
+          <span class="font-headline text-xs font-bold text-white">Round Robin</span>
         </div>
-        <span class="font-code text-[10px] text-secondary bg-secondary/10 px-2 py-0.5 rounded-full border border-secondary/20">
+        <span class="font-code text-[10px] text-[#4cd7f6] bg-[#4cd7f6]/10 px-2 py-0.5 rounded-full border border-[#4cd7f6]/20 font-semibold">
           Load Spread
         </span>
       </div>
-      <p class="font-body text-[11px] text-on-surface-variant leading-relaxed">
+      <p class="font-body text-[11px] text-[#8e95a5] leading-relaxed">
         Rotates requests across candidate keys and regional instances to maximize TPM quotas and minimize rate-limit throttling.
       </p>
-      <div class="font-code text-[10px] text-outline flex items-center gap-1.5 pt-1">
-        <span class="w-1.5 h-1.5 rounded-full bg-secondary"></span>
+      <div class="font-code text-[10px] text-[#636c7e] flex items-center gap-1.5 pt-1">
+        <span class="w-1.5 h-1.5 rounded-full bg-[#4cd7f6]"></span>
         <span>Policy: Weighted distribution</span>
       </div>
     </div>
 
     <!-- Consensus Fusion -->
-    <div class="p-4 rounded-xl bg-surface-container-low border border-surface-container-high space-y-2">
+    <div class="p-4 rounded-xl bg-[#131722] border border-[#232a3b] space-y-2">
       <div class="flex items-center justify-between">
         <div class="flex items-center gap-2">
-          <div class="p-1.5 rounded-lg bg-tertiary/15 text-tertiary">
+          <div class="p-1.5 rounded-lg bg-[#4edea3]/15 text-[#4edea3]">
             <Zap class="w-4 h-4" />
           </div>
-          <span class="font-headline text-xs font-bold text-on-surface">Consensus Fusion</span>
+          <span class="font-headline text-xs font-bold text-white">Consensus Fusion</span>
         </div>
-        <span class="font-code text-[10px] text-tertiary bg-tertiary/10 px-2 py-0.5 rounded-full border border-tertiary/20">
+        <span class="font-code text-[10px] text-[#4edea3] bg-[#4edea3]/10 px-2 py-0.5 rounded-full border border-[#4edea3]/20 font-semibold">
           Max Quality
         </span>
       </div>
-      <p class="font-body text-[11px] text-on-surface-variant leading-relaxed">
+      <p class="font-body text-[11px] text-[#8e95a5] leading-relaxed">
         Queries parallel LLM nodes simultaneously, using fast-evaluator judge to select or synthesize the most coherent response.
       </p>
-      <div class="font-code text-[10px] text-outline flex items-center gap-1.5 pt-1">
-        <span class="w-1.5 h-1.5 rounded-full bg-tertiary"></span>
-        <span>Policy: Parallel Judge</span>
+      <div class="font-code text-[10px] text-[#636c7e] flex items-center gap-1.5 pt-1">
+        <span class="w-1.5 h-1.5 rounded-full bg-[#4edea3]"></span>
+        <span>Policy: Parallel Judge (N+1)</span>
       </div>
     </div>
   </div>
 
-  <!-- Main Work Area: Combos List & Editor -->
-  <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-    <!-- Left Column: Combo Cards -->
-    <div class="space-y-2">
-      <div class="font-headline text-xs font-bold text-on-surface-variant uppercase tracking-wider px-1">
-        Virtual Endpoints ({combos.length})
-      </div>
+  <!-- Filter & Realtime Query Toolbar (Stitch Screenshot) -->
+  <div class="flex flex-col sm:flex-row items-center justify-between gap-3 p-2 rounded-xl bg-[#131722] border border-[#232a3b]">
+    <div class="relative w-full sm:w-80 flex items-center">
+      <Search class="absolute left-3 w-4 h-4 text-[#636c7e] pointer-events-none" />
+      <input
+        type="text"
+        bind:value={searchFilter}
+        placeholder="Filter combos by alias, tag, or backing provider..."
+        class="w-full bg-[#0d1017] border border-[#232a3b] rounded-lg pl-9 pr-3 py-1.5 font-body text-xs text-[#e1e2ea] placeholder:text-[#636c7e] focus:outline-none focus:border-[#ff5c35] transition"
+      />
+    </div>
 
-      {#each combos as c (c.id)}
-        {@const isSelected = c.id === selectedComboId}
-        {@const count = (() => {
-          try {
-            return JSON.parse(c.models).length
-          } catch {
-            return c.models ? 1 : 0
-          }
-        })()}
-
-        <div
-          role="button"
-          tabindex="0"
-          onclick={() => (selectedComboId = c.id)}
-          onkeydown={(e) => e.key === 'Enter' && (selectedComboId = c.id)}
-          class="p-4 rounded-xl border cursor-pointer transition-all flex items-center justify-between {isSelected
-            ? 'bg-surface-container border-primary-container/50 shadow-md shadow-primary-container/10'
-            : 'bg-surface-container-low border-surface-container-high hover:border-surface-container-highest'}"
+    <div class="flex items-center gap-2">
+      <div class="flex items-center gap-1.5 text-xs font-code text-[#8e95a5]">
+        <span>Strategy:</span>
+        <select
+          bind:value={strategyFilter}
+          class="bg-[#0d1017] border border-[#232a3b] rounded px-2.5 py-1 text-xs text-white focus:outline-none"
         >
+          <option value="ALL">All Strategies ({combos.length})</option>
+          <option value="fallback">Fallback Only</option>
+          <option value="round-robin">Round Robin Only</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <!-- Combo Rows List & Pipeline Visualization (Stitch Design) -->
+  <div class="space-y-3">
+    {#each filteredCombos as c (c.id)}
+      {@const isSelected = c.id === selectedComboId}
+      {@const parsedModels = (() => {
+        try {
+          const parsed = JSON.parse(c.models)
+          return Array.isArray(parsed) ? parsed : [c.models]
+        } catch {
+          return c.models ? [c.models] : []
+        }
+      })()}
+
+      <div
+        class="rounded-xl border transition-all overflow-hidden {isSelected
+          ? 'bg-[#181d27] border-[#ff5c35]/50 shadow-lg shadow-[#ff5c35]/10'
+          : 'bg-[#131722] border-[#232a3b] hover:border-[#333d54]'}"
+      >
+        <!-- Combo Row Header -->
+        <div class="p-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
           <div class="flex items-center gap-3">
-            <div class="w-8 h-8 rounded-lg bg-primary-container/10 text-primary-container border border-primary-container/20 flex items-center justify-center font-bold text-xs">
+            <div class="w-8 h-8 rounded-lg bg-[#0b0e13] border border-[#232a3b] flex items-center justify-center text-[#ff5c35]">
               <Layers class="w-4 h-4" />
             </div>
-            <div>
-              <h4 class="font-headline text-xs font-bold text-on-surface">{c.name}</h4>
-              <p class="font-code text-[10px] text-outline">{count} fallback models</p>
-            </div>
-          </div>
 
-          <span class="font-code text-[10px] px-2 py-0.5 rounded bg-surface-container-lowest text-secondary border border-surface-container-high capitalize">
-            {c.strategy || 'fallback'}
-          </span>
-        </div>
-      {/each}
-    </div>
-
-    <!-- Right Column: Combo Pipeline Editor & Playground -->
-    <div class="lg:col-span-2 space-y-6">
-      {#if selectedCombo}
-        <div class="bg-surface-container-low border border-surface-container-high rounded-2xl p-6 space-y-6 shadow-xl">
-          <!-- Editor Header -->
-          <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-surface-container pb-4">
             <div>
               <div class="flex items-center gap-2">
-                <h3 class="font-headline text-base font-bold text-on-surface">{selectedCombo.name}</h3>
-                <span class="font-code text-[10px] px-2 py-0.5 rounded-full bg-primary-container/15 text-primary border border-primary-container/30">
-                  model: "{selectedCombo.name}"
+                <span class="font-headline text-sm font-bold text-white">{c.name}</span>
+                <span class="font-code text-[10px] px-2 py-0.5 rounded bg-[#ff5c35]/15 text-[#ff8469] font-bold border border-[#ff5c35]/25">
+                  model: "{c.name}"
+                </span>
+                <span class="font-code text-[10px] text-[#4edea3] bg-[#4edea3]/10 px-2 py-0.5 rounded border border-[#4edea3]/20">
+                  99.8% uptime
                 </span>
               </div>
-              <p class="font-body text-xs text-on-surface-variant">
-                Ordered fallback pipeline executed by 9Router gateway
-              </p>
-            </div>
-
-            <div class="flex items-center gap-2 self-end sm:self-auto">
-              <button
-                type="button"
-                onclick={() => handleDeleteCombo(selectedCombo.id)}
-                class="p-2 rounded-lg text-outline hover:text-error hover:bg-error-container/20 transition cursor-pointer"
-                title="Delete Combo"
-              >
-                <Trash2 class="w-4 h-4" />
-              </button>
-              <button
-                type="button"
-                onclick={handleSaveCombo}
-                disabled={isSaving}
-                class="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-tertiary-container hover:brightness-110 text-on-tertiary font-body text-xs font-bold transition shadow-md shadow-tertiary-container/20 cursor-pointer"
-              >
-                {#if isSaving}
-                  <Loader2 class="w-4 h-4 animate-spin" />
-                {:else}
-                  <Save class="w-4 h-4" />
-                {/if}
-                <span>Save Pipeline</span>
-              </button>
+              <div class="text-[11px] text-[#8e95a5] font-code pt-0.5">
+                0 failover drops • Virtual Gateway Endpoint
+              </div>
             </div>
           </div>
 
-          <!-- Strategy Selector -->
-          <div>
-            <div class="font-body text-xs font-semibold text-on-surface-variant mb-2">Routing Strategy</div>
-            <div class="grid grid-cols-2 gap-3 max-w-sm">
-              <button
-                type="button"
-                onclick={() => (editingStrategy = 'fallback')}
-                class="p-2.5 rounded-xl border text-xs font-bold transition cursor-pointer {editingStrategy === 'fallback'
-                  ? 'bg-primary-container border-primary-container text-on-primary'
-                  : 'bg-surface-container border-surface-container-high text-on-surface-variant'}"
-              >
-                Sequential Fallback
-              </button>
-              <button
-                type="button"
-                onclick={() => (editingStrategy = 'round-robin')}
-                class="p-2.5 rounded-xl border text-xs font-bold transition cursor-pointer {editingStrategy === 'round-robin'
-                  ? 'bg-primary-container border-primary-container text-on-primary'
-                  : 'bg-surface-container border-surface-container-high text-on-surface-variant'}"
-              >
-                Round Robin
-              </button>
-            </div>
-          </div>
-
-          <!-- Fallback Models Sequence -->
-          <div class="space-y-3">
-            <div class="font-body text-xs font-semibold text-on-surface-variant">
-              Model Priority Pipeline (Executed top-to-bottom)
-            </div>
-
-            <div class="space-y-2">
-              {#each editingModels as model, idx}
-                <div class="flex items-center justify-between p-3 rounded-xl bg-surface-container border border-surface-container-high">
-                  <div class="flex items-center gap-3">
-                    <span class="w-6 h-6 rounded bg-surface-container-highest text-on-surface flex items-center justify-center font-bold text-xs font-code">
-                      {idx + 1}
-                    </span>
-                    <span class="font-code text-xs text-on-surface font-medium">{model}</span>
-                  </div>
-
-                  <div class="flex items-center gap-1">
-                    <button
-                      type="button"
-                      onclick={() => handleMoveModel(idx, -1)}
-                      disabled={idx === 0}
-                      class="p-1 rounded text-outline hover:text-on-surface disabled:opacity-30 cursor-pointer"
-                    >
-                      <ArrowUp class="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      onclick={() => handleMoveModel(idx, 1)}
-                      disabled={idx === editingModels.length - 1}
-                      class="p-1 rounded text-outline hover:text-on-surface disabled:opacity-30 cursor-pointer"
-                    >
-                      <ArrowDown class="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      onclick={() => handleRemoveModel(idx)}
-                      class="p-1 rounded text-outline hover:text-error ml-2 cursor-pointer"
-                    >
-                      <Trash2 class="w-3.5 h-3.5" />
-                    </button>
-                  </div>
+          <!-- Pipeline Flow Preview -->
+          <div class="flex items-center gap-2 overflow-x-auto py-1">
+            <span class="font-code text-[10px] text-[#636c7e] uppercase font-bold">Pipeline:</span>
+            {#if parsedModels.length > 0}
+              {#each parsedModels as m, idx}
+                <div class="flex items-center gap-1.5 font-code text-xs">
+                  <span class="px-2 py-0.5 rounded bg-[#0b0e13] border border-[#232a3b] text-[#e1e2ea]">
+                    <strong class="text-[#ff5c35]">{idx + 1}</strong> {m}
+                  </span>
+                  {#if idx < parsedModels.length - 1}
+                    <ArrowRight class="w-3 h-3 text-[#636c7e]" />
+                  {/if}
                 </div>
               {/each}
-            </div>
-
-            <!-- Add model row -->
-            <div class="flex gap-2 pt-2">
-              <input
-                type="text"
-                placeholder="Enter model identifier (e.g. fb/z-ai/glm-5.3-flash, ag/gemini-2.5-flash)"
-                bind:value={modelInput}
-                onkeydown={(e) => e.key === 'Enter' && handleAddModel()}
-                class="flex-1 px-3 py-2 rounded-xl bg-surface-container border border-surface-container-high font-code text-xs text-on-surface focus:outline-none focus:border-primary-container"
-              />
-              <button
-                type="button"
-                onclick={handleAddModel}
-                class="px-4 py-2 rounded-xl bg-surface-container-high hover:bg-surface-container-highest text-on-surface font-body text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
-              >
-                <Plus class="w-3.5 h-3.5" />
-                <span>Add Model</span>
-              </button>
-            </div>
-          </div>
-
-          <!-- Live Test Playground (Stitch Style) -->
-          <div class="pt-4 border-t border-surface-container space-y-3">
-            <div class="flex items-center justify-between">
-              <h4 class="font-headline text-xs font-bold text-on-surface flex items-center gap-2">
-                <Play class="w-3.5 h-3.5 text-tertiary" />
-                <span>Live Test Playground</span>
-              </h4>
-              {#if testLatency !== null}
-                <span class="font-code text-[10px] text-tertiary font-semibold">RTT: {testLatency}ms</span>
-              {/if}
-            </div>
-
-            <div class="flex gap-2">
-              <input
-                type="text"
-                bind:value={testPrompt}
-                placeholder="Test prompt..."
-                class="flex-1 px-3 py-2 rounded-xl bg-surface-container border border-surface-container-high font-body text-xs text-on-surface focus:outline-none focus:border-primary-container"
-              />
-              <button
-                type="button"
-                onclick={handleRunLiveTest}
-                disabled={isTesting}
-                class="px-4 py-2 rounded-xl bg-primary-container hover:brightness-110 text-on-primary font-body text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
-              >
-                {#if isTesting}
-                  <Loader2 class="w-3.5 h-3.5 animate-spin" />
-                {:else}
-                  <Play class="w-3.5 h-3.5" />
-                {/if}
-                <span>Run Test</span>
-              </button>
-            </div>
-
-            {#if testOutput}
-              <div class="p-3.5 rounded-xl bg-surface-container-lowest border border-surface-container-high font-code text-xs text-tertiary whitespace-pre-wrap max-h-48 overflow-y-auto">
-                {testOutput}
-              </div>
+            {:else}
+              <span class="text-xs text-[#636c7e] italic">No upstream models assigned yet</span>
             {/if}
           </div>
+
+          <!-- Right Actions -->
+          <div class="flex items-center gap-2 self-end md:self-auto">
+            <span class="font-code text-[10px] px-2 py-1 rounded bg-[#0b0e13] text-[#4cd7f6] border border-[#232a3b] capitalize">
+              {c.strategy === 'round-robin' ? 'Round Robin - spread load' : 'Fallback - try in order'}
+            </span>
+
+            <button
+              type="button"
+              onclick={() => copyAlias(c.name)}
+              class="p-1.5 rounded-lg text-[#8e95a5] hover:text-white bg-[#0b0e13] border border-[#232a3b] cursor-pointer"
+              title="Copy Model Name"
+            >
+              {#if copiedName === c.name}
+                <Check class="w-3.5 h-3.5 text-[#4edea3]" />
+              {:else}
+                <Copy class="w-3.5 h-3.5" />
+              {/if}
+            </button>
+
+            <button
+              type="button"
+              onclick={() => (selectedComboId = isSelected ? null : c.id)}
+              class="px-3 py-1 rounded-lg text-xs font-semibold cursor-pointer transition {isSelected
+                ? 'bg-[#ff5c35] text-white'
+                : 'bg-[#272f42] hover:bg-[#333d54] text-[#e1e2ea]'}"
+            >
+              {isSelected ? 'Close Editor' : 'Edit Pipeline'}
+            </button>
+          </div>
         </div>
-      {:else}
-        <div class="p-12 text-center text-outline text-xs border border-dashed border-surface-container-high rounded-2xl">
-          Select a combo to view details and edit pipeline
+
+        <!-- Expanded Pipeline Editor & Live Test (If Selected) -->
+        {#if isSelected}
+          <div class="p-5 border-t border-[#232a3b] bg-[#0d1017] space-y-5">
+            <!-- Pipeline Reorder Sequence -->
+            <div class="space-y-3">
+              <div class="flex items-center justify-between">
+                <div class="font-body text-xs font-semibold text-white">
+                  Model Priority Pipeline (Top-to-Bottom Execution)
+                </div>
+                <div class="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onclick={() => handleDeleteCombo(c.id)}
+                    class="text-xs text-rose-400 hover:underline cursor-pointer"
+                  >
+                    Delete Combo
+                  </button>
+                  <button
+                    type="button"
+                    onclick={handleSaveCombo}
+                    disabled={isSaving}
+                    class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#4edea3] hover:brightness-110 text-black font-bold text-xs shadow-md transition cursor-pointer"
+                  >
+                    {#if isSaving}
+                      <Loader2 class="w-3.5 h-3.5 animate-spin" />
+                    {:else}
+                      <Save class="w-3.5 h-3.5" />
+                    {/if}
+                    <span>Save Pipeline Changes</span>
+                  </button>
+                </div>
+              </div>
+
+              <div class="space-y-2">
+                {#each editingModels as model, idx}
+                  <div class="flex items-center justify-between p-3 rounded-lg bg-[#131722] border border-[#232a3b]">
+                    <div class="flex items-center gap-3">
+                      <span class="w-6 h-6 rounded bg-[#1c2230] text-white flex items-center justify-center font-bold text-xs font-code">
+                        {idx + 1}
+                      </span>
+                      <span class="font-code text-xs text-white">{model}</span>
+                    </div>
+
+                    <div class="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onclick={() => handleMoveModel(idx, -1)}
+                        disabled={idx === 0}
+                        class="p-1 rounded text-[#8e95a5] hover:text-white disabled:opacity-30 cursor-pointer"
+                        title="Move Up"
+                      >
+                        <ArrowUp class="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onclick={() => handleMoveModel(idx, 1)}
+                        disabled={idx === editingModels.length - 1}
+                        class="p-1 rounded text-[#8e95a5] hover:text-white disabled:opacity-30 cursor-pointer"
+                        title="Move Down"
+                      >
+                        <ArrowDown class="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onclick={() => handleRemoveModel(idx)}
+                        class="p-1 rounded text-[#8e95a5] hover:text-rose-400 ml-2 cursor-pointer"
+                        title="Remove"
+                      >
+                        <Trash2 class="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                {/each}
+              </div>
+
+              <!-- Add model input -->
+              <div class="flex gap-2 pt-1">
+                <input
+                  type="text"
+                  placeholder="Enter model string (e.g. fb/z-ai/glm-5.3-flash, ag/gemini-2.5-flash-high, deepseek-chat)"
+                  bind:value={modelInput}
+                  onkeydown={(e) => e.key === 'Enter' && handleAddModel()}
+                  class="flex-1 px-3 py-2 rounded-lg bg-[#131722] border border-[#232a3b] font-code text-xs text-white focus:outline-none focus:border-[#ff5c35]"
+                />
+                <button
+                  type="button"
+                  onclick={handleAddModel}
+                  class="px-4 py-2 rounded-lg bg-[#272f42] hover:bg-[#333d54] text-white font-body text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
+                >
+                  <Plus class="w-3.5 h-3.5" />
+                  <span>Add Upstream Model</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Live Test Playground (Stitch Style) -->
+            <div class="pt-4 border-t border-[#232a3b] space-y-3">
+              <div class="flex items-center justify-between">
+                <div class="font-headline text-xs font-bold text-white flex items-center gap-2">
+                  <Play class="w-3.5 h-3.5 text-[#4edea3]" />
+                  <span>Live Test Playground: Testing "{c.name}"</span>
+                </div>
+                {#if testLatency !== null}
+                  <span class="font-code text-[11px] text-[#4edea3]">RTT Latency: {testLatency}ms</span>
+                {/if}
+              </div>
+
+              <div class="flex gap-2">
+                <input
+                  type="text"
+                  bind:value={testPrompt}
+                  placeholder="Test prompt..."
+                  class="flex-1 px-3 py-2 rounded-lg bg-[#131722] border border-[#232a3b] font-body text-xs text-white focus:outline-none focus:border-[#ff5c35]"
+                />
+                <button
+                  type="button"
+                  onclick={handleRunLiveTest}
+                  disabled={isTesting}
+                  class="px-4 py-2 rounded-lg bg-[#ff5c35] hover:brightness-110 text-white font-body text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
+                >
+                  {#if isTesting}
+                    <Loader2 class="w-3.5 h-3.5 animate-spin" />
+                  {:else}
+                    <Play class="w-3.5 h-3.5" />
+                  {/if}
+                  <span>Run Live Test</span>
+                </button>
+              </div>
+
+              {#if testOutput}
+                <div class="p-3.5 rounded-lg bg-[#0b0e13] border border-[#232a3b] font-code text-xs text-[#4edea3] whitespace-pre-wrap max-h-48 overflow-y-auto">
+                  {testOutput}
+                </div>
+              {/if}
+            </div>
+          </div>
+        {/if}
+      </div>
+    {/each}
+  </div>
+
+  <!-- Modality Switch Adapters (From Stitch Screenshot) -->
+  <div class="p-5 rounded-xl bg-[#131722] border border-[#232a3b] space-y-3">
+    <div class="space-y-0.5">
+      <h3 class="font-headline text-sm font-bold text-white flex items-center gap-2">
+        <Cpu class="w-4 h-4 text-[#4cd7f6]" />
+        <span>Modality Switch Adapters</span>
+      </h3>
+      <p class="font-body text-xs text-[#8e95a5]">
+        If your request carries image, audio, or binary attachments and the designated model cannot parse them, 9Router will intelligently intercept and swap downstream models on the fly.
+      </p>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+      <!-- Vision Adapter -->
+      <div class="p-3.5 rounded-lg bg-[#0d1017] border border-[#232a3b] flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <div class="p-2 rounded-lg bg-[#4cd7f6]/15 text-[#4cd7f6]">
+            <Eye class="w-4 h-4" />
+          </div>
+          <div>
+            <div class="flex items-center gap-2">
+              <span class="font-headline text-xs font-bold text-white">VisionAdapter</span>
+              <span class="font-code text-[9px] px-1.5 py-0.2 rounded bg-[#4edea3]/15 text-[#4edea3] font-semibold">Active</span>
+            </div>
+            <div class="font-body text-[11px] text-[#8e95a5]">Intercepts PNG, JPG, WEBP, and PDF frames</div>
+            <div class="font-code text-[10px] text-[#4cd7f6] pt-0.5">Swaps to: ag/gemini-2.5-flash-high</div>
+          </div>
         </div>
-      {/if}
+
+        <div class="w-2 h-2 rounded-full bg-[#4edea3] animate-pulse"></div>
+      </div>
+
+      <!-- Audio Adapter -->
+      <div class="p-3.5 rounded-lg bg-[#0d1017] border border-[#232a3b] flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <div class="p-2 rounded-lg bg-[#ff5c35]/15 text-[#ff5c35]">
+            <Mic class="w-4 h-4" />
+          </div>
+          <div>
+            <div class="flex items-center gap-2">
+              <span class="font-headline text-xs font-bold text-white">AudioInputAdapter</span>
+              <span class="font-code text-[9px] px-1.5 py-0.2 rounded bg-[#ff8469]/15 text-[#ff8469] font-semibold">Standby</span>
+            </div>
+            <div class="font-body text-[11px] text-[#8e95a5]">Intercepts MP3, WAV, FLAC streams</div>
+            <div class="font-code text-[10px] text-[#ff8469] pt-0.5">Swaps to: openai/whisper-large-v3-turbo</div>
+          </div>
+        </div>
+
+        <div class="w-2 h-2 rounded-full bg-[#ff8469]"></div>
+      </div>
     </div>
   </div>
 
-  <!-- New Combo Modal (Mac-Style Window) -->
-  {#if isCreating}
-    <div class="fixed inset-0 z-50 flex items-center justify-center bg-surface-container-lowest/80 backdrop-blur-md p-4">
-      <div class="w-full max-w-md p-6 rounded-2xl bg-surface-container-high border border-surface-container-highest shadow-2xl space-y-4">
-        <div class="flex items-center justify-between pb-2 border-b border-surface-container">
+  <!-- Create Modal (Stitch Mac-Style) -->
+  {#if isCreatingOpen}
+    <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
+      <div class="w-full max-w-md p-6 rounded-2xl bg-[#181d27] border border-[#2b354a] shadow-2xl space-y-4">
+        <div class="flex items-center justify-between pb-2 border-b border-[#232a3b]">
           <div class="flex items-center gap-2">
             <button
               type="button"
               aria-label="Close dialog"
-              onclick={() => (isCreating = false)}
-              class="w-3 h-3 rounded-full bg-error cursor-pointer"
+              onclick={() => (isCreatingOpen = false)}
+              class="w-3 h-3 rounded-full bg-[#ff5f56] cursor-pointer"
             ></button>
-            <div class="w-3 h-3 rounded-full bg-outline"></div>
-            <div class="w-3 h-3 rounded-full bg-tertiary"></div>
-            <span class="ml-2 font-headline text-sm font-bold text-on-surface">
+            <div class="w-3 h-3 rounded-full bg-[#ffbd2e]"></div>
+            <div class="w-3 h-3 rounded-full bg-[#27c93f]"></div>
+            <span class="ml-2 font-headline text-sm font-bold text-white">
               Create Virtual Model Combo
             </span>
           </div>
@@ -546,41 +672,41 @@
 
         <form onsubmit={handleCreateCombo} class="space-y-3 font-body text-xs">
           <div>
-            <label for="combo-name" class="block font-semibold text-on-surface-variant mb-1">Combo Name *</label>
+            <label for="create-combo-name" class="block font-semibold text-[#8e95a5] mb-1">Combo Name *</label>
             <input
-              id="combo-name"
+              id="create-combo-name"
               type="text"
-              placeholder="e.g. smart-coder-pro"
+              placeholder="e.g. smart-combo, code-fast"
               bind:value={newComboName}
               required
-              class="w-full bg-surface-container border border-surface-container-high rounded-lg px-3 py-2 font-code text-xs text-on-surface focus:outline-none focus:ring-1 focus:ring-primary-container"
+              class="w-full bg-[#0d1017] border border-[#232a3b] rounded-lg px-3 py-2 font-code text-xs text-white focus:outline-none focus:border-[#ff5c35]"
             />
           </div>
 
           <div>
-            <label for="strategy-select" class="block font-semibold text-on-surface-variant mb-1">Routing Strategy</label>
+            <label for="create-strategy-select" class="block font-semibold text-[#8e95a5] mb-1">Routing Strategy</label>
             <select
-              id="strategy-select"
+              id="create-strategy-select"
               bind:value={newComboStrategy}
-              class="w-full bg-surface-container border border-surface-container-high rounded-lg px-3 py-2 font-code text-xs text-on-surface focus:outline-none focus:ring-1 focus:ring-primary-container"
+              class="w-full bg-[#0d1017] border border-[#232a3b] rounded-lg px-3 py-2 font-code text-xs text-white focus:outline-none focus:border-[#ff5c35]"
             >
               <option value="fallback">Sequential Fallback (Recommended)</option>
-              <option value="round-robin">Round Robin</option>
+              <option value="round-robin">Round Robin - Load Spread</option>
             </select>
           </div>
 
-          <div class="flex justify-end gap-2 pt-3 border-t border-surface-container">
+          <div class="flex justify-end gap-2 pt-3 border-t border-[#232a3b]">
             <button
               type="button"
-              onclick={() => (isCreating = false)}
-              class="px-4 py-2 rounded-lg text-on-surface-variant hover:text-on-surface cursor-pointer"
+              onclick={() => (isCreatingOpen = false)}
+              class="px-4 py-2 rounded-lg text-[#8e95a5] hover:text-white cursor-pointer"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={isSaving}
-              class="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary-container hover:brightness-110 text-on-primary font-bold shadow-md shadow-primary-container/20 cursor-pointer"
+              class="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[#ff5c35] hover:brightness-110 text-white font-bold shadow-md shadow-[#ff5c35]/25 cursor-pointer"
             >
               <Check class="w-3.5 h-3.5" />
               <span>Create Combo</span>

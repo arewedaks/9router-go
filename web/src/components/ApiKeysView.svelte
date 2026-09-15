@@ -7,6 +7,7 @@
     Plus,
     Power,
     Shield,
+    Terminal,
     Trash2
   } from 'lucide-svelte'
   import { api, type APIKey } from '../api/client'
@@ -64,26 +65,26 @@
     }
   }
 
-  let primaryKey = $derived(apiKeys[0]?.key || 'sk-your-token-here')
+  let primaryKey = $derived(apiKeys[0]?.key || 'sk-9router-local-token')
 </script>
 
-<div class="p-4 sm:p-6 lg:p-8 max-w-[1560px] mx-auto space-y-6">
+<div class="space-y-6">
   <!-- Header -->
-  <div class="flex flex-col md:flex-row md:items-end justify-between gap-4">
+  <div class="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
     <div class="space-y-1.5">
       <div class="flex items-center gap-2">
-        <span class="font-code text-[11px] uppercase tracking-wider text-primary-container px-2 py-0.5 rounded bg-primary-container/10 border border-primary-container/20 font-bold">
-          Client Authentication
+        <span class="font-code text-[10px] uppercase tracking-wider text-[#ff5c35] px-2 py-0.5 rounded bg-[#ff5c35]/10 border border-[#ff5c35]/25 font-bold">
+          Client Gateway Access
         </span>
-        <span class="text-outline">•</span>
-        <span class="font-code text-[11px] text-tertiary">
-          {apiKeys.filter((k) => k.isActive === 1).length} Active Keys
+        <span class="text-[#636c7e]">•</span>
+        <span class="font-code text-[11px] text-[#4edea3]">
+          {apiKeys.filter((k) => k.isActive === 1).length} Active Tokens
         </span>
       </div>
-      <h1 class="font-headline text-2xl sm:text-3xl font-bold text-on-surface tracking-tight">
-        Client API Keys & Access Tokens
+      <h1 class="font-headline text-2xl sm:text-3xl font-bold text-[#e1e2ea] tracking-tight">
+        CLI & Remote Access
       </h1>
-      <p class="font-body text-xs sm:text-sm text-on-surface-variant max-w-2xl leading-relaxed">
+      <p class="font-body text-xs sm:text-sm text-[#8e95a5] max-w-2xl leading-relaxed">
         Issue and manage Bearer tokens for connecting clients (Cursor IDE, Claude Code CLI, omp, Cline) to the local gateway on port 20130.
       </p>
     </div>
@@ -91,44 +92,52 @@
     <button
       type="button"
       onclick={() => (isCreateOpen = true)}
-      class="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-primary-container hover:brightness-110 text-on-primary font-body text-xs font-bold shadow-md shadow-primary-container/25 transition cursor-pointer"
+      class="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-[#ff5c35] hover:brightness-110 text-white font-body text-xs font-bold shadow-md shadow-[#ff5c35]/25 transition cursor-pointer"
     >
       <Plus class="w-4 h-4" />
-      <span>Generate API Key</span>
+      <span>Generate Client Key</span>
     </button>
   </div>
 
-  <!-- Keys Table Card (Stitch Theme) -->
-  <div class="bg-surface-container-low border border-surface-container-high rounded-2xl p-5 shadow-xl space-y-4">
+  <!-- Keys Table Card -->
+  <div class="bg-[#131722] border border-[#232a3b] rounded-xl overflow-hidden shadow-xl">
+    <div class="p-4 border-b border-[#232a3b] flex items-center justify-between">
+      <h3 class="font-headline text-sm font-bold text-white flex items-center gap-2">
+        <Key class="w-4 h-4 text-[#ff5c35]" />
+        <span>Active Access Tokens</span>
+      </h3>
+      <span class="font-code text-[11px] text-[#636c7e]">{apiKeys.length} Keys Enrolled</span>
+    </div>
+
     <div class="overflow-x-auto">
       <table class="w-full text-left font-body text-xs">
         <thead>
-          <tr class="border-b border-surface-container text-outline font-semibold uppercase text-[10px] tracking-wider">
-            <th class="py-3 px-4">Label</th>
-            <th class="py-3 px-4">Bearer Token</th>
-            <th class="py-3 px-4">Status</th>
-            <th class="py-3 px-4">Created</th>
-            <th class="py-3 px-4 text-right">Actions</th>
+          <tr class="border-b border-[#232a3b] text-[#636c7e] font-code uppercase text-[10px] tracking-wider bg-[#0d1017]">
+            <th class="py-2.5 px-4">Label Identity</th>
+            <th class="py-2.5 px-4">Bearer Token</th>
+            <th class="py-2.5 px-4">Status</th>
+            <th class="py-2.5 px-4">Created Date</th>
+            <th class="py-2.5 px-4 text-right">Actions</th>
           </tr>
         </thead>
-        <tbody class="divide-y divide-surface-container/60 font-code">
+        <tbody class="divide-y divide-[#232a3b]/50 font-code">
           {#each apiKeys as k (k.id)}
             {@const isActive = k.isActive === 1}
-            <tr class="hover:bg-surface-container/30 transition">
-              <td class="py-3 px-4 font-body font-bold text-on-surface">{k.name || 'Client Key'}</td>
-              <td class="py-3 px-4 text-on-surface-variant">
+            <tr class="hover:bg-[#181d27]/40 transition">
+              <td class="py-3 px-4 font-body font-bold text-white">{k.name || 'Client Token'}</td>
+              <td class="py-3 px-4 text-[#8e95a5]">
                 <div class="flex items-center gap-2">
-                  <span class="bg-surface-container px-2.5 py-1 rounded-md border border-surface-container-high text-[11px] text-secondary">
+                  <span class="bg-[#0b0e13] px-2.5 py-1 rounded border border-[#232a3b] text-[11px] text-[#4cd7f6]">
                     {k.key}
                   </span>
                   <button
                     type="button"
                     onclick={() => handleCopy(k.key, k.id)}
-                    class="p-1 rounded text-outline hover:text-on-surface cursor-pointer"
+                    class="p-1 rounded text-[#636c7e] hover:text-white cursor-pointer"
                     title="Copy Key"
                   >
                     {#if copiedKey === k.id}
-                      <Check class="w-3.5 h-3.5 text-tertiary" />
+                      <Check class="w-3.5 h-3.5 text-[#4edea3]" />
                     {:else}
                       <Copy class="w-3.5 h-3.5" />
                     {/if}
@@ -138,23 +147,23 @@
               <td class="py-3 px-4">
                 <span
                   class="px-2 py-0.5 rounded text-[10px] font-bold {isActive
-                    ? 'bg-tertiary/10 text-tertiary border border-tertiary/20'
-                    : 'bg-surface-container text-outline'}"
+                    ? 'bg-[#4edea3]/10 text-[#4edea3] border border-[#4edea3]/20'
+                    : 'bg-[#1c2230] text-[#636c7e]'}"
                 >
                   {isActive ? 'ACTIVE' : 'REVOKED'}
                 </span>
               </td>
-              <td class="py-3 px-4 text-outline font-body text-[11px]">
+              <td class="py-3 px-4 text-[#636c7e] font-body text-[11px]">
                 {k.createdAt ? new Date(k.createdAt).toLocaleDateString() : '—'}
               </td>
               <td class="py-3 px-4 text-right">
-                <div class="flex items-center justify-end gap-1">
+                <div class="flex items-center justify-end gap-1.5">
                   <button
                     type="button"
                     onclick={() => handleToggle(k)}
                     class="p-1.5 rounded-lg border transition cursor-pointer {isActive
-                      ? 'bg-tertiary/10 border-tertiary/20 text-tertiary'
-                      : 'bg-surface-container border-surface-container-high text-outline'}"
+                      ? 'bg-[#4edea3]/10 border-[#4edea3]/20 text-[#4edea3]'
+                      : 'bg-[#1c2230] border-[#232a3b] text-[#636c7e]'}"
                     title={isActive ? 'Deactivate' : 'Activate'}
                   >
                     <Power class="w-3.5 h-3.5" />
@@ -162,7 +171,7 @@
                   <button
                     type="button"
                     onclick={() => handleDelete(k.id)}
-                    class="p-1.5 rounded-lg text-outline hover:text-error hover:bg-error-container/20 transition cursor-pointer"
+                    class="p-1.5 rounded-lg text-[#636c7e] hover:text-rose-400 transition cursor-pointer"
                     title="Delete"
                   >
                     <Trash2 class="w-3.5 h-3.5" />
@@ -176,39 +185,39 @@
     </div>
   </div>
 
-  <!-- Quick Client Configuration Snippets -->
-  <div class="space-y-3 pt-2">
-    <h3 class="font-headline text-sm font-bold text-on-surface flex items-center gap-2">
-      <Key class="w-4 h-4 text-primary-container" />
+  <!-- Quick Client Snippets -->
+  <div class="space-y-3">
+    <h3 class="font-headline text-sm font-bold text-white flex items-center gap-2">
+      <Terminal class="w-4 h-4 text-[#4cd7f6]" />
       <span>Quick Client Integration Snippets</span>
     </h3>
 
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
       <!-- Cursor -->
-      <div class="p-4 rounded-xl bg-surface-container-low border border-surface-container-high space-y-2">
+      <div class="p-4 rounded-xl bg-[#131722] border border-[#232a3b] space-y-2">
         <div class="flex items-center justify-between">
-          <span class="font-headline text-xs font-bold text-on-surface">Cursor IDE</span>
-          <span class="font-code text-[10px] text-outline">Settings &gt; Models &gt; OpenAI API Key</span>
+          <span class="font-headline text-xs font-bold text-white">Cursor IDE</span>
+          <span class="font-code text-[10px] text-[#636c7e]">Settings &gt; Models &gt; OpenAI API Key</span>
         </div>
-        <div class="p-3 rounded-lg bg-surface-container border border-surface-container-high font-code text-[11px] text-on-surface space-y-1 select-all">
+        <div class="p-3 rounded-lg bg-[#0b0e13] border border-[#232a3b] font-code text-[11px] text-[#e1e2ea] space-y-1 select-all">
           <div>
-            <span class="text-outline">Base URL: </span>
-            <span class="text-secondary">http://localhost:20130/v1</span>
+            <span class="text-[#636c7e]">Base URL: </span>
+            <span class="text-[#4cd7f6]">http://localhost:20130/v1</span>
           </div>
           <div>
-            <span class="text-outline">API Key: </span>
-            <span class="text-primary truncate">{primaryKey}</span>
+            <span class="text-[#636c7e]">API Key: </span>
+            <span class="text-[#ff8469] truncate">{primaryKey}</span>
           </div>
         </div>
       </div>
 
       <!-- Claude Code -->
-      <div class="p-4 rounded-xl bg-surface-container-low border border-surface-container-high space-y-2">
+      <div class="p-4 rounded-xl bg-[#131722] border border-[#232a3b] space-y-2">
         <div class="flex items-center justify-between">
-          <span class="font-headline text-xs font-bold text-on-surface">Claude Code CLI</span>
-          <span class="font-code text-[10px] text-outline">Terminal Environment</span>
+          <span class="font-headline text-xs font-bold text-white">Claude Code CLI</span>
+          <span class="font-code text-[10px] text-[#636c7e]">Terminal Environment</span>
         </div>
-        <div class="p-3 rounded-lg bg-surface-container border border-surface-container-high font-code text-[11px] text-on-surface space-y-1 select-all">
+        <div class="p-3 rounded-lg bg-[#0b0e13] border border-[#232a3b] font-code text-[11px] text-[#e1e2ea] space-y-1 select-all">
           <div>export ANTHROPIC_BASE_URL="http://localhost:20130"</div>
           <div>export ANTHROPIC_API_KEY="{primaryKey}"</div>
         </div>
@@ -216,50 +225,50 @@
     </div>
   </div>
 
-  <!-- Create Key Modal (Mac Style) -->
+  <!-- Create Key Modal -->
   {#if isCreateOpen}
-    <div class="fixed inset-0 z-50 flex items-center justify-center bg-surface-container-lowest/80 backdrop-blur-md p-4">
-      <div class="w-full max-w-md p-6 rounded-2xl bg-surface-container-high border border-surface-container-highest shadow-2xl space-y-4">
-        <div class="flex items-center justify-between pb-2 border-b border-surface-container">
+    <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
+      <div class="w-full max-w-md p-6 rounded-2xl bg-[#181d27] border border-[#2b354a] shadow-2xl space-y-4">
+        <div class="flex items-center justify-between pb-2 border-b border-[#232a3b]">
           <div class="flex items-center gap-2">
             <button
               type="button"
               aria-label="Close dialog"
               onclick={() => (isCreateOpen = false)}
-              class="w-3 h-3 rounded-full bg-error cursor-pointer"
+              class="w-3 h-3 rounded-full bg-[#ff5f56] cursor-pointer"
             ></button>
-            <div class="w-3 h-3 rounded-full bg-outline"></div>
-            <div class="w-3 h-3 rounded-full bg-tertiary"></div>
-            <span class="ml-2 font-headline text-sm font-bold text-on-surface">
-              Generate Client API Key
+            <div class="w-3 h-3 rounded-full bg-[#ffbd2e]"></div>
+            <div class="w-3 h-3 rounded-full bg-[#27c93f]"></div>
+            <span class="ml-2 font-headline text-sm font-bold text-white">
+              Generate Client Access Token
             </span>
           </div>
         </div>
 
         <form onsubmit={handleCreate} class="space-y-3 font-body text-xs">
           <div>
-            <label for="key-name" class="block font-semibold text-on-surface-variant mb-1">Key Label</label>
+            <label for="new-key-label" class="block font-semibold text-[#8e95a5] mb-1">Token Label</label>
             <input
-              id="key-name"
+              id="new-key-label"
               type="text"
               placeholder="e.g. cursor-mini-pc, claude-cli-laptop"
               bind:value={name}
-              class="w-full bg-surface-container border border-surface-container-high rounded-lg px-3 py-2 font-code text-xs text-on-surface focus:outline-none focus:ring-1 focus:ring-primary-container"
+              class="w-full bg-[#0d1017] border border-[#232a3b] rounded-lg px-3 py-2 font-code text-xs text-white focus:outline-none focus:border-[#ff5c35]"
             />
           </div>
 
-          <div class="flex justify-end gap-2 pt-3 border-t border-surface-container">
+          <div class="flex justify-end gap-2 pt-3 border-t border-[#232a3b]">
             <button
               type="button"
               onclick={() => (isCreateOpen = false)}
-              class="px-4 py-2 rounded-lg text-on-surface-variant hover:text-on-surface cursor-pointer"
+              class="px-4 py-2 rounded-lg text-[#8e95a5] hover:text-white cursor-pointer"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={isCreating}
-              class="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary-container hover:brightness-110 text-on-primary font-bold shadow-md shadow-primary-container/20 cursor-pointer"
+              class="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[#ff5c35] hover:brightness-110 text-white font-bold shadow-md shadow-[#ff5c35]/25 cursor-pointer"
             >
               {#if isCreating}
                 <Loader2 class="w-3.5 h-3.5 animate-spin" />
