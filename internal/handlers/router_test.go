@@ -47,6 +47,34 @@ func TestSetupRoutes(t *testing.T) {
 		t.Errorf("expected /chat/completions route to be registered, got status %d", w.Code)
 	}
 }
+func TestSetupRoutes_OAuthEndpointsMounted(t *testing.T) {
+	database, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	repo := db.NewRepo(database)
+	r := chi.NewRouter()
+	SetupRoutes(r, repo, nil)
+
+	endpoints := []struct {
+		method string
+		path   string
+	}{
+		{"POST", "/api/oauth/freebuff/initiate"},
+		{"POST", "/api/oauth/freebuff/poll"},
+		{"GET", "/api/oauth/antigravity/authorize"},
+		{"GET", "/api/oauth/antigravity/callback"},
+		{"POST", "/api/oauth/antigravity/callback"},
+	}
+
+	for _, ep := range endpoints {
+		req := httptest.NewRequest(ep.method, ep.path, nil)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		if w.Code == http.StatusNotFound {
+			t.Errorf("expected %s %s route to be registered, got 404", ep.method, ep.path)
+		}
+	}
+}
 
 func TestSetupServerRouter_PprofMounted(t *testing.T) {
 	database, cleanup := setupTestDB(t)

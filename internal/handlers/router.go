@@ -9,6 +9,7 @@ import (
 	"9router/proxy/internal/constants"
 	"9router/proxy/internal/db"
 	"9router/proxy/internal/handlers/chat"
+	"9router/proxy/internal/handlers/dashboard"
 	"9router/proxy/internal/handlers/media"
 	"9router/proxy/internal/handlers/oauth"
 	"9router/proxy/internal/handlers/shared"
@@ -28,6 +29,7 @@ func NewTokenSaverConfig(rtk, caveman, ponytail bool) *TokenSaverConfig {
 func SetupRoutes(r interface {
 	Get(pattern string, handlerFn http.HandlerFunc)
 	Post(pattern string, handlerFn http.HandlerFunc)
+	Put(pattern string, handlerFn http.HandlerFunc)
 	Delete(pattern string, handlerFn http.HandlerFunc)
 	HandleFunc(pattern string, handlerFn http.HandlerFunc)
 }, repo *db.Repo, ts *TokenSaverConfig) {
@@ -35,6 +37,7 @@ func SetupRoutes(r interface {
 	mediaH := media.NewMediaHandler(repo, ts, chatH)
 	oauthH := oauth.NewOAuthHandler(repo)
 
+	dashH := dashboard.NewDashboardHandler(repo)
 	// Chat, Version & Models Domain
 	r.Get("/version", chatH.HandleVersion)
 	r.Get("/api/version", chatH.HandleVersion)
@@ -99,6 +102,11 @@ func SetupRoutes(r interface {
 	r.Post("/api/oauth/kiro/social-exchange", oauthH.HandleOAuthKiroSocialExchange)
 	r.Post("/api/oauth/codex/bulk-import", oauthH.HandleOAuthCodexBulkImport)
 	r.Post("/api/oauth/grok-cli/bulk-import", oauthH.HandleOAuthGrokCliBulkImport)
+	r.Post("/api/oauth/freebuff/initiate", oauthH.HandleFreebuffInitiate)
+	r.Post("/api/oauth/freebuff/poll", oauthH.HandleFreebuffPoll)
+	r.Get("/api/oauth/antigravity/authorize", oauthH.HandleAntigravityAuthorize)
+	r.Get("/api/oauth/antigravity/callback", oauthH.HandleAntigravityCallback)
+	r.Post("/api/oauth/antigravity/callback", oauthH.HandleAntigravityCallback)
 
 	// Live Console Logs Domain (dashboard "Monitor Console Log")
 	r.Get("/translator/console-logs", HandleConsoleLogsGet)
@@ -113,6 +121,31 @@ func SetupRoutes(r interface {
 
 	// Debug Tracing Domain (p50/p95 latency per provider+model)
 	r.Get("/debug/traces", HandleDebugTraces)
+
+	// Dashboard REST API Domain
+	r.Get("/api/connections", dashH.HandleGetConnections)
+	r.Post("/api/connections", dashH.HandleCreateConnection)
+	r.Put("/api/connections/{id}", dashH.HandleUpdateConnection)
+	r.Delete("/api/connections/{id}", dashH.HandleDeleteConnection)
+
+	r.Get("/api/combos", dashH.HandleGetCombos)
+	r.Post("/api/combos", dashH.HandleCreateCombo)
+	r.Put("/api/combos/{id}", dashH.HandleUpdateCombo)
+	r.Delete("/api/combos/{id}", dashH.HandleDeleteCombo)
+
+	r.Get("/api/keys", dashH.HandleGetApiKeys)
+	r.Post("/api/keys", dashH.HandleCreateApiKey)
+	r.Delete("/api/keys/{id}", dashH.HandleDeleteApiKey)
+	r.Put("/api/keys/{id}/toggle", dashH.HandleToggleApiKey)
+
+	r.Get("/api/models/custom", dashH.HandleGetCustomModels)
+	r.Post("/api/models/custom", dashH.HandleSaveCustomModel)
+	r.Delete("/api/models/custom/{key}", dashH.HandleDeleteCustomModel)
+	r.Get("/api/models/disabled", dashH.HandleGetDisabledModels)
+	r.Put("/api/models/disabled/{provider}", dashH.HandleSaveDisabledModels)
+
+	r.Get("/api/settings", dashH.HandleGetSettings)
+	r.Put("/api/settings", dashH.HandleUpdateSettings)
 }
 
 // SetupServerRouter mounts public endpoints (/health, /api/hello) and
