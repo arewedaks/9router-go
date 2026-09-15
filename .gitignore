@@ -26,3 +26,5 @@ docker-compose.local.yml
 .vscode/
 .DS_Store
 graphify-out
+node_modules/
+web/node_modules/

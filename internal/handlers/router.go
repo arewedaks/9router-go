@@ -15,8 +15,8 @@ import (
 	"9router/proxy/internal/handlers/shared"
 	"9router/proxy/internal/handlerutil"
 	"9router/proxy/internal/middleware"
+	"9router/proxy/web"
 )
-
 // Re-export TokenSaverConfig for root compatibility
 type TokenSaverConfig = shared.TokenSaverConfig
 
@@ -156,9 +156,20 @@ func SetupServerRouter(r chi.Router, repo *db.Repo, ts *TokenSaverConfig) {
 		w.Header().Set(constants.HeaderContentType, constants.ContentTypeJSON)
 		w.Write([]byte(`{"status":"ok"}`))
 	})
+	// Embedded Native Dashboard SPA
+	webH := web.Handler()
+	r.Get("/", webH.ServeHTTP)
+	r.Get("/dashboard", webH.ServeHTTP)
+	r.Get("/dashboard/*", webH.ServeHTTP)
+	r.Get("/connections", webH.ServeHTTP)
+	r.Get("/combos", webH.ServeHTTP)
+	r.Get("/analytics", webH.ServeHTTP)
+	r.Get("/settings", webH.ServeHTTP)
+	r.Get("/keys", webH.ServeHTTP)
+	r.Get("/assets/*", webH.ServeHTTP)
+	r.Get("/favicon.ico", webH.ServeHTTP)
 
 	r.HandleFunc("/api/hello", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set(constants.HeaderContentType, constants.ContentTypeJSON)
 		w.WriteHeader(http.StatusOK)
 		if r.Method != http.MethodHead {
 			w.Write([]byte(`{"status":"ok","message":"hello"}`))
