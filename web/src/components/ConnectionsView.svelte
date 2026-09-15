@@ -1,16 +1,16 @@
 <script lang="ts">
   import {
-    AlertCircle,
-    ArrowDown,
-    ArrowUp,
+    Activity,
     Check,
-    ExternalLink,
+    Globe,
     Key,
+    Layers,
     Loader2,
     Plus,
     Power,
     RefreshCw,
     Search,
+    Shield,
     Trash2,
     Zap
   } from 'lucide-svelte'
@@ -25,540 +25,748 @@
   } = $props()
 
   let search = $state('')
-  let filterType = $state<'all' | 'oauth' | 'apikey'>('all')
-  let isAddModalOpen = $state(false)
-  let updatingId = $state<string | null>(null)
+  let filterType = $state<'all' | 'oauth' | 'apikey' | 'active'>('all')
 
-  // Add Connection state
-  let addMode = $state<'oauth' | 'apikey'>('oauth')
-  let oauthProvider = $state<'freebuff' | 'antigravity'>('freebuff')
-  let fbFlowState = $state<{
-    status: 'idle' | 'initiating' | 'polling' | 'authorized' | 'error'
-    loginUrl?: string
-    authCode?: string
-    error?: string
-  }>({ status: 'idle' })
+  // Modals
+  let isAddOpen = $state(false)
+  let isFreebuffModalOpen = $state(false)
+  let isAntigravityModalOpen = $state(false)
 
-  // API Key Form State
-  let apiKeyProvider = $state('deepseek')
-  let apiKeyName = $state('')
-  let apiKeyValue = $state('')
-  let apiBaseUrl = $state('')
-  let isSavingKey = $state(false)
+  // Add Form
+  let formProvider = $state('openai')
+  let formName = $state('')
+  let formApiKey = $state('')
+  let formBaseUrl = $state('')
+  let formPriority = $state(1)
+  let isSubmitting = $state(false)
+  let isPingingAll = $state(false)
+  let pingStatus = $state<string | null>(null)
+
+  // Latency cache per connection ID
+  let latencyMap = $state<Record<string, number | 'error' | 'testing'>>({})
+
+  // Freebuff Device Flow State
+  let fbAuthCode = $state('')
+  let fbFingerprint = $state('')
+  let fbStatus = $state<'idle' | 'polling' | 'success' | 'error'>('idle')
+  let fbMessage = $state('')
 
   let filteredConnections = $derived(
     connections.filter((c) => {
-      const q = search.toLowerCase()
-      const matchesSearch =
-        c.provider.toLowerCase().includes(q) ||
-        (c.name && c.name.toLowerCase().includes(q)) ||
-        (c.email && c.email.toLowerCase().includes(q)) ||
-        c.id.toLowerCase().includes(q)
-      if (!matchesSearch) return false
-      if (filterType === 'oauth') return c.authType === 'oauth'
-      if (filterType === 'apikey') return c.authType !== 'oauth'
+      const matchSearch =
+        c.name.toLowerCase().includes(search.toLowerCase()) ||
+        c.provider.toLowerCase().includes(search.toLowerCase()) ||
+        c.id.toLowerCase().includes(search.toLowerCase())
+
+      if (!matchSearch) return false
+      if (filterType === 'active') return c.isActive === 1
+      if (filterType === 'oauth') return c.type === 'oauth'
+      if (filterType === 'apikey') return c.type === 'apikey'
       return true
     })
   )
 
-  async function handleToggleActive(conn: ProviderConnection) {
+  let activeCount = $derived(connections.filter((c) => c.isActive === 1).length)
+  let oauthCount = $derived(connections.filter((c) => c.type === 'oauth').length)
+  let apikeyCount = $derived(connections.filter((c) => c.type === 'apikey').length)
+
+  // Split into OAuth Pools vs Custom API Key Proxies
+  let oauthConnections = $derived(filteredConnections.filter((c) => c.type === 'oauth'))
+  let apikeyConnections = $derived(filteredConnections.filter((c) => c.type !== 'oauth'))
+
+  async function handleToggle(conn: ProviderConnection) {
     try {
-      updatingId = conn.id
-      const nextActive = conn.isActive === 1 ? 0 : 1
-      await api.updateConnection(conn.id, { isActive: nextActive })
+      await api.toggleConnection(conn.id)
       onRefresh()
     } catch (err) {
-      alert(`Failed to toggle status: ${err instanceof Error ? err.message : String(err)}`)
-    } finally {
-      updatingId = null
+      alert(`Failed to toggle: ${err instanceof Error ? err.message : String(err)}`)
     }
   }
 
-  async function handlePriorityChange(conn: ProviderConnection, delta: number) {
+  async function handleDelete(conn: ProviderConnection) {
+    if (!confirm(`Revoke and delete connection "${conn.name || conn.id}"?`)) return
     try {
-      updatingId = conn.id
-      const currentPriority = conn.priority ?? 999999
-      const nextPriority = Math.max(1, currentPriority + delta)
-      await api.updateConnection(conn.id, { priority: nextPriority })
+      await api.deleteConnection(conn.id)
+      onRefresh()
+    } catch (err) {
+      alert(`Failed to delete: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
+
+  async function handlePriorityChange(conn: ProviderConnection, newPriority: number) {
+    try {
+      await api.updateConnectionPriority(conn.id, newPriority)
       onRefresh()
     } catch (err) {
       alert(`Failed to update priority: ${err instanceof Error ? err.message : String(err)}`)
-    } finally {
-      updatingId = null
     }
   }
 
-  async function handleDelete(id: string) {
-    if (!confirm('Are you sure you want to delete this provider connection?')) return
+  async function handleTestConnection(conn: ProviderConnection) {
+    latencyMap[conn.id] = 'testing'
+    const start = performance.now()
     try {
-      updatingId = id
-      await api.deleteConnection(id)
+      const res = await fetch('/v1/models', {
+        headers: { 'x-provider': conn.provider },
+      })
+      const rtt = Math.round(performance.now() - start)
+      if (res.ok) {
+        latencyMap[conn.id] = rtt
+      } else {
+        latencyMap[conn.id] = 'error'
+      }
+    } catch {
+      latencyMap[conn.id] = 'error'
+    }
+  }
+
+  async function handleTestAll() {
+    isPingingAll = true
+    pingStatus = 'Pinging all active connections...'
+    for (const conn of connections.filter((c) => c.isActive === 1)) {
+      handleTestConnection(conn)
+    }
+    setTimeout(() => {
+      isPingingAll = false
+      pingStatus = 'All endpoints checked'
+      setTimeout(() => (pingStatus = null), 3000)
+    }, 1500)
+  }
+
+  async function handleAddSubmit(e: SubmitEvent) {
+    e.preventDefault()
+    if (!formProvider || !formApiKey) return
+    isSubmitting = true
+    try {
+      await api.createConnection({
+        provider: formProvider,
+        name: formName || `${formProvider}-custom`,
+        apiKey: formApiKey,
+        baseUrl: formBaseUrl || undefined,
+        priority: formPriority,
+      })
+      isAddOpen = false
+      formName = ''
+      formApiKey = ''
+      formBaseUrl = ''
       onRefresh()
     } catch (err) {
-      alert(`Failed to delete connection: ${err instanceof Error ? err.message : String(err)}`)
+      alert(`Failed to create connection: ${err instanceof Error ? err.message : String(err)}`)
     } finally {
-      updatingId = null
+      isSubmitting = false
     }
   }
 
   async function startFreebuffFlow() {
-    try {
-      fbFlowState = { status: 'initiating' }
-      const init = await api.initiateFreebuff()
-      fbFlowState = {
-        status: 'polling',
-        loginUrl: init.loginUrl,
-        authCode: init.authCode,
+    const chars = '0123456789abcdef'
+    let code = ''
+    for (let i = 0; i < 32; i++) code += chars[Math.floor(Math.random() * chars.length)]
+    fbAuthCode = code
+    fbFingerprint = 'cli_' + code.substring(0, 16)
+    fbStatus = 'polling'
+    fbMessage = 'Browser window opened. Log in on Freebuff to authorize token...'
+
+    window.open(`https://freebuff.com/login?auth_code=${fbAuthCode}`, '_blank')
+
+    const pollInterval = setInterval(async () => {
+      if (fbStatus !== 'polling') {
+        clearInterval(pollInterval)
+        return
       }
-
-      window.open(init.loginUrl, '_blank')
-
-      const interval = setInterval(async () => {
-        try {
-          const poll = await api.pollFreebuff(init.fingerprintId, init.fingerprintHash)
-          if (poll.status === 'authorized') {
-            clearInterval(interval)
-            fbFlowState = { status: 'authorized' }
-            setTimeout(() => {
-              isAddModalOpen = false
-              fbFlowState = { status: 'idle' }
-              onRefresh()
-            }, 1500)
-          } else if (poll.status === 'expired') {
-            clearInterval(interval)
-            fbFlowState = { status: 'error', error: 'Login session expired. Please retry.' }
-          }
-        } catch {
-          // keep polling until timeout
+      try {
+        const res = await api.pollFreebuffToken(fbAuthCode, fbFingerprint)
+        if (res && res.status === 'success') {
+          clearInterval(pollInterval)
+          fbStatus = 'success'
+          fbMessage = 'Freebuff authorized successfully! Session credentials stored.'
+          onRefresh()
         }
-      }, 3000)
-
-      setTimeout(() => clearInterval(interval), 300000)
-    } catch (err) {
-      fbFlowState = {
-        status: 'error',
-        error: err instanceof Error ? err.message : String(err),
+      } catch {
+        // continue polling
       }
-    }
-  }
+    }, 2500)
 
-  async function startAntigravityFlow() {
-    try {
-      const auth = await api.getAntigravityAuthorizeUrl()
-      window.location.href = auth.url || auth.redirectUrl
-    } catch (err) {
-      alert(`Failed to start Google OAuth: ${err instanceof Error ? err.message : String(err)}`)
-    }
-  }
-
-  async function handleSaveApiKey(e: SubmitEvent) {
-    e.preventDefault()
-    if (!apiKeyValue) {
-      alert('API key is required')
-      return
-    }
-    try {
-      isSavingKey = true
-      const dataObj: Record<string, string> = { apiKey: apiKeyValue }
-      if (apiBaseUrl) dataObj.baseUrl = apiBaseUrl
-
-      await api.createConnection({
-        provider: apiKeyProvider,
-        authType: 'apikey',
-        name: apiKeyName || `${apiKeyProvider}-connection`,
-        apiKey: apiKeyValue,
-        data: JSON.stringify(dataObj),
-      })
-      isAddModalOpen = false
-      apiKeyValue = ''
-      apiKeyName = ''
-      apiBaseUrl = ''
-      onRefresh()
-    } catch (err) {
-      alert(`Failed to save connection: ${err instanceof Error ? err.message : String(err)}`)
-    } finally {
-      isSavingKey = false
-    }
+    setTimeout(() => {
+      if (fbStatus === 'polling') {
+        clearInterval(pollInterval)
+        fbStatus = 'error'
+        fbMessage = 'Device authorization timed out after 3 minutes. Please try again.'
+      }
+    }, 180000)
   }
 </script>
 
-<div class="p-6 max-w-7xl mx-auto space-y-6">
-  <!-- Top Bar -->
-  <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-    <div>
-      <h2 class="text-xl font-bold text-white tracking-tight flex items-center gap-2">
-        <span>Provider Connections</span>
-        <span class="text-xs font-semibold px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700">
-          {connections.length} total
+<div class="p-4 sm:p-6 lg:p-8 max-w-[1560px] mx-auto space-y-6">
+  <!-- Top Banner & Action Cluster -->
+  <div class="flex flex-col md:flex-row md:items-end justify-between gap-4">
+    <div class="space-y-1.5">
+      <div class="flex items-center gap-2">
+        <span class="font-code text-[11px] uppercase tracking-wider text-primary-container px-2 py-0.5 rounded bg-primary-container/10 border border-primary-container/20 font-bold">
+          Upstream Matrix
         </span>
-      </h2>
-      <p class="text-xs text-slate-400">Manage LLM upstream accounts, priority order, and OAuth integrations</p>
+        <span class="font-code text-[11px] text-tertiary flex items-center gap-1.5 font-medium">
+          <span class="w-1.5 h-1.5 rounded-full bg-tertiary animate-pulse"></span>
+          {activeCount} Active Nodes
+        </span>
+      </div>
+      <h1 class="font-headline text-2xl sm:text-3xl font-bold text-on-surface tracking-tight">
+        Providers & Connection Hub
+      </h1>
+      <p class="font-body text-xs sm:text-sm text-on-surface-variant max-w-2xl leading-relaxed">
+        Manage upstream LLM accounts, high-availability multi-account OAuth pools, and custom API proxies with sub-millisecond automated failover.
+      </p>
     </div>
 
-    <div class="flex items-center gap-2.5 w-full sm:w-auto">
+    <!-- Action Cluster -->
+    <div class="flex flex-wrap items-center gap-2">
       <button
         type="button"
-        onclick={onRefresh}
-        class="p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-300 transition border border-slate-700 hover:text-white cursor-pointer"
-        title="Refresh list"
-      >
-        <RefreshCw class="w-4 h-4" />
-      </button>
-      <button
-        type="button"
-        onclick={() => (isAddModalOpen = true)}
-        class="flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition shadow-lg shadow-indigo-600/20 cursor-pointer"
+        onclick={() => (isAddOpen = true)}
+        class="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-primary-container hover:brightness-110 text-on-primary font-body text-xs font-bold shadow-md shadow-primary-container/25 transition cursor-pointer"
       >
         <Plus class="w-4 h-4" />
-        <span>Add Connection</span>
+        <span>Add API Provider</span>
+      </button>
+
+      <button
+        type="button"
+        onclick={() => {
+          isFreebuffModalOpen = true
+          startFreebuffFlow()
+        }}
+        class="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-surface-container-high hover:bg-surface-container-highest text-on-surface font-body text-xs font-semibold border border-surface-container-highest transition cursor-pointer"
+      >
+        <Zap class="w-4 h-4 text-tertiary" />
+        <span>Connect Freebuff</span>
+      </button>
+
+      <button
+        type="button"
+        onclick={() => (isAntigravityModalOpen = true)}
+        class="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-surface-container-high hover:bg-surface-container-highest text-on-surface font-body text-xs font-semibold border border-surface-container-highest transition cursor-pointer"
+      >
+        <Shield class="w-4 h-4 text-secondary" />
+        <span>Connect Google AI</span>
+      </button>
+
+      <button
+        type="button"
+        onclick={handleTestAll}
+        disabled={isPingingAll}
+        class="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-surface-container-low hover:bg-surface-container text-on-surface-variant hover:text-on-surface font-body text-xs font-medium border border-surface-container-high transition cursor-pointer"
+      >
+        {#if isPingingAll}
+          <Loader2 class="w-4 h-4 animate-spin text-secondary" />
+        {:else}
+          <Activity class="w-4 h-4 text-secondary" />
+        {/if}
+        <span>{pingStatus || 'Test All Handshakes'}</span>
       </button>
     </div>
   </div>
 
-  <!-- Filters & Search -->
-  <div class="flex flex-col sm:flex-row items-center justify-between gap-3 bg-slate-900/60 p-2.5 rounded-2xl border border-slate-800/80">
-    <div class="relative w-full sm:w-80">
-      <Search class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+  <!-- Search & Filter Rail -->
+  <div class="flex flex-col sm:flex-row items-center justify-between gap-3 p-2 rounded-xl bg-surface-container-low border border-surface-container-high">
+    <div class="flex items-center gap-1 overflow-x-auto w-full sm:w-auto pb-1 sm:pb-0">
+      <button
+        type="button"
+        onclick={() => (filterType = 'all')}
+        class="px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer {filterType === 'all'
+          ? 'bg-surface-container-highest text-on-surface shadow-sm'
+          : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-container'}"
+      >
+        <span>All Nodes</span>
+        <span class="font-code text-[10px] px-1.5 py-0.2 rounded bg-surface-container text-secondary">
+          {connections.length}
+        </span>
+      </button>
+
+      <button
+        type="button"
+        onclick={() => (filterType = 'active')}
+        class="px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer {filterType === 'active'
+          ? 'bg-surface-container-highest text-on-surface shadow-sm'
+          : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-container'}"
+      >
+        <span>Active</span>
+        <span class="font-code text-[10px] px-1.5 py-0.2 rounded bg-tertiary/10 text-tertiary">
+          {activeCount}
+        </span>
+      </button>
+
+      <button
+        type="button"
+        onclick={() => (filterType = 'oauth')}
+        class="px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer {filterType === 'oauth'
+          ? 'bg-surface-container-highest text-on-surface shadow-sm'
+          : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-container'}"
+      >
+        <span>OAuth Pools</span>
+        <span class="font-code text-[10px] px-1.5 py-0.2 rounded bg-surface-container text-on-surface-variant">
+          {oauthCount}
+        </span>
+      </button>
+
+      <button
+        type="button"
+        onclick={() => (filterType = 'apikey')}
+        class="px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer {filterType === 'apikey'
+          ? 'bg-surface-container-highest text-on-surface shadow-sm'
+          : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-container'}"
+      >
+        <span>API Keys</span>
+        <span class="font-code text-[10px] px-1.5 py-0.2 rounded bg-surface-container text-on-surface-variant">
+          {apikeyCount}
+        </span>
+      </button>
+    </div>
+
+    <!-- Search Input with ⌘F badge -->
+    <div class="relative w-full sm:w-80 flex items-center">
+      <Search class="absolute left-3 w-4 h-4 text-outline pointer-events-none" />
       <input
         type="text"
-        placeholder="Search provider, email, ID..."
         bind:value={search}
-        class="w-full pl-9 pr-4 py-1.5 rounded-xl bg-slate-950/80 border border-slate-800 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+        placeholder="Filter by name, provider, or ID..."
+        class="w-full bg-surface-container border border-surface-container-high rounded-lg pl-9 pr-12 py-1.5 font-body text-xs text-on-surface placeholder:text-outline focus:outline-none focus:border-primary-container transition"
       />
-    </div>
-
-    <div class="flex items-center gap-1 self-start sm:self-auto">
-      {#each (['all', 'oauth', 'apikey'] as const) as type}
-        <button
-          type="button"
-          onclick={() => (filterType = type)}
-          class="px-3 py-1 rounded-lg text-xs font-medium capitalize transition cursor-pointer {filterType === type
-            ? 'bg-slate-800 text-white font-semibold border border-slate-700'
-            : 'text-slate-400 hover:text-slate-200'}"
-        >
-          {type === 'apikey' ? 'API Key' : type}
-        </button>
-      {/each}
+      <span class="absolute right-2 px-1.5 py-0.5 rounded bg-surface-container-highest font-code text-[10px] text-outline pointer-events-none">
+        ⌘F
+      </span>
     </div>
   </div>
 
-  <!-- Connection Grid -->
-  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-    {#each filteredConnections as conn (conn.id)}
-      {@const isActive = conn.isActive === 1}
-      {@const isBusy = updatingId === conn.id}
-
-      <div
-        class="rounded-2xl border p-4 transition-all duration-200 flex flex-col justify-between {isActive
-          ? 'bg-slate-900/60 border-slate-800 hover:border-slate-700/80 shadow-sm'
-          : 'bg-slate-950/40 border-slate-900 opacity-60'}"
-      >
-        <div>
-          <div class="flex items-start justify-between gap-2 mb-3">
-            <div class="flex items-center gap-2.5">
-              <div
-                class="w-8 h-8 rounded-xl flex items-center justify-center font-bold text-xs {conn.provider.includes('antigravity') || conn.provider.includes('gemini')
-                  ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
-                  : conn.provider.includes('freebuff')
-                  ? 'bg-lime-500/10 text-lime-400 border border-lime-500/20'
-                  : conn.provider.includes('cline')
-                  ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
-                  : 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20'}"
-              >
-                {conn.provider.slice(0, 2).toUpperCase()}
-              </div>
-              <div>
-                <div class="flex items-center gap-1.5">
-                  <span class="text-xs font-bold text-white capitalize">{conn.provider}</span>
-                  <span
-                    class="text-[9px] px-1.5 py-0.2 rounded font-semibold uppercase {conn.authType === 'oauth'
-                      ? 'bg-purple-500/10 text-purple-400 border border-purple-500/20'
-                      : 'bg-slate-800 text-slate-400'}"
-                  >
-                    {conn.authType}
-                  </span>
-                </div>
-                <p class="text-[11px] text-slate-400 truncate max-w-[170px]">
-                  {conn.name || conn.email || conn.id}
-                </p>
-              </div>
-            </div>
-
-            <button
-              type="button"
-              onclick={() => handleToggleActive(conn)}
-              disabled={isBusy}
-              class="p-1.5 rounded-lg border transition cursor-pointer {isActive
-                ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20'
-                : 'bg-slate-800 border-slate-700 text-slate-500 hover:text-slate-300'}"
-              title={isActive ? 'Deactivate connection' : 'Activate connection'}
-            >
-              {#if isBusy}
-                <Loader2 class="w-3.5 h-3.5 animate-spin" />
-              {:else}
-                <Power class="w-3.5 h-3.5" />
-              {/if}
-            </button>
-          </div>
-
-          <div class="space-y-1 text-[11px] text-slate-400 font-mono bg-slate-950/60 p-2 rounded-xl border border-slate-800/60 mb-3">
-            <div class="flex justify-between">
-              <span class="text-slate-500">Priority:</span>
-              <span class="text-slate-300 font-semibold">{conn.priority ?? 'None (999999)'}</span>
-            </div>
-            <div class="flex justify-between">
-              <span class="text-slate-500">ID:</span>
-              <span class="text-slate-300 truncate max-w-[130px]" title={conn.id}>
-                {conn.id}
-              </span>
-            </div>
-          </div>
+  <!-- SECTION 1: OAuth High-Availability Pools -->
+  {#if oauthConnections.length > 0}
+    <div class="space-y-3">
+      <div class="flex items-center justify-between px-1">
+        <div class="flex items-center gap-2">
+          <Shield class="w-4 h-4 text-secondary" />
+          <h2 class="font-headline text-base font-bold text-on-surface">OAuth High-Availability Pools</h2>
         </div>
-
-        <div class="flex items-center justify-between pt-2 border-t border-slate-800/60">
-          <div class="flex items-center gap-1">
-            <button
-              type="button"
-              onclick={() => handlePriorityChange(conn, -1)}
-              class="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition cursor-pointer"
-              title="Increase Priority (lower number)"
-            >
-              <ArrowUp class="w-3 h-3" />
-            </button>
-            <button
-              type="button"
-              onclick={() => handlePriorityChange(conn, 1)}
-              class="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition cursor-pointer"
-              title="Decrease Priority (higher number)"
-            >
-              <ArrowDown class="w-3 h-3" />
-            </button>
-          </div>
-
-          <button
-            type="button"
-            onclick={() => handleDelete(conn.id)}
-            class="p-1 rounded text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition cursor-pointer"
-            title="Delete Connection"
-          >
-            <Trash2 class="w-3.5 h-3.5" />
-          </button>
-        </div>
+        <span class="font-code text-[11px] text-outline">Virtual Session Balancing · Auto-Rotating</span>
       </div>
-    {/each}
-  </div>
 
-  <!-- Add Connection Modal -->
-  {#if isAddModalOpen}
-    <div class="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-      <div class="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-lg p-6 shadow-2xl relative">
-        <div class="flex items-center justify-between mb-5">
-          <h3 class="text-base font-bold text-white flex items-center gap-2">
-            <Plus class="w-4 h-4 text-indigo-400" />
-            <span>Add Provider Connection</span>
-          </h3>
-          <button
-            type="button"
-            onclick={() => {
-              isAddModalOpen = false
-              fbFlowState = { status: 'idle' }
-            }}
-            class="text-slate-400 hover:text-white text-xs px-2 py-1 rounded-lg bg-slate-800 cursor-pointer"
-          >
-            ✕ Close
-          </button>
-        </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+        {#each oauthConnections as conn (conn.id)}
+          {@const isActive = conn.isActive === 1}
+          {@const latency = latencyMap[conn.id]}
 
-        <!-- Mode Switcher -->
-        <div class="flex rounded-xl bg-slate-950 p-1 border border-slate-800 mb-5">
-          <button
-            type="button"
-            onclick={() => (addMode = 'oauth')}
-            class="flex-1 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer {addMode === 'oauth'
-              ? 'bg-indigo-600 text-white'
-              : 'text-slate-400 hover:text-white'}"
+          <div
+            class="rounded-xl bg-surface-container/70 border border-surface-container-high hover:border-primary-container/40 p-4 transition-all flex flex-col justify-between gap-3 shadow-md"
           >
-            OAuth Device Flows (Freebuff / Google)
-          </button>
-          <button
-            type="button"
-            onclick={() => (addMode = 'apikey')}
-            class="flex-1 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer {addMode === 'apikey'
-              ? 'bg-indigo-600 text-white'
-              : 'text-slate-400 hover:text-white'}"
-          >
-            API Key Providers
-          </button>
-        </div>
+            <!-- Card Header -->
+            <div class="flex items-start justify-between gap-2">
+              <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-surface-container-lowest border border-surface-container-high flex items-center justify-center font-bold text-xs font-code text-secondary">
+                  {conn.provider.substring(0, 2).toUpperCase()}
+                </div>
+                <div>
+                  <div class="flex items-center gap-2">
+                    <span class="font-headline text-xs font-bold text-on-surface capitalize">
+                      {conn.provider}
+                    </span>
+                    <span class="font-code text-[10px] px-1.5 py-0.2 rounded bg-surface-container-highest text-secondary border border-surface-container-high">
+                      OAuth
+                    </span>
+                  </div>
+                  <div class="font-body text-[11px] text-on-surface-variant truncate max-w-[180px]">
+                    {conn.name || 'Personal Account'}
+                  </div>
+                </div>
+              </div>
 
-        {#if addMode === 'oauth'}
-          <div class="space-y-4">
-            <div class="grid grid-cols-2 gap-3">
+              <!-- Power Toggle -->
               <button
                 type="button"
-                onclick={() => (oauthProvider = 'freebuff')}
-                class="p-3.5 rounded-2xl border text-left transition cursor-pointer {oauthProvider === 'freebuff'
-                  ? 'bg-lime-500/10 border-lime-500/30 text-lime-300 shadow-sm'
-                  : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:border-slate-700'}"
+                onclick={() => handleToggle(conn)}
+                class="p-1.5 rounded-lg border transition cursor-pointer {isActive
+                  ? 'bg-tertiary/10 border-tertiary/30 text-tertiary'
+                  : 'bg-surface-container-highest border-surface-container-high text-outline'}"
+                title={isActive ? 'Disable account' : 'Enable account'}
               >
-                <div class="font-bold text-xs mb-1">Freebuff (Codebuff)</div>
-                <div class="text-[10px] text-slate-400">Freebucks daily quota (GLM 5.3, Solar Pro, DeepSeek)</div>
-              </button>
-              <button
-                type="button"
-                onclick={() => (oauthProvider = 'antigravity')}
-                class="p-3.5 rounded-2xl border text-left transition cursor-pointer {oauthProvider === 'antigravity'
-                  ? 'bg-blue-500/10 border-blue-500/30 text-blue-300 shadow-sm'
-                  : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:border-slate-700'}"
-              >
-                <div class="font-bold text-xs mb-1">Google Antigravity</div>
-                <div class="text-[10px] text-slate-400">Multi-account failover for Gemini 2.5 / 3.7</div>
+                <Power class="w-3.5 h-3.5" />
               </button>
             </div>
 
-            {#if oauthProvider === 'freebuff'}
-              <div class="bg-slate-950/80 p-4 rounded-2xl border border-slate-800/80 space-y-3">
-                <p class="text-xs text-slate-300">
-                  Login using official Freebuff Device Flow. Click the button below to generate a login link.
-                </p>
-
-                {#if fbFlowState.status === 'idle'}
+            <!-- Meta / Telemetry -->
+            <div class="flex items-center justify-between text-[11px] font-code pt-1 border-t border-surface-container-high/60">
+              <div class="flex items-center gap-2">
+                <span class="text-outline">RTT:</span>
+                {#if latency === 'testing'}
+                  <Loader2 class="w-3 h-3 animate-spin text-secondary" />
+                {:else if latency === 'error'}
+                  <span class="text-error font-semibold">Error</span>
+                {:else if typeof latency === 'number'}
+                  <span class="text-tertiary font-semibold">{latency}ms</span>
+                {:else}
                   <button
                     type="button"
-                    onclick={startFreebuffFlow}
-                    class="w-full py-2.5 rounded-xl bg-lime-600 hover:bg-lime-500 text-slate-950 font-bold text-xs flex items-center justify-center gap-2 transition cursor-pointer"
+                    onclick={() => handleTestConnection(conn)}
+                    class="text-secondary hover:underline cursor-pointer"
                   >
-                    <Zap class="w-4 h-4" />
-                    <span>Start Freebuff Login Flow</span>
+                    Ping
                   </button>
                 {/if}
-
-                {#if fbFlowState.status === 'initiating'}
-                  <div class="flex items-center justify-center py-4 text-xs text-slate-400 gap-2">
-                    <Loader2 class="w-4 h-4 animate-spin text-lime-400" />
-                    <span>Generating device session...</span>
-                  </div>
-                {/if}
-
-                {#if fbFlowState.status === 'polling'}
-                  <div class="space-y-3">
-                    <div class="flex items-center gap-2 text-xs text-lime-400 font-semibold">
-                      <Loader2 class="w-4 h-4 animate-spin" />
-                      <span>Waiting for browser authorization...</span>
-                    </div>
-                    <div class="bg-slate-900 p-3 rounded-xl border border-slate-800 text-[11px] space-y-1">
-                      <div class="text-slate-400">If browser did not open automatically, visit:</div>
-                      <a
-                        href={fbFlowState.loginUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        class="text-indigo-400 underline font-mono break-all flex items-center gap-1"
-                      >
-                        <span>{fbFlowState.loginUrl}</span>
-                        <ExternalLink class="w-3 h-3 flex-shrink-0" />
-                      </a>
-                    </div>
-                  </div>
-                {/if}
-
-                {#if fbFlowState.status === 'authorized'}
-                  <div class="flex items-center gap-2 text-emerald-400 text-xs font-bold py-2">
-                    <Check class="w-4 h-4" />
-                    <span>Account authorized and saved successfully!</span>
-                  </div>
-                {/if}
-
-                {#if fbFlowState.status === 'error'}
-                  <div class="flex items-center gap-2 text-rose-400 text-xs font-medium">
-                    <AlertCircle class="w-4 h-4" />
-                    <span>{fbFlowState.error}</span>
-                  </div>
-                {/if}
               </div>
-            {:else}
-              <div class="bg-slate-950/80 p-4 rounded-2xl border border-slate-800/80 space-y-3">
-                <p class="text-xs text-slate-300">
-                  Connect your Google Account to enable Antigravity Gemini high/low capacity models.
-                </p>
+
+              <div class="flex items-center gap-2">
+                <span class="text-outline">Priority:</span>
+                <select
+                  value={conn.priority}
+                  onchange={(e) => handlePriorityChange(conn, Number(e.currentTarget.value))}
+                  class="bg-surface-container-lowest border border-surface-container-high text-on-surface text-[10px] font-code rounded px-1.5 py-0.5 cursor-pointer focus:outline-none"
+                >
+                  <option value={1}>P1</option>
+                  <option value={2}>P2</option>
+                  <option value={3}>P3</option>
+                  <option value={4}>P4</option>
+                </select>
                 <button
                   type="button"
-                  onclick={startAntigravityFlow}
-                  class="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs flex items-center justify-center gap-2 transition shadow-lg shadow-blue-600/20 cursor-pointer"
+                  onclick={() => handleDelete(conn)}
+                  class="text-outline hover:text-error transition cursor-pointer p-0.5"
+                  title="Delete connection"
                 >
-                  <ExternalLink class="w-4 h-4" />
-                  <span>Sign in with Google OAuth</span>
+                  <Trash2 class="w-3 h-3" />
                 </button>
               </div>
-            {/if}
+            </div>
           </div>
-        {:else}
-          <form onsubmit={handleSaveApiKey} class="space-y-3.5">
-            <div>
-              <label for="provider-select" class="block text-xs font-semibold text-slate-300 mb-1">Provider</label>
-              <select
-                id="provider-select"
-                bind:value={apiKeyProvider}
-                class="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-200 focus:outline-none focus:border-indigo-500"
-              >
-                <option value="deepseek">DeepSeek (deepseek-chat, coder)</option>
-                <option value="groq">Groq (Llama-3, fast inference)</option>
-                <option value="openrouter">OpenRouter</option>
-                <option value="gemini">Google Gemini (Direct API Key)</option>
-                <option value="nvidia">Nvidia NIM</option>
-                <option value="openai-compatible-chat">Custom OpenAI-Compatible Endpoint</option>
-              </select>
-            </div>
+        {/each}
+      </div>
+    </div>
+  {/if}
 
-            <div>
-              <label for="conn-name" class="block text-xs font-semibold text-slate-300 mb-1">Connection Name</label>
-              <input
-                id="conn-name"
-                type="text"
-                placeholder="e.g. My Primary DeepSeek"
-                bind:value={apiKeyName}
-                class="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-200 focus:outline-none focus:border-indigo-500"
-              />
-            </div>
+  <!-- SECTION 2: API Key Connections & Custom Proxies -->
+  <div class="space-y-3">
+    <div class="flex items-center justify-between px-1">
+      <div class="flex items-center gap-2">
+        <Key class="w-4 h-4 text-primary-container" />
+        <h2 class="font-headline text-base font-bold text-on-surface">API Key Connections & Custom Proxies</h2>
+      </div>
+      <span class="font-code text-[11px] text-outline">{apikeyConnections.length} endpoints configured</span>
+    </div>
 
-            <div>
-              <label for="conn-key" class="block text-xs font-semibold text-slate-300 mb-1">API Key *</label>
-              <input
-                id="conn-key"
-                type="password"
-                placeholder="sk-..."
-                bind:value={apiKeyValue}
-                required
-                class="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-200 font-mono focus:outline-none focus:border-indigo-500"
-              />
-            </div>
+    {#if apikeyConnections.length > 0}
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+        {#each apikeyConnections as conn (conn.id)}
+          {@const isActive = conn.isActive === 1}
+          {@const latency = latencyMap[conn.id]}
 
-            {#if apiKeyProvider === 'openai-compatible-chat'}
-              <div>
-                <label for="conn-url" class="block text-xs font-semibold text-slate-300 mb-1">Base URL</label>
-                <input
-                  id="conn-url"
-                  type="url"
-                  placeholder="https://api.together.xyz/v1"
-                  bind:value={apiBaseUrl}
-                  class="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-200 font-mono focus:outline-none focus:border-indigo-500"
-                />
+          <div
+            class="rounded-xl bg-surface-container/70 border border-surface-container-high hover:border-primary-container/40 p-4 transition-all flex flex-col justify-between gap-3 shadow-md"
+          >
+            <!-- Card Header -->
+            <div class="flex items-start justify-between gap-2">
+              <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-surface-container-lowest border border-surface-container-high flex items-center justify-center font-bold text-xs font-code text-primary-container">
+                  {conn.provider.substring(0, 2).toUpperCase()}
+                </div>
+                <div>
+                  <div class="flex items-center gap-2">
+                    <span class="font-headline text-xs font-bold text-on-surface capitalize">
+                      {conn.name || conn.provider}
+                    </span>
+                    <span class="font-code text-[10px] px-1.5 py-0.2 rounded bg-surface-container-highest text-on-surface-variant border border-surface-container-high">
+                      {conn.provider}
+                    </span>
+                  </div>
+                  <div class="font-code text-[10px] text-outline truncate max-w-[180px]">
+                    {conn.baseUrl || 'Default official endpoint'}
+                  </div>
+                </div>
               </div>
-            {/if}
 
+              <!-- Power Toggle -->
+              <button
+                type="button"
+                onclick={() => handleToggle(conn)}
+                class="p-1.5 rounded-lg border transition cursor-pointer {isActive
+                  ? 'bg-tertiary/10 border-tertiary/30 text-tertiary'
+                  : 'bg-surface-container-highest border-surface-container-high text-outline'}"
+                title={isActive ? 'Disable account' : 'Enable account'}
+              >
+                <Power class="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            <!-- Meta / Telemetry -->
+            <div class="flex items-center justify-between text-[11px] font-code pt-1 border-t border-surface-container-high/60">
+              <div class="flex items-center gap-2">
+                <span class="text-outline">RTT:</span>
+                {#if latency === 'testing'}
+                  <Loader2 class="w-3 h-3 animate-spin text-secondary" />
+                {:else if latency === 'error'}
+                  <span class="text-error font-semibold">Error</span>
+                {:else if typeof latency === 'number'}
+                  <span class="text-tertiary font-semibold">{latency}ms</span>
+                {:else}
+                  <button
+                    type="button"
+                    onclick={() => handleTestConnection(conn)}
+                    class="text-secondary hover:underline cursor-pointer"
+                  >
+                    Ping
+                  </button>
+                {/if}
+              </div>
+
+              <div class="flex items-center gap-2">
+                <span class="text-outline">Priority:</span>
+                <select
+                  value={conn.priority}
+                  onchange={(e) => handlePriorityChange(conn, Number(e.currentTarget.value))}
+                  class="bg-surface-container-lowest border border-surface-container-high text-on-surface text-[10px] font-code rounded px-1.5 py-0.5 cursor-pointer focus:outline-none"
+                >
+                  <option value={1}>P1</option>
+                  <option value={2}>P2</option>
+                  <option value={3}>P3</option>
+                  <option value={4}>P4</option>
+                </select>
+                <button
+                  type="button"
+                  onclick={() => handleDelete(conn)}
+                  class="text-outline hover:text-error transition cursor-pointer p-0.5"
+                  title="Delete connection"
+                >
+                  <Trash2 class="w-3 h-3" />
+                </button>
+              </div>
+            </div>
+          </div>
+        {/each}
+      </div>
+    {:else}
+      <div class="p-8 text-center text-outline text-xs border border-dashed border-surface-container-high rounded-xl">
+        No API key connections matching current filters. Click "Add API Provider" above to configure.
+      </div>
+    {/if}
+  </div>
+
+  <!-- MODAL: Add Custom Provider (Mac-Style Window from Stitch) -->
+  {#if isAddOpen}
+    <div class="fixed inset-0 z-50 flex items-center justify-center bg-surface-container-lowest/80 backdrop-blur-md p-4">
+      <div class="w-full max-w-lg p-6 rounded-2xl bg-surface-container-high border border-surface-container-highest shadow-2xl flex flex-col gap-4">
+        <!-- Mac-style Window Top Controls & Title -->
+        <div class="flex items-center justify-between pb-2 border-b border-surface-container">
+          <div class="flex items-center gap-2">
+            <button
+              type="button"
+              aria-label="Close dialog"
+              onclick={() => (isAddOpen = false)}
+              class="w-3 h-3 rounded-full bg-error hover:brightness-110 cursor-pointer"
+            ></button>
+            <div class="w-3 h-3 rounded-full bg-outline"></div>
+            <div class="w-3 h-3 rounded-full bg-tertiary"></div>
+            <span class="ml-2 font-headline text-sm font-bold text-on-surface">
+              Add Custom API / Proxy Provider
+            </span>
+          </div>
+        </div>
+
+        <form onsubmit={handleAddSubmit} class="space-y-3">
+          <div>
+            <label for="provider-select" class="block font-body text-xs font-semibold text-on-surface-variant mb-1">
+              Provider Archetype *
+            </label>
+            <select
+              id="provider-select"
+              bind:value={formProvider}
+              class="w-full bg-surface-container border border-surface-container-high rounded-lg px-3 py-2 font-body text-xs text-on-surface focus:outline-none focus:ring-1 focus:ring-primary-container"
+            >
+              <option value="openai">OpenAI Compatible (/v1/chat/completions)</option>
+              <option value="anthropic">Anthropic Compatible (/v1/messages)</option>
+              <option value="deepseek">DeepSeek Official</option>
+              <option value="groq">Groq High-Speed Cloud</option>
+              <option value="openrouter">OpenRouter Multi-Model Proxy</option>
+              <option value="ollama">Ollama Local Instance</option>
+              <option value="kiro">Amazon Q / Kiro Gateway</option>
+            </select>
+          </div>
+
+          <div>
+            <label for="provider-name" class="block font-body text-xs font-semibold text-on-surface-variant mb-1">
+              Display Name
+            </label>
+            <input
+              id="provider-name"
+              type="text"
+              placeholder="e.g. Anthropic Production Key"
+              bind:value={formName}
+              class="w-full bg-surface-container border border-surface-container-high rounded-lg px-3 py-2 font-body text-xs text-on-surface focus:outline-none focus:ring-1 focus:ring-primary-container"
+            />
+          </div>
+
+          <div>
+            <label for="base-url-input" class="block font-body text-xs font-semibold text-on-surface-variant mb-1">
+              Custom Base URL (Optional)
+            </label>
+            <input
+              id="base-url-input"
+              type="text"
+              placeholder="https://api.anthropic.com/v1"
+              bind:value={formBaseUrl}
+              class="w-full bg-surface-container border border-surface-container-high rounded-lg px-3 py-2 font-code text-xs text-on-surface focus:outline-none focus:ring-1 focus:ring-primary-container"
+            />
+          </div>
+
+          <div>
+            <label for="api-key-input" class="block font-body text-xs font-semibold text-on-surface-variant mb-1">
+              API Key Secret *
+            </label>
+            <input
+              id="api-key-input"
+              type="password"
+              placeholder="sk-..."
+              bind:value={formApiKey}
+              required
+              class="w-full bg-surface-container border border-surface-container-high rounded-lg px-3 py-2 font-code text-xs text-on-surface focus:outline-none focus:ring-1 focus:ring-primary-container"
+            />
+          </div>
+
+          <div>
+            <label for="priority-select" class="block font-body text-xs font-semibold text-on-surface-variant mb-1">
+              Failover Priority
+            </label>
+            <select
+              id="priority-select"
+              bind:value={formPriority}
+              class="w-full bg-surface-container border border-surface-container-high rounded-lg px-3 py-2 font-code text-xs text-on-surface focus:outline-none focus:ring-1 focus:ring-primary-container"
+            >
+              <option value={1}>P1 - Primary</option>
+              <option value={2}>P2 - Secondary</option>
+              <option value={3}>P3 - Backup</option>
+              <option value={4}>P4 - Cold Reserve</option>
+            </select>
+          </div>
+
+          <div class="flex items-center justify-end gap-2 pt-3 border-t border-surface-container">
+            <button
+              type="button"
+              onclick={() => (isAddOpen = false)}
+              class="px-4 py-2 rounded-lg font-body text-xs text-on-surface-variant hover:text-on-surface cursor-pointer"
+            >
+              Cancel
+            </button>
             <button
               type="submit"
-              disabled={isSavingKey}
-              class="w-full mt-2 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs flex items-center justify-center gap-2 transition shadow-lg shadow-indigo-600/20 cursor-pointer"
+              disabled={isSubmitting}
+              class="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary-container hover:brightness-110 text-on-primary font-body text-xs font-bold shadow-md shadow-primary-container/20 cursor-pointer"
             >
-              {#if isSavingKey}
-                <Loader2 class="w-4 h-4 animate-spin" />
+              {#if isSubmitting}
+                <Loader2 class="w-3.5 h-3.5 animate-spin" />
               {:else}
-                <Key class="w-4 h-4" />
+                <Check class="w-3.5 h-3.5" />
               {/if}
               <span>Save Connection</span>
             </button>
-          </form>
-        {/if}
+          </div>
+        </form>
+      </div>
+    </div>
+  {/if}
+
+  <!-- MODAL: Freebuff Device Flow (Stitch Style) -->
+  {#if isFreebuffModalOpen}
+    <div class="fixed inset-0 z-50 flex items-center justify-center bg-surface-container-lowest/80 backdrop-blur-md p-4">
+      <div class="w-full max-w-md p-6 rounded-2xl bg-surface-container-high border border-surface-container-highest shadow-2xl space-y-4">
+        <div class="flex items-center justify-between pb-2 border-b border-surface-container">
+          <div class="flex items-center gap-2">
+            <button
+              type="button"
+              aria-label="Close dialog"
+              onclick={() => (isFreebuffModalOpen = false)}
+              class="w-3 h-3 rounded-full bg-error cursor-pointer"
+            ></button>
+            <div class="w-3 h-3 rounded-full bg-outline"></div>
+            <div class="w-3 h-3 rounded-full bg-tertiary"></div>
+            <span class="ml-2 font-headline text-sm font-bold text-on-surface">
+              Freebuff CLI Device Pairing
+            </span>
+          </div>
+        </div>
+
+        <div class="space-y-3">
+          <p class="font-body text-xs text-on-surface-variant leading-relaxed">
+            Pair with freebuff.com using device flow. A new browser tab has been launched. Log in and allow authorization.
+          </p>
+
+          <div class="p-3.5 rounded-xl bg-surface-container-lowest border border-surface-container-high space-y-1.5 font-code text-xs">
+            <div class="text-outline text-[10px] uppercase">Device Auth Code</div>
+            <div class="text-secondary font-bold select-all tracking-wider">{fbAuthCode || 'Generating...'}</div>
+          </div>
+
+          <div class="flex items-center gap-2 p-3 rounded-xl bg-surface-container text-xs font-body {fbStatus === 'success'
+            ? 'text-tertiary bg-tertiary/10 border border-tertiary/20'
+            : fbStatus === 'error'
+              ? 'text-error bg-error/10 border border-error/20'
+              : 'text-on-surface-variant'}">
+            {#if fbStatus === 'polling'}
+              <Loader2 class="w-4 h-4 animate-spin text-secondary flex-shrink-0" />
+            {:else if fbStatus === 'success'}
+              <Check class="w-4 h-4 text-tertiary flex-shrink-0" />
+            {/if}
+            <span class="text-[11px]">{fbMessage}</span>
+          </div>
+
+          <div class="flex justify-end pt-2">
+            <button
+              type="button"
+              onclick={() => (isFreebuffModalOpen = false)}
+              class="px-4 py-2 rounded-lg bg-surface-container hover:bg-surface-container-highest text-on-surface font-body text-xs font-semibold cursor-pointer"
+            >
+              Done
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  <!-- MODAL: Antigravity Google OAuth (Stitch Style) -->
+  {#if isAntigravityModalOpen}
+    <div class="fixed inset-0 z-50 flex items-center justify-center bg-surface-container-lowest/80 backdrop-blur-md p-4">
+      <div class="w-full max-w-md p-6 rounded-2xl bg-surface-container-high border border-surface-container-highest shadow-2xl space-y-4">
+        <div class="flex items-center justify-between pb-2 border-b border-surface-container">
+          <div class="flex items-center gap-2">
+            <button
+              type="button"
+              aria-label="Close dialog"
+              onclick={() => (isAntigravityModalOpen = false)}
+              class="w-3 h-3 rounded-full bg-error cursor-pointer"
+            ></button>
+            <div class="w-3 h-3 rounded-full bg-outline"></div>
+            <div class="w-3 h-3 rounded-full bg-tertiary"></div>
+            <span class="ml-2 font-headline text-sm font-bold text-on-surface">
+              Google Antigravity OAuth
+            </span>
+          </div>
+        </div>
+
+        <div class="space-y-3 font-body text-xs">
+          <p class="text-on-surface-variant leading-relaxed">
+            Authenticate a Google AI account to access Gemini 1.5/2.0 Pro and Flash models under Antigravity multi-account failover.
+          </p>
+
+          <a
+            href="/api/oauth/antigravity/login"
+            class="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl bg-primary-container hover:brightness-110 text-on-primary font-bold shadow-md shadow-primary-container/20 transition cursor-pointer"
+          >
+            <Globe class="w-4 h-4" />
+            <span>Launch Google OAuth Login</span>
+          </a>
+
+          <div class="flex justify-end pt-2">
+            <button
+              type="button"
+              onclick={() => (isAntigravityModalOpen = false)}
+              class="px-4 py-1.5 rounded-lg text-outline hover:text-on-surface cursor-pointer"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   {/if}

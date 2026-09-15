@@ -7,6 +7,7 @@
   import ConnectionsView from './components/ConnectionsView.svelte'
   import Header, { type ActiveTab } from './components/Header.svelte'
   import SettingsView from './components/SettingsView.svelte'
+  import TerminalView from './components/TerminalView.svelte'
 
   let activeTab = $state<ActiveTab>('connections')
   let connections = $state<ProviderConnection[]>([])
@@ -39,7 +40,7 @@
   let activeConnectionsCount = $derived(connections.filter((c) => c.isActive === 1).length)
 </script>
 
-<div class="min-h-screen bg-[#090d16] text-slate-100 flex flex-col font-sans">
+<div class="min-h-screen bg-surface-container-lowest text-on-surface flex flex-col font-body selection:bg-primary-container/30 selection:text-white">
   <Header
     bind:activeTab
     totalConnections={connections.length}
@@ -48,9 +49,9 @@
 
   <main class="flex-1">
     {#if isLoading}
-      <div class="flex flex-col items-center justify-center h-[70vh] gap-3 text-slate-400">
-        <Loader2 class="w-6 h-6 animate-spin text-indigo-500" />
-        <span class="text-xs font-medium">Loading 9router native Svelte dashboard...</span>
+      <div class="flex flex-col items-center justify-center h-[70vh] gap-3 text-outline">
+        <Loader2 class="w-7 h-7 animate-spin text-primary-container" />
+        <span class="font-code text-xs">Initializing 9Router Stitch Gateway...</span>
       </div>
     {:else}
       {#if activeTab === 'connections'}
@@ -59,6 +60,8 @@
         <CombosView {combos} onRefresh={loadData} />
       {:else if activeTab === 'analytics'}
         <AnalyticsView />
+      {:else if activeTab === 'terminal'}
+        <TerminalView />
       {:else if activeTab === 'keys'}
         <ApiKeysView {apiKeys} onRefresh={loadData} />
       {:else if activeTab === 'settings'}

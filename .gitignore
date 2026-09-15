@@ -28,3 +28,4 @@ docker-compose.local.yml
 graphify-out
 node_modules/
 web/node_modules/
+stitch-screens/
