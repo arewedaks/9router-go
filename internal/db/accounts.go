@@ -256,6 +256,25 @@ func (r *Repo) clearConnectionModelLocks(id, data string) error {
 	return err
 }
 
+// ClearConnectionModelLocks removes every model lock and resets backoffLevel for
+// a single connection. Used when a connection's credential is replaced: the old
+// failure state describes the old token, so keeping it would leave a healthy
+// account cooling down. Scoped to one connection so unrelated accounts keep
+// their cooldowns.
+func (r *Repo) ClearConnectionModelLocks(connID string) error {
+	if connID == "" {
+		return nil
+	}
+	var data string
+	if err := r.db.QueryRow("SELECT data FROM providerConnections WHERE id = ?", connID).Scan(&data); err != nil {
+		if err == sql.ErrNoRows {
+			return nil
+		}
+		return err
+	}
+	return r.clearConnectionModelLocks(connID, data)
+}
+
 // checkConnectionModelLock parses connection data to check if modelLock_<model> is active.
 func checkConnectionModelLock(data string, model string) bool {
 	var raw map[string]any

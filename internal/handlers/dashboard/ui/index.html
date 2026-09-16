@@ -795,6 +795,44 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
     return "Failed (" + status + ").";
   }
 
+  // A duplicate account is not an error the operator should have to reverse by
+  // hand: the server answers 409 with the existing connection, and this renders
+  // the "update instead" option. Returns true when the response was a duplicate
+  // (so the caller stops treating it as a failure).
+  //
+  // `retry(extra)` re-sends the same exchange request with extra body fields;
+  // passing {replace:true} refreshes the existing connection's tokens in place.
+  function handleDuplicateAccount(data, status, msgEl, retry) {
+    if (status !== 409 || !data || !data.duplicate) return false;
+    const d = data.duplicate;
+    const who = d.existingName || d.existingConnId || "an existing connection";
+    const identity = [d.identityKind, d.identityValue].filter(Boolean).join(" ");
+    msgEl.style.color = "var(--warning, #d18b00)";
+    msgEl.innerHTML = "";
+
+    const text = document.createElement("span");
+    text.textContent = `This account is already connected as "${who}"` +
+      (identity ? ` (${identity})` : "") + ".";
+    msgEl.appendChild(text);
+
+    const btn = document.createElement("button");
+    btn.className = "btn btn-primary";
+    btn.style.cssText = "margin-left:8px; padding:2px 10px; font-size:0.72rem;";
+    btn.textContent = "Update that account instead";
+    btn.onclick = async () => {
+      btn.disabled = true;
+      btn.textContent = "Updating…";
+      try {
+        await retry({ replace: true });
+      } catch (e) {
+        msgEl.style.color = "var(--danger)";
+        msgEl.textContent = String(e);
+      }
+    };
+    msgEl.appendChild(btn);
+    return true;
+  }
+
   function switchTab(tabId) {
     document.querySelectorAll(".tab-pane").forEach(p => p.classList.remove("active"));
     document.querySelectorAll(".nav-btn").forEach(b => b.classList.remove("active"));
@@ -1559,13 +1597,14 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
 
     msg.style.color = "var(--muted)";
     msg.textContent = "Exchanging code…";
-    try {
+    const send = async (extra) => {
       const res = await api("/api/oauth/antigravity/exchange", {
         method: "POST",
-        body: JSON.stringify(body),
+        body: JSON.stringify(Object.assign({}, body, extra || {})),
       });
       const data = await res.json();
       if (!res.ok) {
+        if (handleDuplicateAccount(data, res.status, msg, send)) return;
         msg.style.color = "var(--danger)";
         msg.textContent = errorMessage(data, res.status);
         return;
@@ -1576,6 +1615,9 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
       document.getElementById("oauth-step2").style.display = "none";
       antigravityOAuthCtx = null;
       openProviderDetail(providerId);
+    };
+    try {
+      await send({});
     } catch (e) {
       msg.style.color = "var(--danger)";
       msg.textContent = String(e);
@@ -1660,33 +1702,40 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
       await new Promise(r => setTimeout(r, step));
       if (!codebuddyOAuthCtx || codebuddyOAuthCtx.state !== state) return;
       try {
-        const res = await api("/api/oauth/codebuddy/exchange", {
-          method: "POST",
-          body: JSON.stringify({
-            provider: providerId,
-            state: state,
-            name: (document.getElementById("oauth-cb-name") || {}).value || "",
-          }),
-        });
-        const data = await res.json();
-        if (res.status === 202) {
-          msg.style.color = "var(--muted)";
-          msg.textContent = data.message || "Still waiting for approval…";
-          continue;
-        }
-        if (!res.ok) {
-          msg.style.color = "var(--danger)";
-          msg.textContent = errorMessage(data, res.status);
+        const send = async (extra) => {
+          const res = await api("/api/oauth/codebuddy/exchange", {
+            method: "POST",
+            body: JSON.stringify(Object.assign({
+              provider: providerId,
+              state: state,
+              name: (document.getElementById("oauth-cb-name") || {}).value || "",
+            }, extra || {})),
+          });
+          const data = await res.json();
+          if (res.status === 202) {
+            msg.style.color = "var(--muted)";
+            msg.textContent = data.message || "Still waiting for approval…";
+            return;
+          }
+          if (!res.ok) {
+            if (handleDuplicateAccount(data, res.status, msg, send)) {
+              codebuddyOAuthCtx = null;
+              return;
+            }
+            msg.style.color = "var(--danger)";
+            msg.textContent = errorMessage(data, res.status);
+            codebuddyOAuthCtx = null;
+            return;
+          }
+          msg.style.color = "var(--accent)";
+          msg.textContent = `Added ${data.name || data.email || providerId}.`;
           codebuddyOAuthCtx = null;
+          const step2 = document.getElementById("oauth-cb-step2");
+          if (step2) step2.style.display = "none";
+          setTimeout(() => openProviderDetail(providerId), 600);
           return;
-        }
-        msg.style.color = "var(--accent)";
-        msg.textContent = `Added ${data.name || data.email || providerId}.`;
-        codebuddyOAuthCtx = null;
-        const step2 = document.getElementById("oauth-cb-step2");
-        if (step2) step2.style.display = "none";
-        setTimeout(() => openProviderDetail(providerId), 600);
-        return;
+        };
+        await send({});
       } catch (e) { /* keep polling */ }
     }
     if (codebuddyOAuthCtx && codebuddyOAuthCtx.state === state) {
@@ -1771,17 +1820,19 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
     }
     msg.style.color = "var(--muted)";
     msg.textContent = "Completing sign-in…";
-    try {
+    const baseBody = {
+      callbackUrl: value,
+      redirectUri: clineOAuthCtx ? clineOAuthCtx.redirectUri : "",
+      name: (document.getElementById("oauth-cl-name") || {}).value || "",
+    };
+    const send = async (extra) => {
       const res = await api("/api/oauth/cline/exchange", {
         method: "POST",
-        body: JSON.stringify({
-          callbackUrl: value,
-          redirectUri: clineOAuthCtx ? clineOAuthCtx.redirectUri : "",
-          name: (document.getElementById("oauth-cl-name") || {}).value || "",
-        }),
+        body: JSON.stringify(Object.assign({}, baseBody, extra || {})),
       });
       const data = await res.json();
       if (!res.ok) {
+        if (handleDuplicateAccount(data, res.status, msg, send)) return;
         msg.style.color = "var(--danger)";
         msg.textContent = errorMessage(data, res.status);
         return;
@@ -1791,6 +1842,9 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
       msg.textContent = `Added ${data.connection || "account"}.`;
       if (typeof loadDetail === "function") loadDetail(providerId);
       if (typeof loadProviders === "function") loadProviders();
+    };
+    try {
+      await send({});
     } catch (e) {
       msg.style.color = "var(--danger)";
       msg.textContent = String(e);
@@ -1870,32 +1924,39 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
       await new Promise(r => setTimeout(r, step));
       if (!githubOAuthCtx || githubOAuthCtx.deviceCode !== deviceCode) return;
       try {
-        const res = await api("/api/oauth/github/exchange", {
-          method: "POST",
-          body: JSON.stringify({
-            deviceCode: deviceCode,
-            name: (document.getElementById("oauth-gh-name") || {}).value || "",
-          }),
-        });
-        const data = await res.json();
-        if (res.status === 202) {
-          msg.style.color = "var(--muted)";
-          msg.textContent = data.message || "Still waiting for approval…";
-          continue;
-        }
-        if (!res.ok) {
-          msg.style.color = "var(--danger)";
-          msg.textContent = errorMessage(data, res.status);
+        const send = async (extra) => {
+          const res = await api("/api/oauth/github/exchange", {
+            method: "POST",
+            body: JSON.stringify(Object.assign({
+              deviceCode: deviceCode,
+              name: (document.getElementById("oauth-gh-name") || {}).value || "",
+            }, extra || {})),
+          });
+          const data = await res.json();
+          if (res.status === 202) {
+            msg.style.color = "var(--muted)";
+            msg.textContent = data.message || "Still waiting for approval…";
+            return;
+          }
+          if (!res.ok) {
+            if (handleDuplicateAccount(data, res.status, msg, send)) {
+              githubOAuthCtx = null;
+              return;
+            }
+            msg.style.color = "var(--danger)";
+            msg.textContent = errorMessage(data, res.status);
+            githubOAuthCtx = null;
+            return;
+          }
+          msg.style.color = "var(--accent)";
+          msg.textContent = `Added ${data.name || "github"}.`;
           githubOAuthCtx = null;
+          const step2 = document.getElementById("oauth-gh-step2");
+          if (step2) step2.style.display = "none";
+          setTimeout(() => openProviderDetail("github"), 600);
           return;
-        }
-        msg.style.color = "var(--accent)";
-        msg.textContent = `Added ${data.name || "github"}.`;
-        githubOAuthCtx = null;
-        const step2 = document.getElementById("oauth-gh-step2");
-        if (step2) step2.style.display = "none";
-        setTimeout(() => openProviderDetail("github"), 600);
-        return;
+        };
+        await send({});
       } catch (e) { /* keep polling */ }
     }
     if (githubOAuthCtx && githubOAuthCtx.deviceCode === deviceCode) {
