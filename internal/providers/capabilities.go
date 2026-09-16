@@ -31,8 +31,8 @@ func SetCustomModelCaps(provider, model string, caps Capabilities) {
 	customCaps[key] = caps
 	// also store base model variant
 	base := model
-	if _, after, ok := strings.CutLast(model, "/"); ok {
-		base = after
+	if i := strings.LastIndex(model, "/"); i >= 0 {
+		base = model[i+1:]
 	}
 	if base != model {
 		customCaps[provider+"||"+base] = caps
@@ -52,8 +52,8 @@ func GetCustomModelCaps(provider, model string) (Capabilities, bool) {
 		return caps, true
 	}
 	// try base model
-	if _, after, ok := strings.CutLast(model, "/"); ok {
-		base := after
+	if i := strings.LastIndex(model, "/"); i >= 0 {
+		base := model[i+1:]
 		customCapsMu.RLock()
 		caps, ok = customCaps[provider+"||"+base]
 		customCapsMu.RUnlock()
@@ -406,8 +406,8 @@ func GetCapabilitiesForModel(provider, model string) Capabilities {
 	capsCacheMu.RUnlock()
 
 	baseModel := model
-	if _, after, ok := strings.CutLast(model, "/"); ok {
-		baseModel = after
+	if i := strings.LastIndex(model, "/"); i >= 0 {
+		baseModel = model[i+1:]
 	}
 
 	// 1. Provider-specific override

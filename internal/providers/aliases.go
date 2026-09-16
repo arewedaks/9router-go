@@ -115,3 +115,16 @@ func GetProviderAlias(providerID string) string {
 	}
 	return providerID
 }
+
+// AliasesFor returns every known short key that resolves to the given
+// canonical provider ID. Useful when a cache (e.g. cachedProviderModels) was
+// populated using short aliases ("ag") rather than the canonical ID.
+func AliasesFor(canonical string) []string {
+	var out []string
+	for alias, target := range ProviderAliasMap {
+		if target == canonical && alias != canonical {
+			out = append(out, alias)
+		}
+	}
+	return out
+}
