@@ -26,6 +26,28 @@ var lcaMetadata = map[string]any{
 	"pluginType": 2, // GEMINI
 }
 
+// antigravityDiscoveryUserAgent is the fallback User-Agent for the onboarding
+// RPCs when the caller has no connection profile to hand.
+//
+// Google returns an EMPTY cloudaicompanionProject for requests that identify as
+// the raw API client (google-api-nodejs-client/9.15.1) but returns the real
+// project when the request identifies as an Antigravity client. Sending the
+// wrong UA here silently parks otherwise-healthy accounts in the "no project"
+// state, which surfaces to users as a connect failure. Verified live against
+// cloudcode-pa.googleapis.com with both UAs on the same token.
+const antigravityDiscoveryUserAgent = "google-api-nodejs-client/9.15.1"
+
+// discoveryUserAgent returns the User-Agent to send on discovery/onboarding
+// RPCs. When the caller knows the connection's profile (IDE vs CLI) we send the
+// matching Antigravity UA; otherwise we fall back to the legacy value so
+// behaviour is unchanged for non-Antigravity callers.
+func discoveryUserAgent(userAgent string) string {
+	if strings.TrimSpace(userAgent) != "" {
+		return userAgent
+	}
+	return antigravityDiscoveryUserAgent
+}
+
 // projectNoCache short-circuits re-probing the onboarding RPCs for a token whose
 // project Google has already confirmed missing (unprovisioned Antigravity/GCP
 // account). Without it, every retried request re-hits loadCodeAssist+onboardUser,
@@ -110,7 +132,7 @@ func cacheProjectMissing(connID string) {
 //     must NOT trigger redundant refreshes.
 //   - noProject:   Google definitively said "no project for this token" (200
 //     with nothing mapped). Safe to cache so we stop hammering the RPCs.
-func fetchAntigravityProjectID(ctx context.Context, client *http.Client, accessToken string) (pid string, authFailed, noProject bool) {
+func fetchAntigravityProjectID(ctx context.Context, client *http.Client, accessToken, userAgent string) (pid string, authFailed, noProject bool) {
 	payload, err := json.Marshal(map[string]any{"metadata": lcaMetadata})
 	if err != nil {
 		log.Error("antigravity", "loadCodeAssist marshal failed", "error", err)
@@ -123,7 +145,7 @@ func fetchAntigravityProjectID(ctx context.Context, client *http.Client, accessT
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+accessToken)
-	req.Header.Set("User-Agent", "google-api-nodejs-client/9.15.1")
+	req.Header.Set("User-Agent", discoveryUserAgent(userAgent))
 	req.Header.Set("X-Goog-Api-Client", "google-cloud-sdk vscode_cloudshelleditor/0.1")
 
 	clientMetadata, err := json.Marshal(lcaMetadata)
@@ -183,11 +205,11 @@ func fetchAntigravityProjectID(ctx context.Context, client *http.Client, accessT
 		}
 	}
 
-	pid, authFailed, onboardNoProject := onboardAntigravityUser(ctx, client, accessToken, tierID)
+	pid, authFailed, onboardNoProject := onboardAntigravityUser(ctx, client, accessToken, tierID, userAgent)
 	return pid, authFailed, noProject || onboardNoProject
 }
 
-func onboardAntigravityUser(ctx context.Context, client *http.Client, accessToken, tierID string) (pid string, authFailed, noProject bool) {
+func onboardAntigravityUser(ctx context.Context, client *http.Client, accessToken, tierID, userAgent string) (pid string, authFailed, noProject bool) {
 	maxAttempts := getOnboardMaxAttempts()
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		payload, err := json.Marshal(map[string]any{
@@ -211,7 +233,7 @@ func onboardAntigravityUser(ctx context.Context, client *http.Client, accessToke
 		}
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+accessToken)
-		req.Header.Set("User-Agent", "google-api-nodejs-client/9.15.1")
+		req.Header.Set("User-Agent", discoveryUserAgent(userAgent))
 		req.Header.Set("X-Goog-Api-Client", "google-cloud-sdk vscode_cloudshelleditor/0.1")
 
 		clientMetadata, err := json.Marshal(lcaMetadata)

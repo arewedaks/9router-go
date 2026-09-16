@@ -53,7 +53,14 @@ func (h *ChatHandler) forwardGeminiNativeRequest(
 	}
 
 	if (provider == "antigravity" || provider == "gemini-cli") && projectID == "" && !projectProbeCached(connectionID) {
-		pid, authFailed, noProject := fetchAntigravityProjectID(ctx, h.Client, apiKey)
+		// Identify as a real Antigravity client on the discovery RPCs. The
+		// generic API-client UA makes Google omit cloudaicompanionProject even
+		// for provisioned accounts, which then looks like "no project".
+		discoveryUA := ""
+		if cfg != nil {
+			discoveryUA = cfg.StaticHeaders["User-Agent"]
+		}
+		pid, authFailed, noProject := fetchAntigravityProjectID(ctx, h.Client, apiKey, discoveryUA)
 		switch {
 		case pid != "":
 			projectID = pid
@@ -69,7 +76,7 @@ func (h *ChatHandler) forwardGeminiNativeRequest(
 				if pid2 != "" {
 					projectID = pid2
 					h.storeAntigravityProjectID(connectionID, pid2)
-				} else if pid2, _, _ := fetchAntigravityProjectID(ctx, h.Client, apiKey); pid2 != "" {
+				} else if pid2, _, _ := fetchAntigravityProjectID(ctx, h.Client, apiKey, discoveryUA); pid2 != "" {
 					projectID = pid2
 					h.storeAntigravityProjectID(connectionID, pid2)
 				}
