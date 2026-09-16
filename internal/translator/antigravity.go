@@ -659,7 +659,8 @@ func ParseImageConfig(model string) (cleanModel, aspectRatio string) {
 	cleanModel = model
 
 	// Look for suffix like -16x9, -4x3, -1x1, -1024x768
-	if before, suffix, ok := strings.CutLast(model, "-"); ok && suffix != "" {
+	if i := strings.LastIndex(model, "-"); i >= 0 && i < len(model)-1 {
+		before, suffix := model[:i], model[i+1:]
 		if xIdx := strings.Index(suffix, "x"); xIdx != -1 {
 			var w, h int
 			if _, err := fmt.Sscanf(suffix, "%dx%d", &w, &h); err == nil && w > 0 && h > 0 {

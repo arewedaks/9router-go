@@ -1,4 +1,6 @@
 BINARY_NAME := 9router-go
+export GOTOOLCHAIN ?= local
+export GOEXPERIMENT ?= jsonv2
 # Central version — single source: VERSION file, fallback to version.json, then git
 VERSION ?= $(shell cat VERSION 2>/dev/null || (cat version.json 2>/dev/null | grep -o '"latestVersion": *"[^"]*"' | cut -d'"' -f4) || git describe --tags --always 2>/dev/null || echo "1.0.0")
 PORT ?= 20128

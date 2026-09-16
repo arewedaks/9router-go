@@ -9,6 +9,8 @@ import (
 	"os/signal"
 	"runtime"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -54,6 +56,19 @@ func main() {
 				Name:  "no-injection-guard",
 				Value: os.Getenv("INJECTION_GUARD_DISABLED") == "true",
 				Usage: "disable the prompt-injection detector (on by default; env: INJECTION_GUARD_DISABLED)",
+			},
+			&cli.IntFlag{
+				Name:    "port",
+				Aliases: []string{"p"},
+				Usage:   "port to listen on (env: PORT)",
+			},
+			&cli.StringFlag{
+				Name:  "db-path",
+				Usage: "path to SQLite database file or directory (env: DB_PATH)",
+			},
+			&cli.StringFlag{
+				Name:  "data-dir",
+				Usage: "path to base data directory (env: DATA_DIR)",
 			},
 		},
 		Commands: []*cli.Command{
@@ -128,6 +143,28 @@ func main() {
 }
 
 func runServer(cCtx *cli.Context) error {
+	if cCtx.IsSet("port") && cCtx.Int("port") > 0 {
+		os.Setenv("PORT", strconv.Itoa(cCtx.Int("port")))
+	}
+	if cCtx.IsSet("db-path") {
+		dbPath := cCtx.String("db-path")
+		if strings.HasPrefix(dbPath, "~") {
+			if home, err := os.UserHomeDir(); err == nil {
+				dbPath = filepath.Join(home, strings.TrimPrefix(dbPath, "~"))
+			}
+		}
+		os.Setenv("DB_PATH", dbPath)
+	}
+	if cCtx.IsSet("data-dir") {
+		dataDir := cCtx.String("data-dir")
+		if strings.HasPrefix(dataDir, "~") {
+			if home, err := os.UserHomeDir(); err == nil {
+				dataDir = filepath.Join(home, strings.TrimPrefix(dataDir, "~"))
+			}
+		}
+		os.Setenv("DATA_DIR", dataDir)
+	}
+
 	if logPath := os.Getenv("LOG_FILE"); logPath != "" {
 		logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 		if err == nil {

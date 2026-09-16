@@ -197,8 +197,8 @@ func parseMiMoModelVoice(model string) (modelID, voiceID string) {
 	case strings.HasPrefix(model, mimoDefaultModel+"/"):
 		return mimoDefaultModel, strings.TrimPrefix(model, mimoDefaultModel+"/")
 	}
-	if before, after, ok := strings.CutLast(model, "/"); ok && before != "" {
-		return before, after
+	if i := strings.LastIndex(model, "/"); i > 0 {
+		return model[:i], model[i+1:]
 	}
 	return mimoDefaultModel, mimoDefaultVoice
 }

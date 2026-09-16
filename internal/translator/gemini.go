@@ -394,8 +394,10 @@ func TranslateOpenAIToGemini(openaiBody []byte) ([]byte, error) {
 // extractThoughtSig extracts a thought_signature encoded in a tool call ID (format: "...__ts__<sig>").
 func extractThoughtSig(id string) string {
 	const sep = "__ts__"
-	if _, after, ok := strings.CutLast(id, sep); ok && after != "" {
-		return after
+	if i := strings.LastIndex(id, sep); i >= 0 {
+		if after := id[i+len(sep):]; after != "" {
+			return after
+		}
 	}
 	return ""
 }
