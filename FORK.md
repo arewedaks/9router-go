@@ -93,6 +93,22 @@ step, no framework. Routes are registered in `internal/handlers/router.go`.
 
   Endpoints: `POST /api/dashboard/connections/{id}/test` and
   `POST /api/dashboard/providers/{id}/test-connections`
+
+- **Antigravity project discovery sends the Antigravity User-Agent** — the
+  onboarding RPCs (`loadCodeAssist`, `onboardUser`) used to identify as
+  `google-api-nodejs-client/9.15.1`. Google answers that with a **200 that omits
+  `cloudaicompanionProject`**, even for fully provisioned accounts, so the fork
+  concluded "no project" and every chat returned `502` for a healthy login.
+  Verified live on one token: the generic UA yields no project, while the
+  Antigravity UA (`antigravity/ide/…` or `antigravity/cli/…`) returns the real
+  project id. Both RPCs now send the connection's own UA (the same IDE/CLI
+  profile used for chat), falling back to the legacy value only when the caller
+  has no profile. This is why accounts that looked "failed" in Test Connection
+  recovered with no change to their credentials.
+
+  Note the two are different failures: Test Connection short-circuits an expired
+  access token without a network call (the next chat refreshes it), so an
+  "expired" verdict is not a dead account.
   (`{"parallel":false,"connectionIds":[]}`; sequential by default for the same
   refresh-race reason). Timeout via `CONNECTION_TEST_TIMEOUT_MS` (default 30s).
 

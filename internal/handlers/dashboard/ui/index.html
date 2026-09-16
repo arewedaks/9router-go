@@ -154,24 +154,28 @@
     @media (min-width: 1024px) { .prov-card-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
     @media (min-width: 1280px) { .prov-card-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
 
-    .prov-card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 14px; cursor: pointer; transition: border-color .15s, transform .15s; position: relative; overflow: hidden; }
+    /* Category sections (OAuth, Free Tier, API Key, …) mirroring the upstream
+       Next.js providers page: a titled group per category, cards below. */
+    .prov-sections { display: flex; flex-direction: column; gap: 26px; }
+    .prov-section { display: flex; flex-direction: column; gap: 12px; }
+    .prov-section-head { display: flex; align-items: flex-start; gap: 9px; }
+    .prov-section-dot { width: 9px; height: 9px; border-radius: 50%; margin-top: 6px; flex-shrink: 0; }
+    .prov-section-text { min-width: 0; }
+    .prov-section-title { font-size: 1rem; font-weight: 600; color: #e6edf3; line-height: 1.3; margin: 0; display: flex; align-items: center; gap: 7px; }
+    .prov-section-count { font-size: 0.7rem; font-weight: 600; color: var(--muted); background: var(--panel-hover); border: 1px solid var(--border); border-radius: 999px; padding: 1px 8px; }
+    .prov-section-blurb { font-size: 0.75rem; color: var(--muted); margin: 2px 0 0; }
+
+    .prov-card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 14px; cursor: pointer; transition: border-color .15s, transform .15s; position: relative; overflow: hidden; display: flex; align-items: center; gap: 12px; }
     .prov-card:hover { border-color: var(--muted); transform: translateY(-1px); }
-    .prov-card-head { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 10px; }
+    .prov-card-main { flex: 1; min-width: 0; }
     .prov-card-icon { width: 38px; height: 38px; border-radius: 10px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
     .prov-card-icon .msym { font-size: 21px; color: #fff; }
-    .prov-card-title { font-size: 0.9rem; font-weight: 600; color: #e6edf3; line-height: 1.25; }
-    .prov-card-sub { font-size: 0.72rem; color: var(--muted); font-family: monospace; margin-top: 1px; }
-    .prov-card-body { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
+    .prov-card-title { font-size: 0.92rem; font-weight: 600; color: #e6edf3; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .kind-chip { display: inline-flex; align-items: center; gap: 3px; background: #161b22; border: 1px solid var(--border); border-radius: 5px; padding: 2px 6px; font-size: 0.66rem; color: var(--muted); }
     .kind-chip .msym { font-size: 12px; }
-    .prov-card-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
-    .prov-avatars { display: flex; align-items: center; }
-    .prov-avatar { width: 22px; height: 22px; border-radius: 50%; background: var(--panel-hover); border: 2px solid var(--panel); display: flex; align-items: center; justify-content: center; font-size: 0.6rem; color: #e6edf3; font-weight: 600; margin-left: -7px; }
-    .prov-avatar:first-child { margin-left: 0; }
-    .prov-avatar.more { background: #30363d; color: var(--muted); }
     .risk-banner { background: #3d2b12; border: 1px solid #9e6a03; color: #e3b341; border-radius: 8px; padding: 8px 10px; font-size: 0.72rem; line-height: 1.4; margin-top: 10px; display: flex; gap: 7px; }
     .risk-banner .msym { font-size: 15px; flex-shrink: 0; }
-    .prov-expand-body { margin-top: 12px; border-top: 1px solid var(--border); padding-top: 10px; }
+    .prov-expand-body { flex-basis: 100%; margin-top: 12px; border-top: 1px solid var(--border); padding-top: 10px; }
     .prov-acct-line { display: flex; align-items: center; gap: 8px; padding: 6px 0; font-size: 0.78rem; border-bottom: 1px dashed var(--border); }
     .prov-acct-line:last-child { border-bottom: none; }
     .prov-acct-line .em { color: #e6edf3; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -381,14 +385,14 @@
       <button class="filter-btn active" id="f-all" onclick="setCategoryFilter('all')">All (<span id="cnt-all">0</span>)</button>
       <button class="filter-btn" id="f-oauth" onclick="setCategoryFilter('oauth')">🟣 OAuth Providers (<span id="cnt-oauth">0</span>)</button>
       <button class="filter-btn" id="f-freeTier" onclick="setCategoryFilter('freeTier')">🔵 Free Tier (<span id="cnt-freeTier">0</span>)</button>
-      <button class="filter-btn" id="f-free" onclick="setCategoryFilter('free')">🟩 Free (<span id="cnt-free">0</span>)</button>
       <button class="filter-btn" id="f-apikey" onclick="setCategoryFilter('apikey')">🟡 API Key (<span id="cnt-apikey">0</span>)</button>
       <button class="filter-btn" id="f-webCookie" onclick="setCategoryFilter('webCookie')">🍪 Web Cookie (<span id="cnt-webCookie">0</span>)</button>
       <button class="filter-btn" id="f-custom" onclick="setCategoryFilter('custom')">🟢 Compatible (<span id="cnt-custom">0</span>)</button>
     </div>
 
-    <!-- Provider cards: mirrors the upstream Next.js dashboard grid -->
-    <div class="prov-card-grid" id="providers-table-body">
+    <!-- Provider cards grouped into category sections (OAuth, Free Tier, API
+         Key, …), mirroring the upstream Next.js dashboard providers page. -->
+    <div class="prov-sections" id="providers-table-body">
       <div style="text-align:center; color:var(--muted); padding:30px; border:1px dashed var(--border); border-radius:12px;">Loading connections...</div>
     </div>
   </div>
@@ -1614,6 +1618,10 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
   }
 
   function setCategoryFilter(cat) {
+    // Normalise "free" into the combined "Free Tier" section so the filter pill
+    // and the overview distribution card both select the same provider set.
+    // "all" is a sentinel, not a category, so it passes through untouched.
+    if (cat !== "all") cat = sectionKeyFor(cat);
     currentCategory = cat;
     document.querySelectorAll(".filter-btn").forEach(b => b.classList.remove("active"));
     const btn = document.getElementById("f-" + cat);
@@ -1636,15 +1644,16 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
   }
 
   function updateCategoryCounts(list) {
-    const counts = { all: list.length, oauth: 0, freeTier: 0, free: 0, apikey: 0, webCookie: 0, custom: 0 };
+    // "free" and "freeTier" share one dashboard section, so the filter pill
+    // reports the combined total rather than two buttons for one section.
+    const counts = { all: list.length, oauth: 0, freeTier: 0, apikey: 0, webCookie: 0, custom: 0 };
     list.forEach(p => {
-      const cat = p.category || "apikey";
+      const cat = sectionKeyFor(p.category);
       if (counts[cat] !== undefined) counts[cat]++;
     });
     document.getElementById("cnt-all").innerText = counts.all;
     document.getElementById("cnt-oauth").innerText = counts.oauth;
     document.getElementById("cnt-freeTier").innerText = counts.freeTier;
-    document.getElementById("cnt-free").innerText = counts.free;
     document.getElementById("cnt-apikey").innerText = counts.apikey;
     document.getElementById("cnt-webCookie").innerText = counts.webCookie;
     document.getElementById("cnt-custom").innerText = counts.custom;
@@ -1744,6 +1753,29 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
     return `hsl(${h}, 45%, 32%)`;
   }
 
+  // Section metadata mirrors the Go backend (internal/providers/category.go):
+  // the provider registry already classifies every entry, and the dashboard ships
+  // that classification as `category` + `categoryLabel` on each connection. We
+  // only add the section chrome (order, accent colour, blurb) the card grid needs.
+  // Order and labels match the upstream Next.js dashboard sections.
+  const CATEGORY_SECTIONS = {
+    oauth:     { label: "OAuth Providers",   dot: "#3b82f6", blurb: "Accounts signed in via OAuth or a CLI session." },
+    freeTier:  { label: "Free Tier Providers", dot: "#22c55e", blurb: "Free tiers, free credits, and no-key providers." },
+    apikey:    { label: "API Key Providers", dot: "#eab308", blurb: "Providers authenticated with an API key." },
+    webCookie: { label: "Web Cookie Providers", dot: "#a855f7", blurb: "Web session cookie providers." },
+    custom:    { label: "Compatible Endpoints", dot: "#14b8a6", blurb: "OpenAI/Anthropic-compatible endpoints." }
+  };
+
+  // Render order (top -> bottom), mirroring providers.CategoryOrder.
+  const CATEGORY_ORDER = ["oauth", "freeTier", "apikey", "webCookie", "custom"];
+
+  // The backend groups "free" under the "Free Tier" section, so a card's
+  // category must be normalised before it can pick a section.
+  function sectionKeyFor(category) {
+    if (!category) return "apikey";
+    return category === "free" ? "freeTier" : category;
+  }
+
   function accountsExpanded(prov, accounts) {
     return accounts.map(p => {
       const label = p.accountLabel || p.email || p.name || p.id.substring(0, 12);
@@ -1789,7 +1821,29 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
       return pa - pb;
     });
 
-    container.innerHTML = order.map(prov => {
+    // Bucket providers by their dashboard section (OAuth, Free Tier, API Key, …)
+    // so each category renders as its own titled group, matching the upstream
+    // Next.js providers page. Providers whose category has no section metadata
+    // fall into "apikey" (the catch-all) rather than disappearing.
+    const bySection = {};
+    order.forEach(prov => {
+      const key = sectionKeyFor(groups[prov][0].category);
+      (bySection[key] = bySection[key] || []).push(prov);
+    });
+
+    const sections = CATEGORY_ORDER.filter(k => bySection[k] && bySection[k].length);
+
+    // Fallback: a provider carrying an unknown category would land in a bucket
+    // that CATEGORY_ORDER does not know about — surface it instead of dropping it.
+    Object.keys(bySection).forEach(k => {
+      if (sections.indexOf(k) === -1) sections.push(k);
+    });
+
+    // When a single category filter is active, the section header is redundant
+    // (the filter bar already names it) — drop the chrome and just show the grid.
+    const showSectionHeaders = sections.length > 1 || currentCategory === "all";
+
+    const renderCard = prov => {
       const accounts = groups[prov];
       accounts.sort((a, b) => (a.priority || 999) - (b.priority || 999));
       const head = accounts[0];
@@ -1798,52 +1852,48 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
       const color = head.color || "#388bfd";
       const icon = head.icon || "smart_toy";
 
-      // Overlapping avatar stack (up to 3 shown, then +N).
-      const shown = accounts.slice(0, 3).map(a => {
-        const lbl = (a.accountLabel || a.email || a.name || "?").trim();
-        const initials = lbl.substring(0, 2).toUpperCase();
-        return `<span class="prov-avatar" style="background:${avatarColor(lbl)}" title="${escapeHtml(lbl)}">${escapeHtml(initials)}</span>`;
-      }).join("");
-      const more = accounts.length > 3
-        ? `<span class="prov-avatar more">+${accounts.length - 3}</span>` : "";
-
-      const riskBanner = head.deprecationNotice
-        ? `<div class="risk-banner"><span class="msym">warning</span><span>${escapeHtml(head.deprecationNotice)}</span></div>`
-        : "";
-
+      // Card is intentionally minimal: logo, title, connected-account count.
+      // The category is conveyed by the section the card sits in, so it is not
+      // repeated on the card itself.
       return `
         <div class="prov-card" onclick="openProviderDetail('${prov}')">
-          <div class="prov-card-head">
-            <div class="prov-card-icon" style="background:${color}">
-              <span class="msym">${escapeHtml(icon)}</span>
-            </div>
-            <div style="flex:1; min-width:0;">
-              <div class="prov-card-title">${escapeHtml(head.displayName || prov)}</div>
-              <div class="prov-card-sub">${escapeHtml(prov)}</div>
-            </div>
-            <span class="msym" style="color:var(--muted);">chevron_right</span>
+          <div class="prov-card-icon" style="background:${color}">
+            <span class="msym">${escapeHtml(icon)}</span>
           </div>
-          <div class="prov-card-body">
-            ${getCategoryBadge(head.category, head.categoryLabel)}
-            <span class="prov-count-pill">${activeCount}/${accounts.length} active</span>
+          <div class="prov-card-main">
+            <div class="prov-card-title">${escapeHtml(head.displayName || prov)}</div>
           </div>
-          <div class="prov-card-body" style="margin-top:8px;">${kindChips(head.serviceKinds, 3)}</div>
-          ${riskBanner}
-          <div class="prov-card-foot">
-            <div class="prov-avatars">${shown}${more}</div>
-            <span style="font-size:0.7rem; color:var(--muted); display:flex; align-items:center; gap:4px;">
-              <span class="msym" style="font-size:13px;">vpn_key</span>${escapeHtml(head.authType)}
-            </span>
-          </div>
+          <span class="prov-count-pill" title="${activeCount} dari ${accounts.length} akun aktif">${activeCount}/${accounts.length}</span>
           ${isOpen ? `<div class="prov-expand-body" onclick="event.stopPropagation()">${accountsExpanded(prov, accounts)}</div>` : ""}
         </div>`;
+    };
+
+    container.innerHTML = sections.map(key => {
+      const meta = CATEGORY_SECTIONS[key] || { label: key, dot: "var(--muted)", blurb: "" };
+      const providers = bySection[key];
+      const cardCount = providers.length;
+      const accountCount = providers.reduce((n, p) => n + groups[p].length, 0);
+      const header = showSectionHeaders ? `
+        <div class="prov-section-head">
+          <span class="prov-section-dot" style="background:${meta.dot}"></span>
+          <div class="prov-section-text">
+            <h3 class="prov-section-title">${escapeHtml(meta.label)} <span class="prov-section-count">${cardCount}</span></h3>
+            ${meta.blurb ? `<p class="prov-section-blurb">${escapeHtml(meta.blurb)}</p>` : ""}
+          </div>
+        </div>` : "";
+
+      return `
+        <section class="prov-section" data-section="${escapeHtml(key)}">
+          ${header}
+          <div class="prov-card-grid">${providers.map(renderCard).join("")}</div>
+        </section>`;
     }).join("");
   }
 
   function filterProviders() {
     const q = document.getElementById("provider-search").value.toLowerCase().trim();
     const filtered = allProviders.filter(p => {
-      const matchCat = (currentCategory === "all") || (p.category === currentCategory);
+      const matchCat = (currentCategory === "all") || (sectionKeyFor(p.category) === currentCategory);
       if (!matchCat) return false;
       if (!q) return true;
       return (
