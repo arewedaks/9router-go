@@ -3,6 +3,7 @@ package db
 import (
 	json "encoding/json/v2"
 	"fmt"
+	"strings"
 	"time"
 
 	"9router/proxy/internal/models"
@@ -132,6 +133,36 @@ type CachedModel struct {
 	Kind         string `json:"kind"`
 	OwnedBy      string `json:"ownedBy"`
 	Capabilities string `json:"capabilities,omitempty"`
+	// DisplayName is the upstream's friendly label for the model (e.g. "V4.1
+	// Flash" for `deepseek-v4.1-flash`), when it differs from the id. It is
+	// persisted inside the otherwise-unused `capabilities` column as
+	// `{"name":"..."}` so no schema migration is needed.
+	DisplayName string `json:"displayName,omitempty"`
+	// IsFree is computed per request by the provider handler (it depends on
+	// provider free-tier membership, which the Repo does not know). It is not
+	// stored.
+	IsFree bool `json:"isFree"`
+}
+
+// modelCachePayload is the JSON blob stored in cachedProviderModels.capabilities.
+// The column is free-form and had no other writer, so reusing it keeps the DB
+// schema identical to the Next.js build (which is why no migration is needed).
+type modelCachePayload struct {
+	Name string `json:"name,omitempty"`
+}
+
+// decodeModelCacheName extracts the stored display name from the capabilities
+// column, tolerating legacy/plain values (which simply yield "").
+func decodeModelCacheName(capabilities string) string {
+	capabilities = strings.TrimSpace(capabilities)
+	if capabilities == "" || !strings.HasPrefix(capabilities, "{") {
+		return ""
+	}
+	var payload modelCachePayload
+	if err := json.Unmarshal([]byte(capabilities), &payload); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(payload.Name)
 }
 
 // ListCachedModels returns cached models for any of the given provider keys
@@ -165,6 +196,7 @@ func (r *Repo) ListCachedModels(keys ...string) ([]CachedModel, error) {
 		if err := rows.Scan(&m.ModelID, &m.Kind, &m.OwnedBy, &m.Capabilities); err != nil {
 			return nil, fmt.Errorf("scan cached model: %w", err)
 		}
+		m.DisplayName = decodeModelCacheName(m.Capabilities)
 		out = append(out, m)
 	}
 	return out, rows.Err()
@@ -197,6 +229,14 @@ func (r *Repo) ResolveModelCacheKey(canonical string, aliasCandidates []string) 
 // mirroring the upstream "Add Custom Model" action on
 // /dashboard/providers/[id].
 func (r *Repo) AddCachedModel(providerKey, modelID, kind, ownedBy string) error {
+	return r.AddCachedModelWithName(providerKey, modelID, kind, ownedBy, "")
+}
+
+// AddCachedModelWithName is AddCachedModel plus the upstream display name.
+// The name is stored in the free-form capabilities column (see CachedModel),
+// and an empty name deliberately does NOT clobber a previously stored one, so
+// a re-import that drops the label never erases it.
+func (r *Repo) AddCachedModelWithName(providerKey, modelID, kind, ownedBy, displayName string) error {
 	if modelID == "" {
 		return fmt.Errorf("model ID is required")
 	}
@@ -206,14 +246,21 @@ func (r *Repo) AddCachedModel(providerKey, modelID, kind, ownedBy string) error 
 	if ownedBy == "" {
 		ownedBy = "custom"
 	}
+	payload := ""
+	if name := strings.TrimSpace(displayName); name != "" {
+		if encoded, err := json.Marshal(modelCachePayload{Name: name}); err == nil {
+			payload = string(encoded)
+		}
+	}
 	_, err := r.db.Exec(
 		`INSERT INTO cachedProviderModels (providerId, modelId, kind, ownedBy, capabilities, updatedAt)
-		 VALUES (?, ?, ?, ?, '', ?)
+		 VALUES (?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(providerId, modelId) DO UPDATE SET
 			kind = excluded.kind,
 			ownedBy = excluded.ownedBy,
+			capabilities = CASE WHEN excluded.capabilities IN ('', '{}') THEN capabilities ELSE excluded.capabilities END,
 			updatedAt = excluded.updatedAt`,
-		providerKey, modelID, kind, ownedBy, time.Now().UnixMilli(),
+		providerKey, modelID, kind, ownedBy, payload, time.Now().UnixMilli(),
 	)
 	if err != nil {
 		return fmt.Errorf("add cached model: %w", err)

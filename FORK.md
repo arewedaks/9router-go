@@ -57,6 +57,17 @@ step, no framework. Routes are registered in `internal/handlers/router.go`.
   (and `v1internal:models`) across the `daily-*` and stable Cloud Code hosts,
   drops non-chat/retired/internal entries, and labels the survivors. When every
   host fails it degrades to a local catalogue with a warning instead of erroring.
+- **CodeBuddy model import** — CodeBuddy (both `codebuddy-cn` and
+  `codebuddy-intl`) has **no** model-listing route: `/v2/models`, `/v1/models`
+  and every plausible alias answer `404` against a valid account. The fork used
+  to answer "Provider codebuddy does not support models listing", so `Import
+  from /models` could never work for it. It now returns a built-in catalogue
+  (GLM / MiniMax / DeepSeek / Hunyuan / Kimi, derived from the model locks seen
+  on real accounts) with a warning explaining why the list is static. Retired ids
+  (e.g. `deepseek-v4-flash`, which upstream rejects with
+  `service info not found`, code 11102) and non-chat surfaces are filtered out.
+  OmniRoute does the same — it ships a CodeBuddy catalogue and declares no fetch
+  endpoint.
 - **Antigravity client profile (IDE / CLI)** — each Antigravity connection can
   present either the IDE or the standalone Antigravity CLI (`agy`) client
   identity. The profile is stored per connection under
@@ -216,10 +227,34 @@ skip) when a stored credential is missing or out of quota, so a red
 
 ## Notes and gotchas
 
+- The provider detail panel is fully re-rendered on every state change — each
+  model test, add, import, and remove calls `renderProviderDetail` again. The
+  open sub-tab therefore lives in the `activeDetailTab` variable, not in the DOM:
+  `renderProviderDetail` reads it to mark the active button and show the right
+  pane. It used to hard-code Connections as active, so testing a model snapped
+  the operator back to the Connections tab on every result. `openProviderDetail`
+  takes a `keepTab` flag; actions taken *inside* the panel pass `true`, while
+  opening a provider from the grid resets to Connections.
 - The model cache (`cachedProviderModels`) is keyed by **short alias** (`ag`),
   not the canonical provider ID (`antigravity`). `ResolveModelCacheKey` writes
   new models under whichever key already holds data, otherwise the router never
   sees them.
+- Each model row shows the **full id the router expects** (`<alias>/<modelId>`,
+  e.g. `cbai/deepseek-v4.1-flash`) on top, and the upstream's own label beneath
+  it when it differs. The label is stored in the otherwise-unused
+  `cachedProviderModels.capabilities` column as `{"name":"…"}` — no schema
+  migration — and a re-import never blanks an already-stored name.
+- The green **Free** badge is ported from OmniRoute's
+  `src/shared/utils/freeModels.ts` + `open-sse/config/freeModelCatalog.data.ts`,
+  in `internal/providers/freemodels.go`. A model is free when its id is in the
+  shipped catalogue for that provider, or — only for a provider with a
+  documented free tier — it carries a payload signal (`isFree: true`, a `:free`
+  suffix, or zero prompt *and* completion prices). The `free` field is only a
+  signal when it is literally `true`/`"true"`/`"free"`, so a truthy-but-not-`true`
+  value such as the string `"false"` never badges. CodeBuddy has **no**
+  documented free tier, so `cbai/glm-5.2` and friends are never free no matter
+  the payload; the catalogue is deliberately small (only providers this fork
+  routes) because a missing entry fails safe to "not free".
 - Model IDs contain `/`, so the delete endpoint takes `?modelId=` as a query
   parameter rather than a path segment.
 - `/models` responses are capped at 2 MB. OpenRouter returns 443 models; an
@@ -259,6 +294,32 @@ skip) when a stored credential is missing or out of quota, so a red
 - Antigravity OAuth client credentials are already embedded in
   `internal/providers/oauth.go` (`KnownOAuthConfigs["antigravity"]`) and match
   the public installed-app client OmniRoute ships; `envOr` overrides still win.
+- CodeBuddy accounts can also be added by signing in, using Tencent's custom
+  *device-auth* handshake (no client_id/secret — the client ships none). The two
+  regions are **genuinely different endpoints**, not one backend with two names,
+  so the region config (host, `platform`, headers, User-Agent) is threaded
+  through every call (mirrors VansRouter's
+  `open-sse/providers/registry/codebuddy-{cn,intl}.js`):
+  - `codebuddy-cn` → `copilot.tencent.com`, `platform=CLI`, `CLI/2.63.2` UA.
+  - `codebuddy-intl` → `www.codebuddy.ai`, `platform=ide`, `IDE/2.63.2` UA,
+    `X-Domain: www.codebuddy.ai`.
+  - `GET  /api/oauth/codebuddy/authorize?provider=codebuddy-cn|codebuddy-intl`
+    → `{ state, authUrl }`. It POSTs `{stateUrl}?platform=<platform>` with a
+    `{}` body; the platform **must** be a query param — body-only returns
+    `400 "platform is empty"`.
+  - `POST /api/oauth/codebuddy/exchange` `{provider, state, name?}` → polled by
+    the dashboard. Answers `202` while the operator has not approved yet
+    (upstream `code 11217 RetryFetchToken`) and `200` once the account is saved.
+  The poll is a **GET with `state` in the query string**, not POST/body — that
+  detail is what makes it match the real client. The flow is stateless
+  server-side (the browser holds the state), so it works on a headless server
+  with no loopback callback. Aliases `cbcn`/`cbai` are accepted.
+- CodeBuddy token **refresh** is likewise non-standard: it POSTs a `{}` body and
+  carries the token in the **`X-Refresh-Token` header** (plus
+  `X-Auth-Refresh-Source: plugin`, `X-Domain` = region host), per VansRouter's
+  `tokenRefresh/providers.js#refreshCodebuddyToken`. Handled by
+  `internal/proxy/oauth/codebuddy.go` (`RefreshCodebuddy`), not the shared
+  StandardRefresher, and each region refreshes against its own host.
 
 ## Contributing back
 

@@ -30,6 +30,10 @@ type UpstreamModel struct {
 	ID   string `json:"id"`
 	Name string `json:"name,omitempty"`
 	Kind string `json:"kind,omitempty"`
+	// IsFree mirrors the dashboard's Free badge (see providers.IsModelFreeBadge)
+	// so the Import modal can show the same signal the detail page does. It is
+	// filled by the handler, which knows the canonical provider id.
+	IsFree bool `json:"isFree,omitempty"`
 }
 
 // upstreamResponse covers the common list envelopes returned by providers:
@@ -167,6 +171,14 @@ func (h *Handler) fetchUpstreamModels(providerID, data string, timeout time.Dura
 	// before the generic registry lookup, which has no entry for it.
 	if isAntigravityProvider(canonical) || isAntigravityProvider(providerID) {
 		return h.fetchAntigravityModels(canonical, data, timeout)
+	}
+
+	// CodeBuddy (both variants) has no /models route at all, so it can only be
+	// served from a local catalogue — see codebuddy_catalog.go. Handle it before
+	// the generic registry lookup, which has no entry for it and would otherwise
+	// report "does not support models listing".
+	if isCodebuddyProvider(canonical) || isCodebuddyProvider(providerID) {
+		return h.fetchCodebuddyModels(canonical)
 	}
 
 	client := &http.Client{Timeout: timeout}

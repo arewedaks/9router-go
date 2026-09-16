@@ -680,3 +680,81 @@ func TestDoModelRequestHTTPError(t *testing.T) {
 		t.Fatalf("error body not surfaced: %q", res.Error)
 	}
 }
+
+// TestProviderDetail_ModelDisplayNameAndFreeBadge guards the two additions to
+// each model row: the friendly upstream label (persisted in the cache) and the
+// per-provider Free flag computed at read time.
+func TestProviderDetail_ModelDisplayNameAndFreeBadge(t *testing.T) {
+	_, repo, r := setupTestDashboard(t)
+
+	// Antigravity is a keyless free-tier provider (see providers.freeModelCatalog),
+	// so a catalogued id must come back flagged free while an arbitrary one must not.
+	if err := repo.AddCachedModelWithName("antigravity", "claude-sonnet-4-6", "llm", "imported", "Claude Sonnet 4.6"); err != nil {
+		t.Fatalf("seed free model: %v", err)
+	}
+	if err := repo.AddCachedModelWithName("antigravity", "mystery-model", "llm", "imported", "Mystery"); err != nil {
+		t.Fatalf("seed paid model: %v", err)
+	}
+
+	req := httptest.NewRequest("GET", "/api/dashboard/providers/antigravity", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("detail endpoint failed: %d", w.Code)
+	}
+	var d ProviderDetail
+	if err := json.Unmarshal(w.Body.Bytes(), &d); err != nil {
+		t.Fatalf("unmarshal detail: %v", err)
+	}
+
+	byID := map[string]db.CachedModel{}
+	for _, m := range d.Models {
+		byID[m.ModelID] = m
+	}
+	free, ok := byID["claude-sonnet-4-6"]
+	if !ok {
+		t.Fatalf("free model missing from detail: %+v", d.Models)
+	}
+	if free.DisplayName != "Claude Sonnet 4.6" {
+		t.Errorf("display name not persisted/returned: %q", free.DisplayName)
+	}
+	if !free.IsFree {
+		t.Error("catalogued free model was not flagged free")
+	}
+	paid, ok := byID["mystery-model"]
+	if !ok {
+		t.Fatalf("paid model missing from detail: %+v", d.Models)
+	}
+	if paid.IsFree {
+		t.Error("uncatalogued model was wrongly flagged free")
+	}
+	if paid.DisplayName != "Mystery" {
+		t.Errorf("display name not returned for paid model: %q", paid.DisplayName)
+	}
+}
+
+// TestAddCachedModelWithName_DoesNotClobber guards that a re-import without a
+// label never erases an already-stored display name.
+func TestAddCachedModelWithName_DoesNotClobber(t *testing.T) {
+	_, repo, _ := setupTestDashboard(t)
+
+	if err := repo.AddCachedModelWithName("antigravity", "glm-test", "llm", "imported", "Nice Label"); err != nil {
+		t.Fatalf("first add: %v", err)
+	}
+	if err := repo.AddCachedModel("antigravity", "glm-test", "llm", "imported"); err != nil {
+		t.Fatalf("second add: %v", err)
+	}
+	models, err := repo.ListCachedModels("antigravity")
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	for _, m := range models {
+		if m.ModelID == "glm-test" {
+			if m.DisplayName != "Nice Label" {
+				t.Errorf("display name was clobbered by an empty re-import: %q", m.DisplayName)
+			}
+			return
+		}
+	}
+	t.Fatal("model not found after re-import")
+}
