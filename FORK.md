@@ -106,11 +106,36 @@ step, no framework. Routes are registered in `internal/handlers/router.go`.
   has no profile. This is why accounts that looked "failed" in Test Connection
   recovered with no change to their credentials.
 
-  Note the two are different failures: Test Connection short-circuits an expired
-  access token without a network call (the next chat refreshes it), so an
-  "expired" verdict is not a dead account.
-  (`{"parallel":false,"connectionIds":[]}`; sequential by default for the same
-  refresh-race reason). Timeout via `CONNECTION_TEST_TIMEOUT_MS` (default 30s).
+  Note the two used to be different failures: Test Connection short-circuited an
+  expired access token without a network call, so an "expired" verdict was not a
+  dead account. That short-circuit is now gone — see the token-refresh section
+  below; Test Connection refreshes an expired token before probing.
+  (`{"parallel":false,"connectionIds":[]}`; sequential by default as a pacing
+  choice, not a safety one — refreshes are serialised per connection).
+  Timeout via `CONNECTION_TEST_TIMEOUT_MS` (default 30s).
+
+**Per-connection single-flight OAuth refresh (Test Connection now refreshes)** —
+this fork's OAuth refresher had no per-connection lock, so two concurrent
+refreshes of the *same* connection could both send the same single-use refresh
+token; the loser got `refresh_token_reused` / `invalid_grant` and a healthy
+account was bricked until re-login. Because of that, the original Test
+Connection deliberately refused to refresh and reported `Token expired`
+instead.
+
+That is fixed. `oauth.RefreshStoredConnection` is now the single entry point
+for refreshing a stored connection. It takes a per-connection lock for the whole
+`read → refresh → persist` sequence and **re-checks expiry inside the lock**, so
+N concurrent callers produce exactly one exchange and the rest adopt the token
+the winner wrote. Both the chat path (`refreshOAuthTokenIfExpired`,
+`forceRefreshOAuthToken`) and the dashboard probe go through it, so a
+"Test Connection" click can no longer race a live chat request on the same
+refresh token.
+
+Test Connection therefore refreshes an expired token *before* probing and
+reports `refreshed: true` when it did. A failed refresh is not fatal: the probe
+still runs and reports the real upstream verdict (401/403). The batch endpoint
+stays sequential by default, but that is now pacing rather than a correctness
+requirement.
 
 **Provider taxonomy** — the exact category scheme from the Next.js build
 (`free`, `freeTier`, `oauth`, `apikey`, `webCookie`, `custom`), plus display
@@ -169,6 +194,25 @@ Flags: `--port`, `--db-path`, `--data-dir` (with tilde expansion).
 ```sh
 GOTOOLCHAIN=local GOEXPERIMENT=jsonv2 go test -short ./internal/handlers/dashboard/... ./internal/db/... ./internal/providers/...
 ```
+
+The OAuth refresh and connection-test packages carry concurrency tests that are
+only meaningful under the race detector:
+
+```sh
+GOTOOLCHAIN=local GOEXPERIMENT=jsonv2 go test -race ./internal/proxy/oauth/ ./internal/handlers/dashboard/
+```
+
+`TestRefreshStoredConnection_ConcurrentCallersRefreshOnce` asserts that N
+concurrent callers produce exactly one token exchange, and
+`TestRefreshExpiredTokenForTest_AdoptsConcurrentRefresh` asserts that a caller
+which lost the race still probes with the winner's fresh token rather than its
+stale copy.
+
+The `TestLiveE2E_*` tests in `internal/handlers/chat` hit real upstreams with the
+connections in your local `~/.9router/db/data.sqlite`; they fail (rather than
+skip) when a stored credential is missing or out of quota, so a red
+`TestLiveE2E_*` is not necessarily a regression. Run them with
+`-skip TestLiveE2E` for a hermetic unit run.
 
 ## Notes and gotchas
 

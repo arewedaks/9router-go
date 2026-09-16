@@ -5,11 +5,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 
+	"9router/proxy/internal/db"
 	"9router/proxy/internal/providers"
 
 	json "encoding/json/v2"
@@ -389,5 +391,110 @@ func TestConnectionTestBatchDeadline(t *testing.T) {
 	}
 	if capped := connectionTestBatchDeadline(100000, false); capped > 10*time.Minute+time.Second {
 		t.Fatalf("deadline must be capped, got %v", capped)
+	}
+}
+
+// --- pre-probe token refresh ---------------------------------------------
+
+// TestRefreshExpiredTokenForTest_AdoptsConcurrentRefresh is the regression test
+// for the concurrency bug found in live testing: when several probes run at
+// once, the first refreshes the token and the rest observe a still-valid token
+// (so they do no refresh of their own). Each of those callers must STILL adopt
+// the fresh token, otherwise it probes with the stale copy it read before
+// queueing — reporting a false "invalid" for a perfectly healthy account.
+func TestRefreshExpiredTokenForTest_AdoptsConcurrentRefresh(t *testing.T) {
+	h, database := newProfileTestHandler(t)
+
+	// A fake token endpoint: counts calls and always issues a fresh token.
+	var calls int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&calls, 1)
+		w.Write([]byte(`{"access_token":"fresh-from-server","expires_in":3600}`))
+	}))
+	defer srv.Close()
+
+	const provider = "refreshregress"
+	prevCfg, hadCfg := providers.KnownOAuthConfigs[provider]
+	providers.KnownOAuthConfigs[provider] = providers.OAuthClientConfig{
+		ClientID: "id", ClientSecret: "secret", TokenURL: srv.URL,
+	}
+	t.Cleanup(func() {
+		if hadCfg {
+			providers.KnownOAuthConfigs[provider] = prevCfg
+		} else {
+			delete(providers.KnownOAuthConfigs, provider)
+		}
+	})
+
+	past := time.Now().Add(-time.Hour).Format(time.RFC3339)
+	data := `{"accessToken":"stale-token","refreshToken":"r1","expiresAt":"` + past + `"}`
+	seedConnection(t, db.NewRepo(database), "conn-reg", provider, data)
+
+	conn, err := h.repo.GetProviderConnectionByID("conn-reg")
+	if err != nil || conn == nil {
+		t.Fatalf("load seeded connection: %v", err)
+	}
+
+	// Simulate the losing caller: it read the blob (stale token) BEFORE another
+	// caller refreshed. It must come back with the FRESH token, not its stale one.
+	staleRaw := map[string]any{
+		"accessToken":  "stale-token",
+		"refreshToken": "r1",
+		"expiresAt":    past,
+	}
+
+	refresh, err := h.refreshExpiredTokenForTest(context.Background(), conn, staleRaw)
+	if err != nil {
+		t.Fatalf("refresh error: %v", err)
+	}
+	if !refresh.changed {
+		t.Fatal("changed must be true: the resolved token differs from the stale one")
+	}
+	if refresh.accessToken != "fresh-from-server" {
+		t.Fatalf("adopted token %q, want fresh-from-server", refresh.accessToken)
+	}
+	if refresh.performed != true {
+		// This caller *did* perform the first refresh (nothing refreshed before it).
+		t.Fatal("the first caller should have performed the refresh")
+	}
+
+	// A second caller with the SAME stale blob must adopt the token without a
+	// second exchange.
+	staleRaw2 := map[string]any{
+		"accessToken":  "stale-token",
+		"refreshToken": "r1",
+		"expiresAt":    past,
+	}
+	refresh2, err := h.refreshExpiredTokenForTest(context.Background(), conn, staleRaw2)
+	if err != nil {
+		t.Fatalf("second refresh error: %v", err)
+	}
+	if refresh2.accessToken != "fresh-from-server" {
+		t.Fatalf("second caller adopted %q, want fresh-from-server", refresh2.accessToken)
+	}
+	if refresh2.performed {
+		t.Fatal("second caller must NOT perform another refresh; the token is already fresh")
+	}
+	if n := atomic.LoadInt32(&calls); n != 1 {
+		t.Fatalf("token endpoint called %d times across two callers; want exactly 1", n)
+	}
+}
+
+// TestRefreshExpiredTokenForTest_IgnoresNonOAuth guards that API-key connections
+// are never touched by the pre-probe refresh.
+func TestRefreshExpiredTokenForTest_IgnoresNonOAuth(t *testing.T) {
+	h, database := newProfileTestHandler(t)
+	seedConnection(t, db.NewRepo(database), "conn-key", "openai", `{"apiKey":"sk-abc"}`)
+
+	conn, err := h.repo.GetProviderConnectionByID("conn-key")
+	if err != nil || conn == nil {
+		t.Fatalf("load connection: %v", err)
+	}
+	refresh, err := h.refreshExpiredTokenForTest(context.Background(), conn, map[string]any{"apiKey": "sk-abc"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if refresh.changed || refresh.performed || refresh.accessToken != "" {
+		t.Fatalf("api-key connection must be untouched, got %+v", refresh)
 	}
 }

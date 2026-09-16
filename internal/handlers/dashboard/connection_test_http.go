@@ -21,9 +21,11 @@ import (
 //
 //	{} → {"connectionId":"...","valid":true,"status":200,"latencyMs":412,...}
 //
-// The probe is read-only: nothing about the connection is mutated. See
-// testConnection for why upstream's stateful behaviour is deliberately not
-// ported to this fork.
+// The probe does not mutate the connection's ROUTING state (activation flag,
+// cooldown, backoff) — see testConnection for why upstream's stateful behaviour
+// is deliberately not ported to this fork. It DOES refresh an expired OAuth
+// token before probing, through the per-connection lock shared with the chat
+// path, so an account that is one refresh away from healthy reports green.
 //
 // A completed probe always returns HTTP 200, even when Valid is false — the
 // request succeeded in producing a verdict, and the UI distinguishes the
@@ -55,11 +57,11 @@ func (h *Handler) HandleTestConnection(w http.ResponseWriter, r *http.Request) {
 
 // connectionTestBatchRequest is the body for a provider-wide connection test.
 type connectionTestBatchRequest struct {
-	// Parallel opts into concurrent probing. Defaults to SEQUENTIAL: in this
-	// fork the OAuth refresher has no per-connection mutex or in-flight dedup,
-	// so fanning probes out concurrently is the only way to risk two refreshes
-	// racing on the same refresh token. Sequential is the safe default; the
-	// operator can still opt in.
+	// Parallel opts into concurrent probing. Defaults to SEQUENTIAL, which keeps
+	// the progress readout readable and avoids a burst of probes against one
+	// provider. Refreshes are serialised per connection by a lock shared with the
+	// chat path, so concurrency is not a correctness risk — this is a pacing
+	// choice, not a safety one.
 	Parallel bool `json:"parallel"`
 	// ConnectionIDs optionally restricts the test to specific accounts.
 	ConnectionIDs []string `json:"connectionIds,omitempty"`
