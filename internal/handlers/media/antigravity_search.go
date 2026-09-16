@@ -12,6 +12,7 @@ import (
 	"9router/proxy/internal/handlers/chat"
 	"9router/proxy/internal/handlerutil"
 	"9router/proxy/internal/log"
+	"9router/proxy/internal/providers"
 	"9router/proxy/internal/translator"
 )
 
@@ -172,7 +173,11 @@ func (h *MediaHandler) handleAntigravitySearch(w http.ResponseWriter, r *http.Re
 
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+apiKey)
-	httpReq.Header.Set("User-Agent", "antigravity/ide/2.11.0 darwin/arm64")
+	userAgent := providers.AntigravityUserAgentForData(connData.ProviderSpecificData)
+	if ua, ok := providerCfg.StaticHeaders["User-Agent"]; ok && ua != "" {
+		userAgent = ua
+	}
+	httpReq.Header.Set("User-Agent", userAgent)
 
 	client := h.ChatH.GetClientForConnection(connData)
 	resp, err := client.Do(httpReq)

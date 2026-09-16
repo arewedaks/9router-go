@@ -1,13 +1,6 @@
 package chat
 
 import (
-	json "encoding/json/v2"
-	"fmt"
-	"math/rand/v2"
-	"net/http"
-	"net/url"
-	"strings"
-	"sync"
 	"9router/proxy/internal/constants"
 	"9router/proxy/internal/db"
 	"9router/proxy/internal/log"
@@ -15,6 +8,13 @@ import (
 	"9router/proxy/internal/providers"
 	internalproxy "9router/proxy/internal/proxy"
 	"9router/proxy/internal/translator"
+	json "encoding/json/v2"
+	"fmt"
+	"math/rand/v2"
+	"net/http"
+	"net/url"
+	"strings"
+	"sync"
 )
 
 // CredentialFallbacks maps search/tool providers to the primary chat provider whose API key can be reused.
@@ -28,7 +28,6 @@ var (
 	proxyClientsMu sync.RWMutex
 	proxyClients   = make(map[string]*http.Client)
 )
-
 
 // GetBestConnection retrieves the highest-priority active connection for a provider.
 // When connectionID is non-empty, it fetches that specific connection directly.
@@ -191,6 +190,25 @@ func (h *ChatHandler) getProviderConfig(provider string, connData *ConnectionDat
 
 	if baseCfg == nil {
 		return nil, fmt.Errorf("provider %q has no baseUrl in connection data and is not in KnownProviders", provider)
+	}
+
+	// Antigravity engines share one backend but two official client identities
+	// (IDE vs CLI). Resolve the connection's selected profile into a User-Agent
+	// header so every downstream caller (chat, quota, search) presents the same
+	// identity without each one re-reading connection data.
+	if provider == "antigravity" && connData != nil {
+		cloned := *baseCfg
+		if cloned.StaticHeaders == nil {
+			cloned.StaticHeaders = map[string]string{}
+		} else {
+			hdrs := make(map[string]string, len(cloned.StaticHeaders)+1)
+			for k, v := range cloned.StaticHeaders {
+				hdrs[k] = v
+			}
+			cloned.StaticHeaders = hdrs
+		}
+		cloned.StaticHeaders["User-Agent"] = providers.AntigravityUserAgentForData(connData.ProviderSpecificData)
+		baseCfg = &cloned
 	}
 
 	// Check if this connection uses an Edge Relay Proxy Pool (Vercel, Cloudflare, Deno)

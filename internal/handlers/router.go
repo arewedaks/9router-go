@@ -2,9 +2,9 @@ package handlers
 
 import (
 	json "encoding/json/v2"
+	"github.com/go-chi/chi/v5"
 	"net/http"
 	"net/http/pprof"
-	"github.com/go-chi/chi/v5"
 
 	"9router/proxy/internal/constants"
 	"9router/proxy/internal/db"
@@ -101,6 +101,13 @@ func SetupRoutes(r interface {
 	r.Post("/api/oauth/codex/bulk-import", oauthH.HandleOAuthCodexBulkImport)
 	r.Post("/api/oauth/grok-cli/bulk-import", oauthH.HandleOAuthGrokCliBulkImport)
 
+	// Antigravity OAuth (add account from the dashboard). Authorize returns the
+	// Google consent URL + PKCE; exchange turns the pasted callback into a
+	// provider connection. (The public loopback callback route lives in
+	// SetupServerRouter so Google's redirect needs no API key.)
+	r.Get("/api/oauth/antigravity/authorize", oauthH.HandleAntigravityAuthorize)
+	r.Post("/api/oauth/antigravity/exchange", oauthH.HandleAntigravityExchange)
+
 	// Live Console Logs Domain (dashboard "Monitor Console Log")
 	r.Get("/translator/console-logs", HandleConsoleLogsGet)
 	r.Delete("/translator/console-logs", HandleConsoleLogsDelete)
@@ -125,6 +132,13 @@ func SetupServerRouter(r chi.Router, repo *db.Repo, ts *TokenSaverConfig) {
 	// Public root and login routes load the embedded dashboard
 	r.Get("/", dashH.ServeUI)
 	r.Get("/login", dashH.ServeUI)
+
+	// Antigravity OAuth loopback callback must be reachable WITHOUT an API key:
+	// the browser arrives here straight from Google's redirect and carries no
+	// Authorization header. It is safe to expose — it only completes a flow
+	// whose PKCE verifier is held in this process's in-memory store.
+	oauthPublic := oauth.NewOAuthHandler(repo)
+	r.Get("/oauth/antigravity/callback", oauthPublic.HandleAntigravityCallback)
 
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set(constants.HeaderContentType, constants.ContentTypeJSON)

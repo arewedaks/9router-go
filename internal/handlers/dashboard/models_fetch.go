@@ -162,6 +162,13 @@ func (h *Handler) fetchUpstreamModels(providerID, data string, timeout time.Dura
 	canonical := providers.ResolveAlias(providerID)
 	token, baseURL := credentialFromData(data)
 
+	// Antigravity has no OpenAI-style /models endpoint; its catalogue lives
+	// behind the Cloud Code v1internal:fetchAvailableModels POST. Handle it
+	// before the generic registry lookup, which has no entry for it.
+	if isAntigravityProvider(canonical) || isAntigravityProvider(providerID) {
+		return h.fetchAntigravityModels(canonical, data, timeout)
+	}
+
 	client := &http.Client{Timeout: timeout}
 
 	// Branch 1 & 2: user-defined compatible endpoints need a base URL.
