@@ -110,6 +110,12 @@ func SetupRoutes(r interface {
 	r.Get("/api/oauth/antigravity/authorize", oauthH.HandleAntigravityAuthorize)
 	r.Post("/api/oauth/antigravity/exchange", oauthH.HandleAntigravityExchange)
 
+	// CodeBuddy OAuth (device-auth handshake). Authorize starts the flow and
+	// returns {state, authUrl}; exchange is polled with that state until the
+	// operator approves. Stateless server-side, so it works headless.
+	r.Get("/api/oauth/codebuddy/authorize", oauthH.HandleCodebuddyAuthorize)
+	r.Post("/api/oauth/codebuddy/exchange", oauthH.HandleCodebuddyExchange)
+
 	// Live Console Logs Domain (dashboard "Monitor Console Log")
 	r.Get("/translator/console-logs", HandleConsoleLogsGet)
 	r.Delete("/translator/console-logs", HandleConsoleLogsDelete)

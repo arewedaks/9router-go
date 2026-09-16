@@ -455,6 +455,14 @@ func (h *Handler) HandleProviderDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	models, err := h.repo.ListCachedModels(keys...)
 	if err == nil && len(models) > 0 {
+		// Free-ness is a property of the (provider, model) pair, so it is
+		// computed here rather than in the Repo: see providers.IsModelFreeBadge.
+		for i := range models {
+			models[i].IsFree = providers.IsModelFreeBadge(canonical, providers.FreeModelCandidate{
+				ID:          models[i].ModelID,
+				DisplayName: models[i].DisplayName,
+			})
+		}
 		detail.Models = models
 	}
 
@@ -544,6 +552,14 @@ func (h *Handler) HandleImportModels(w http.ResponseWriter, r *http.Request) {
 		handlerutil.WriteJSONError(w, http.StatusBadGateway, err.Error())
 		return
 	}
+	// Annotate each candidate with the dashboard’s Free flag so the Import
+	// modal can show the same badge the detail page renders.
+	for i := range result.Models {
+		result.Models[i].IsFree = providers.IsModelFreeBadge(canonical, providers.FreeModelCandidate{
+			ID:          result.Models[i].ID,
+			DisplayName: result.Models[i].Name,
+		})
+	}
 	if result.Error != "" && !result.Supported {
 		// Provider simply has no listing endpoint — report cleanly.
 		handlerutil.WriteJSON(w, http.StatusOK, result)
@@ -567,13 +583,14 @@ func (h *Handler) HandleImportModels(w http.ResponseWriter, r *http.Request) {
 
 		added := 0
 		for _, m := range result.Models {
-			if have[m.ID] {
+			// Always re-upsert so an already-cached model picks up a display name
+			// it did not have before (the DB upsert never blanks a stored name).
+			if err := h.repo.AddCachedModelWithName(key, m.ID, m.Kind, "imported", m.Name); err != nil {
 				continue
 			}
-			if err := h.repo.AddCachedModel(key, m.ID, m.Kind, "imported"); err != nil {
-				continue
+			if !have[m.ID] {
+				added++
 			}
-			added++
 		}
 		result.Warning = fmt.Sprintf("Imported %d new model(s) under cache key %q.", added, key)
 	}

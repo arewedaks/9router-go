@@ -73,6 +73,9 @@
     .conn-status.warn { color: #e3b341; background: #3a2d10; }
     .conn-test-btn { flex: 0 0 auto; }
     .conn-test-btn.testing { opacity: 0.7; cursor: progress; }
+    /* Trailing account controls (status, Test, toggle, Delete) sit as one rigid
+       group pinned to the right edge, so they never drift next to the label. */
+    .conn-actions { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; margin-left: auto; }
     .conn-test-bar { display: flex; align-items: center; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
     .conn-test-progress { font-size: 0.72rem; color: var(--muted); }
     .acct-email { color: #e6edf3; font-weight: 500; }
@@ -195,7 +198,16 @@
     .cap-item.on { border-color: #2ea043; }
     .cap-item.on .msym { color: #3fb950; }
     .model-row { display: flex; align-items: center; gap: 10px; padding: 8px 11px; background: var(--panel); border: 1px solid var(--border); border-radius: 7px; margin-bottom: 5px; font-size: 0.82rem; transition: border-color 0.2s; }
-    .model-row .mid { flex: 1 1 auto; min-width: 90px; font-family: monospace; color: #e6edf3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    /* The names block stacks the full "alias/modelId" the router expects on top
+       of the upstream's own label, mirroring OmniRoute's model row. */
+    .model-row .mnames { flex: 1 1 auto; min-width: 90px; display: flex; flex-direction: column; gap: 1px; overflow: hidden; }
+    /* `.mid` is used both inside `.mnames` (model rows) and standalone on
+       account rows; in both cases it must absorb the free space so the trailing
+       controls are pushed to the right edge instead of hugging the label. */
+    .model-row .mid { flex: 1 1 auto; min-width: 40px; font-family: monospace; color: #e6edf3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .model-row .msub { font-size: 0.68rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .mfree { flex: 0 0 auto; font-size: 0.62rem; font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase;
+      color: #3fb950; background: rgba(63,185,80,0.12); border: 1px solid rgba(63,185,80,0.35); border-radius: 4px; padding: 1px 5px; }
     .model-row .mkind { font-size: 0.66rem; color: var(--muted); flex: 0 1 auto; min-width: 0; max-width: 64px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     /* The fixed-width controls (profile select, toggle, delete) never shrink, so
        the account label always keeps a readable slice instead of collapsing. */
@@ -229,7 +241,9 @@
     .modal-foot { display: flex; align-items: center; gap: 8px; padding: 11px 15px; border-top: 1px solid var(--border); }
     .import-row { display: flex; align-items: center; gap: 10px; padding: 7px 4px; border-bottom: 1px solid var(--border); cursor: pointer; font-size: 0.82rem; }
     .import-row:hover { background: rgba(255,255,255,.03); }
-    .import-row .mid { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .import-row .mid { font-family: monospace; color: #e6edf3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .import-row .mnames { flex: 1 1 auto; min-width: 90px; display: flex; flex-direction: column; gap: 1px; overflow: hidden; }
+    .import-row .msub { font-size: 0.68rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .import-row input { accent-color: var(--primary); }
   </style>
 </head>
@@ -803,7 +817,17 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
     }).join("");
 
     // Connections tab — includes the "Add connection" form.
+    //
+    // OAuth providers are added by signing in, not by pasting a key: Antigravity
+    // has a dedicated Google OAuth panel below, so the generic key/cookie form is
+    // redundant and just invites a broken credential the user can never fix.
+    // Suppress it whenever an OAuth panel is offered for this provider.
     const isAntigravity = d.provider === "antigravity" || d.provider === "agy";
+    const isCodebuddy = d.provider === "codebuddy-cn" || d.provider === "cbcn"
+      || d.provider === "codebuddy-intl" || d.provider === "cbai";
+    const oauthPanel = isAntigravity ? oauthPanelHtml(d.provider)
+      : (isCodebuddy ? codebuddyOAuthPanelHtml(d.provider) : '');
+    const showKeyForm = oauthPanel === '';
     const connsInner = (d.connections || []).length
       ? d.connections.map(p => {
           const label = p.accountLabel || p.email || p.name || p.id.substring(0, 12);
@@ -820,14 +844,16 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
           return `<div class="model-row" id="conn-row-${p.id}">
             <span class="acct-dot ${dot}"></span>
             <span class="mid" title="${escapeHtml(label)}">${escapeHtml(label)}</span>
-            ${profileSel}
-            <span class="mkind conn-status" id="conn-status-${p.id}" title="status: ${escapeHtml(p.testStatus || 'idle')}">${escapeHtml(p.testStatus || 'idle')}</span>
-            <button class="btn btn-sm conn-test-btn" id="conn-test-${p.id}" onclick="testConnection('${p.id}');" title="Test this account against the upstream provider">Test</button>
-            <label class="switch" style="transform:scale(0.8);">
-              <input type="checkbox" ${p.isActive === 1 ? 'checked' : ''} onchange="toggleProvider('${p.id}');">
-              <span class="slider"></span>
-            </label>
-            <button class="btn btn-sm btn-danger" onclick="deleteProvider('${p.id}');closeProviderDetail();">Delete</button>
+            <span class="conn-actions">
+              ${profileSel}
+              <span class="mkind conn-status" id="conn-status-${p.id}" title="status: ${escapeHtml(p.testStatus || 'idle')}">${escapeHtml(p.testStatus || 'idle')}</span>
+              <button class="btn btn-sm conn-test-btn" id="conn-test-${p.id}" onclick="testConnection('${p.id}');" title="Test this account against the upstream provider">Test</button>
+              <label class="switch" style="transform:scale(0.8);">
+                <input type="checkbox" ${p.isActive === 1 ? 'checked' : ''} onchange="toggleProvider('${p.id}');">
+                <span class="slider"></span>
+              </label>
+              <button class="btn btn-sm btn-danger" onclick="deleteProvider('${p.id}');closeProviderDetail();">Delete</button>
+            </span>
           </div>`;
         }).join("")
       : `<div style="text-align:center; color:var(--muted); padding:26px; border:1px dashed var(--border); border-radius:10px;">No connections yet</div>`;
@@ -840,7 +866,7 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
       ? "sso=... or __Secure-next-auth.session-token=..."
       : "sk-... (leave blank for no-auth providers)";
     const connsHtml = `
-      <div class="add-form">
+      ${showKeyForm ? `<div class="add-form">
         <div class="add-form-title"><span class="msym">add_link</span>Add Connection</div>
         <div class="add-form-grid">
           <div>
@@ -860,8 +886,8 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
           </div>
         </div>
         <div id="add-conn-msg" style="font-size:0.75rem; margin-top:8px; color:var(--muted);"></div>
-      </div>
-      ${isAntigravity ? oauthPanelHtml(d.provider) : ''}
+      </div>` : ''}
+      ${oauthPanel}
       <div class="conn-test-bar">
         <button class="btn btn-sm" onclick="testAllConnections('${d.provider}');">Test All Accounts</button>
         <span id="conn-test-progress" class="conn-test-progress"></span>
@@ -887,9 +913,21 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
               : st === 'error'
                 ? `<span class="mkind" style="color:#ef4444;" title="${escapeHtml(modelTestError[m.modelId] || '')}">failed</span>`
                 : '';
-          return `<div class="model-row" style="${rowBorder}" title="${escapeHtml(modelTestError[m.modelId] || '')}">
+          // The router addresses a model as "<alias>/<modelId>", so that is
+          // what the operator must copy. The upstream's own label (when it
+          // differs from the id) and a Free badge sit underneath, mirroring
+          // OmniRoute's model row.
+          const fullModel = currentModelAlias ? `${currentModelAlias}/${m.modelId}` : m.modelId;
+          const upstreamName = (m.displayName && m.displayName !== m.modelId && m.displayName !== fullModel)
+            ? m.displayName : '';
+          const freeBadge = m.isFree ? `<span class="mfree" title="Free tier model">Free</span>` : '';
+          return `<div class="model-row" style="${rowBorder}" title="${escapeHtml(modelTestError[m.modelId] || fullModel)}">
             <span class="msym" style="font-size:16px; color:${iconColor};">${icon}</span>
-            <span class="mid">${escapeHtml(m.modelId)}</span>
+            <span class="mnames">
+              <span class="mid">${escapeHtml(fullModel)}</span>
+              ${upstreamName ? `<span class="msub">${escapeHtml(upstreamName)}</span>` : ''}
+            </span>
+            ${freeBadge}
             <span class="mkind">${escapeHtml(m.kind || 'llm')}</span>
             ${statusBadge}
             <button class="btn btn-sm" title="Test this model" ${testing ? 'disabled' : ''}
@@ -1230,12 +1268,20 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
 
   function showImportModal(providerId, models) {
     importState = { providerId, models };
-    const rows = models.map((m, i) => `
+    const rows = models.map((m, i) => {
+      const upstreamName = (m.name && m.name !== m.id) ? m.name : '';
+      const freeBadge = m.isFree ? `<span class="mfree" title="Free tier model">Free</span>` : '';
+      return `
       <label class="import-row">
         <input type="checkbox" class="import-cb" data-idx="${i}" checked>
-        <span class="mid">${escapeHtml(m.id)}</span>
+        <span class="mnames">
+          <span class="mid">${escapeHtml(m.id)}</span>
+          ${upstreamName ? `<span class="msub">${escapeHtml(upstreamName)}</span>` : ''}
+        </span>
+        ${freeBadge}
         <span class="mkind">${escapeHtml(m.kind || 'llm')}</span>
-      </label>`).join("");
+      </label>`;
+    }).join("");
 
     let modal = document.getElementById("import-modal");
     if (!modal) {
@@ -1459,6 +1505,120 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
     } catch (e) {
       msg.style.color = "var(--danger)";
       msg.textContent = String(e);
+    }
+  }
+
+  // CodeBuddy uses a device-auth handshake instead of a redirect: we ask the
+  // gateway for a state + auth URL, the operator approves in a browser tab, and
+  // then we poll the exchange endpoint with that state until a token lands. Note
+  // the dashboard must pass the CODEBUDDY provider id (cn vs intl) because the
+  // two variants are stored under different provider names AND sign in against
+  // different hosts (copilot.tencent.com vs www.codebuddy.ai).
+  function codebuddyOAuthPanelHtml(providerId) {
+    const isIntl = providerId === "codebuddy-intl" || providerId === "cbai";
+    const label = isIntl ? "CodeBuddy (International)" : "CodeBuddy (Tencent CN)";
+    const host = isIntl ? "www.codebuddy.ai" : "copilot.tencent.com";
+    return `
+      <div class="add-form oauth-form">
+        <div class="add-form-title"><span class="msym">passkey</span>Add via CodeBuddy sign-in</div>
+        <div style="font-size:0.72rem; color:var(--muted); margin-bottom:8px;">
+          ${label} signs in with a device-authorization link from <code>${host}</code>: click Sign in,
+          approve in the tab that opens, and the account is added here automatically. Nothing to copy or paste.
+        </div>
+        <div class="add-form-grid oauth-grid">
+          <div>
+            <label class="field-label">Account name (optional)</label>
+            <input type="text" id="oauth-cb-name" placeholder="auto-filled from CodeBuddy">
+          </div>
+          <div style="display:flex; align-items:flex-end;">
+            <button class="btn btn-primary" id="oauth-cb-start" onclick="startCodebuddyOAuth('${providerId}')">Sign in</button>
+          </div>
+        </div>
+        <div id="oauth-cb-step2" style="display:none; margin-top:10px;">
+          <div style="font-size:0.72rem; color:var(--muted);">
+            Browser did not open? <a id="oauth-cb-link" href="#" target="_blank" rel="noopener" style="color:var(--accent);">Open the sign-in page</a>,
+            then return here — this keeps polling on its own.
+          </div>
+        </div>
+        <div id="oauth-cb-msg" style="font-size:0.75rem; margin-top:8px; color:var(--muted);"></div>
+      </div>`;
+  }
+
+  // Pending CodeBuddy context between authorize and the exchange polling loop.
+  let codebuddyOAuthCtx = null;
+
+  async function startCodebuddyOAuth(providerId) {
+    const msg = document.getElementById("oauth-cb-msg");
+    msg.style.color = "var(--muted)";
+    msg.textContent = "Requesting a sign-in link…";
+
+    try {
+      const res = await api("/api/oauth/codebuddy/authorize?provider=" + encodeURIComponent(providerId));
+      const data = await res.json();
+      if (!res.ok) {
+        msg.style.color = "var(--danger)";
+        msg.textContent = data.error || `Failed (${res.status}).`;
+        return;
+      }
+      codebuddyOAuthCtx = { provider: providerId, state: data.state };
+      window.__cbConnCount = (window.__cbConnCount || 0);
+      const step2 = document.getElementById("oauth-cb-step2");
+      if (step2) step2.style.display = "block";
+      const link = document.getElementById("oauth-cb-link");
+      if (link && data.authUrl) link.href = data.authUrl;
+      msg.style.color = "var(--muted)";
+      msg.textContent = "Waiting for you to approve the sign-in…";
+      if (data.authUrl) window.open(data.authUrl, "_blank", "noopener");
+      pollCodebuddyConnection(providerId, data.state, data.pollIntervalMs || 5000);
+    } catch (e) {
+      msg.style.color = "var(--danger)";
+      msg.textContent = String(e);
+    }
+  }
+
+  // Polls /exchange with the same state. 202 means "still waiting"; 200 means the
+  // account was saved. Also stops if the operator navigated away.
+  async function pollCodebuddyConnection(providerId, state, intervalMs) {
+    const msg = document.getElementById("oauth-cb-msg");
+    const step = Math.max(1000, intervalMs || 5000);
+    const maxAttempts = Math.ceil(600000 / step); // give up after ~10 minutes
+    for (let i = 0; i < maxAttempts; i++) {
+      await new Promise(r => setTimeout(r, step));
+      if (!codebuddyOAuthCtx || codebuddyOAuthCtx.state !== state) return;
+      try {
+        const res = await api("/api/oauth/codebuddy/exchange", {
+          method: "POST",
+          body: JSON.stringify({
+            provider: providerId,
+            state: state,
+            name: (document.getElementById("oauth-cb-name") || {}).value || "",
+          }),
+        });
+        const data = await res.json();
+        if (res.status === 202) {
+          msg.style.color = "var(--muted)";
+          msg.textContent = data.message || "Still waiting for approval…";
+          continue;
+        }
+        if (!res.ok) {
+          msg.style.color = "var(--danger)";
+          msg.textContent = data.error || `Failed (${res.status}).`;
+          codebuddyOAuthCtx = null;
+          return;
+        }
+        msg.style.color = "var(--accent)";
+        msg.textContent = `Added ${data.name || data.email || providerId}.`;
+        codebuddyOAuthCtx = null;
+        const step2 = document.getElementById("oauth-cb-step2");
+        if (step2) step2.style.display = "none";
+        setTimeout(() => openProviderDetail(providerId), 600);
+        return;
+      } catch (e) { /* keep polling */ }
+    }
+    if (codebuddyOAuthCtx && codebuddyOAuthCtx.state === state) {
+      msg.style.color = "var(--muted)";
+      msg.textContent = "Timed out waiting for approval. Click Sign in to start again.";
+      codebuddyOAuthCtx = null;
     }
   }
 
