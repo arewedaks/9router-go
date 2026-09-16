@@ -105,18 +105,10 @@ var KnownProviders = map[string]ProviderConfig{
 		BaseURL:    "https://api.githubcopilot.com/chat/completions",
 		AuthHeader: "Authorization",
 		AuthScheme: "bearer",
-		StaticHeaders: map[string]string{
-			"copilot-integration-id":              "vscode-chat",
-			"editor-version":                      "vscode/1.110.0",
-			"editor-plugin-version":               "copilot-chat/0.38.0",
-			"user-agent":                          "GitHubCopilotChat/0.38.0",
-			"openai-intent":                       "conversation-panel",
-			"x-github-api-version":                "2025-04-01",
-			"x-vscode-user-agent-library-version": "electron-fetch",
-			"X-Initiator":                         "user",
-			"Accept":                              "application/json",
-			"Content-Type":                        "application/json",
-		},
+		// The CLI identity (copilot-developer-cli) unlocks the full entitled
+		// model catalogue; the older vscode-chat identity returned a narrower
+		// list. See github_copilot_profile.go.
+		StaticHeaders: GitHubCopilotChatHeaders("application/json", "user"),
 	},
 	"mistral": {
 		BaseURL:    "https://api.mistral.ai/v1/chat/completions",
