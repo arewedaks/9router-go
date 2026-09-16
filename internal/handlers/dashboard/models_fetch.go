@@ -181,6 +181,14 @@ func (h *Handler) fetchUpstreamModels(providerID, data string, timeout time.Dura
 		return h.fetchCodebuddyModels(canonical)
 	}
 
+	// GitHub Copilot has a live per-account catalogue at api.githubcopilot.com/models
+	// that requires the Copilot bearer token plus the CLI identity headers, which
+	// the generic registry branch cannot express. Handle it explicitly; it falls
+	// back to a static list when the live call fails.
+	if isGitHubProvider(canonical) || isGitHubProvider(providerID) {
+		return h.fetchGitHubModels(canonical, data, timeout)
+	}
+
 	client := &http.Client{Timeout: timeout}
 
 	// Branch 1 & 2: user-defined compatible endpoints need a base URL.

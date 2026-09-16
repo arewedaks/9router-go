@@ -114,6 +114,13 @@ func SetupRoutes(r interface {
 	r.Get("/api/oauth/codebuddy/authorize", oauthH.HandleCodebuddyAuthorize)
 	r.Post("/api/oauth/codebuddy/exchange", oauthH.HandleCodebuddyExchange)
 
+	// GitHub Copilot OAuth (RFC 8628 device flow). Authorize returns
+	// {deviceCode, userCode, verificationUri}; exchange is polled with the
+	// deviceCode until GitHub issues the token, after which the Copilot bearer
+	// token is derived and saved. Stateless server-side, so it works headless.
+	r.Get("/api/oauth/github/authorize", oauthH.HandleGitHubAuthorize)
+	r.Post("/api/oauth/github/exchange", oauthH.HandleGitHubExchange)
+
 	// Live Console Logs Domain (dashboard "Monitor Console Log")
 	r.Get("/translator/console-logs", HandleConsoleLogsGet)
 	r.Delete("/translator/console-logs", HandleConsoleLogsDelete)
