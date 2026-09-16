@@ -3,6 +3,7 @@ package oauth
 import (
 	"bytes"
 	json "encoding/json/v2"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -271,6 +272,7 @@ func (h *OAuthHandler) HandleCodebuddyExchange(w http.ResponseWriter, r *http.Re
 		Provider string `json:"provider"`
 		State    string `json:"state"`
 		Name     string `json:"name"`
+		Replace  bool   `json:"replace"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		handlerutil.WriteJSONError(w, http.StatusBadRequest, "invalid JSON body")
@@ -306,8 +308,13 @@ func (h *OAuthHandler) HandleCodebuddyExchange(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	name, err := h.saveCodebuddyConnection(cfg.Provider, tokens, req.Name)
+	name, err := h.saveCodebuddyConnection(cfg.Provider, tokens, req.Name, req.Replace)
 	if err != nil {
+		var dup *DuplicateError
+		if errors.As(err, &dup) {
+			DuplicateConnectionErrorToHTTP(w, dup)
+			return
+		}
 		log.Error("oauth", "save codebuddy connection failed", "provider", cfg.Provider, "error", err)
 		handlerutil.WriteJSONError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -370,7 +377,12 @@ func pollCodebuddyToken(state string, cfg codebuddyConfig) (tokens codebuddyToke
 }
 
 // saveCodebuddyConnection persists the account as a normal provider connection.
-func (h *OAuthHandler) saveCodebuddyConnection(canonical string, tokens codebuddyTokenResponse, requestedName string) (string, error) {
+//
+// replace=false (default): a re-login of an already-connected account is
+// REJECTED, so the operator does not end up with two rows sharing one quota.
+// replace=true: the existing row's tokens are refreshed in place, keeping its ID,
+// priority and any lock/backoff history.
+func (h *OAuthHandler) saveCodebuddyConnection(canonical string, tokens codebuddyTokenResponse, requestedName string, replace bool) (string, error) {
 	name := strings.TrimSpace(requestedName)
 	if name == "" {
 		name = strings.TrimSpace(tokens.Data.Email)
@@ -406,6 +418,26 @@ func (h *OAuthHandler) saveCodebuddyConnection(canonical string, tokens codebudd
 		data["userId"] = tokens.Data.UserID
 	}
 
+	// Detect a re-login of an already-connected account before inserting, so the
+	// fallback logic never sees two rows for one quota.
+	candidate := IdentityForProvider(canonical, tokens.Data.AccessToken, tokens.Data.Email)
+	dup, derr := h.FindDuplicateConnection(canonical, candidate)
+	if derr != nil {
+		return "", fmt.Errorf("duplicate check: %w", derr)
+	}
+	if dup != nil {
+		if !replace {
+			logDuplicateSuppressed(canonical, dup)
+			return "", dup
+		}
+		if err := h.replaceConnectionTokens(dup.ExistingConnID, name, data); err != nil {
+			return "", fmt.Errorf("replace connection: %w", err)
+		}
+		log.Info("oauth", "duplicate account re-login refreshed existing connection",
+			"provider", canonical, "conn", dup.ExistingConnID, "identity", dup.Identity.Label())
+		return name, nil
+	}
+
 	raw, err := json.Marshal(data)
 	if err != nil {
 		return "", fmt.Errorf("encode connection data: %w", err)
@@ -420,6 +452,50 @@ func (h *OAuthHandler) saveCodebuddyConnection(canonical string, tokens codebudd
 		return "", fmt.Errorf("save connection: %w", err)
 	}
 	return name, nil
+}
+
+// replaceConnectionTokens overwrites the credential payload of an existing
+// connection while keeping its identity (ID, priority, isActive). Model locks and
+// backoff are cleared **for this connection only** because a fresh credential
+// invalidates that connection's old failure state — otherwise the account would
+// stay "cooling down" despite being healthy. Other connections are untouched.
+func (h *OAuthHandler) replaceConnectionTokens(connID, name string, data map[string]any) error {
+	raw, err := json.Marshal(data)
+	if err != nil {
+		return fmt.Errorf("encode connection data: %w", err)
+	}
+	if _, err := h.Repo.RawDB().Exec(
+		`UPDATE providerConnections SET name = ?, data = ?, updatedAt = ? WHERE id = ?`,
+		name, string(raw), currentTimestamp(), connID,
+	); err != nil {
+		return err
+	}
+	// Best effort: a stale lock must not survive a credential refresh. Scoped to
+	// this connection so an unrelated account's cooldown is preserved.
+	if err := h.Repo.ClearConnectionModelLocks(connID); err != nil {
+		return fmt.Errorf("clear connection locks: %w", err)
+	}
+	return nil
+}
+
+// DuplicateConnectionErrorToHTTP renders a DuplicateError as a 409 Conflict so
+// the dashboard can offer the "replace instead" path. The body carries the
+// existing connection's identity so the UI can name it in the prompt.
+func DuplicateConnectionErrorToHTTP(w http.ResponseWriter, err *DuplicateError) {
+	handlerutil.WriteJSON(w, http.StatusConflict, map[string]any{
+		"error": map[string]any{
+			"code":    "duplicate_account",
+			"message": err.Error(),
+		},
+		"duplicate": map[string]any{
+			"provider":       err.Provider,
+			"existingConnId": err.ExistingConnID,
+			"existingName":   err.ExistingName,
+			"identityKind":   err.Identity.Kind,
+			"identityValue":  err.Identity.Value,
+		},
+		"canReplace": true,
+	})
 }
 
 // truncateForOAuth shortens an upstream body for an error message without

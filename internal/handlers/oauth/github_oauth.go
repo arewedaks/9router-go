@@ -2,6 +2,7 @@ package oauth
 
 import (
 	json "encoding/json/v2"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -193,6 +194,7 @@ func (h *OAuthHandler) HandleGitHubExchange(w http.ResponseWriter, r *http.Reque
 	var req struct {
 		DeviceCode string `json:"deviceCode"`
 		Name       string `json:"name"`
+		Replace    bool   `json:"replace"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		handlerutil.WriteJSONError(w, http.StatusBadRequest, "invalid JSON body")
@@ -221,8 +223,13 @@ func (h *OAuthHandler) HandleGitHubExchange(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	name, err := h.saveGitHubConnection(tokens, req.Name)
+	name, err := h.saveGitHubConnection(tokens, req.Name, req.Replace)
 	if err != nil {
+		var dup *DuplicateError
+		if errors.As(err, &dup) {
+			DuplicateConnectionErrorToHTTP(w, dup)
+			return
+		}
 		log.Error("oauth", "save github connection failed", "error", err)
 		handlerutil.WriteJSONError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -301,7 +308,7 @@ func isGitHubAlias(providerID string) bool {
 
 // saveGitHubConnection derives the Copilot token + user info and persists the
 // account as a normal provider connection.
-func (h *OAuthHandler) saveGitHubConnection(tokens githubTokenResponse, requestedName string) (string, error) {
+func (h *OAuthHandler) saveGitHubConnection(tokens githubTokenResponse, requestedName string, replace bool) (string, error) {
 	copilot, user := fetchGitHubIdentity(tokens.AccessToken)
 
 	data := map[string]any{
@@ -352,6 +359,27 @@ func (h *OAuthHandler) saveGitHubConnection(tokens githubTokenResponse, requeste
 	}
 	if name == "" {
 		name = "github account"
+	}
+
+	// Reject a re-login of an already-connected account unless the caller asked to
+	// replace it. GitHub identity is the immutable numeric user id, so a renamed
+	// login still matches.
+	candidate := IdentityForGitHub(int64(user.ID), user.Login, user.Email)
+	dup, derr := h.FindDuplicateConnection("github", candidate)
+	if derr != nil {
+		return "", fmt.Errorf("duplicate check: %w", derr)
+	}
+	if dup != nil {
+		if !replace {
+			logDuplicateSuppressed("github", dup)
+			return "", dup
+		}
+		if err := h.replaceConnectionTokens(dup.ExistingConnID, name, data); err != nil {
+			return "", fmt.Errorf("replace connection: %w", err)
+		}
+		log.Info("oauth", "duplicate account re-login refreshed existing connection",
+			"provider", "github", "conn", dup.ExistingConnID, "identity", dup.Identity.Label())
+		return name, nil
 	}
 
 	raw, err := json.Marshal(data)

@@ -130,6 +130,14 @@ Notes for the details.
   storing the bare token keeps the refresh contract (which sends the bare
   token) correct. Tests cover the padded/unpadded base64 and trailing-byte
   quirks the reference decoder tolerates.
+
+  **Cline can answer `500 {"error":"empty response content","success":false}`
+  intermittently** — roughly two in five identical requests to a free model during
+  verification, while direct probes with the same token and headers alternated
+  `200`/`500` on the same input with no pattern. It is an upstream fault, and the
+  proxy correctly forwards it. Do not read a lone failure as a regression in the
+  Cline sign-in or duplicate-detection code: re-run the request before drawing a
+  conclusion, and compare against a baseline build if unsure.
 - **Antigravity client profile (IDE / CLI)** — each Antigravity connection can
   present either the IDE or the standalone Antigravity CLI (`agy`) client
   identity. The profile is stored per connection under
@@ -359,6 +367,30 @@ ported from VansRouter (`src/lib/auth/*`, `src/app/api/auth/*`):
   (`{error:"…"}` and `{error:{message,type,code}}`); the UI now has one
   `errorMessage()` helper that unwraps both, so an object never prints as
   `[object Object]`.
+- **Signing in an account that is already connected no longer creates a second
+  row.** It did: each `save*Connection` handler inserted unconditionally, so
+  re-running an OAuth flow produced two connections for one account. That is not
+  cosmetic — the account fallback logic walks connections in order and locks the
+  failing one per model, so a duplicate makes the router "fall back" to the same
+  account's quota and lock it twice (the production DB had exactly this for
+  `codebuddy-intl`: two rows, six days apart, sharing one JWT `sub`).
+  - Identity is provider-specific and read from the credential, not the label:
+    CodeBuddy/Antigravity-style JWTs key off the `sub` claim (`jwtSubject`),
+    GitHub off the immutable numeric user id (`githubUserId`, falling back to
+    login/email), Antigravity off the Google account email. Providers without a
+    stable identity (kiro, cloudflare-ai, `openai-compatible-*`) are deliberately
+    **not** deduplicated — many connections there are legitimate.
+  - The default is to **refuse**: the endpoint answers `409` with a `duplicate`
+    object (existing id, name, identity) and no row is written. The UI turns that
+    into an "Update that account instead" button instead of dead-ending.
+  - `replace:true` on the exchange request refreshes the existing connection
+    **in place**, keeping its id and priority, and clears its model locks and
+    backoff via `ClearConnectionModelLocks` — the old failure state described the
+    old token, so keeping it would leave a healthy account cooling down. The
+    clear is scoped to that one connection.
+  - `FindDuplicateConnection` matches on the identity only; a renamed account is
+    still recognised.
+
 - `EnsureSchema` (`internal/db/schema.go`) now runs at startup. Before this, the
   Go proxy assumed the Next.js dashboard had already migrated the SQLite file, so
   a fresh install errored with `no such table: settings` on the first write. The

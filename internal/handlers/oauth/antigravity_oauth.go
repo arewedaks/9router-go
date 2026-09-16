@@ -2,6 +2,7 @@ package oauth
 
 import (
 	json "encoding/json/v2"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -206,6 +207,7 @@ func (h *OAuthHandler) HandleAntigravityExchange(w http.ResponseWriter, r *http.
 		RedirectURI  string `json:"redirectUri"`
 		Profile      string `json:"profile"`
 		Name         string `json:"name"`
+		Replace      bool   `json:"replace"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		handlerutil.WriteJSONError(w, http.StatusBadRequest, "invalid JSON body")
@@ -274,8 +276,13 @@ func (h *OAuthHandler) HandleAntigravityExchange(w http.ResponseWriter, r *http.
 		return
 	}
 
-	name, email, projectID, err := h.saveAntigravityConnection(tokens, profile, req.Name)
+	name, email, projectID, err := h.saveAntigravityConnection(tokens, profile, req.Name, req.Replace)
 	if err != nil {
+		var dup *DuplicateError
+		if errors.As(err, &dup) {
+			DuplicateConnectionErrorToHTTP(w, dup)
+			return
+		}
 		log.Error("oauth", "save antigravity connection failed", "error", err)
 		handlerutil.WriteJSONError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -345,7 +352,7 @@ func (h *OAuthHandler) HandleAntigravityCallback(w http.ResponseWriter, r *http.
 		return
 	}
 
-	name, _, _, err := h.saveAntigravityConnection(tokens, profile, "")
+	name, _, _, err := h.saveAntigravityConnection(tokens, profile, "", false)
 	if err != nil {
 		log.Error("oauth", "antigravity callback save failed", "error", err)
 		writeAntigravityCallbackPage(w, http.StatusInternalServerError,
@@ -382,7 +389,7 @@ func htmlEscape(s string) string {
 // the stored connection name plus the enrichment values (email, project id)
 // callers may want to echo. Shared by the paste-back exchange and the loopback
 // callback so both paths write identical rows.
-func (h *OAuthHandler) saveAntigravityConnection(tokens *antigravityTokenPayload, profile providers.AntigravityClientProfile, requestedName string) (name, email, projectID string, err error) {
+func (h *OAuthHandler) saveAntigravityConnection(tokens *antigravityTokenPayload, profile providers.AntigravityClientProfile, requestedName string, replace bool) (name, email, projectID string, err error) {
 	// Best-effort enrichment: email for the label, project id for chat. Neither
 	// is fatal — the connection works and the project is discovered lazily.
 	email = fetchAntigravityEmail(tokens.AccessToken)
@@ -415,6 +422,26 @@ func (h *OAuthHandler) saveAntigravityConnection(tokens *antigravityTokenPayload
 	}
 	if projectID != "" {
 		data["projectId"] = projectID
+	}
+
+	// Reject a re-login of an already-connected account unless the caller asked to
+	// replace it. Antigravity identity is the Google account email.
+	candidate := IdentityForProvider("antigravity", tokens.AccessToken, email)
+	dup, derr := h.FindDuplicateConnection("antigravity", candidate)
+	if derr != nil {
+		return "", email, projectID, fmt.Errorf("duplicate check: %w", derr)
+	}
+	if dup != nil {
+		if !replace {
+			logDuplicateSuppressed("antigravity", dup)
+			return "", email, projectID, dup
+		}
+		if err := h.replaceConnectionTokens(dup.ExistingConnID, name, data); err != nil {
+			return "", email, projectID, fmt.Errorf("replace connection: %w", err)
+		}
+		log.Info("oauth", "duplicate account re-login refreshed existing connection",
+			"provider", "antigravity", "conn", dup.ExistingConnID, "identity", dup.Identity.Label())
+		return name, email, projectID, nil
 	}
 
 	raw, err := json.Marshal(data)

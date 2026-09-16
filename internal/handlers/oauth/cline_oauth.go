@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	json "encoding/json/v2"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"9router/proxy/internal/handlerutil"
+	"9router/proxy/internal/log"
 	"9router/proxy/internal/providers"
 )
 
@@ -111,6 +113,7 @@ func (h *OAuthHandler) HandleClineExchange(w http.ResponseWriter, r *http.Reques
 		CallbackURL string `json:"callbackUrl"`
 		RedirectURI string `json:"redirectUri"`
 		Name        string `json:"name"`
+		Replace     bool   `json:"replace"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		handlerutil.WriteJSONError(w, http.StatusBadRequest, "invalid JSON body")
@@ -142,8 +145,13 @@ func (h *OAuthHandler) HandleClineExchange(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	name, err := h.saveClineConnection(tokens, req.Name)
+	name, err := h.saveClineConnection(tokens, req.Name, req.Replace)
 	if err != nil {
+		var dup *DuplicateError
+		if errors.As(err, &dup) {
+			DuplicateConnectionErrorToHTTP(w, dup)
+			return
+		}
 		handlerutil.WriteJSONError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -369,7 +377,11 @@ type clineTokenFields struct {
 // The access token is stored WITHOUT the `workos:` prefix: the chat path applies
 // that prefix on every request via providers.ClineAccessToken, and storing the
 // raw token keeps the refresh contract (which sends the bare token) correct.
-func (h *OAuthHandler) saveClineConnection(tokens *clineTokenPayload, requestedName string) (string, error) {
+//
+// A re-login of an already-connected account is rejected unless replace=true, in
+// which case the existing row's tokens are refreshed in place (ID and priority
+// preserved) rather than creating a second row for the same quota.
+func (h *OAuthHandler) saveClineConnection(tokens *clineTokenPayload, requestedName string, replace bool) (string, error) {
 	email := strings.TrimSpace(tokens.Email)
 	name := strings.TrimSpace(requestedName)
 	if name == "" {
@@ -418,6 +430,27 @@ func (h *OAuthHandler) saveClineConnection(tokens *clineTokenPayload, requestedN
 	// the key extractAccountInfo reads for the account label; duplicating it under
 	// providerSpecificData would just be a second source of truth.
 	data["providerSpecificData"] = psd
+
+	// Reject a re-login of an already-connected account unless the caller asked to
+	// replace it: two rows for one account would make the fallback logic exhaust
+	// the same quota twice.
+	candidate := IdentityForProvider("cline", tokens.AccessToken, email)
+	dup, derr := h.FindDuplicateConnection("cline", candidate)
+	if derr != nil {
+		return "", fmt.Errorf("duplicate check: %w", derr)
+	}
+	if dup != nil {
+		if !replace {
+			logDuplicateSuppressed("cline", dup)
+			return "", dup
+		}
+		if err := h.replaceConnectionTokens(dup.ExistingConnID, name, data); err != nil {
+			return "", fmt.Errorf("replace connection: %w", err)
+		}
+		log.Info("oauth", "duplicate account re-login refreshed existing connection",
+			"provider", "cline", "conn", dup.ExistingConnID, "identity", dup.Identity.Label())
+		return name, nil
+	}
 
 	raw, err := json.Marshal(data)
 	if err != nil {
