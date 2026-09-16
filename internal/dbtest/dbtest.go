@@ -55,6 +55,15 @@ func SchemaStatements() []string {
 			createdAt TEXT NOT NULL,
 			updatedAt TEXT NOT NULL
 		)`,
+		`CREATE TABLE IF NOT EXISTS cachedProviderModels (
+			providerId TEXT NOT NULL,
+			modelId TEXT NOT NULL,
+			kind TEXT DEFAULT 'llm',
+			ownedBy TEXT NOT NULL,
+			capabilities TEXT,
+			updatedAt INTEGER NOT NULL,
+			PRIMARY KEY (providerId, modelId)
+		)`,
 		`CREATE TABLE IF NOT EXISTS usageHistory (
 			timestamp TEXT,
 			provider TEXT,

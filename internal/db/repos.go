@@ -14,6 +14,11 @@ type Repo struct {
 	db *sql.DB
 }
 
+// DB exposes the underlying connection for tests and advanced queries.
+func (r *Repo) DB() *sql.DB {
+	return r.db
+}
+
 // NewRepo creates a new repository instance using the provided SQL database connection.
 func NewRepo(db *sql.DB) *Repo {
 	return &Repo{db: db}
