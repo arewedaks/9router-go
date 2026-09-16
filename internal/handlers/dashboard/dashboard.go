@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -30,6 +32,10 @@ type Handler struct {
 	repo       *db.Repo
 	tokenSaver *shared.TokenSaverConfig
 
+	// auth carries the dashboard login state: password hasher, per-IP login
+	// limiter, and the HMAC secret used to sign session cookies.
+	auth authDeps
+
 	// probeHostsOverride, when set, replaces the Antigravity host list used by
 	// the per-account connection probe. Test-only seam: it lets a test point the
 	// probe at an httptest server without mutating the global provider registry.
@@ -38,10 +44,73 @@ type Handler struct {
 
 // NewHandler creates a new dashboard Handler.
 func NewHandler(repo *db.Repo, ts *shared.TokenSaverConfig) *Handler {
+	return NewHandlerWithDataDir(repo, ts, defaultDataDir())
+}
+
+// NewHandlerWithDataDir is NewHandler with an explicit data dir, so the session
+// secret is stored next to the caller's database rather than a global default.
+func NewHandlerWithDataDir(repo *db.Repo, ts *shared.TokenSaverConfig, dataDir string) *Handler {
+	secret, err := LoadSessionSecret(dataDir)
 	return &Handler{
 		repo:       repo,
 		tokenSaver: ts,
+		auth: authDeps{
+			hasher:   bcryptHasher{},
+			limiter:  newLoginLimiter(),
+			secret:   secret,
+			secretEr: err,
+		},
 	}
+}
+
+// defaultDataDir resolves the data directory that holds the session secret,
+// honouring the same DATA_DIR override the rest of the app uses.
+func defaultDataDir() string {
+	if d := strings.TrimSpace(os.Getenv("DATA_DIR")); d != "" {
+		return d
+	}
+	if d := strings.TrimSpace(os.Getenv("NINE_DATA_DIR")); d != "" {
+		return d
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return ".9router"
+	}
+	return filepath.Join(home, ".9router")
+}
+
+// VerifySession reports whether a session cookie value is valid. It exposes the
+// check for the middleware gate without leaking token-format details.
+func (h *Handler) VerifySession(token string) bool {
+	return VerifySessionToken(h.auth.secret, token, time.Now())
+}
+
+// LoginDisabled reports whether settings have disabled the dashboard login
+// requirement. A nil setting keeps the default (login required).
+func (h *Handler) LoginDisabled() bool {
+	settings, err := h.repo.GetSettings()
+	if err != nil || settings == nil || settings.RequireLogin == nil {
+		return false
+	}
+	return !*settings.RequireLogin
+}
+
+// RegisterAuthRoutes registers the login/session endpoints. They must be mounted
+// on an UNPROTECTED router: the login form cannot itself require a session.
+func (h *Handler) RegisterAuthRoutes(r chi.Router) {
+	r.Route("/api/dashboard/auth", func(dr chi.Router) {
+		dr.Get("/status", h.HandleAuthStatus)
+		// /session is the refresh-safe check: it validates the httpOnly cookie that
+		// JS cannot read, so a reload does not re-prompt for the password.
+		dr.Get("/session", h.HandleAuthSession)
+		dr.Post("/login", h.HandleAuthLogin)
+		dr.Post("/logout", h.HandleAuthLogout)
+		dr.Post("/change-password", h.HandleAuthChangePassword)
+		dr.Post("/reset-password", h.HandleAuthResetPassword)
+		// Legacy API-key check, kept so existing browser sessions that still hold a
+		// stored key keep working after the upgrade.
+		dr.Post("/verify", h.HandleAuthVerify)
+	})
 }
 
 // RegisterRoutes registers all dashboard API routes and UI asset routes.
@@ -52,8 +121,6 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 
 	// Dashboard REST APIs
 	r.Route("/api/dashboard", func(dr chi.Router) {
-		dr.Post("/auth/verify", h.HandleAuthVerify)
-
 		// Stats & Overview
 		dr.Get("/stats", h.HandleStats)
 		dr.Get("/providers/catalog", h.HandleCatalog)

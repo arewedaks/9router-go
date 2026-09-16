@@ -1,8 +1,8 @@
 package middleware
 
 import (
-	"context"
 	"9router/proxy/internal/log"
+	"context"
 	"net/http"
 	"strings"
 
@@ -20,9 +20,37 @@ const ApiKeyContextKey ContextKey = "apiKey"
 // RequireApiKey creates a middleware handler that authenticates requests using client API keys.
 // It checks the Authorization header (Bearer <key>) and the query parameter `key`.
 // Valid keys are retrieved from the SQLite database; inactive or disabled keys are rejected with 401.
+//
+// A valid dashboard session cookie is also accepted. The browser-facing OAuth
+// endpoints (add-account flows) live behind this middleware, and once the
+// operator signs in with the dashboard password the session cookie is the only
+// credential the page holds — it has no API key to send. Without this the
+// "Sign in" button on every OAuth provider returned 401 to a logged-in user.
 func RequireApiKey(repo *db.Repo) func(http.Handler) http.Handler {
+	return RequireApiKeyWithSession(repo, nil)
+}
+
+// RequireApiKeyWithSession is RequireApiKey plus an optional session verifier.
+// When verifySession is non-nil a valid `auth_token` cookie is accepted as an
+// alternative credential; passing nil restores API-key-only behaviour.
+//
+// sessionPaths limits the cookie to browser-facing UI endpoints. The cookie must
+// NOT unlock the engine routes (`/v1`, `/chat/completions`, …) that share this
+// middleware: those are machine credentials, consumed by clients that carry an
+// API key, and a browser cookie leaking into them would broaden the credential's
+// reach for no benefit. An empty list means "every path".
+func RequireApiKeyWithSession(repo *db.Repo, verifySession func(token string) bool, sessionPaths ...string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Dashboard session first: it is the credential a logged-in browser
+			// actually has, and it is cheaper to check than a DB round-trip.
+			if verifySession != nil && sessionPathAllowed(r.URL.Path, sessionPaths) {
+				if c, err := r.Cookie("auth_token"); err == nil && c.Value != "" && verifySession(c.Value) {
+					next.ServeHTTP(w, r)
+					return
+				}
+			}
+
 			apiKeyString := ExtractApiKey(r)
 			if apiKeyString == "" {
 				handlerutil.WriteJSONError(w, http.StatusUnauthorized, "Authentication required. Provide an API key via Authorization: Bearer <key> header or ?key=<key> query parameter.")
@@ -51,6 +79,22 @@ func RequireApiKey(repo *db.Repo) func(http.Handler) http.Handler {
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
+}
+
+// sessionPathAllowed reports whether a session cookie may authenticate this
+// path. An empty allow-list means every path is eligible (used when the whole
+// router is browser-facing). Prefix matching keeps the OAuth add-account flows
+// covered without opening the engine surface.
+func sessionPathAllowed(path string, allowed []string) bool {
+	if len(allowed) == 0 {
+		return true
+	}
+	for _, p := range allowed {
+		if strings.HasPrefix(path, p) {
+			return true
+		}
+	}
+	return false
 }
 
 // GetAuthenticatedApiKey retrieves the authenticated APIKey object from the request context.

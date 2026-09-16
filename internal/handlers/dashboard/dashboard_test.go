@@ -37,6 +37,9 @@ func setupTestDashboard(t *testing.T) (*Handler, *db.Repo, chi.Router) {
 	ts := shared.NewTokenSaverConfig(true, false, false)
 	h := NewHandler(repo, ts)
 	r := chi.NewRouter()
+	// Auth routes are mounted unprotected in production (router.go); mirror that
+	// so tests exercising /api/dashboard/auth/* see the same paths.
+	h.RegisterAuthRoutes(r)
 	h.RegisterRoutes(r)
 	return h, repo, r
 }

@@ -34,6 +34,14 @@ git checkout feat/go-dashboard && git rebase main
 **Embedded dashboard** — dark-mode SPA served from `//go:embed ui/*`, no build
 step, no framework. Routes are registered in `internal/handlers/router.go`.
 
+**Dashboard login** — password sign-in with a signed session cookie, ported from
+VansRouter. The password is a bcrypt hash in settings (default `123456`), the
+cookie is `httpOnly` and lasts 24h, and repeated failures lock the client IP
+progressively. The UI and `/api/dashboard/*` are gated by Go middleware, so
+protection no longer depends on client-side JavaScript. API keys still
+authenticate the proxy's `/v1` endpoints. See *Dashboard authentication* under
+Notes for the details.
+
 **Provider sub-page**, mirroring upstream `/dashboard/providers/[id]`:
 
 - Connections tab — per-account toggle, delete, "Add Connection" form
@@ -68,6 +76,60 @@ step, no framework. Routes are registered in `internal/handlers/router.go`.
   `service info not found`, code 11102) and non-chat surfaces are filtered out.
   OmniRoute does the same — it ships a CodeBuddy catalogue and declares no fetch
   endpoint.
+- **Cline model import** — Cline publishes two live catalogues on
+  `api.cline.bot`:
+
+  ```
+  GET /api/v1/ai/cline/models               # full catalogue (~444 rows)
+  GET /api/v1/ai/cline/recommended-models   # {recommended, free, clinePass, clineCloud}
+  ```
+
+  Neither is an OpenAI-style `/models` route, so the generic registry branch
+  answered "Provider cline does not support models listing" and Import could
+  never work. Both ids (`cline` and `clinepass`) are now routed to a dedicated
+  catalogue handler, mirroring OmniRoute's `clinepassModels.ts`. Two rules keep
+  the model namespaces **disjoint**, which is what stops Import from offering a
+  subscription-only id on a free connection (the live API answers
+  `403 ENTITLEMENT_ERROR` for `cline-pass/*` without an active subscription):
+
+  - `cline` → the full catalogue, **minus** `cline-pass/*` and **minus** rows
+    whose declared output modality has no `text` (embedding/rerank entries).
+    Rows that omit architecture metadata are kept, so a schema change degrades
+    to a longer list instead of an empty one.
+  - `clinepass` → **only** the `cline-pass/*` rows, read from the recommended
+    endpoint's `clinePass` bucket.
+
+  Cline's WorkOS auth contract (`Bearer workos:<token>` plus the Cline client
+  identity headers) is also required for the catalogue call, not just for chat.
+  The prefix rule already lived in `chat.NormalizeProviderToken`; `providers.
+  ClineAuthHeader` / `ClineClientIdentityHeaders` expose the same rule to
+  callers outside that package so there is one definition, not two. A curated
+  fallback catalogue is used only when live discovery is unreachable.
+- **Cline sign-in** — Cline accounts are added with **Add via Cline sign-in**,
+  not by pasting a key. The flow is a plain authorization-code handshake that is
+  easy to get wrong, so it is worth spelling out:
+
+  1. Open
+     `https://api.cline.bot/api/v1/auth/authorize?client_type=extension&callback_url=<loopback>`.
+  2. `api.cline.bot` answers `302` to **WorkOS**, with
+     `redirect_uri=https://api.cline.bot/api/v1/auth/callback` — Cline's *own*
+     callback. Our loopback URL is never given to WorkOS, which is why no local
+     server has to be reachable.
+  3. After sign-in, Cline redirects the browser to the `callback_url` we
+     supplied, carrying the credential as a **base64-encoded JSON blob**
+     (`accessToken` / `refreshToken` / `expiresAt` / `email`), not as an opaque
+     code. Cline already did the token exchange, so the common path is a local
+     decode with **no network round-trip**.
+  4. If that decode fails, the raw code is POSTed to `/api/v1/auth/token` as a
+     fallback.
+
+  Because the credential is in the URL, the operator copies the address bar
+  back into the form — the same paste-back pattern Antigravity uses, so the
+  flow works on a headless server. The access token is stored **without** the
+  `workos:` prefix: `providers.ClineAccessToken` adds it on every request, and
+  storing the bare token keeps the refresh contract (which sends the bare
+  token) correct. Tests cover the padded/unpadded base64 and trailing-byte
+  quirks the reference decoder tolerates.
 - **Antigravity client profile (IDE / CLI)** — each Antigravity connection can
   present either the IDE or the standalone Antigravity CLI (`agy`) client
   identity. The profile is stored per connection under
@@ -172,9 +234,23 @@ GET    /api/oauth/github/authorize                    # GitHub device-code start
 POST   /api/oauth/github/exchange                     # poll + store GitHub Copilot
 GET    /api/oauth/codebuddy/authorize                 # CodeBuddy device-code start
 POST   /api/oauth/codebuddy/exchange                  # poll + store CodeBuddy
+GET    /api/oauth/cline/authorize                     # Cline callback-url start
+POST   /api/oauth/cline/exchange                       # decode callback + store Cline
 ```
 
 All accept the same `Authorization: Bearer <api-key>` used by the proxy.
+
+### Dashboard login (session cookie)
+
+```
+GET    /login                              # same SPA shell; renders the sign-in form
+GET    /api/dashboard/auth/status          # {requireLogin, hasPassword} — public
+POST   /api/dashboard/auth/login           # {password} -> sets auth_token cookie
+POST   /api/dashboard/auth/logout          # clears the cookie
+POST   /api/dashboard/auth/change-password # needs a session
+POST   /api/dashboard/auth/reset-password  # LOCAL ONLY -> back to the default
+POST   /api/dashboard/auth/verify          # legacy API-key check (kept)
+```
 
 ## Building
 
@@ -200,7 +276,11 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o 9router-go-li
 ./9router-go --port 20129 --db-path "$HOME/.9router/db/data.sqlite"
 ```
 
-Then open `http://localhost:20129/` and paste your API key in the UI.
+Then open `http://localhost:20129/`. You are asked for the **dashboard
+password** (default `123456` when unset). Change it from
+**Dashboard Security** in the API Keys tab, or reset it to the default with
+`POST /api/dashboard/auth/reset-password` from the same machine. LLM clients
+authenticate to `/v1` with `Authorization: Bearer sk-…` as before.
 
 Flags: `--port`, `--db-path`, `--data-dir` (with tilde expansion).
 
@@ -229,7 +309,61 @@ skip) when a stored credential is missing or out of quota, so a red
 `TestLiveE2E_*` is not necessarily a regression. Run them with
 `-skip TestLiveE2E` for a hermetic unit run.
 
+Some tests in `internal/handlers/chat` also fail **on a clean checkout** — e.g.
+`TestHandleAccountFallback_503CapacityLocksCanonicalModel` and the
+`TestE2E_Gemini38_*` tool-call tests — so confirm a failure reproduces at
+`HEAD` before blaming your change.
+
 ## Notes and gotchas
+
+### Dashboard authentication
+
+The dashboard signs in with a **password**, not a pasted API key. The model is
+ported from VansRouter (`src/lib/auth/*`, `src/app/api/auth/*`):
+
+- The password is stored as a **bcrypt hash** in `settings.data.password`. An
+  empty hash means "unset", and the default is the literal `123456` (override
+  with `INITIAL_PASSWORD`). The hash is never returned by any endpoint.
+- A successful login mints a signed session token and sets it as the `auth_token`
+  cookie (`httpOnly`, `SameSite=Lax`, `Secure` when the request is HTTPS). The
+  token is `base64url(payload).base64url(HMAC-SHA256)` — the same shape as a JWT
+  but built with `crypto/hmac`, so **no JWT dependency** is added. It carries
+  `{authenticated, iat, exp}` and lives **24 hours**.
+- The signing secret comes from `JWT_SECRET`, else a 32-byte hex secret is
+  generated once under `<data dir>/jwt-secret` (mode `0600`). Because the secret
+  persists, sessions survive a restart.
+- Failed logins are rate limited **per IP**: 5 failures lock the IP for 30s, then
+  2m, 10m, 30m. A correct password while locked is still refused, otherwise the
+  lock is pointless. `TRUST_PROXY=true` makes the limiter read
+  `X-Forwarded-For`; otherwise the header is ignored so a client cannot rotate it
+  to escape the lock.
+- The gate itself is Go middleware (`RequireDashboardSession`), so protection no
+  longer depends on JavaScript. Three ways in: a valid session cookie, a valid
+  **API key** (`Authorization: Bearer sk-…` / `X-API-Key`), or login disabled in
+  settings. Browsers hitting `/dashboard` without a session get a `302` to
+  `/login`; API calls get a `401` JSON body.
+- **API keys were not removed.** They remain the credential for `/v1` and can
+  still open the dashboard, so existing scripts and CI keep working. Only the
+  browser flow changed.
+- **The session cookie also authenticates the browser-facing OAuth routes.**
+  The add-account endpoints (`/api/oauth/*`) and the other engine routes share
+  one API-key middleware, so a browser that signed in with the password had no
+  key to send and every "Sign in" button answered `401` (surfaced in the UI as
+  `[object Object]`, because the error body is an object). `RequireApiKey` gained
+  an optional session verifier (`RequireApiKeyWithSession`), and the router
+  passes `dashH.VerifySession` with an **allow-list** of `/api/oauth/` and
+  `/api/dashboard/`. The list matters: an unscoped cookie would also unlock
+  `/v1` and `/chat/completions`, quietly turning a browser session into a proxy
+  credential. Engine routes stay key-only.
+- **Error bodies are rendered, not stringified.** Responses come in two shapes
+  (`{error:"…"}` and `{error:{message,type,code}}`); the UI now has one
+  `errorMessage()` helper that unwraps both, so an object never prints as
+  `[object Object]`.
+- `EnsureSchema` (`internal/db/schema.go`) now runs at startup. Before this, the
+  Go proxy assumed the Next.js dashboard had already migrated the SQLite file, so
+  a fresh install errored with `no such table: settings` on the first write. The
+  statements are `CREATE TABLE IF NOT EXISTS`, so an existing database is
+  untouched.
 
 - The provider detail panel is fully re-rendered on every state change — each
   model test, add, import, and remove calls `renderProviderDetail` again. The

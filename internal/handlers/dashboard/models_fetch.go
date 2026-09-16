@@ -189,6 +189,14 @@ func (h *Handler) fetchUpstreamModels(providerID, data string, timeout time.Dura
 		return h.fetchGitHubModels(canonical, data, timeout)
 	}
 
+	// Cline / ClinePass publish live catalogues at /api/v1/ai/cline/models and
+	// /api/v1/ai/cline/recommended-models, neither of which is an OpenAI-style
+	// /models route the generic branch could discover. Handle them explicitly,
+	// keeping their model namespaces disjoint (see cline_catalog.go).
+	if isClineFamily(canonical) || isClineFamily(providerID) {
+		return h.fetchClineModels(providerID, data, timeout)
+	}
+
 	client := &http.Client{Timeout: timeout}
 
 	// Branch 1 & 2: user-defined compatible endpoints need a base URL.
