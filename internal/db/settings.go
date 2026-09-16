@@ -26,6 +26,16 @@ type SettingsData struct {
 	HeadroomTimeoutMs  int                         `json:"headroomTimeoutMs"`
 	AutoUpdate         bool                        `json:"autoUpdate"`
 	ProviderStrategies map[string]ProviderStrategy `json:"providerStrategies,omitempty"`
+
+	// PasswordHash is the bcrypt hash of the dashboard login password. Empty
+	// means no password has been set yet, in which case login falls back to
+	// InitialPassword (the "123456" default, VansRouter-compatible). It is never
+	// returned to clients.
+	PasswordHash string `json:"password,omitempty"`
+	// RequireLogin mirrors VansRouter's requireLogin: when explicitly false the
+	// dashboard is open and no session is needed. Nil (absent) means the default,
+	// which is to require login.
+	RequireLogin *bool `json:"requireLogin,omitempty"`
 }
 
 // DefaultSettings returns fallback settings.
@@ -87,6 +97,12 @@ func (r *Repo) GetSettings() (*SettingsData, error) {
 	if v, ok := raw["autoUpdate"].(bool); ok {
 		s.AutoUpdate = v
 	}
+	if v := handlerutil.GetString(raw, "password"); v != "" {
+		s.PasswordHash = v
+	}
+	if v, ok := raw["requireLogin"].(bool); ok {
+		s.RequireLogin = &v
+	}
 	if ps, ok := raw["providerStrategies"].(map[string]any); ok {
 		s.ProviderStrategies = make(map[string]ProviderStrategy)
 		for k, v := range ps {
@@ -104,6 +120,38 @@ func (r *Repo) GetSettings() (*SettingsData, error) {
 	}
 
 	return s, nil
+}
+
+// SetPasswordHash stores (or clears, when hash is empty) the dashboard login
+// password hash. Mirrors VansRouter's `updateSettings({ password })`.
+func (r *Repo) SetPasswordHash(hash string) error {
+	s, err := r.GetSettings()
+	if err != nil {
+		s = DefaultSettings()
+	}
+	s.PasswordHash = hash
+	return r.saveSettings(s)
+}
+
+// SetRequireLogin toggles whether the dashboard demands a login. Passing nil
+// removes the override so the default (require login) applies again.
+func (r *Repo) SetRequireLogin(require *bool) error {
+	s, err := r.GetSettings()
+	if err != nil {
+		s = DefaultSettings()
+	}
+	s.RequireLogin = require
+	return r.saveSettings(s)
+}
+
+// saveSettings persists the whole settings blob for row id = 1.
+func (r *Repo) saveSettings(s *SettingsData) error {
+	b, err := json.Marshal(s)
+	if err != nil {
+		return err
+	}
+	_, err = r.db.Exec(`INSERT INTO settings (id, data) VALUES (1, ?) ON CONFLICT(id) DO UPDATE SET data = excluded.data`, string(b))
+	return err
 }
 
 // SetAutoUpdate updates the autoUpdate flag in the settings table.

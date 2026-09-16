@@ -121,6 +121,13 @@ func SetupRoutes(r interface {
 	r.Get("/api/oauth/github/authorize", oauthH.HandleGitHubAuthorize)
 	r.Post("/api/oauth/github/exchange", oauthH.HandleGitHubExchange)
 
+	// Cline OAuth (authorization-code flow via a loopback callback_url). Cline
+	// bounces through its own WorkOS callback and then redirects to the
+	// callback_url we supply, embedding the tokens as base64 JSON. The operator
+	// pastes that URL back, so no callback server has to be reachable.
+	r.Get("/api/oauth/cline/authorize", oauthH.HandleClineAuthorize)
+	r.Post("/api/oauth/cline/exchange", oauthH.HandleClineExchange)
+
 	// Live Console Logs Domain (dashboard "Monitor Console Log")
 	r.Get("/translator/console-logs", HandleConsoleLogsGet)
 	r.Delete("/translator/console-logs", HandleConsoleLogsDelete)
@@ -140,9 +147,29 @@ func SetupRoutes(r interface {
 // API-key protected routes (all engine + admin routes) on the chi router.
 func SetupServerRouter(r chi.Router, repo *db.Repo, ts *TokenSaverConfig) {
 	dashH := dashboard.NewHandler(repo, ts)
-	dashH.RegisterRoutes(r)
 
-	// Public root and login routes load the embedded dashboard
+	// Login/session endpoints are public by necessity: the login form cannot
+	// require a session. Each handler enforces its own rule (login is rate
+	// limited, change-password needs a session, reset-password is local-only).
+	dashH.RegisterAuthRoutes(r)
+
+	// Everything else under the dashboard requires a session cookie, a valid API
+	// key, or login disabled in settings. Mounted first so /dashboard HTML is
+	// redirected to the login page rather than served.
+	r.Group(func(pr chi.Router) {
+		pr.Use(middleware.RequireDashboardSession(middleware.DashboardSessionConfig{
+			Repo:          repo,
+			VerifySession: dashH.VerifySession,
+			LoginDisabled: dashH.LoginDisabled,
+			LoginPath:     "/login",
+		}))
+		pr.HandleFunc("/dashboard", dashH.ServeUI)
+		pr.HandleFunc("/dashboard/*", dashH.ServeUI)
+		dashH.RegisterRoutes(pr)
+	})
+
+	// Public root and login routes load the embedded dashboard shell; the shell
+	// itself calls /api/dashboard/auth/status to decide what to render.
 	r.Get("/", dashH.ServeUI)
 	r.Get("/login", dashH.ServeUI)
 
@@ -177,7 +204,12 @@ func SetupServerRouter(r chi.Router, repo *db.Repo, ts *TokenSaverConfig) {
 	// API-key protected domain routes (includes /admin/health/reset so health
 	// state cannot be reset by an unauthenticated caller — open-source hardening)
 	r.Group(func(r chi.Router) {
-		r.Use(middleware.RequireApiKey(repo))
+		// Accept the dashboard session cookie as well as an API key: the OAuth
+		// add-account endpoints live here and a password-logged-in browser holds
+		// only the cookie. The engine routes in this group are unaffected — they
+		// keep working with an API key exactly as before.
+		r.Use(middleware.RequireApiKeyWithSession(repo, dashH.VerifySession,
+			"/api/oauth/", "/api/dashboard/"))
 
 		// Health reset endpoint — dashboard calls this via headroom proxy
 		r.Post("/admin/health/reset", func(w http.ResponseWriter, r *http.Request) {

@@ -263,7 +263,7 @@
     <button class="nav-btn" onclick="switchTab('health')">🩺 Health & Setup</button>
   </div>
   <div>
-    <button class="btn btn-sm" onclick="logout()" id="auth-status-btn">🔐 Key: <span id="auth-key-display">None</span></button>
+    <button class="btn btn-sm" onclick="signOut()" id="auth-status-btn">🔒 Sign out</button>
   </div>
 </header>
 
@@ -465,6 +465,33 @@
         </tbody>
       </table>
     </div>
+
+    <!-- Dashboard Security -->
+    <div class="section-header" style="margin-top: 28px;">
+      <div>
+        <h2 class="section-title">Dashboard Security</h2>
+        <p style="font-size: 0.85rem; color: var(--muted);">Your sign-in password for this dashboard. Client API keys above are separate and still authorise <code>/v1</code> requests.</p>
+      </div>
+    </div>
+    <div class="modal-box" style="max-width: 460px; margin: 0;">
+      <div id="pw-first-time" style="font-size: 0.8rem; color: var(--muted); margin-bottom: 12px; display: none;">
+        No password has been set yet — the default is <code>123456</code>. Change it now, especially if this dashboard is reachable from another machine.
+      </div>
+      <div class="form-group">
+        <label>Current password</label>
+        <input type="password" id="pw-current" placeholder="Current password" autocomplete="current-password">
+      </div>
+      <div class="form-group">
+        <label>New password</label>
+        <input type="password" id="pw-new" placeholder="New password" autocomplete="new-password">
+      </div>
+      <div class="form-group">
+        <label>Confirm new password</label>
+        <input type="password" id="pw-confirm" placeholder="Repeat new password" autocomplete="new-password">
+      </div>
+      <div id="pw-msg" style="font-size: 0.8rem; margin-bottom: 12px; display: none;"></div>
+      <button class="btn btn-primary" onclick="changeDashboardPassword()">Update password</button>
+    </div>
   </div>
 
   <!-- TOKEN SAVERS TAB -->
@@ -581,14 +608,29 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
 <div class="modal-overlay" id="login-modal">
   <div class="modal-box" style="max-width: 420px; text-align: center;">
     <div style="font-size: 2.2rem; margin-bottom: 12px;">⚡</div>
-    <h2 style="font-size: 1.3rem; margin-bottom: 6px;">Authenticate 9Router</h2>
-    <p style="font-size: 0.85rem; color: var(--muted); margin-bottom: 20px;">Enter your client API Key or Admin Key to unlock this dashboard.</p>
-    <div class="form-group" style="text-align: left;">
-      <label>Client API Key</label>
-      <input type="password" id="login-key-input" placeholder="sk-..." autofocus>
+    <h2 style="font-size: 1.3rem; margin-bottom: 6px;">Sign in to 9Router</h2>
+    <p id="login-subtitle" style="font-size: 0.85rem; color: var(--muted); margin-bottom: 20px;">Enter your dashboard password to unlock this dashboard.</p>
+
+    <div id="login-password-fields" style="text-align: left;">
+      <div class="form-group">
+        <label>Password</label>
+        <input type="password" id="login-password-input" placeholder="Password" autofocus autocomplete="current-password">
+      </div>
+      <div id="login-reset-hint" style="font-size: 0.75rem; color: var(--muted); margin-bottom: 12px; display: none;"></div>
     </div>
+
+    <div id="login-key-fields" style="text-align: left; display: none;">
+      <div class="form-group">
+        <label>Client API Key</label>
+        <input type="password" id="login-key-input" placeholder="sk-..." autocomplete="off">
+      </div>
+    </div>
+
     <div id="login-error" style="color: var(--danger); font-size: 0.8rem; margin-bottom: 12px; display: none;"></div>
-    <button class="btn btn-primary" style="width: 100%; justify-content: center;" onclick="submitLogin()">Unlock Dashboard</button>
+    <button class="btn btn-primary" id="login-submit-btn" style="width: 100%; justify-content: center;" onclick="submitLogin()">Unlock Dashboard</button>
+    <div style="margin-top: 14px; font-size: 0.78rem;">
+      <a href="#" id="login-toggle-mode" onclick="toggleLoginMode(event)" style="color: var(--accent);">Use an API key instead</a>
+    </div>
   </div>
 </div>
 
@@ -715,14 +757,42 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
 
 <script>
   let authKey = localStorage.getItem("nine_api_key") || "";
+  // Dashboard login state. loginMode is "password" (default) or "key" (legacy
+  // API-key path); authHasPassword reflects whether a password has been set yet.
+  let loginMode = "password";
+  let authHasPassword = false;
+  let lockCountdownTimer = null;
   let allProviders = [];
   let currentCategory = "all";
 
   function api(url, opts = {}) {
     opts.headers = opts.headers || {};
-    opts.headers["Authorization"] = "Bearer " + authKey;
+    // Only send the legacy API key when we actually have one. Once the dashboard
+    // is unlocked by the password login the session cookie is what authenticates
+    // (it is httpOnly, so JS cannot read it — the browser attaches it). Sending
+    // `Bearer ` with an empty value makes the server reject a request that the
+    // cookie would otherwise have authorised.
+    if (authKey) {
+      opts.headers["Authorization"] = "Bearer " + authKey;
+    }
     opts.headers["Content-Type"] = "application/json";
     return fetch(url, opts);
+  }
+
+  // errorMessage renders whatever an endpoint returned as a human string. Error
+  // bodies come in two shapes: `{error: "..."}` and the richer
+  // `{error: {message, type, code}}` used by the auth middleware. Assigning the
+  // latter straight to textContent prints `[object Object]`, which is useless to
+  // the operator, so unwrap it.
+  function errorMessage(data, status) {
+    const e = data && data.error;
+    if (typeof e === "string" && e) return e;
+    if (e && typeof e === "object") {
+      if (typeof e.message === "string" && e.message) return e.message;
+      try { return JSON.stringify(e); } catch (_) { /* fall through */ }
+    }
+    if (data && typeof data.message === "string" && data.message) return data.message;
+    return "Failed (" + status + ").";
   }
 
   function switchTab(tabId) {
@@ -826,9 +896,11 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
     const isCodebuddy = d.provider === "codebuddy-cn" || d.provider === "cbcn"
       || d.provider === "codebuddy-intl" || d.provider === "cbai";
     const isGitHub = d.provider === "github" || d.provider === "gh" || d.provider === "copilot";
+    const isCline = d.provider === "cline" || d.provider === "cl" || d.provider === "clinepass" || d.provider === "cp";
     const oauthPanel = isAntigravity ? oauthPanelHtml(d.provider)
       : (isCodebuddy ? codebuddyOAuthPanelHtml(d.provider)
-      : (isGitHub ? githubOAuthPanelHtml() : ''));
+      : (isGitHub ? githubOAuthPanelHtml()
+      : (isCline ? clineOAuthPanelHtml(d.provider) : '')));
     const showKeyForm = oauthPanel === '';
     const connsInner = (d.connections || []).length
       ? d.connections.map(p => {
@@ -1069,7 +1141,7 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setFormMsg("add-model-msg", data.error || `Failed (${res.status}).`, false);
+        setFormMsg("add-model-msg", errorMessage(data, res.status), false);
         return;
       }
       setFormMsg("add-model-msg", `Added "${modelId}" under cache key "${data.cacheKey}".`, true);
@@ -1118,7 +1190,7 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
       const data = await res.json().catch(() => ({}));
       modelTestResults[modelId] = data.ok ? "ok" : "error";
       if (data.latencyMs != null) modelTestLatency[modelId] = data.latencyMs;
-      if (!data.ok) modelTestError[modelId] = data.error || "Model not reachable";
+      if (!data.ok) modelTestError[modelId] = errorMessage(data, res.status) || "Model not reachable";
     } catch (e) {
       modelTestResults[modelId] = "error";
       modelTestError[modelId] = String(e);
@@ -1172,7 +1244,7 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
         const data = await res.json().catch(() => ({}));
         modelTestResults[modelId] = data.ok ? "ok" : "error";
         if (data.latencyMs != null) modelTestLatency[modelId] = data.latencyMs;
-        if (!data.ok) { modelTestError[modelId] = data.error || "failed"; failCount++; }
+        if (!data.ok) { modelTestError[modelId] = errorMessage(data, res.status) || "failed"; failCount++; }
         else okCount++;
         if (!data.ok && autoDisable) {
           // Auto-disable: remove the model from the provider cache.
@@ -1244,7 +1316,7 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
       const data = await res.json().catch(() => ({}));
 
       if (!res.ok || data.error) {
-        setFormMsg("add-model-msg", data.error || `Failed to fetch models (${res.status}).`, false);
+        setFormMsg("add-model-msg", errorMessage(data, res.status), false);
         return;
       }
       const models = data.models || [];
@@ -1416,7 +1488,7 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
       const res = await api("/api/oauth/antigravity/authorize?profile=" + encodeURIComponent(profile));      const data = await res.json();
       if (!res.ok) {
         msg.style.color = "var(--danger)";
-        msg.textContent = data.error || `Failed (${res.status}).`;
+        msg.textContent = errorMessage(data, res.status);
         return;
       }
       antigravityOAuthCtx = { state: data.state, codeVerifier: data.codeVerifier, redirectUri: data.redirectUri, profile };
@@ -1495,7 +1567,7 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
       const data = await res.json();
       if (!res.ok) {
         msg.style.color = "var(--danger)";
-        msg.textContent = data.error || `Failed (${res.status}).`;
+        msg.textContent = errorMessage(data, res.status);
         return;
       }
       msg.style.color = "var(--accent)";
@@ -1559,7 +1631,7 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
       const data = await res.json();
       if (!res.ok) {
         msg.style.color = "var(--danger)";
-        msg.textContent = data.error || `Failed (${res.status}).`;
+        msg.textContent = errorMessage(data, res.status);
         return;
       }
       codebuddyOAuthCtx = { provider: providerId, state: data.state };
@@ -1604,7 +1676,7 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
         }
         if (!res.ok) {
           msg.style.color = "var(--danger)";
-          msg.textContent = data.error || `Failed (${res.status}).`;
+          msg.textContent = errorMessage(data, res.status);
           codebuddyOAuthCtx = null;
           return;
         }
@@ -1630,6 +1702,101 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
   // user code at github.com/login/device. We display the code, open the page, and
   // poll /exchange with the device code until GitHub issues the token — so this
   // works on a headless server with no local callback.
+  function clineOAuthPanelHtml(providerId) {
+    return `
+      <div class="add-form oauth-form">
+        <div class="add-form-title"><span class="msym">passkey</span>Add via Cline sign-in</div>
+        <div style="font-size:0.72rem; color:var(--muted); margin-bottom:8px;">
+          Sign in with the Cline account (same login as the Cline CLI/IDE). After you approve,
+          Cline redirects your browser to a <code>localhost</code> address that may not load —
+          that is expected. Copy the full address bar URL and paste it below.
+        </div>
+        <div class="add-form-grid oauth-grid">
+          <div>
+            <label class="field-label">Account name (optional)</label>
+            <input type="text" id="oauth-cl-name" placeholder="auto-filled from Cline">
+          </div>
+          <div style="display:flex; align-items:flex-end;">
+            <button class="btn btn-primary" id="oauth-cl-start" onclick="startClineOAuth('${providerId}')">Sign in</button>
+          </div>
+        </div>
+        <div id="oauth-cl-step2" style="display:none; margin-top:10px;">
+          <label class="field-label">Callback URL (or raw code)</label>
+          <div class="auth-add">
+            <input type="text" id="oauth-cl-callback" placeholder="http://localhost:20128/oauth/cline/callback?code=...">
+            <button class="btn btn-primary" onclick="finishClineOAuth('${providerId}')">Finish</button>
+          </div>
+        </div>
+        <div id="oauth-cl-msg" style="font-size:0.75rem; margin-top:8px; color:var(--muted);"></div>
+      </div>`;
+  }
+
+  // Pending Cline context between authorize and exchange. Cline does not
+  // round-trip a state value, so only the redirect URI has to be remembered.
+  let clineOAuthCtx = null;
+
+  async function startClineOAuth(providerId) {
+    const msg = document.getElementById("oauth-cl-msg");
+    msg.style.color = "var(--muted)";
+    msg.textContent = "Requesting authorization URL…";
+
+    try {
+      const res = await api("/api/oauth/cline/authorize");
+      const data = await res.json();
+      if (!res.ok) {
+        msg.style.color = "var(--danger)";
+        msg.textContent = errorMessage(data, res.status);
+        return;
+      }
+      clineOAuthCtx = { redirectUri: data.redirectUri };
+      const step2 = document.getElementById("oauth-cl-step2");
+      if (step2) step2.style.display = "block";
+      msg.style.color = "var(--muted)";
+      msg.textContent = "Waiting for you to approve the sign-in…";
+      if (data.authUrl) window.open(data.authUrl, "_blank", "noopener");
+    } catch (e) {
+      msg.style.color = "var(--danger)";
+      msg.textContent = String(e);
+    }
+  }
+
+  async function finishClineOAuth(providerId) {
+    const msg = document.getElementById("oauth-cl-msg");
+    const input = document.getElementById("oauth-cl-callback");
+    const value = (input && input.value || "").trim();
+    if (!value) {
+      msg.style.color = "var(--danger)";
+      msg.textContent = "Paste the callback URL first.";
+      return;
+    }
+    msg.style.color = "var(--muted)";
+    msg.textContent = "Completing sign-in…";
+    try {
+      const res = await api("/api/oauth/cline/exchange", {
+        method: "POST",
+        body: JSON.stringify({
+          callbackUrl: value,
+          redirectUri: clineOAuthCtx ? clineOAuthCtx.redirectUri : "",
+          name: (document.getElementById("oauth-cl-name") || {}).value || "",
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        msg.style.color = "var(--danger)";
+        msg.textContent = errorMessage(data, res.status);
+        return;
+      }
+      clineOAuthCtx = null;
+      msg.style.color = "var(--accent)";
+      msg.textContent = `Added ${data.connection || "account"}.`;
+      if (typeof loadDetail === "function") loadDetail(providerId);
+      if (typeof loadProviders === "function") loadProviders();
+    } catch (e) {
+      msg.style.color = "var(--danger)";
+      msg.textContent = String(e);
+    }
+  }
+
   function githubOAuthPanelHtml() {
     return `
       <div class="add-form oauth-form">
@@ -1673,7 +1840,7 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
       const data = await res.json();
       if (!res.ok) {
         msg.style.color = "var(--danger)";
-        msg.textContent = data.error || `Failed (${res.status}).`;
+        msg.textContent = errorMessage(data, res.status);
         return;
       }
       githubOAuthCtx = { deviceCode: data.deviceCode };
@@ -1718,7 +1885,7 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
         }
         if (!res.ok) {
           msg.style.color = "var(--danger)";
-          msg.textContent = data.error || `Failed (${res.status}).`;
+          msg.textContent = errorMessage(data, res.status);
           githubOAuthCtx = null;
           return;
         }
@@ -1783,7 +1950,7 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setFormMsg("add-conn-msg", data.error || `Failed (${res.status}).`, false);
+        setFormMsg("add-conn-msg", errorMessage(data, res.status), false);
         return;
       }
       setFormMsg("add-conn-msg", "Connection added.", true);
@@ -1796,31 +1963,154 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
   }
 
   async function checkAuth() {
-    if (!authKey) {
-      document.getElementById("login-modal").classList.add("active");
-      return;
-    }
     try {
-      const res = await api("/api/dashboard/auth/verify", {
-        method: "POST",
-        body: JSON.stringify({ key: authKey })
-      });
+      const res = await fetch("/api/dashboard/auth/status");
       if (res.ok) {
-        document.getElementById("login-modal").classList.remove("active");
-        document.getElementById("auth-key-display").innerText = authKey.substring(0, 8) + "...";
-        loadDashboardStats();
-      } else {
-        localStorage.removeItem("nine_api_key");
-        authKey = "";
-        document.getElementById("login-modal").classList.add("active");
+        const st = await res.json();
+        if (st.requireLogin === false) {
+          document.getElementById("login-modal").classList.remove("active");
+          loadDashboardStats();
+          return;
+        }
+        authHasPassword = !!st.hasPassword;
+        const firstTime = document.getElementById("pw-first-time");
+        if (firstTime) firstTime.style.display = st.hasPassword ? "none" : "block";
       }
-    } catch(e) {
-      console.error(e);
-      document.getElementById("login-modal").classList.add("active");
+    } catch (e) { /* fall through to the session check */ }
+
+    // The session cookie is httpOnly, so JS cannot see it. Ask the server whether
+    // this browser is already signed in — otherwise a refresh would re-prompt for
+    // the password even though the cookie is still valid.
+    try {
+      const res = await fetch("/api/dashboard/auth/session");
+      if (res.ok) {
+        const s = await res.json();
+        if (s.authenticated) {
+          document.getElementById("login-modal").classList.remove("active");
+          loadDashboardStats();
+          return;
+        }
+      }
+    } catch (e) { /* fall through to the login prompt */ }
+
+    // Legacy API-key sessions: only relevant for browsers that stored a key
+    // before password login existed.
+    if (authKey) {
+      try {
+        const res = await api("/api/dashboard/auth/verify", {
+          method: "POST",
+          body: JSON.stringify({ key: authKey })
+        });
+        if (res.ok) {
+          document.getElementById("login-modal").classList.remove("active");
+          loadDashboardStats();
+          return;
+        }
+      } catch (e) { /* ignore, show login */ }
+    }
+
+    showLoginModal();
+  }
+
+  function showLoginModal(msg, resetHintText) {
+    document.getElementById("login-modal").classList.add("active");
+    setLoginMode("password");
+    if (msg) setLoginError(msg);
+    const hintEl = document.getElementById("login-reset-hint");
+    if (resetHintText) {
+      hintEl.innerText = resetHintText;
+      hintEl.style.display = "block";
     }
   }
 
+  function setLoginMode(mode) {
+    loginMode = mode;
+    const isPassword = mode === "password";
+    document.getElementById("login-password-fields").style.display = isPassword ? "" : "none";
+    document.getElementById("login-key-fields").style.display = isPassword ? "none" : "";
+    document.getElementById("login-subtitle").innerText = isPassword
+      ? "Enter your dashboard password to unlock this dashboard."
+      : "Enter a client API key to unlock this dashboard.";
+    document.getElementById("login-toggle-mode").innerText = isPassword
+      ? "Use an API key instead"
+      : "Use the dashboard password";
+    document.getElementById("login-submit-btn").innerText = isPassword ? "Unlock Dashboard" : "Unlock with API Key";
+    const focusEl = document.getElementById(isPassword ? "login-password-input" : "login-key-input");
+    if (focusEl) focusEl.focus();
+  }
+
+  function toggleLoginMode(ev) {
+    if (ev) ev.preventDefault();
+    setLoginError("");
+    setLoginMode(loginMode === "password" ? "key" : "password");
+  }
+
+  function setLoginError(msg) {
+    const el = document.getElementById("login-error");
+    el.innerText = msg || "";
+    el.style.display = msg ? "block" : "none";
+  }
+
   async function submitLogin() {
+    if (loginMode === "password") {
+      await submitPasswordLogin();
+    } else {
+      await submitKeyLogin();
+    }
+  }
+
+  async function submitPasswordLogin() {
+    const password = document.getElementById("login-password-input").value;
+    if (!password) return;
+    const submitBtn = document.getElementById("login-submit-btn");
+    submitBtn.disabled = true;
+    try {
+      const res = await fetch("/api/dashboard/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.success) {
+        setLoginError("");
+        document.getElementById("login-password-input").value = "";
+        document.getElementById("login-reset-hint").style.display = "none";
+        document.getElementById("login-modal").classList.remove("active");
+        loadDashboardStats();
+        return;
+      }
+      setLoginError(errorMessage(data, res.status));
+      if (res.status === 429 && data.retryAfter) {
+        startLockCountdown(data.retryAfter);
+      }
+    } catch (e) {
+      setLoginError(e.message);
+    } finally {
+      submitBtn.disabled = false;
+    }
+  }
+
+  function startLockCountdown(seconds) {
+    let remaining = seconds;
+    const btn = document.getElementById("login-submit-btn");
+    btn.disabled = true;
+    if (lockCountdownTimer) clearInterval(lockCountdownTimer);
+    const tick = () => {
+      if (remaining <= 0) {
+        clearInterval(lockCountdownTimer);
+        lockCountdownTimer = null;
+        btn.disabled = false;
+        btn.innerText = "Unlock Dashboard";
+        return;
+      }
+      btn.innerText = `Locked — retry in ${remaining}s`;
+      remaining--;
+    };
+    tick();
+    lockCountdownTimer = setInterval(tick, 1000);
+  }
+
+  async function submitKeyLogin() {
     const key = document.getElementById("login-key-input").value.trim();
     if (!key) return;
     try {
@@ -1833,23 +2123,58 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
         authKey = key;
         localStorage.setItem("nine_api_key", key);
         document.getElementById("login-modal").classList.remove("active");
-        document.getElementById("auth-key-display").innerText = key.substring(0, 8) + "...";
         loadDashboardStats();
       } else {
-        document.getElementById("login-error").innerText = "Invalid or inactive API key";
-        document.getElementById("login-error").style.display = "block";
+        setLoginError("Invalid or inactive API key");
       }
-    } catch(e) {
-      document.getElementById("login-error").innerText = e.message;
-      document.getElementById("login-error").style.display = "block";
+    } catch (e) {
+      setLoginError(e.message);
     }
   }
 
-  function logout() {
-    if (confirm("Disconnect and clear saved key from browser?")) {
-      localStorage.removeItem("nine_api_key");
-      authKey = "";
-      location.reload();
+  async function signOut() {
+    if (!confirm("Sign out of the dashboard?")) return;
+    try {
+      await fetch("/api/dashboard/auth/logout", { method: "POST" });
+    } catch (e) { /* best effort */ }
+    // The API key is a local convenience, not the session: drop it so a shared
+    // machine does not silently re-authenticate the next person.
+    localStorage.removeItem("nine_api_key");
+    authKey = "";
+    location.reload();
+  }
+
+  // changeDashboardPassword drives the Settings → Security form.
+  async function changeDashboardPassword() {
+    const current = document.getElementById("pw-current").value;
+    const next = document.getElementById("pw-new").value;
+    const confirmPw = document.getElementById("pw-confirm").value;
+    const msg = document.getElementById("pw-msg");
+    const show = (text, ok) => {
+      msg.innerText = text;
+      msg.style.color = ok ? "#22c55e" : "var(--danger)";
+      msg.style.display = "block";
+    };
+    if (!current || !next) { show("Enter your current and new password.", false); return; }
+    if (next !== confirmPw) { show("The new passwords do not match.", false); return; }
+    try {
+      const res = await fetch("/api/dashboard/auth/change-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ currentPassword: current, newPassword: next })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.success) {
+        document.getElementById("pw-current").value = "";
+        document.getElementById("pw-new").value = "";
+        document.getElementById("pw-confirm").value = "";
+        show("Password updated. Use it on your next sign-in.", true);
+      } else {
+        const detail = errorMessage(data, res.status);
+        show(detail, false);
+      }
+    } catch (e) {
+      show(e.message, false);
     }
   }
 
@@ -2549,6 +2874,15 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
     if (!str) return "";
     return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   }
+
+  // Enter submits the visible form, so a password manager or keyboard-only user
+  // gets the expected behaviour.
+  document.getElementById("login-password-input").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); submitLogin(); }
+  });
+  document.getElementById("login-key-input").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); submitLogin(); }
+  });
 
   checkAuth();
 </script>

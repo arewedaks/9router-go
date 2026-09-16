@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"runtime"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -186,6 +186,12 @@ func runServer(cCtx *cli.Context) error {
 		return fmt.Errorf("database connect: %w", err)
 	}
 	defer conn.Close()
+
+	// A fresh install has an empty SQLite file (the Go proxy used to rely on the
+	// Next.js dashboard migrating it). Ensure the schema before any write.
+	if err := db.EnsureSchema(conn); err != nil {
+		return fmt.Errorf("database schema: %w", err)
+	}
 
 	repo := db.NewRepo(conn)
 
