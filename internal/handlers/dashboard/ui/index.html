@@ -825,8 +825,10 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
     const isAntigravity = d.provider === "antigravity" || d.provider === "agy";
     const isCodebuddy = d.provider === "codebuddy-cn" || d.provider === "cbcn"
       || d.provider === "codebuddy-intl" || d.provider === "cbai";
+    const isGitHub = d.provider === "github" || d.provider === "gh" || d.provider === "copilot";
     const oauthPanel = isAntigravity ? oauthPanelHtml(d.provider)
-      : (isCodebuddy ? codebuddyOAuthPanelHtml(d.provider) : '');
+      : (isCodebuddy ? codebuddyOAuthPanelHtml(d.provider)
+      : (isGitHub ? githubOAuthPanelHtml() : ''));
     const showKeyForm = oauthPanel === '';
     const connsInner = (d.connections || []).length
       ? d.connections.map(p => {
@@ -1619,6 +1621,120 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
       msg.style.color = "var(--muted)";
       msg.textContent = "Timed out waiting for approval. Click Sign in to start again.";
       codebuddyOAuthCtx = null;
+    }
+  }
+
+  // GitHub Copilot sign-in panel (RFC 8628 device flow).
+  //
+  // Unlike Antigravity's loopback redirect, GitHub shows the operator a short
+  // user code at github.com/login/device. We display the code, open the page, and
+  // poll /exchange with the device code until GitHub issues the token — so this
+  // works on a headless server with no local callback.
+  function githubOAuthPanelHtml() {
+    return `
+      <div class="add-form oauth-form">
+        <div class="add-form-title"><span class="msym">passkey</span>Add via GitHub sign-in</div>
+        <div style="font-size:0.72rem; color:var(--muted); margin-bottom:8px;">
+          GitHub Copilot uses a device flow: click Sign in, then enter the code shown below at
+          <code>github.com/login/device</code>. The account is added here automatically — nothing to copy or paste.
+        </div>
+        <div class="add-form-grid oauth-grid">
+          <div>
+            <label class="field-label">Account name (optional)</label>
+            <input type="text" id="oauth-gh-name" placeholder="auto-filled from GitHub">
+          </div>
+          <div style="display:flex; align-items:flex-end;">
+            <button class="btn btn-primary" id="oauth-gh-start" onclick="startGitHubOAuth()">Sign in</button>
+          </div>
+        </div>
+        <div id="oauth-gh-step2" style="display:none; margin-top:10px;">
+          <div style="font-size:0.75rem; color:var(--fg);">
+            Your code: <code id="oauth-gh-usercode" style="font-size:0.95rem; font-weight:600; letter-spacing:0.05em;"></code>
+          </div>
+          <div style="font-size:0.72rem; color:var(--muted); margin-top:4px;">
+            Browser did not open? <a id="oauth-gh-link" href="https://github.com/login/device" target="_blank" rel="noopener" style="color:var(--accent);">Open github.com/login/device</a>
+            and enter the code — this keeps polling on its own.
+          </div>
+        </div>
+        <div id="oauth-gh-msg" style="font-size:0.75rem; margin-top:8px; color:var(--muted);"></div>
+      </div>`;
+  }
+
+  // Pending GitHub context between authorize and the exchange polling loop.
+  let githubOAuthCtx = null;
+
+  async function startGitHubOAuth() {
+    const msg = document.getElementById("oauth-gh-msg");
+    msg.style.color = "var(--muted)";
+    msg.textContent = "Requesting a device code…";
+
+    try {
+      const res = await api("/api/oauth/github/authorize");
+      const data = await res.json();
+      if (!res.ok) {
+        msg.style.color = "var(--danger)";
+        msg.textContent = data.error || `Failed (${res.status}).`;
+        return;
+      }
+      githubOAuthCtx = { deviceCode: data.deviceCode };
+      const step2 = document.getElementById("oauth-gh-step2");
+      if (step2) step2.style.display = "block";
+      const codeEl = document.getElementById("oauth-gh-usercode");
+      if (codeEl) codeEl.textContent = data.userCode || "";
+      const link = document.getElementById("oauth-gh-link");
+      if (link && data.verificationUri) link.href = data.verificationUri;
+      msg.style.color = "var(--muted)";
+      msg.textContent = "Waiting for you to approve the sign-in…";
+      if (data.verificationUri) window.open(data.verificationUri, "_blank", "noopener");
+      pollGitHubConnection(data.deviceCode, data.pollIntervalMs || 5000);
+    } catch (e) {
+      msg.style.color = "var(--danger)";
+      msg.textContent = String(e);
+    }
+  }
+
+  // Polls /exchange with the device code. 202 means "still waiting"; 200 means the
+  // account was saved. Stops if the operator navigated away.
+  async function pollGitHubConnection(deviceCode, intervalMs) {
+    const msg = document.getElementById("oauth-gh-msg");
+    const step = Math.max(1000, intervalMs || 5000);
+    const maxAttempts = Math.ceil(600000 / step); // give up after ~10 minutes
+    for (let i = 0; i < maxAttempts; i++) {
+      await new Promise(r => setTimeout(r, step));
+      if (!githubOAuthCtx || githubOAuthCtx.deviceCode !== deviceCode) return;
+      try {
+        const res = await api("/api/oauth/github/exchange", {
+          method: "POST",
+          body: JSON.stringify({
+            deviceCode: deviceCode,
+            name: (document.getElementById("oauth-gh-name") || {}).value || "",
+          }),
+        });
+        const data = await res.json();
+        if (res.status === 202) {
+          msg.style.color = "var(--muted)";
+          msg.textContent = data.message || "Still waiting for approval…";
+          continue;
+        }
+        if (!res.ok) {
+          msg.style.color = "var(--danger)";
+          msg.textContent = data.error || `Failed (${res.status}).`;
+          githubOAuthCtx = null;
+          return;
+        }
+        msg.style.color = "var(--accent)";
+        msg.textContent = `Added ${data.name || "github"}.`;
+        githubOAuthCtx = null;
+        const step2 = document.getElementById("oauth-gh-step2");
+        if (step2) step2.style.display = "none";
+        setTimeout(() => openProviderDetail("github"), 600);
+        return;
+      } catch (e) { /* keep polling */ }
+    }
+    if (githubOAuthCtx && githubOAuthCtx.deviceCode === deviceCode) {
+      msg.style.color = "var(--muted)";
+      msg.textContent = "Timed out waiting for approval. Click Sign in to start again.";
+      githubOAuthCtx = null;
     }
   }
 

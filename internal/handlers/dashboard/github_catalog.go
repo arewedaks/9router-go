@@ -20,13 +20,15 @@ import (
 // authenticated with the Copilot bearer token + the standard Copilot chat
 // headers. The response shape is
 //
-//	{ "data": [ { "id", "name", "model_picker_enabled", "policy",
-//	              "capabilities", "supported_endpoints", ... } ] }
+//	{ "data": [ { "id", "name", "policy", "capabilities",
+//	              "supported_endpoints", ... } ] }
 //
 // Crucially, only models the account is ENTITLED to appear in the live response.
 // Parsing it directly is therefore the entitlement filter: importing it never
 // advertises a model the account cannot call (which is what produced upstream
-// `400 ... not supported` errors in the reference).
+// `400 ... not supported` errors in the reference). Note that entitlement is
+// carried by policy.state, NOT by model_picker_enabled — see
+// isRoutableGitHubChatModel for why that distinction cost real models.
 //
 // This mirrors OmniRoute's open-sse/services/githubCopilotModels.ts, including
 // its two design decisions:
@@ -91,13 +93,16 @@ func isGitHubProvider(providerID string) bool {
 
 // githubCopilotCatalogItem is one row of the live /models response. Only the
 // fields we inspect are declared; the rest is ignored by the decoder.
+//
+// model_picker_enabled is intentionally absent: it is an editor-UI hint, not an
+// entitlement signal, and filtering on it emptied the catalogue for real
+// accounts (see isRoutableGitHubChatModel).
 type githubCopilotCatalogItem struct {
-	ID                 string `json:"id"`
-	Model              string `json:"model"`
-	Name               string `json:"name"`
-	DisplayName        string `json:"display_name"`
-	ModelPickerEnabled *bool  `json:"model_picker_enabled"`
-	Policy             struct {
+	ID          string `json:"id"`
+	Model       string `json:"model"`
+	Name        string `json:"name"`
+	DisplayName string `json:"display_name"`
+	Policy      struct {
 		State string `json:"state"`
 	} `json:"policy"`
 	Capabilities struct {
@@ -120,14 +125,17 @@ type githubCopilotCatalogEnvelope struct {
 // Capability-driven (rename-robust) rather than an id allowlist: any entitled
 // model whose capabilities.type is "chat" (or that carries a chat-shaped
 // supported_endpoints entry) is kept, so a newly-entitled model shows up with no
-// code change. Rows are dropped when policy.state is set and != "enabled", when
-// model_picker_enabled=false, or when both signals are absent AND the id looks
-// like a known non-chat utility (embedding / legacy completion).
+// code change.
+//
+// Entitlement is governed by policy.state, which is the authoritative signal: an
+// account only gets to call models marked "enabled". model_picker_enabled is
+// deliberately NOT used as a filter — it means "show this in the editor model
+// picker", and every entitled model can legitimately carry false (verified
+// against a live account: 9 models with policy.state=enabled all reported
+// model_picker_enabled=false). Treating it as entitlement silently empties the
+// catalogue, so the field is parsed for completeness but never gates a row.
 func isRoutableGitHubChatModel(item githubCopilotCatalogItem) bool {
 	if state := strings.TrimSpace(item.Policy.State); state != "" && state != "enabled" {
-		return false
-	}
-	if item.ModelPickerEnabled != nil && !*item.ModelPickerEnabled {
 		return false
 	}
 
@@ -283,6 +291,31 @@ func parseGitHubCopilotCatalog(raw []byte) []UpstreamModel {
 		models = append(models, UpstreamModel{ID: id, Name: name, Kind: inferModelKind(id)})
 	}
 	return models
+}
+
+// copilotTokenFromData returns the Copilot bearer token stored on a GitHub
+// connection, if any.
+//
+// The device-flow handler derives a Copilot token at save time and stores it
+// under providerSpecificData.copilotToken. The generic credentialFromData
+// prefers the top-level accessToken (the GitHub token), which the Copilot API
+// rejects, so the catalogue call must read this field first.
+func copilotTokenFromData(data string) string {
+	if strings.TrimSpace(data) == "" {
+		return ""
+	}
+	var m map[string]any
+	if err := json.Unmarshal([]byte(data), &m); err != nil {
+		return ""
+	}
+	psd, ok := m["providerSpecificData"].(map[string]any)
+	if !ok {
+		return ""
+	}
+	if v, ok := psd["copilotToken"].(string); ok {
+		return strings.TrimSpace(v)
+	}
+	return ""
 }
 
 // githubStaticFallbackModels builds UpstreamModel rows from the curated id list.

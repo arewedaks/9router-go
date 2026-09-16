@@ -266,15 +266,36 @@ func pollGitHubAccessToken(clientID, deviceCode string) (tokens githubTokenRespo
 	if tokens.AccessToken != "" {
 		return tokens, false, nil
 	}
-	// authorization_pending / slow_down are "keep waiting", not failures.
+	return classifyGitHubPoll(tokens)
+}
+
+// classifyGitHubPoll turns a poll response into (tokens, pending, error).
+//
+// Split out so the state machine is unit-testable without a network hop:
+// GitHub reports "authorization_pending" (and occasionally "slow_down") while
+// the operator has not approved yet, which is a keep-waiting signal, not a
+// failure. Everything else without a token is a real error.
+func classifyGitHubPoll(tokens githubTokenResponse) (githubTokenResponse, bool, error) {
+	if tokens.AccessToken != "" {
+		return tokens, false, nil
+	}
 	switch tokens.Error {
-	case "authorization_pending", "slow_down":
-		return tokens, true, nil
-	case "":
-		// No token and no error: treat as pending rather than a hard error.
+	case "authorization_pending", "slow_down", "":
 		return tokens, true, nil
 	default:
 		return tokens, false, fmt.Errorf("token error: %s %s", tokens.Error, tokens.ErrorDescription)
+	}
+}
+
+// isGitHubAlias reports whether a provider id addresses GitHub Copilot. Kept
+// here so the OAuth package can guard its own handler without importing the
+// dashboard package (which would be a cycle).
+func isGitHubAlias(providerID string) bool {
+	switch strings.ToLower(strings.TrimSpace(providerID)) {
+	case "github", "gh", "copilot":
+		return true
+	default:
+		return false
 	}
 }
 
@@ -288,6 +309,14 @@ func (h *OAuthHandler) saveGitHubConnection(tokens githubTokenResponse, requeste
 		// Copilot token on refresh.
 		"accessToken":  tokens.AccessToken,
 		"refreshToken": tokens.AccessToken,
+	}
+	// expiresAt drives OAuthConnectionData.IsExpired(), which is what the chat
+	// path uses to decide whether to refresh automatically. It describes the
+	// *Copilot* token's lifetime (that is the credential requests actually carry);
+	// leave it empty when upstream gave no expiry so the store refreshes lazily
+	// instead of trusting a fabricated window.
+	if copilot.ExpiresAt > 0 {
+		data["expiresAt"] = time.Unix(copilot.ExpiresAt, 0).UTC().Format(time.RFC3339)
 	}
 	psd := map[string]any{
 		// Copilot-specific extras live under providerSpecificData, matching the

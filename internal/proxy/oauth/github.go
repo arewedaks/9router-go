@@ -21,6 +21,11 @@ func init() {
 // Copilot bearer token, which is what api.githubcopilot.com actually accepts.
 const githubCopilotTokenURL = "https://api.github.com/copilot_internal/v2/token"
 
+// githubCopilotTokenURLForTest is the endpoint the refresher actually calls. It
+// normally equals the const above; tests repoint it at an httptest server so no
+// real network call is made.
+var githubCopilotTokenURLForTest = githubCopilotTokenURL
+
 // githubCopilotTokenResponse is the small envelope returned by the endpoint.
 type githubCopilotTokenResponse struct {
 	Token     string `json:"token"`
@@ -57,7 +62,7 @@ func RefreshGitHub(ctx context.Context, p *Params) (*TokenResult, error) {
 		return nil, fmt.Errorf("github: no GitHub access token available to derive a Copilot token")
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, githubCopilotTokenURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, githubCopilotTokenURLForTest, nil)
 	if err != nil {
 		return nil, fmt.Errorf("github: create refresh request: %w", err)
 	}
@@ -110,10 +115,19 @@ func RefreshGitHub(ctx context.Context, p *Params) (*TokenResult, error) {
 	}
 
 	return &TokenResult{
-		// The Copilot token is the credential callers use for chat.
-		AccessToken: parsed.Token,
-		// The GitHub token remains the long-lived refresh input.
+		// accessToken keeps holding the *GitHub* token. It is the long-lived input
+		// this refresher consumes, so overwriting it with the derived Copilot token
+		// would make the next refresh impossible (GitHub rejects a Copilot token
+		// with 401 Bad credentials).
+		AccessToken:  githubToken,
 		RefreshToken: githubToken,
 		ExpiresIn:    expiresIn,
+		// The derived Copilot bearer lives here, which is what callers send to
+		// api.githubcopilot.com. Readers such as the model catalogue prefer
+		// providerSpecificData.copilotToken over accessToken, so leaving it stale
+		// would make them keep using the expired token even after a refresh.
+		ProviderSpecificData: map[string]interface{}{
+			"copilotToken": parsed.Token,
+		},
 	}, nil
 }

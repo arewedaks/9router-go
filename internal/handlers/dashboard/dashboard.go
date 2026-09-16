@@ -19,6 +19,7 @@ import (
 	"9router/proxy/internal/handlerutil"
 	"9router/proxy/internal/models"
 	"9router/proxy/internal/providers"
+	proxoauth "9router/proxy/internal/proxy/oauth"
 )
 
 //go:embed ui/*
@@ -532,19 +533,34 @@ func (h *Handler) HandleImportModels(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var creds string
+	var credsConnID string
 	for _, c := range conns {
 		if c.IsActive == 1 {
 			creds = c.Data
+			credsConnID = c.ID
 			break
 		}
 	}
 	if creds == "" && len(conns) > 0 {
 		creds = conns[0].Data
+		credsConnID = conns[0].ID
 	}
 	if creds == "" {
 		handlerutil.WriteJSONError(w, http.StatusBadRequest,
 			"Add a connection to enable importing models.")
 		return
+	}
+
+	// Some providers (notably GitHub Copilot, whose bearer token lives ~24h)
+	// store a short-lived derived token. Refresh it on demand so Import does not
+	// silently fall back to a static list just because the cached token aged out.
+	// Failure is not fatal: the fetch below still degrades gracefully.
+	if credsConnID != "" {
+		if refreshed, _, _, rerr := proxoauth.RefreshStoredConnection(r.Context(), h.repo, nil, credsConnID, false); rerr == nil && refreshed != "" {
+			if conn, cerr := h.repo.GetProviderConnectionByID(credsConnID); cerr == nil && conn != nil {
+				creds = conn.Data
+			}
+		}
 	}
 
 	result, err := h.fetchUpstreamModels(canonical, creds, 20*time.Second)

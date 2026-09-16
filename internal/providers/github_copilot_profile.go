@@ -145,10 +145,10 @@ func GitHubCopilotChatHeaders(accept, initiator string) map[string]string {
 func GitHubCopilotRefreshHeaders(authorization string) map[string]string {
 	version := GitHubCopilotCLIVersionString()
 	return map[string]string{
-		"Authorization":       authorization,
-		"Accept":              "application/json",
-		"User-Agent":          GitHubCopilotRefreshUserAgent,
-		"Editor-Version":      "copilot/" + version,
+		"Authorization":         authorization,
+		"Accept":                "application/json",
+		"User-Agent":            GitHubCopilotRefreshUserAgent,
+		"Editor-Version":        "copilot/" + version,
 		"Editor-Plugin-Version": "copilot/" + version,
 	}
 }
