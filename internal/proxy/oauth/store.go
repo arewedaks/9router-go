@@ -75,9 +75,16 @@ func refreshStoredConnectionLocked(ctx context.Context, repo *db.Repo, client *h
 		projectID = oauthData.ProjectID
 	}
 
-	if oauthData == nil || oauthData.RefreshToken == "" {
-		// API-key connections (and OAuth connections with no refresh token) have
-		// nothing to refresh; report the current token unchanged.
+	if oauthData == nil {
+		// API-key connections have nothing to refresh; report the token unchanged.
+		return currentToken, projectID, false, nil
+	}
+	// Most providers need a refresh token, but some derive a short-lived
+	// credential from the long-lived access token instead (GitHub Copilot: the
+	// Copilot bearer is minted from the GitHub PAT). For those, an empty
+	// refreshToken is not a reason to give up — fall back to the access token when
+	// a custom refresher is registered for the provider.
+	if oauthData.RefreshToken == "" && (oauthData.AccessToken == "" || Get(provider) == nil) {
 		return currentToken, projectID, false, nil
 	}
 
@@ -152,6 +159,19 @@ func persistRefreshResult(database *sql.DB, connectionID, rawData string, result
 	update := BuildConnectionUpdate(result)
 	if result.ProjectID != "" {
 		update["projectId"] = result.ProjectID
+	}
+	// Provider-specific extras may target a nested object (GitHub's copilotToken
+	// lives under providerSpecificData). Deep-merge those so unrelated siblings
+	// in the nested map are preserved rather than replaced.
+	if len(result.ProviderSpecificData) > 0 {
+		nested, _ := existing["providerSpecificData"].(map[string]interface{})
+		if nested == nil {
+			nested = make(map[string]interface{})
+		}
+		for k, v := range result.ProviderSpecificData {
+			nested[k] = v
+		}
+		existing["providerSpecificData"] = nested
 	}
 	for k, v := range update {
 		existing[k] = v

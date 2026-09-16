@@ -168,6 +168,10 @@ DELETE /api/dashboard/providers/{id}/models?modelId= # remove model
 POST   /api/dashboard/models/test                    # ping one model
 POST   /api/dashboard/providers/{id}/test-models     # batch test + auto-disable
 POST   /api/dashboard/connections/{id}/client-profile # set Antigravity ide|cli
+GET    /api/oauth/github/authorize                    # GitHub device-code start
+POST   /api/oauth/github/exchange                     # poll + store GitHub Copilot
+GET    /api/oauth/codebuddy/authorize                 # CodeBuddy device-code start
+POST   /api/oauth/codebuddy/exchange                  # poll + store CodeBuddy
 ```
 
 All accept the same `Authorization: Bearer <api-key>` used by the proxy.
@@ -320,6 +324,70 @@ skip) when a stored credential is missing or out of quota, so a red
   `tokenRefresh/providers.js#refreshCodebuddyToken`. Handled by
   `internal/proxy/oauth/codebuddy.go` (`RefreshCodebuddy`), not the shared
   StandardRefresher, and each region refreshes against its own host.
+- **GitHub Copilot** is a public **device-code** OAuth client (RFC 8628), so
+  there is no redirect and no loopback: the operator types a short code at
+  `github.com/login/device`. Unlike CodeBuddy, GitHub *does* ship a public
+  `client_id` (`KnownOAuthConfigs["github"]`) and **no** client_secret.
+  - `GET  /api/oauth/github/authorize` → `{ userCode, verificationUri,
+    deviceCode, interval, expiresIn }` from `POST github.com/login/device/code`.
+    The dashboard shows `userCode` + `verificationUri`; the raw `deviceCode` is
+    only echoed back so the stateless exchange can poll with it.
+  - `POST /api/oauth/github/exchange` `{ deviceCode, name?, interval? }` polls
+    `POST github.com/login/oauth/access_token` with
+    `grant_type=urn:ietf:params:oauth:grant-type:device_code`. `202` while
+    `authorization_pending`/`slow_down`, `200` once stored, `410`/`400` when the
+    code expired or was denied — the standard RFC 8628 error table, so the poll
+    loop is generic.
+  - Storing a connection does **two** exchanges: GitHub token → **Copilot
+    token** (`GET api.github.com/copilot_internal/v2/token`) → `GET
+    api.github.com/user` for the login/email. The Copilot token is the credential
+    chat actually sends; the GitHub token is retained as the refresh input.
+- Copilot **chat identity is the CLI profile, not `vscode-chat`**. OmniRoute's
+  comment is the whole reason: `copilot-developer-cli` "is the catalog-unlock
+  lever: it exposes the full entitled model set ... where `vscode-chat` returns a
+  narrower list". `internal/providers/github_copilot_profile.go` centralises the
+  constants (`copilot-integration-id: copilot-developer-cli`, UA
+  `GitHubCopilotChat/1.0.81-6`, `editor-version: vscode/1.110.0`,
+  `openai-intent: conversation-agent`, `x-github-api-version: 2026-08-01`) and
+  `providers.go` uses the same headers for the `github` provider.
+- Copilot **refresh is not OAuth2**. There is no `grant_type=refresh_token` and
+  no refresh token in the usual sense: the Copilot bearer is *derived* from the
+  long-lived GitHub token. `internal/proxy/oauth/github.go` (`RefreshGitHub`)
+  re-derives it with two easy-to-miss details: the scheme is `token <pat>` (**not
+  `Bearer`** — the internal endpoint rejects Bearer) and the UA is the legacy
+  `GithubCopilot/1.0` (the refresh host rejects the newer CLI UA).
+
+  Consequential detail, learned the hard way against a live account: the
+  refresher returns the **GitHub token unchanged in `AccessToken`** and puts the
+  derived Copilot bearer in `providerSpecificData.copilotToken` (via
+  `TokenResult.ProviderSpecificData`, deep-merged into the stored blob). Writing
+  the Copilot token into `AccessToken` looks tidier but breaks the *next*
+  refresh, because the refresher then feeds a Copilot token back to GitHub and
+  gets `401 Bad credentials`. Any reader of the derived token (the model
+  catalogue prefers `copilotToken` over `accessToken`) must see the refreshed
+  value, which is exactly what the nested field guarantees.
+
+  Because `OAuthConnectionData.IsExpired()` keys off `expiresAt`, the stored
+  expiry describes the **Copilot** token's lifetime — that is the credential
+  requests carry, and what should trigger a refresh.
+- Copilot **model import** hits `GET api.githubcopilot.com/models` with the
+  Copilot token and returns only what the account is *entitled* to. The filter is
+  capability-driven (`internal/handlers/dashboard/github_catalog.go`), keyed on
+  `capabilities.type == "chat"` plus a chat-shaped `supported_endpoints`
+  fallback — not an id allowlist, so a newly entitled model appears with no code
+  change. `policy.state` is authoritative: anything with a state other than
+  `enabled` is dropped.
+
+  `model_picker_enabled` is deliberately **not** consulted. It means "show this
+  in the editor's model picker", not "you may call this". Filtering on it was
+  tested against a live account and the catalogue collapsed from 30 models to 0 —
+  the account was entitled to 9 models that all reported
+  `model_picker_enabled: false`. The second live finding was subtler: a fresh
+  `/models` call returned `401` because the *cached* Copilot token had aged out
+  while `accessToken` still looked usable, so `HandleImportModels` now refreshes
+  the chosen connection on demand before fetching. A static fallback catalogue is
+  still served (with a `warning`) when the live call fails, so Import always
+  completes.
 
 ## Contributing back
 

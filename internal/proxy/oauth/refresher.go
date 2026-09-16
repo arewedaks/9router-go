@@ -16,6 +16,21 @@ type TokenResult struct {
 	ExpiresIn    int // seconds
 	Scope        string
 	ProjectID    string // provider-specific extra field
+
+	// ExtraFields are provider-specific keys merged verbatim into the stored
+	// connection blob. A provider that caches a derived credential alongside the
+	// refreshed token — GitHub Copilot stores the Copilot bearer under
+	// providerSpecificData.copilotToken — sets it here so callers of the derived
+	// token see the new value too. Without this the stored accessToken would be
+	// fresh while the cached derived token stayed stale, and any reader of the
+	// derived field would keep seeing the old value.
+	ExtraFields map[string]interface{}
+
+	// ProviderSpecificData is deep-merged into the connection's
+	// providerSpecificData object (siblings are preserved), so a provider can
+	// refresh a nested cached credential without clobbering unrelated keys like
+	// the GitHub identity fields.
+	ProviderSpecificData map[string]interface{}
 }
 
 // Params holds all inputs for a refresh call.
