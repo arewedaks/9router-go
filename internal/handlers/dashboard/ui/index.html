@@ -54,6 +54,27 @@
     .acct-dot.on { background: #3fb950; box-shadow: 0 0 5px #3fb950; }
     .acct-dot.off { background: #6e7681; }
     .acct-dot.warn { background: #d29922; box-shadow: 0 0 5px #d29922; }
+    /* Compact IDE/CLI chooser. A native <select> sizes to its widest option
+       plus browser chrome and an arrow, which shoved the account label and
+       Delete button out of the row. Strip the native chrome, draw a tiny
+       caret, and pin a fixed width so every row aligns. */
+    .profile-select { appearance: none; -webkit-appearance: none; background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 5px; padding: 1px 13px 1px 5px; font-size: 0.66rem; line-height: 1.5; cursor: pointer; width: 42px; flex: 0 0 42px; text-align: center; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5'%3E%3Cpath d='M0 0l4 5 4-5z' fill='%238b949e'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 4px center; transition: border-color 0.15s; }
+    .profile-select:hover { border-color: var(--primary); }
+    .profile-select:focus { outline: none; border-color: var(--primary); }
+
+    /* --- Connection test (per-account) --- */
+    /* The status chip doubles as the test verdict. Fixed min-width keeps every
+       row aligned whether it reads idle/ok/warn/fail, so a verdict never shifts
+       the neighbouring controls. */
+    .conn-status { min-width: 46px; text-align: center; border-radius: 4px; padding: 1px 5px; transition: color 0.15s, background 0.15s; }
+    .conn-status.ok { color: #7ee787; background: #13381e; }
+    .conn-status.err { color: #ff7b72; background: #3d1418; }
+    /* Amber, not green: a region-blocked probe is NOT a healthy account. */
+    .conn-status.warn { color: #e3b341; background: #3a2d10; }
+    .conn-test-btn { flex: 0 0 auto; }
+    .conn-test-btn.testing { opacity: 0.7; cursor: progress; }
+    .conn-test-bar { display: flex; align-items: center; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
+    .conn-test-progress { font-size: 0.72rem; color: var(--muted); }
     .acct-email { color: #e6edf3; font-weight: 500; }
     .acct-meta { color: var(--muted); font-size: 0.75rem; }
     .acct-pill { border-radius: 4px; padding: 1px 6px; font-size: 0.68rem; font-weight: 600; }
@@ -169,9 +190,14 @@
     .cap-item .msym { font-size: 19px; color: var(--primary); }
     .cap-item.on { border-color: #2ea043; }
     .cap-item.on .msym { color: #3fb950; }
-    .model-row { display: flex; align-items: center; gap: 10px; padding: 8px 11px; background: var(--panel); border: 1px solid var(--border); border-radius: 7px; margin-bottom: 5px; font-size: 0.82rem; }
-    .model-row .mid { flex: 1; font-family: monospace; color: #e6edf3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .model-row .mkind { font-size: 0.68rem; color: var(--muted); }
+    .model-row { display: flex; align-items: center; gap: 10px; padding: 8px 11px; background: var(--panel); border: 1px solid var(--border); border-radius: 7px; margin-bottom: 5px; font-size: 0.82rem; transition: border-color 0.2s; }
+    .model-row .mid { flex: 1 1 auto; min-width: 90px; font-family: monospace; color: #e6edf3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .model-row .mkind { font-size: 0.66rem; color: var(--muted); flex: 0 1 auto; min-width: 0; max-width: 64px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    /* The fixed-width controls (profile select, toggle, delete) never shrink, so
+       the account label always keeps a readable slice instead of collapsing. */
+    .model-row .profile-select, .model-row .switch, .model-row .btn { flex: 0 0 auto; }
+    .model-test-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 8px 0; margin-bottom: 6px; border-bottom: 1px dashed var(--border); }
+    @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 
     /* Inline add-forms on the provider detail page */
     .add-form { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px; margin-bottom: 14px; }
@@ -179,6 +205,9 @@
     .add-form-title .msym { font-size: 17px; color: var(--primary); }
     .add-form-grid { display: grid; grid-template-columns: 1fr; gap: 10px; }
     @media (min-width: 720px) { .add-form-grid { grid-template-columns: 2fr 2fr auto; align-items: end; } }
+    .oauth-form { margin-top: 10px; border-color: var(--primary-dim); }
+    .oauth-form code { background: var(--bg); padding: 1px 4px; border-radius: 4px; font-size: 0.7rem; }
+    @media (min-width: 720px) { .oauth-grid { grid-template-columns: 1fr 1fr auto; align-items: end; } }
     .field-label { display: block; font-size: 0.72rem; color: var(--muted); margin-bottom: 5px; }
     .add-form input, .add-form select { width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; color: #e6edf3; font-size: 0.82rem; font-family: inherit; }
     .add-form input:focus, .add-form select:focus { outline: none; border-color: var(--primary); }
@@ -701,9 +730,12 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
   // Provider detail sub-page (upstream /dashboard/providers/[id])
   // ----------------------------------------------------------------
   let currentProviderId = null;
+  let currentModelAlias = null;
+  let lastProviderDetail = null;
 
   async function openProviderDetail(providerId) {
     currentProviderId = providerId;
+    resetModelTestState();
     document.querySelectorAll(".tab-pane").forEach(p => p.classList.remove("active"));
     document.getElementById("tab-provider-detail").classList.add("active");
     document.querySelectorAll(".nav-btn").forEach(b => b.classList.remove("active"));
@@ -720,6 +752,7 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
         return;
       }
       const d = await res.json();
+      window.__agConnCount = (d.connections || []).length;
       renderProviderDetail(d);
     } catch (e) {
       box.innerHTML = `<div style="color:#ff7b72; padding:20px;">Error: ${escapeHtml(String(e))}</div>`;
@@ -734,6 +767,8 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
   }
 
   function renderProviderDetail(d) {
+    lastProviderDetail = d;
+    currentModelAlias = (d.aliases && d.aliases.length) ? d.aliases[0] : d.provider;
     const color = d.color || "#388bfd";
     const icon = d.icon || "smart_toy";
 
@@ -756,14 +791,26 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
     }).join("");
 
     // Connections tab — includes the "Add connection" form.
+    const isAntigravity = d.provider === "antigravity" || d.provider === "agy";
     const connsInner = (d.connections || []).length
       ? d.connections.map(p => {
           const label = p.accountLabel || p.email || p.name || p.id.substring(0, 12);
           const dot = p.isActive !== 1 ? "off" : (p.expired ? "warn" : "on");
-          return `<div class="model-row">
+          // Antigravity connections share one backend but two official client
+          // identities; surface a profile switch so operators can match the
+          // credentials they imported (IDE app vs standalone CLI).
+          const profileSel = isAntigravity
+            ? `<select class="profile-select" title="Antigravity client profile" onchange="setClientProfile('${p.id}', this.value, this);">
+                 <option value="ide" ${(p.clientProfile || 'ide') === 'ide' ? 'selected' : ''}>IDE</option>
+                 <option value="cli" ${p.clientProfile === 'cli' ? 'selected' : ''}>CLI</option>
+               </select>`
+            : '';
+          return `<div class="model-row" id="conn-row-${p.id}">
             <span class="acct-dot ${dot}"></span>
-            <span class="mid">${escapeHtml(label)}</span>
-            <span class="mkind">${escapeHtml(p.testStatus || 'idle')}</span>
+            <span class="mid" title="${escapeHtml(label)}">${escapeHtml(label)}</span>
+            ${profileSel}
+            <span class="mkind conn-status" id="conn-status-${p.id}" title="status: ${escapeHtml(p.testStatus || 'idle')}">${escapeHtml(p.testStatus || 'idle')}</span>
+            <button class="btn btn-sm conn-test-btn" id="conn-test-${p.id}" onclick="testConnection('${p.id}');" title="Test this account against the upstream provider">Test</button>
             <label class="switch" style="transform:scale(0.8);">
               <input type="checkbox" ${p.isActive === 1 ? 'checked' : ''} onchange="toggleProvider('${p.id}');">
               <span class="slider"></span>
@@ -802,16 +849,44 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
         </div>
         <div id="add-conn-msg" style="font-size:0.75rem; margin-top:8px; color:var(--muted);"></div>
       </div>
+      ${isAntigravity ? oauthPanelHtml(d.provider) : ''}
+      <div class="conn-test-bar">
+        <button class="btn btn-sm" onclick="testAllConnections('${d.provider}');">Test All Accounts</button>
+        <span id="conn-test-progress" class="conn-test-progress"></span>
+      </div>
       <div style="margin-top:6px;">${connsInner}</div>`;
 
-    // Models tab — includes the "Add Custom Model" form.
+    // Models tab — includes the "Add Custom Model" form plus per-model and
+    // batch "Test" controls (upstream "Test All Models" + Test button on
+    // each model chip).
     const modelsInner = (d.models || []).length
-      ? d.models.map(m => `<div class="model-row">
-          <span class="msym" style="font-size:16px; color:var(--muted);">deployed_code</span>
-          <span class="mid">${escapeHtml(m.modelId)}</span>
-          <span class="mkind">${escapeHtml(m.kind || 'llm')}</span>
-          <button class="btn btn-sm btn-danger" onclick="removeModel('${d.provider}','${escapeHtml(m.modelId)}')">×</button>
-        </div>`).join("")
+      ? d.models.map(m => {
+          const st = modelTestResults[m.modelId];
+          const rowBorder = st === 'ok' ? 'border-color:#22c55e66;'
+            : st === 'error' ? 'border-color:#ef444466;' : '';
+          const iconColor = st === 'ok' ? '#22c55e' : st === 'error' ? '#ef4444' : 'var(--muted)';
+          const icon = st === 'ok' ? 'check_circle' : st === 'error' ? 'cancel' : 'deployed_code';
+          const testing = testingModelIds.has(m.modelId);
+          const latency = modelTestLatency[m.modelId];
+          const statusBadge = testing
+            ? `<span class="mkind" style="color:var(--primary);"><span class="msym" style="font-size:13px;animation:spin 1s linear infinite;">progress_activity</span> testing…</span>`
+            : st === 'ok'
+              ? `<span class="mkind" style="color:#22c55e;">${latency != null ? latency + 'ms' : 'ok'}</span>`
+              : st === 'error'
+                ? `<span class="mkind" style="color:#ef4444;" title="${escapeHtml(modelTestError[m.modelId] || '')}">failed</span>`
+                : '';
+          return `<div class="model-row" style="${rowBorder}" title="${escapeHtml(modelTestError[m.modelId] || '')}">
+            <span class="msym" style="font-size:16px; color:${iconColor};">${icon}</span>
+            <span class="mid">${escapeHtml(m.modelId)}</span>
+            <span class="mkind">${escapeHtml(m.kind || 'llm')}</span>
+            ${statusBadge}
+            <button class="btn btn-sm" title="Test this model" ${testing ? 'disabled' : ''}
+                    onclick="testModel('${d.provider}','${escapeHtml(m.modelId)}')">
+              <span class="msym" style="font-size:14px;${testing ? 'animation:spin 1s linear infinite;' : ''}">${testing ? 'progress_activity' : 'science'}</span>
+            </button>
+            <button class="btn btn-sm btn-danger" title="Remove model" onclick="removeModel('${d.provider}','${escapeHtml(m.modelId)}')">×</button>
+          </div>`;
+        }).join("")
       : `<div style="text-align:center; color:var(--muted); padding:26px; border:1px dashed var(--border); border-radius:10px;">No cached models. Add one below.</div>`;
 
     const kindOptions = Object.entries(SERVICE_KIND_META)
@@ -839,6 +914,20 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
         </div>
         <div id="add-model-msg" style="font-size:0.75rem; margin-top:8px; color:var(--muted);"></div>
       </div>
+      ${(d.models || []).length ? `
+      <div class="model-test-bar">
+        <button class="btn btn-sm" id="test-all-models-btn" onclick="testAllModels('${d.provider}')">
+          <span class="msym" style="font-size:15px;">science</span>Test All Models
+        </button>
+        <span id="model-test-progress" style="font-size:0.75rem; color:var(--muted);"></span>
+        <label style="display:inline-flex; align-items:center; gap:5px; font-size:0.75rem; color:var(--muted); cursor:pointer;">
+          <input type="checkbox" id="test-parallel" ${parallelTestMode ? 'checked' : ''} onchange="setParallelMode(this.checked);" style="accent-color:var(--primary);"> Parallel
+        </label>
+        <label style="display:inline-flex; align-items:center; gap:5px; font-size:0.75rem; color:var(--muted); cursor:pointer;">
+          <input type="checkbox" id="test-auto-disable" ${autoDisableFailed ? 'checked' : ''} onchange="setAutoDisable(this.checked);" style="accent-color:var(--primary);"> Auto-disable failed
+        </label>
+        <button class="btn btn-sm btn-danger" id="test-stop-btn" style="display:none;" onclick="stopModelTest()">Stop</button>
+      </div>` : ""}
       <div style="margin-top:6px;">${modelsInner}</div>`;
 
     const riskHtml = d.deprecationNotice
@@ -939,6 +1028,143 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
     }
   }
 
+  // ----------------------------------------------------------------
+  // Model test (ping) — per-model and batch, mirrors the upstream
+  // "Test" button and "Test All Models" toolbar.
+  // ----------------------------------------------------------------
+  let modelTestResults = {};   // modelId -> "ok" | "error"
+  let modelTestLatency = {};   // modelId -> ms
+  let modelTestError = {};     // modelId -> message
+  let testingModelIds = new Set();
+  let activeTestController = null;
+  let parallelTestMode = false;
+  let autoDisableFailed = false;
+
+  // Persist the toolbar checkbox state across re-renders (renderProviderDetail
+  // replaces the DOM, so plain inline assignment would be lost).
+  function setParallelMode(on) { parallelTestMode = !!on; }
+  function setAutoDisable(on) { autoDisableFailed = !!on; }
+
+  function resetModelTestState() {
+    modelTestResults = {};
+    modelTestLatency = {};
+    modelTestError = {};
+    testingModelIds = new Set();
+  }
+
+  // Ping a single model through the proxy's own /v1 endpoint.
+  async function testModel(providerId, modelId) {
+    if (testingModelIds.has(modelId)) return;
+    testingModelIds.add(modelId);
+    renderProviderDetailRefresh();
+    try {
+      const res = await api(`/api/dashboard/models/test`, {
+        method: "POST",
+        body: JSON.stringify({ model: `${currentModelAlias}/${modelId}`, kind: "llm" })
+      });
+      const data = await res.json().catch(() => ({}));
+      modelTestResults[modelId] = data.ok ? "ok" : "error";
+      if (data.latencyMs != null) modelTestLatency[modelId] = data.latencyMs;
+      if (!data.ok) modelTestError[modelId] = data.error || "Model not reachable";
+    } catch (e) {
+      modelTestResults[modelId] = "error";
+      modelTestError[modelId] = String(e);
+    } finally {
+      testingModelIds.delete(modelId);
+      renderProviderDetailRefresh();
+    }
+  }
+
+  // Re-render the currently open provider detail without a fresh fetch,
+  // preserving any other UI state (used after test state changes).
+  function renderProviderDetailRefresh() {
+    if (lastProviderDetail) renderProviderDetail(lastProviderDetail);
+  }
+
+  // Batch test every model of the provider. Calls the per-model endpoint so
+  // progress updates in real time and a failure in one model never aborts
+  // the rest. Mirrors the upstream "Test All Models" toolbar.
+  async function testAllModels(providerId) {
+    const parallel = parallelTestMode;
+    const autoDisable = autoDisableFailed;
+
+    const btn = document.getElementById("test-all-models-btn");
+    const stopBtn = document.getElementById("test-stop-btn");
+    const progress = document.getElementById("model-test-progress");
+    if (btn) btn.disabled = true;
+    if (stopBtn) stopBtn.style.display = "";
+
+    activeTestController = new AbortController();
+    const signal = activeTestController.signal;
+    const modelIds = ((lastProviderDetail && lastProviderDetail.models) || []).map(m => m.modelId);
+    const total = modelIds.length;
+    let done = 0;
+    let okCount = 0;
+    let failCount = 0;
+
+    const tick = () => {
+      if (progress) progress.innerText = `${done}/${total} — ${okCount} ok, ${failCount} error`;
+    };
+
+    // Test one model and update counters + per-row state.
+    const testOne = async (modelId) => {
+      if (signal.aborted) return;
+      testingModelIds.add(modelId);
+      try {
+        const res = await api(`/api/dashboard/models/test`, {
+          method: "POST",
+          signal,
+          body: JSON.stringify({ model: `${currentModelAlias}/${modelId}`, kind: "llm" })
+        });
+        const data = await res.json().catch(() => ({}));
+        modelTestResults[modelId] = data.ok ? "ok" : "error";
+        if (data.latencyMs != null) modelTestLatency[modelId] = data.latencyMs;
+        if (!data.ok) { modelTestError[modelId] = data.error || "failed"; failCount++; }
+        else okCount++;
+        if (!data.ok && autoDisable) {
+          // Auto-disable: remove the model from the provider cache.
+          await api(`/api/dashboard/providers/${encodeURIComponent(providerId)}/models?modelId=${encodeURIComponent(modelId)}`, { method: "DELETE" });
+        }
+      } catch (e) {
+        if (e && e.name === "AbortError") return;
+        modelTestResults[modelId] = "error";
+        modelTestError[modelId] = String(e);
+        failCount++;
+      } finally {
+        testingModelIds.delete(modelId);
+        done++;
+        tick();
+        renderProviderDetailRefresh();
+      }
+    };
+
+    try {
+      if (parallel) {
+        await Promise.all(modelIds.map(testOne));
+      } else {
+        for (const id of modelIds) {
+          if (signal.aborted) break;
+          await testOne(id);
+        }
+      }
+    } finally {
+      modelIds.forEach(id => testingModelIds.delete(id));
+      tick();
+      if (btn) btn.disabled = false;
+      if (stopBtn) stopBtn.style.display = "none";
+      activeTestController = null;
+      renderProviderDetailRefresh();
+      if (autoDisable && failCount > 0) {
+        // Several models were removed server-side; refresh the list.
+        setTimeout(() => openProviderDetail(providerId), 800);
+      }
+    }
+  }
+
+  function stopModelTest() {
+    if (activeTestController) activeTestController.abort();
+  }
+
   // Removes a model from the provider cache (upstream "Remove model").
   async function removeModel(providerId, modelId) {
     if (!confirm(`Remove model "${modelId}"?`)) return;
@@ -973,7 +1199,10 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
         return;
       }
 
-      setFormMsg("add-model-msg", `Found ${models.length} model(s). Pick which to import.`, true);
+      // Surface a degradation notice (e.g. Antigravity fell back to its local
+      // catalogue because live discovery was unreachable).
+      const found = `Found ${models.length} model(s). Pick which to import.`;
+      setFormMsg("add-model-msg", data.warning ? `${found} ${data.warning}` : found, true);
       showImportModal(providerId, models);
     } catch (e) {
       setFormMsg("add-model-msg", String(e), false);
@@ -1068,6 +1297,154 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
     } catch (e) {
       if (msg) { msg.innerText = String(e); msg.className = "msg-err"; }
       if (btn) btn.disabled = false;
+    }
+  }
+
+  // ── Antigravity OAuth (add account without manual token import) ──────────
+  // Antigravity authenticates with a public installed-app Google client, so
+  // the dashboard can drive the whole consent flow. On a headless server the
+  // loopback redirect never resolves, so the operator pastes the callback URL
+  // back into the panel instead of relying on the browser reaching us.
+  function oauthPanelHtml(providerId) {
+    return `
+      <div class="add-form oauth-form">
+        <div class="add-form-title"><span class="msym">passkey</span>Add via Google OAuth</div>
+        <div style="font-size:0.72rem; color:var(--muted); margin-bottom:8px;">
+          Sign in with the Google account that owns the Antigravity subscription.
+          If this page is served on this machine, the account is added automatically after you approve.
+          On a remote/headless server, copy the full <code>localhost</code> address bar URL and paste it below.
+        </div>
+        <div class="add-form-grid oauth-grid">
+          <div>
+            <label class="field-label">Client profile</label>
+            <select id="oauth-profile">
+              <option value="ide">IDE (Antigravity app)</option>
+              <option value="cli">CLI (antigravity command)</option>
+            </select>
+          </div>
+          <div>
+            <label class="field-label">Account name (optional)</label>
+            <input type="text" id="oauth-name" placeholder="auto-filled from Google">
+          </div>
+          <div style="display:flex; align-items:flex-end;">
+            <button class="btn btn-primary" id="oauth-start" onclick="startAntigravityOAuth('${providerId}')">Sign in</button>
+          </div>
+        </div>
+        <div id="oauth-step2" style="display:none; margin-top:10px;">
+          <label class="field-label">Callback URL (or raw code)</label>
+          <div class="auth-add">
+            <input type="text" id="oauth-callback" placeholder="http://localhost:20128/oauth/antigravity/callback?code=...">
+            <button class="btn btn-primary" onclick="finishAntigravityOAuth('${providerId}')">Finish</button>
+          </div>
+        </div>
+        <div id="oauth-msg" style="font-size:0.75rem; margin-top:8px; color:var(--muted);"></div>
+      </div>`;
+  }
+
+  // Pending OAuth context between the authorize and exchange calls.
+  let antigravityOAuthCtx = null;
+
+  async function startAntigravityOAuth(providerId) {
+    const profile = document.getElementById("oauth-profile").value;
+    const msg = document.getElementById("oauth-msg");
+    msg.style.color = "var(--muted)";
+    msg.textContent = "Requesting authorization URL…";
+
+    try {
+      const res = await api("/api/oauth/antigravity/authorize?profile=" + encodeURIComponent(profile));      const data = await res.json();
+      if (!res.ok) {
+        msg.style.color = "var(--danger)";
+        msg.textContent = data.error || `Failed (${res.status}).`;
+        return;
+      }
+      antigravityOAuthCtx = { state: data.state, codeVerifier: data.codeVerifier, redirectUri: data.redirectUri, profile };
+      document.getElementById("oauth-step2").style.display = "block";
+      msg.style.color = "var(--muted)";
+      msg.textContent = "Waiting for Google sign-in… (approve the tab, or paste the callback URL below)";
+      window.open(data.authUrl, "_blank", "noopener");
+      pollAntigravityConnection(providerId, data.state);
+    } catch (e) {
+      msg.style.color = "var(--danger)";
+      msg.textContent = String(e);
+    }
+  }
+
+  // Polls the provider connections while the operator completes consent. The
+  // loopback callback adds the account server-side, so we detect a new
+  // connection and refresh the panel without the operator pasting anything.
+  // Gives up after ~4 minutes; the paste field remains available the whole time.
+  async function pollAntigravityConnection(providerId, state) {
+    const msg = document.getElementById("oauth-msg");
+    for (let i = 0; i < 80; i++) {
+      await new Promise(res => setTimeout(res, 3000));
+      // Abandon the loop if the operator moved on or used the paste path.
+      if (!antigravityOAuthCtx || antigravityOAuthCtx.state !== state) return;
+      try {
+        const res = await api(`/api/dashboard/providers/${encodeURIComponent(providerId)}`);
+        if (!res.ok) continue;
+        const d = await res.json();
+        if ((d.connections || []).length > (window.__agConnCount || 0)) {
+          msg.style.color = "var(--accent)";
+          msg.textContent = "Account added.";
+          antigravityOAuthCtx = null;
+          document.getElementById("oauth-step2").style.display = "none";
+          setTimeout(() => openProviderDetail(providerId), 600);
+          return;
+        }
+      } catch (e) { /* keep polling */ }
+    }
+    if (antigravityOAuthCtx && antigravityOAuthCtx.state === state) {
+      msg.style.color = "var(--muted)";
+      msg.textContent = "Still waiting. Paste the callback URL below to finish manually.";
+    }
+  }
+
+  async function finishAntigravityOAuth(providerId) {
+    const msg = document.getElementById("oauth-msg");
+    const input = document.getElementById("oauth-callback");
+    const raw = (input.value || "").trim();
+    if (!raw) {
+      msg.style.color = "var(--danger)";
+      msg.textContent = "Paste the callback URL or the code.";
+      return;
+    }
+    if (!antigravityOAuthCtx) {
+      msg.style.color = "var(--danger)";
+      msg.textContent = "Click Sign in first.";
+      return;
+    }
+
+    const body = {
+      state: antigravityOAuthCtx.state,
+      codeVerifier: antigravityOAuthCtx.codeVerifier,
+      redirectUri: antigravityOAuthCtx.redirectUri,
+      profile: antigravityOAuthCtx.profile,
+      name: (document.getElementById("oauth-name").value || "").trim(),
+    };
+    if (/^https?:\/\//i.test(raw)) { body.callbackUrl = raw; } else { body.code = raw; }
+
+    msg.style.color = "var(--muted)";
+    msg.textContent = "Exchanging code…";
+    try {
+      const res = await api("/api/oauth/antigravity/exchange", {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        msg.style.color = "var(--danger)";
+        msg.textContent = data.error || `Failed (${res.status}).`;
+        return;
+      }
+      msg.style.color = "var(--accent)";
+      msg.textContent = `Added ${data.name || data.id}.`;
+      input.value = "";
+      document.getElementById("oauth-step2").style.display = "none";
+      antigravityOAuthCtx = null;
+      openProviderDetail(providerId);
+    } catch (e) {
+      msg.style.color = "var(--danger)";
+      msg.textContent = String(e);
     }
   }
 
@@ -1484,6 +1861,97 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
       await api(`/api/dashboard/providers/${id}/toggle`, { method: "POST" });
       loadDashboardStats();
     } catch(e) { alert(e.message); }
+  }
+
+  // setClientProfile switches an Antigravity connection between the IDE and CLI
+  // client identities. The server persists it under
+  // providerSpecificData.clientProfile.
+  // ---- Connection test (per-account) -----------------------------------
+  // Probes the upstream provider with THIS connection's own credentials.
+  // Read-only server side: no state is written, and the verdict is bound to the
+  // connection id (never a row index) so results cannot land on the wrong row.
+  function renderConnVerdict(id, res) {
+    const chip = document.getElementById(`conn-status-${id}`);
+    const btn = document.getElementById(`conn-test-${id}`);
+    if (btn) { btn.disabled = false; btn.classList.remove("testing"); btn.textContent = "Test"; }
+    if (!chip) return;
+    chip.classList.remove("ok", "err", "warn");
+    let label, cls, tip;
+    if (res.valid && res.geoBlocked) {
+      // Auth is fine but the server's egress region is blocked. Showing this as
+      // a plain success would be a false green: the operator would see OK while
+      // every chat request fails. Amber, with actionable text.
+      label = "region"; cls = "warn";
+      tip = res.warning || "Blocked by the provider's region policy (not an account problem).";
+    } else if (res.valid && res.warning) {
+      label = "warn"; cls = "warn"; tip = res.warning;
+    } else if (res.valid) {
+      label = "ok"; cls = "ok"; tip = "Probe passed" + (res.latencyMs != null ? ` in ${res.latencyMs}ms` : "") + ".";
+    } else {
+      label = "fail"; cls = "err"; tip = res.error || "Test failed";
+    }
+    chip.textContent = label;
+    chip.classList.add(cls);
+    chip.title = tip;
+  }
+
+  async function testConnection(id) {
+    const btn = document.getElementById(`conn-test-${id}`);
+    if (btn) { btn.disabled = true; btn.classList.add("testing"); btn.textContent = "…"; }
+    try {
+      const res = await api(`/api/dashboard/connections/${id}/test`, { method: "POST", body: "{}" });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok && !j.connectionId) {
+        throw new Error(j.error || ("HTTP " + res.status));
+      }
+      renderConnVerdict(id, j);
+      if (!j.valid && j.error) console.warn("connection test failed", id, j.error);
+    } catch(e) {
+      renderConnVerdict(id, { valid: false, error: e.message });
+    }
+  }
+
+  // Sequential by default, matching the server: this fork's OAuth refresher has
+  // no per-connection mutex, so firing every account's probe at once is the one
+  // way to risk concurrent refreshes racing on the same refresh token.
+  let testingAllConns = false;
+  async function testAllConnections(providerId) {
+    if (testingAllConns) return;
+    testingAllConns = true;
+    const bar = document.getElementById("conn-test-progress");
+    const ids = Array.from(document.querySelectorAll("[id^=conn-row-]"))
+      .map(el => el.id.replace("conn-row-", ""));
+    let ok = 0, bad = 0, done = 0;
+    try {
+      for (const id of ids) {
+        if (bar) bar.textContent = `Testing ${done + 1}/${ids.length} — ${ok} ok, ${bad} failed…`;
+        await testConnection(id);
+        const chip = document.getElementById(`conn-status-${id}`);
+        if (chip && chip.classList.contains("err")) bad++; else ok++;
+        done++;
+      }
+      if (bar) bar.textContent = `Done: ${ok} ok, ${bad} failed of ${ids.length}.`;
+    } finally {
+      testingAllConns = false;
+    }
+  }
+
+  async function setClientProfile(id, profile, el) {
+    const prev = el ? el.dataset.prev : undefined;
+    try {
+      const res = await api(`/api/dashboard/connections/${id}/client-profile`, {
+        method: "POST",
+        body: JSON.stringify({ profile: profile })
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j.error || ("HTTP " + res.status));
+      }
+      if (el) el.dataset.prev = profile;
+    } catch(e) {
+      if (el && prev) el.value = prev;
+      alert("Failed to set client profile: " + e.message);
+    }
   }
 
   async function deleteProvider(id) {

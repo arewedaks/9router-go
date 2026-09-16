@@ -92,7 +92,12 @@ func ForwardGemini(ctx context.Context, client *http.Client, cfg *providers.Prov
 	headers := map[string]string{
 		"Content-Type":  "application/json",
 		"Authorization": "Bearer " + apiKey,
-		"User-Agent":    "antigravity/ide/2.11.0 darwin/arm64",
+		"User-Agent":    antigravityUserAgent(cfg),
+	}
+	// Apply any provider-level static headers (e.g. connection-specific
+	// overrides) after the defaults so they win.
+	for k, v := range cfg.StaticHeaders {
+		headers[k] = v
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "POST", requestURL, bytes.NewReader(sendBody))
@@ -181,4 +186,17 @@ func ForwardGemini(ctx context.Context, client *http.Client, cfg *providers.Prov
 		return nil, &UpstreamError{StatusCode: resp.StatusCode, Body: errBody}
 	}
 	return resp, nil
+}
+
+// antigravityUserAgent resolves the User-Agent for a gemini-native request.
+// A connection may override it by setting a "User-Agent" entry in the
+// provider config's StaticHeaders (done by the chat layer from the connection's
+// selected client profile); otherwise the IDE default applies.
+func antigravityUserAgent(cfg *providers.ProviderConfig) string {
+	if cfg != nil && cfg.StaticHeaders != nil {
+		if ua, ok := cfg.StaticHeaders["User-Agent"]; ok && ua != "" {
+			return ua
+		}
+	}
+	return providers.AntigravityUserAgent(providers.AntigravityProfileIDE)
 }

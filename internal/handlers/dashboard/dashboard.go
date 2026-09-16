@@ -28,6 +28,11 @@ var uiAssets embed.FS
 type Handler struct {
 	repo       *db.Repo
 	tokenSaver *shared.TokenSaverConfig
+
+	// probeHostsOverride, when set, replaces the Antigravity host list used by
+	// the per-account connection probe. Test-only seam: it lets a test point the
+	// probe at an httptest server without mutating the global provider registry.
+	probeHostsOverride []string
 }
 
 // NewHandler creates a new dashboard Handler.
@@ -59,10 +64,23 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 		dr.Post("/providers/{id}/models", h.HandleAddModel)
 		dr.Get("/providers/{id}/models", h.HandleImportModels)
 		dr.Delete("/providers/{id}/models", h.HandleRemoveModel)
+
+		// Model test (ping) — mirrors upstream POST /api/models/test and
+		// POST /api/providers/[id]/test-models.
+		dr.Post("/models/test", h.HandleModelTest)
+		dr.Post("/providers/{id}/test-models", h.HandleTestProviderModels)
 		dr.Delete("/providers/{id}/models", h.HandleRemoveModel)
 		dr.Post("/providers", h.HandleUpsertProvider)
 		dr.Post("/providers/{id}/toggle", h.HandleToggleProvider)
 		dr.Delete("/providers/{id}", h.HandleDeleteProvider)
+
+		// Antigravity client profile (ide|cli) per connection.
+		dr.Post("/connections/{id}/client-profile", h.HandleSetClientProfile)
+
+		// Connection test (per-account) — mirrors upstream
+		// POST /api/providers/[id]/test and POST /api/providers/test-batch.
+		dr.Post("/connections/{id}/test", h.HandleTestConnection)
+		dr.Post("/providers/{id}/test-connections", h.HandleTestProviderConnections)
 
 		// Combos
 		dr.Get("/combos", h.HandleListCombos)
@@ -219,6 +237,10 @@ type ProviderSummary struct {
 	ExpiresAt    string `json:"expiresAt,omitempty"`
 	LastUsedAt   string `json:"lastUsedAt,omitempty"`
 	Expired      bool   `json:"expired,omitempty"`
+
+	// ClientProfile is the selected Antigravity client identity ("ide" or
+	// "cli") for Antigravity connections; empty for other providers.
+	ClientProfile string `json:"clientProfile,omitempty"`
 
 	// Upstream display metadata so cards match the Next.js UI exactly.
 	Icon            string   `json:"icon,omitempty"`
@@ -412,6 +434,9 @@ func (h *Handler) HandleProviderDetail(w http.ResponseWriter, r *http.Request) {
 			LastUsedAt:    acct.LastUsedAt,
 			Expired:       acct.Expired,
 		}
+		if isAntigravityProvider(c.Provider) {
+			sum.ClientProfile = string(antigravityClientProfileFromData(c.Data))
+		}
 		applyProviderMeta(&sum, m, hasMeta)
 		detail.Connections = append(detail.Connections, sum)
 		detail.TotalCount++
@@ -432,6 +457,14 @@ func (h *Handler) HandleProviderDetail(w http.ResponseWriter, r *http.Request) {
 	if err == nil && len(models) > 0 {
 		detail.Models = models
 	}
+
+	// Aliases power the UI when composing full model IDs for tests
+	// (e.g. "ag/claude-sonnet-4-6"). The first alias is the display alias.
+	aliases := providers.AliasesFor(canonical)
+	if len(aliases) == 0 && raw != canonical {
+		aliases = providers.AliasesFor(raw)
+	}
+	detail.Aliases = aliases
 
 	handlerutil.WriteJSON(w, http.StatusOK, detail)
 }
