@@ -1,0 +1,318 @@
+package dashboard
+
+import (
+	"context"
+	json "encoding/json/v2"
+	"fmt"
+	"io"
+	"net/http"
+	"strings"
+	"time"
+
+	"9router/proxy/internal/providers"
+)
+
+// ModelFetchResult is the payload returned by the "Import from /models"
+// action on the provider detail page (upstream GET /api/providers/[id]/models).
+type ModelFetchResult struct {
+	Provider  string          `json:"provider"`
+	Models    []UpstreamModel `json:"models"`
+	Warning   string          `json:"warning,omitempty"`
+	Supported bool            `json:"supported"`
+	Error     string          `json:"error,omitempty"`
+	Status    int             `json:"status,omitempty"`
+}
+
+// UpstreamModel is one entry from a provider's /models endpoint. Providers
+// return wildly different shapes, so the important identity fields are
+// normalised while the raw object is preserved for kind detection.
+type UpstreamModel struct {
+	ID   string `json:"id"`
+	Name string `json:"name,omitempty"`
+	Kind string `json:"kind,omitempty"`
+}
+
+// upstreamResponse covers the common list envelopes returned by providers:
+// OpenAI uses {"data":[...]}, Google/Ollama use {"models":[...]}.
+type upstreamResponse struct {
+	Data   []map[string]any `json:"data"`
+	Models []map[string]any `json:"models"`
+}
+
+// modelFetcher describes how to list models for a specific provider family.
+type modelFetcher struct {
+	url    string
+	method string
+	// authHeader is applied with the credential value (e.g. "x-api-key").
+	authHeader string
+	// authQuery appends ?key=<credential> when set (Google style).
+	authQuery string
+	// bearer adds an Authorization: Bearer <credential> header.
+	bearer  bool
+	headers map[string]string
+}
+
+// knownModelFetchers mirrors the upstream v map in
+// server/app/api/providers/[id]/models/route.js.
+var knownModelFetchers = map[string]modelFetcher{
+	"anthropic": {
+		url:        "https://api.anthropic.com/v1/models",
+		method:     http.MethodGet,
+		authHeader: "x-api-key",
+		headers:    map[string]string{"anthropic-version": "2023-06-01"},
+	},
+	"gemini": {
+		url:       "https://generativelanguage.googleapis.com/v1beta/models",
+		method:    http.MethodGet,
+		authQuery: "key",
+	},
+	"google": {
+		url:       "https://generativelanguage.googleapis.com/v1beta/models",
+		method:    http.MethodGet,
+		authQuery: "key",
+	},
+	"openai": {
+		url:    "https://api.openai.com/v1/models",
+		method: http.MethodGet,
+		bearer: true,
+	},
+	"openrouter": {
+		url:    "https://openrouter.ai/api/v1/models",
+		method: http.MethodGet,
+		bearer: true,
+	},
+	"deepseek": {
+		url:    "https://api.deepseek.com/models",
+		method: http.MethodGet,
+		bearer: true,
+	},
+	"groq": {
+		url:    "https://api.groq.com/openai/v1/models",
+		method: http.MethodGet,
+		bearer: true,
+	},
+	"mistral": {
+		url:    "https://api.mistral.ai/v1/models",
+		method: http.MethodGet,
+		bearer: true,
+	},
+	"xai": {
+		url:    "https://api.x.ai/v1/models",
+		method: http.MethodGet,
+		bearer: true,
+	},
+	"nvidia": {
+		url:    "https://integrate.api.nvidia.com/v1/models",
+		method: http.MethodGet,
+		bearer: true,
+	},
+	"cerebras": {
+		url:    "https://api.cerebras.ai/v1/models",
+		method: http.MethodGet,
+		bearer: true,
+	},
+	"ollama": {
+		url:    "http://localhost:11434/api/tags",
+		method: http.MethodGet,
+	},
+}
+
+// credentialFromData pulls the usable secret out of a connection's JSON blob.
+// Order matters: the most specific field wins. Never returned to the client.
+func credentialFromData(data string) (token, baseURL string) {
+	if strings.TrimSpace(data) == "" {
+		return "", ""
+	}
+	var m map[string]any
+	if err := json.Unmarshal([]byte(data), &m); err != nil {
+		return "", ""
+	}
+	str := func(keys ...string) string {
+		for _, k := range keys {
+			if v, ok := m[k].(string); ok && strings.TrimSpace(v) != "" {
+				return strings.TrimSpace(v)
+			}
+		}
+		return ""
+	}
+	token = str("apiKey", "api_key", "accessToken", "access_token", "token", "copilotToken")
+	if psd, ok := m["providerSpecificData"].(map[string]any); ok {
+		if v, ok := psd["baseUrl"].(string); ok && strings.TrimSpace(v) != "" {
+			baseURL = strings.TrimSpace(v)
+		}
+		if token == "" {
+			if v, ok := psd["copilotToken"].(string); ok {
+				token = strings.TrimSpace(v)
+			}
+		}
+	}
+	if baseURL == "" {
+		baseURL = str("baseUrl", "base_url", "endpoint")
+	}
+	return token, baseURL
+}
+
+// fetchUpstreamModels returns the live model list for a connection, mirroring
+// the three branches in the upstream route:
+//
+//  1. OpenAI-compatible endpoint  -> {baseUrl}/models  (Bearer)
+//  2. Anthropic-compatible endpoint -> {baseUrl}/models (x-api-key)
+//  3. Known registry provider     -> hardcoded endpoint + auth style
+func (h *Handler) fetchUpstreamModels(providerID, data string, timeout time.Duration) (*ModelFetchResult, error) {
+	canonical := providers.ResolveAlias(providerID)
+	token, baseURL := credentialFromData(data)
+
+	client := &http.Client{Timeout: timeout}
+
+	// Branch 1 & 2: user-defined compatible endpoints need a base URL.
+	if providers.IsCustomCompatible(providerID) {
+		if baseURL == "" {
+			return nil, fmt.Errorf("no base URL configured for OpenAI/Anthropic compatible provider")
+		}
+		isAnthropic := strings.HasPrefix(strings.ToLower(providerID), providers.CustomAnthropicPrefix)
+		base := strings.TrimRight(baseURL, "/")
+		if isAnthropic {
+			base = strings.TrimSuffix(base, "/messages")
+		}
+		url := base + "/models"
+		headers := map[string]string{"Content-Type": "application/json"}
+		if isAnthropic {
+			headers["x-api-key"] = token
+			headers["anthropic-version"] = "2023-06-01"
+			headers["Authorization"] = "Bearer " + token
+		} else {
+			headers["Authorization"] = "Bearer " + token
+		}
+		return h.doModelRequest(client, canonical, url, http.MethodGet, headers, nil)
+	}
+
+	// Branch 3: known registry provider.
+	f, ok := knownModelFetchers[canonical]
+	if !ok || f.url == "" {
+		return &ModelFetchResult{
+			Provider:  canonical,
+			Models:    []UpstreamModel{},
+			Supported: false,
+			Error:     fmt.Sprintf("Provider %s does not support models listing", canonical),
+		}, nil
+	}
+	if token == "" && f.authQuery == "" && f.authHeader == "" && f.bearer {
+		return nil, fmt.Errorf("no valid credential found for %s", canonical)
+	}
+
+	headers := map[string]string{"Content-Type": "application/json", "Accept": "application/json"}
+	for k, v := range f.headers {
+		headers[k] = v
+	}
+	query := map[string]string{}
+	if f.bearer {
+		headers["Authorization"] = "Bearer " + token
+	}
+	if f.authHeader != "" {
+		headers[f.authHeader] = token
+	}
+	if f.authQuery != "" {
+		query[f.authQuery] = token
+	}
+	return h.doModelRequest(client, canonical, f.url, f.method, headers, query)
+}
+
+// doModelRequest issues the HTTP call and normalises the response.
+func (h *Handler) doModelRequest(client *http.Client, provider, url, method string, headers, query map[string]string) (*ModelFetchResult, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), client.Timeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, method, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("build request: %w", err)
+	}
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	if len(query) > 0 {
+		q := req.URL.Query()
+		for k, v := range query {
+			q.Set(k, v)
+		}
+		req.URL.RawQuery = q.Encode()
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("fetch models: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return &ModelFetchResult{
+			Provider: provider,
+			Models:   []UpstreamModel{},
+			Error:    fmt.Sprintf("failed to fetch models: %d %s", resp.StatusCode, strings.TrimSpace(string(body))),
+			Status:   resp.StatusCode,
+		}, nil
+	}
+
+	// 2 MB cap keeps a misbehaving endpoint from exhausting phone memory.
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+	if err != nil {
+		return nil, fmt.Errorf("read models response: %w", err)
+	}
+
+	var parsed upstreamResponse
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		return nil, fmt.Errorf("decode models response: %w", err)
+	}
+
+	list := parsed.Data
+	if len(list) == 0 {
+		list = parsed.Models
+	}
+	out := make([]UpstreamModel, 0, len(list))
+	for _, entry := range list {
+		id := firstString(entry, "id", "name", "model", "slug")
+		if id == "" {
+			continue
+		}
+		label := id
+		if v := firstString(entry, "display_name", "displayName"); v != "" {
+			label = v
+		}
+		out = append(out, UpstreamModel{
+			ID:   id,
+			Name: label,
+			Kind: inferModelKind(id),
+		})
+	}
+	return &ModelFetchResult{Provider: provider, Models: out, Supported: true}, nil
+}
+
+// firstString returns the first non-empty string value among keys.
+func firstString(m map[string]any, keys ...string) string {
+	for _, k := range keys {
+		if v, ok := m[k].(string); ok && strings.TrimSpace(v) != "" {
+			return strings.TrimSpace(v)
+		}
+	}
+	return ""
+}
+
+// inferModelKind guesses a model's service kind from its identifier, matching
+// the upstream heuristics (embedding / image / tts / stt / video …).
+func inferModelKind(id string) string {
+	s := strings.ToLower(id)
+	switch {
+	case strings.Contains(s, "embed"):
+		return "embedding"
+	case strings.Contains(s, "whisper") || strings.Contains(s, "transcribe"):
+		return "stt"
+	case strings.Contains(s, "tts") || strings.Contains(s, "speech"):
+		return "tts"
+	case strings.Contains(s, "dall-e") || strings.Contains(s, "image") || strings.Contains(s, "imagen"):
+		return "image"
+	case strings.Contains(s, "video") || strings.Contains(s, "veo"):
+		return "video"
+	default:
+		return "llm"
+	}
+}

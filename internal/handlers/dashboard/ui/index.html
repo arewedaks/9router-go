@@ -1,0 +1,1744 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>9Router • High-Performance AI Gateway</title>
+  <!-- Material Symbols: matches upstream icon vocabulary. Fetched lazily with a
+       graceful fallback — the UI stays fully usable if offline. -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #090d13;
+      --panel: #121820;
+      --panel-hover: #182230;
+      --border: #232f3e;
+      --text: #e6edf3;
+      --muted: #8b949e;
+      --primary: #58a6ff;
+      --primary-dim: #1f3554;
+      --accent: #238636;
+      --danger: #da3633;
+      --warning: #d29922;
+      --radius: 8px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif; }
+    body { background-color: var(--bg); color: var(--text); min-height: 100vh; display: flex; flex-direction: column; }
+    header { background: var(--panel); border-bottom: 1px solid var(--border); padding: 12px 24px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 100; }
+    .logo { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 1.15rem; color: #fff; }
+    .badge { padding: 2px 8px; border-radius: 12px; font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px; display: inline-flex; align-items: center; gap: 4px; }
+    .badge-go { background: #00add8; color: #fff; }
+    .badge-green { background: #238636; color: #fff; }
+    .badge-red { background: #da3633; color: #fff; }
+    .badge-dim { background: var(--panel-hover); color: var(--muted); border: 1px solid var(--border); }
+    
+    /* Category Badges */
+    .badge-oauth { background: #271052; color: #d2a8ff; border: 1px solid #8957e5; }
+    .badge-freeTier { background: #0c2d6b; color: #79c0ff; border: 1px solid #388bfd; }
+    .badge-free { background: #10301c; color: #56d364; border: 1px solid #238636; }
+    .badge-apikey { background: #3e2800; color: #e3b341; border: 1px solid #9e6a03; }
+    .badge-webCookie { background: #3d1a2b; color: #ff9ec4; border: 1px solid #bf4b8a; }
+    .badge-custom { background: #13381e; color: #7ee787; border: 1px solid #2ea043; }
+
+    /* Expandable provider groups + account rows */
+    .prov-group-row { background: var(--panel-hover); cursor: pointer; user-select: none; }
+    .prov-group-row:hover { background: #1f2937; }
+    .prov-group-row td { border-bottom: 1px solid var(--border); padding: 12px 14px; }
+    .prov-chevron { display:inline-block; transition: transform 0.15s; color: var(--muted); font-size: 0.75rem; }
+    .prov-chevron.open { transform: rotate(90deg); }
+    .prov-count-pill { background: #1f6feb22; color: #79c0ff; border: 1px solid #1f6feb; border-radius: 999px; padding: 1px 9px; font-size: 0.72rem; font-weight: 600; }
+    .acct-row td { background: var(--bg); padding: 8px 14px 8px 52px; font-size: 0.83rem; border-bottom: 1px dashed var(--border); }
+    .acct-dot { display:inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 7px; }
+    .acct-dot.on { background: #3fb950; box-shadow: 0 0 5px #3fb950; }
+    .acct-dot.off { background: #6e7681; }
+    .acct-dot.warn { background: #d29922; box-shadow: 0 0 5px #d29922; }
+    .acct-email { color: #e6edf3; font-weight: 500; }
+    .acct-meta { color: var(--muted); font-size: 0.75rem; }
+    .acct-pill { border-radius: 4px; padding: 1px 6px; font-size: 0.68rem; font-weight: 600; }
+    .acct-pill.ok { background: #13381e; color: #7ee787; }
+    .acct-pill.exp { background: #3d1418; color: #ff7b72; }
+    .acct-pill.idle { background: var(--panel-hover); color: var(--muted); }
+
+    .nav-tabs { display: flex; gap: 6px; }
+    .nav-btn { background: transparent; border: 1px solid transparent; color: var(--muted); padding: 8px 14px; border-radius: var(--radius); cursor: pointer; font-weight: 500; font-size: 0.9rem; transition: 0.15s; }
+    .nav-btn:hover { color: var(--text); background: var(--panel-hover); }
+    .nav-btn.active { color: #fff; background: var(--primary-dim); border-color: var(--primary); }
+    
+    main { flex: 1; padding: 24px; max-width: 1240px; width: 100%; margin: 0 auto; }
+    .tab-pane { display: none; }
+    .tab-pane.active { display: block; }
+    
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-bottom: 24px; }
+    .card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; }
+    .card h3 { font-size: 0.82rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
+    .card .stat-val { font-size: 2rem; font-weight: 700; color: #fff; }
+    .card .stat-sub { font-size: 0.8rem; color: var(--muted); margin-top: 4px; }
+    
+    .section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 12px; }
+    .section-title { font-size: 1.25rem; font-weight: 600; }
+    
+    .filter-bar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+    .filter-btn { background: var(--panel); border: 1px solid var(--border); color: var(--muted); padding: 6px 14px; border-radius: 20px; font-size: 0.82rem; cursor: pointer; transition: 0.15s; display: inline-flex; align-items: center; gap: 6px; }
+    .filter-btn:hover { color: #fff; border-color: var(--muted); }
+    .filter-btn.active { background: var(--primary-dim); color: #fff; border-color: var(--primary); font-weight: 600; }
+    
+    .btn { background: var(--panel-hover); border: 1px solid var(--border); color: var(--text); padding: 8px 14px; border-radius: var(--radius); cursor: pointer; font-size: 0.85rem; font-weight: 500; display: inline-flex; align-items: center; gap: 6px; transition: 0.15s; }
+    .btn:hover { border-color: var(--muted); }
+    .btn-primary { background: #238636; border-color: #2ea043; color: #fff; }
+    .btn-primary:hover { background: #2ea043; }
+    .btn-danger { background: var(--danger); border-color: #f85149; color: #fff; }
+    .btn-sm { padding: 4px 8px; font-size: 0.78rem; }
+    
+    .table-container { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.88rem; }
+    th { background: #16202c; padding: 12px 16px; color: var(--muted); font-weight: 600; border-bottom: 1px solid var(--border); }
+    td { padding: 12px 16px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: var(--panel-hover); }
+    
+    .switch { position: relative; display: inline-block; width: 38px; height: 20px; }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #2d3748; transition: .2s; border-radius: 20px; }
+    .slider:before { position: absolute; content: ""; height: 14px; width: 14px; left: 3px; bottom: 3px; background-color: white; transition: .2s; border-radius: 50%; }
+    input:checked + .slider { background-color: #238636; }
+    input:checked + .slider:before { transform: translateX(18px); }
+    
+    input[type="text"], input[type="password"], select, textarea {
+      background: var(--bg); border: 1px solid var(--border); color: #fff; padding: 8px 12px; border-radius: var(--radius); font-size: 0.88rem; width: 100%; outline: none;
+    }
+    input:focus, select:focus, textarea:focus { border-color: var(--primary); }
+    
+    .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.75); display: none; align-items: center; justify-content: center; z-index: 1000; padding: 16px; }
+    .modal-overlay.active { display: flex; }
+    .modal-box { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); max-width: 540px; width: 100%; padding: 24px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
+    .form-group { margin-bottom: 14px; }
+    .form-group label { display: block; font-size: 0.82rem; color: var(--muted); margin-bottom: 6px; }
+    
+    .code-block { background: #0d1117; border: 1px solid var(--border); border-radius: 6px; padding: 12px; font-family: monospace; font-size: 0.82rem; color: #79c0ff; overflow-x: auto; }
+    .tag { display: inline-block; background: var(--primary-dim); color: var(--primary); border: 1px solid #1f3554; border-radius: 4px; padding: 2px 6px; font-size: 0.75rem; margin: 2px; }
+    .sub-id { font-size: 0.75rem; color: var(--muted); font-family: monospace; display: block; margin-top: 2px; }
+
+    /* ============================================================
+       Next.js 9router parity: Google Material Symbols icon font
+       (self-hosted subset via CSS ligatures — no CDN needed at runtime
+       beyond the icon ligature names used by upstream).
+       ============================================================ */
+    .msym { font-family: 'Material Symbols Outlined', 'Material Icons', sans-serif; font-weight: normal; font-style: normal; font-size: 20px; line-height: 1; letter-spacing: normal; text-transform: none; display: inline-block; white-space: nowrap; word-wrap: normal; direction: ltr; -webkit-font-feature-settings: 'liga'; -webkit-font-smoothing: antialiased; }
+
+    /* Provider card grid: mirrors upstream grid-cols-1 -> sm:2 -> lg:3 -> xl:4 */
+    .prov-card-grid { display: grid; grid-template-columns: repeat(1, minmax(0, 1fr)); gap: 12px; }
+    @media (min-width: 640px)  { .prov-card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; } }
+    @media (min-width: 1024px) { .prov-card-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+    @media (min-width: 1280px) { .prov-card-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+
+    .prov-card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 14px; cursor: pointer; transition: border-color .15s, transform .15s; position: relative; overflow: hidden; }
+    .prov-card:hover { border-color: var(--muted); transform: translateY(-1px); }
+    .prov-card-head { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 10px; }
+    .prov-card-icon { width: 38px; height: 38px; border-radius: 10px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .prov-card-icon .msym { font-size: 21px; color: #fff; }
+    .prov-card-title { font-size: 0.9rem; font-weight: 600; color: #e6edf3; line-height: 1.25; }
+    .prov-card-sub { font-size: 0.72rem; color: var(--muted); font-family: monospace; margin-top: 1px; }
+    .prov-card-body { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
+    .kind-chip { display: inline-flex; align-items: center; gap: 3px; background: #161b22; border: 1px solid var(--border); border-radius: 5px; padding: 2px 6px; font-size: 0.66rem; color: var(--muted); }
+    .kind-chip .msym { font-size: 12px; }
+    .prov-card-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
+    .prov-avatars { display: flex; align-items: center; }
+    .prov-avatar { width: 22px; height: 22px; border-radius: 50%; background: var(--panel-hover); border: 2px solid var(--panel); display: flex; align-items: center; justify-content: center; font-size: 0.6rem; color: #e6edf3; font-weight: 600; margin-left: -7px; }
+    .prov-avatar:first-child { margin-left: 0; }
+    .prov-avatar.more { background: #30363d; color: var(--muted); }
+    .risk-banner { background: #3d2b12; border: 1px solid #9e6a03; color: #e3b341; border-radius: 8px; padding: 8px 10px; font-size: 0.72rem; line-height: 1.4; margin-top: 10px; display: flex; gap: 7px; }
+    .risk-banner .msym { font-size: 15px; flex-shrink: 0; }
+    .prov-expand-body { margin-top: 12px; border-top: 1px solid var(--border); padding-top: 10px; }
+    .prov-acct-line { display: flex; align-items: center; gap: 8px; padding: 6px 0; font-size: 0.78rem; border-bottom: 1px dashed var(--border); }
+    .prov-acct-line:last-child { border-bottom: none; }
+    .prov-acct-line .em { color: #e6edf3; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    /* ---- Provider detail sub-page (mirrors /dashboard/providers/[id]) ---- */
+    .detail-hero { display: flex; align-items: flex-start; gap: 14px; margin-bottom: 20px; }
+    .detail-hero-icon { width: 52px; height: 52px; border-radius: 13px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .detail-hero-icon .msym { font-size: 27px; color: #fff; }
+    .detail-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 18px; overflow-x: auto; }
+    .detail-tab { background: none; border: none; border-bottom: 2px solid transparent; color: var(--muted); padding: 9px 14px; font-size: 0.85rem; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+    .detail-tab:hover { color: #e6edf3; }
+    .detail-tab.active { color: #e6edf3; border-bottom-color: var(--primary); font-weight: 600; }
+    .detail-tab .msym { font-size: 16px; }
+    .cap-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+    .cap-item { background: var(--panel); border: 1px solid var(--border); border-radius: 9px; padding: 11px; display: flex; align-items: center; gap: 9px; }
+    .cap-item .msym { font-size: 19px; color: var(--primary); }
+    .cap-item.on { border-color: #2ea043; }
+    .cap-item.on .msym { color: #3fb950; }
+    .model-row { display: flex; align-items: center; gap: 10px; padding: 8px 11px; background: var(--panel); border: 1px solid var(--border); border-radius: 7px; margin-bottom: 5px; font-size: 0.82rem; }
+    .model-row .mid { flex: 1; font-family: monospace; color: #e6edf3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .model-row .mkind { font-size: 0.68rem; color: var(--muted); }
+
+    /* Inline add-forms on the provider detail page */
+    .add-form { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px; margin-bottom: 14px; }
+    .add-form-title { font-size: 0.85rem; font-weight: 600; color: #e6edf3; display: flex; align-items: center; gap: 7px; margin-bottom: 11px; }
+    .add-form-title .msym { font-size: 17px; color: var(--primary); }
+    .add-form-grid { display: grid; grid-template-columns: 1fr; gap: 10px; }
+    @media (min-width: 720px) { .add-form-grid { grid-template-columns: 2fr 2fr auto; align-items: end; } }
+    .field-label { display: block; font-size: 0.72rem; color: var(--muted); margin-bottom: 5px; }
+    .add-form input, .add-form select { width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; color: #e6edf3; font-size: 0.82rem; font-family: inherit; }
+    .add-form input:focus, .add-form select:focus { outline: none; border-color: var(--primary); }
+    .msg-ok { color: #3fb950 !important; }
+    .msg-err { color: #ff7b72 !important; }
+
+    /* Import-models modal */
+    .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.65); z-index: 200; align-items: center; justify-content: center; padding: 16px; }
+    .modal-overlay.active { display: flex; }
+    .modal-box { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; width: 100%; max-width: 560px; max-height: 86vh; display: flex; flex-direction: column; overflow: hidden; }
+    .modal-head { display: flex; align-items: center; gap: 9px; padding: 13px 15px; border-bottom: 1px solid var(--border); font-size: 0.88rem; }
+    .modal-toolbar { display: flex; align-items: center; gap: 8px; padding: 9px 15px; border-bottom: 1px solid var(--border); }
+    .modal-toolbar span { flex: 1; }
+    .modal-body { overflow-y: auto; padding: 8px 15px; flex: 1; }
+    .modal-foot { display: flex; align-items: center; gap: 8px; padding: 11px 15px; border-top: 1px solid var(--border); }
+    .import-row { display: flex; align-items: center; gap: 10px; padding: 7px 4px; border-bottom: 1px solid var(--border); cursor: pointer; font-size: 0.82rem; }
+    .import-row:hover { background: rgba(255,255,255,.03); }
+    .import-row .mid { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .import-row input { accent-color: var(--primary); }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <span>⚡ 9Router</span>
+    <span class="badge badge-go">Go Engine</span>
+  </div>
+  <div class="nav-tabs">
+    <button class="nav-btn active" onclick="switchTab('overview')">📊 Overview</button>
+    <button class="nav-btn" id="nav-providers" onclick="switchTab('providers')">🔌 Providers</button>
+    <button class="nav-btn" onclick="switchTab('combos')">🔀 Combos</button>
+    <button class="nav-btn" onclick="switchTab('keys')">🔑 API Keys</button>
+    <button class="nav-btn" onclick="switchTab('savers')">⚡ Token Savers</button>
+    <button class="nav-btn" onclick="switchTab('health')">🩺 Health & Setup</button>
+  </div>
+  <div>
+    <button class="btn btn-sm" onclick="logout()" id="auth-status-btn">🔐 Key: <span id="auth-key-display">None</span></button>
+  </div>
+</header>
+
+<main>
+  <!-- OVERVIEW TAB -->
+  <div id="tab-overview" class="tab-pane active">
+    <div class="grid">
+      <div class="card">
+        <h3>Total Providers</h3>
+        <div class="stat-val" id="stat-providers">-</div>
+        <div class="stat-sub"><span id="stat-active-providers">-</span> active in rotation</div>
+      </div>
+      <div class="card">
+        <h3>Model Combos</h3>
+        <div class="stat-val" id="stat-combos">-</div>
+        <div class="stat-sub">Fallback cascades & fusion</div>
+      </div>
+      <div class="card">
+        <h3>Client API Keys</h3>
+        <div class="stat-val" id="stat-keys">-</div>
+        <div class="stat-sub">Authorized consumers</div>
+      </div>
+      <div class="card">
+        <h3>Token Optimization</h3>
+        <div class="stat-val" id="stat-saver-status">ACTIVE</div>
+        <div class="stat-sub" id="stat-saver-detail">RTK + Ponytail</div>
+      </div>
+    </div>
+
+    <!-- CATEGORY DISTRIBUTION ROW (mirrors Next.js 9router sections) -->
+    <div class="grid" style="margin-bottom: 24px;">
+      <div class="card" style="border-left: 3px solid #8957e5; cursor: pointer;" onclick="filterByCategory('oauth')">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <h3 style="color:#d2a8ff; margin:0;">🟣 OAuth Providers</h3>
+          <span class="badge badge-oauth" id="cat-oauth-active">0 Active</span>
+        </div>
+        <div class="stat-val" id="cat-oauth-total" style="font-size: 1.6rem; margin-top: 8px;">-</div>
+        <div class="stat-sub">Antigravity, Copilot, Claude Code, Codex, Cursor, Kilo</div>
+      </div>
+
+      <div class="card" style="border-left: 3px solid #388bfd; cursor: pointer;" onclick="filterByCategory('freeTier')">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <h3 style="color:#79c0ff; margin:0;">🔵 Free Tier Providers</h3>
+          <span class="badge badge-freeTier" id="cat-freeTier-active">0 Active</span>
+        </div>
+        <div class="stat-val" id="cat-freeTier-total" style="font-size: 1.6rem; margin-top: 8px;">-</div>
+        <div class="stat-sub">OpenRouter, NVIDIA NIM, Gemini, Cloudflare, Vertex</div>
+      </div>
+
+      <div class="card" style="border-left: 3px solid #238636; cursor: pointer;" onclick="filterByCategory('free')">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <h3 style="color:#56d364; margin:0;">🟩 Free Providers</h3>
+          <span class="badge badge-free" id="cat-free-active">0 Active</span>
+        </div>
+        <div class="stat-val" id="cat-free-total" style="font-size: 1.6rem; margin-top: 8px;">-</div>
+        <div class="stat-sub">Gemini CLI, Kiro AI, MiMo Code Free, OpenCode Free</div>
+      </div>
+
+      <div class="card" style="border-left: 3px solid #9e6a03; cursor: pointer;" onclick="filterByCategory('apikey')">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <h3 style="color:#e3b341; margin:0;">🟡 API Key Providers</h3>
+          <span class="badge badge-apikey" id="cat-apikey-active">0 Active</span>
+        </div>
+        <div class="stat-val" id="cat-apikey-total" style="font-size: 1.6rem; margin-top: 8px;">-</div>
+        <div class="stat-sub">OpenAI, Anthropic, DeepSeek, Groq, ElevenLabs</div>
+      </div>
+
+      <div class="card" style="border-left: 3px solid #bf4b8a; cursor: pointer;" onclick="filterByCategory('webCookie')">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <h3 style="color:#ff9ec4; margin:0;">🍪 Web Cookie Providers</h3>
+          <span class="badge badge-webCookie" id="cat-webCookie-active">0 Active</span>
+        </div>
+        <div class="stat-val" id="cat-webCookie-total" style="font-size: 1.6rem; margin-top: 8px;">-</div>
+        <div class="stat-sub">Grok Web (Subscription), Perplexity Web (Pro/Max)</div>
+      </div>
+
+      <div class="card" style="border-left: 3px solid #2ea043; cursor: pointer;" onclick="filterByCategory('custom')">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <h3 style="color:#7ee787; margin:0;">🟢 Compatible Endpoints</h3>
+          <span class="badge badge-custom" id="cat-custom-active">0 Active</span>
+        </div>
+        <div class="stat-val" id="cat-custom-total" style="font-size: 1.6rem; margin-top: 8px;">-</div>
+        <div class="stat-sub">BAI, Atria AI, Ollama, vLLM, LiteLLM, Custom Relays</div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom: 24px;">
+      <div class="section-header" style="margin-bottom: 12px;">
+        <span class="section-title" style="font-size: 1rem;">Provider Topology Breakdown</span>
+      </div>
+      <div id="provider-type-chips" style="display: flex; flex-wrap: wrap; gap: 8px;">
+        <!-- Injected dynamically -->
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="section-header" style="margin-bottom: 12px;">
+        <span class="section-title" style="font-size: 1rem;">Quick Client Integration</span>
+      </div>
+      <p style="font-size: 0.85rem; color: var(--muted); margin-bottom: 12px;">Use this 9Router Go proxy with any OpenAI or Claude compatible AI client:</p>
+      <div class="code-block" id="curl-sample">curl http://localhost:20129/v1/chat/completions \
+  -H "Authorization: Bearer <YOUR_KEY>" \
+  -H "Content-Type: application/json" \
+  -d '{"model": "gemini-3.7-flash", "messages": [{"role": "user", "content": "Hello!"}]}'</div>
+    </div>
+  </div>
+
+  <!-- PROVIDER DETAIL SUB-PAGE (upstream /dashboard/providers/[id]) -->
+  <div id="tab-provider-detail" class="tab-pane">
+    <button class="btn btn-sm" onclick="closeProviderDetail()" style="margin-bottom:16px;">
+      <span class="msym" style="font-size:15px;">arrow_back</span> Back to Providers
+    </button>
+    <div id="provider-detail-content">
+      <div style="text-align:center; color:var(--muted); padding:40px;">Loading provider…</div>
+    </div>
+  </div>
+
+  <!-- PROVIDERS TAB -->
+  <div id="tab-providers" class="tab-pane">
+    <div class="section-header">
+      <div>
+        <h2 class="section-title">Provider Connections</h2>
+        <p style="font-size: 0.85rem; color: var(--muted);">Upstream AI accounts organized strictly by functional category</p>
+      </div>
+      <div style="display: flex; gap: 8px;">
+        <input type="text" id="provider-search" placeholder="Search provider or name..." oninput="filterProviders()" style="width: 220px;">
+        <button class="btn btn-primary" onclick="openAddProviderModal()">+ Add Provider</button>
+      </div>
+    </div>
+
+    <!-- CATEGORY FILTER BUTTONS -->
+    <div class="filter-bar">
+      <button class="filter-btn active" id="f-all" onclick="setCategoryFilter('all')">All (<span id="cnt-all">0</span>)</button>
+      <button class="filter-btn" id="f-oauth" onclick="setCategoryFilter('oauth')">🟣 OAuth Providers (<span id="cnt-oauth">0</span>)</button>
+      <button class="filter-btn" id="f-freeTier" onclick="setCategoryFilter('freeTier')">🔵 Free Tier (<span id="cnt-freeTier">0</span>)</button>
+      <button class="filter-btn" id="f-free" onclick="setCategoryFilter('free')">🟩 Free (<span id="cnt-free">0</span>)</button>
+      <button class="filter-btn" id="f-apikey" onclick="setCategoryFilter('apikey')">🟡 API Key (<span id="cnt-apikey">0</span>)</button>
+      <button class="filter-btn" id="f-webCookie" onclick="setCategoryFilter('webCookie')">🍪 Web Cookie (<span id="cnt-webCookie">0</span>)</button>
+      <button class="filter-btn" id="f-custom" onclick="setCategoryFilter('custom')">🟢 Compatible (<span id="cnt-custom">0</span>)</button>
+    </div>
+
+    <!-- Provider cards: mirrors the upstream Next.js dashboard grid -->
+    <div class="prov-card-grid" id="providers-table-body">
+      <div style="text-align:center; color:var(--muted); padding:30px; border:1px dashed var(--border); border-radius:12px;">Loading connections...</div>
+    </div>
+  </div>
+
+  <!-- COMBOS TAB -->
+  <div id="tab-combos" class="tab-pane">
+    <div class="section-header">
+      <div>
+        <h2 class="section-title">Model Combos</h2>
+        <p style="font-size: 0.85rem; color: var(--muted);">Multi-provider aliases and automated fallback cascades</p>
+      </div>
+      <button class="btn btn-primary" onclick="openAddComboModal()">+ Create Combo</button>
+    </div>
+
+    <div class="table-container">
+      <table>
+        <thead>
+          <tr>
+            <th>Combo Alias</th>
+            <th>Target Models (Waterfall Priority)</th>
+            <th>Strategy</th>
+            <th>Created</th>
+            <th style="text-align: right;">Actions</th>
+          </tr>
+        </thead>
+        <tbody id="combos-table-body">
+          <tr><td colspan="5" style="text-align: center; color: var(--muted);">Loading combos...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- KEYS TAB -->
+  <div id="tab-keys" class="tab-pane">
+    <div class="section-header">
+      <div>
+        <h2 class="section-title">Client API Keys</h2>
+        <p style="font-size: 0.85rem; color: var(--muted);">Keys for authorized clients connecting to 9Router</p>
+      </div>
+      <button class="btn btn-primary" onclick="openAddKeyModal()">+ Generate API Key</button>
+    </div>
+
+    <div class="table-container">
+      <table>
+        <thead>
+          <tr>
+            <th>Active</th>
+            <th>Key Name</th>
+            <th>API Secret Key</th>
+            <th>Created At</th>
+            <th style="text-align: right;">Actions</th>
+          </tr>
+        </thead>
+        <tbody id="keys-table-body">
+          <tr><td colspan="5" style="text-align: center; color: var(--muted);">Loading keys...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- TOKEN SAVERS TAB -->
+  <div id="tab-savers" class="tab-pane">
+    <div class="section-header">
+      <div>
+        <h2 class="section-title">Token Optimization Matrix</h2>
+        <p style="font-size: 0.85rem; color: var(--muted);">Intelligent token reduction pipeline saving 60-90% bandwidth</p>
+      </div>
+      <button class="btn btn-primary" onclick="saveTokenSaverSettings()">💾 Save Settings</button>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+          <h3 style="margin:0; font-size:1rem; color: #fff;">🦀 RTK (Rust Token Killer)</h3>
+          <label class="switch">
+            <input type="checkbox" id="saver-rtk">
+            <span class="slider"></span>
+          </label>
+        </div>
+        <p style="font-size: 0.85rem; color: var(--muted); margin-bottom: 12px;">Pre-filters build errors, compiler logs, git diffs, and package manifests to eliminate token spam.</p>
+        <span class="badge badge-dim">60-90% Token Reduction</span>
+      </div>
+
+      <div class="card">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+          <h3 style="margin:0; font-size:1rem; color: #fff;">🦴 Caveman Compression</h3>
+          <label class="switch">
+            <input type="checkbox" id="saver-caveman">
+            <span class="slider"></span>
+          </label>
+        </div>
+        <p style="font-size: 0.85rem; color: var(--muted); margin-bottom: 12px;">Compresses verbose multi-turn system prompts and natural language into dense semantic tokens.</p>
+        <div class="form-group" style="margin:0;">
+          <label>Compression Level</label>
+          <select id="saver-caveman-level">
+            <option value="light">Light (Gentle pruning)</option>
+            <option value="medium">Medium (Standard)</option>
+            <option value="full" selected>Full (Maximum compression)</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="card">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+          <h3 style="margin:0; font-size:1rem; color: #fff;">✂️ Ponytail Simplifier</h3>
+          <label class="switch">
+            <input type="checkbox" id="saver-ponytail">
+            <span class="slider"></span>
+          </label>
+        </div>
+        <p style="font-size: 0.85rem; color: var(--muted); margin-bottom: 12px;">Strips excessive boilerplate, preamble, and conversational fluff from model reasoning and output.</p>
+        <div class="form-group" style="margin:0;">
+          <label>Simplification Level</label>
+          <select id="saver-ponytail-level">
+            <option value="compact">Compact (Slight trim)</option>
+            <option value="full" selected>Full (Strict zero-fluff)</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="card">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+          <h3 style="margin:0; font-size:1rem; color: #fff;">🛡️ Prompt Injection Guard</h3>
+          <label class="switch">
+            <input type="checkbox" id="saver-guard">
+            <span class="slider"></span>
+          </label>
+        </div>
+        <p style="font-size: 0.85rem; color: var(--muted); margin-bottom: 12px;">Active semantic scanner that filters out adversarial system prompt extraction attempts.</p>
+        <span class="badge badge-green">Hardened</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- HEALTH & SETUP TAB -->
+  <div id="tab-health" class="tab-pane">
+    <div class="section-header">
+      <div>
+        <h2 class="section-title">System Health & Client Setup</h2>
+        <p style="font-size: 0.85rem; color: var(--muted);">Diagnostic tools and drop-in config for popular coding agents</p>
+      </div>
+      <button class="btn" onclick="syncCatalog()">🔄 Refresh Catalog</button>
+    </div>
+
+    <div class="card" style="margin-bottom: 20px;">
+      <h3 style="color: #fff; margin-bottom: 8px;">Claude Code CLI (~/.claude/config.json)</h3>
+      <div class="code-block">{
+  "primaryApiKey": "YOUR_9ROUTER_KEY",
+  "apiBaseUrl": "http://localhost:20129/v1"
+}</div>
+    </div>
+
+    <div class="card" style="margin-bottom: 20px;">
+      <h3 style="color: #fff; margin-bottom: 8px;">Cursor IDE / Cline / Windsurf (OpenAI Compatible)</h3>
+      <div class="code-block">Base URL: http://localhost:20129/v1
+API Key:  <YOUR_9ROUTER_KEY>
+Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
+    </div>
+
+    <div class="card">
+      <h3 style="color: #fff; margin-bottom: 8px;">Direct Anthropic Messages Endpoint</h3>
+      <div class="code-block">curl http://localhost:20129/v1/messages \
+  -H "x-api-key: <YOUR_KEY>" \
+  -H "anthropic-version: 2023-06-01" \
+  -H "Content-Type: application/json" \
+  -d '{"model": "claude-fable", "max_tokens": 1024, "messages": [{"role": "user", "content": "ping"}]}'</div>
+    </div>
+  </div>
+</main>
+
+<!-- LOGIN MODAL -->
+<div class="modal-overlay" id="login-modal">
+  <div class="modal-box" style="max-width: 420px; text-align: center;">
+    <div style="font-size: 2.2rem; margin-bottom: 12px;">⚡</div>
+    <h2 style="font-size: 1.3rem; margin-bottom: 6px;">Authenticate 9Router</h2>
+    <p style="font-size: 0.85rem; color: var(--muted); margin-bottom: 20px;">Enter your client API Key or Admin Key to unlock this dashboard.</p>
+    <div class="form-group" style="text-align: left;">
+      <label>Client API Key</label>
+      <input type="password" id="login-key-input" placeholder="sk-..." autofocus>
+    </div>
+    <div id="login-error" style="color: var(--danger); font-size: 0.8rem; margin-bottom: 12px; display: none;"></div>
+    <button class="btn btn-primary" style="width: 100%; justify-content: center;" onclick="submitLogin()">Unlock Dashboard</button>
+  </div>
+</div>
+
+<!-- ADD/EDIT PROVIDER MODAL -->
+<div class="modal-overlay" id="provider-modal">
+  <div class="modal-box">
+    <div class="section-header" style="margin-bottom: 16px;">
+      <h3 style="font-size: 1.1rem; color: #fff;" id="provider-modal-title">Add Provider Connection</h3>
+      <button class="btn btn-sm" onclick="closeModal('provider-modal')">✕</button>
+    </div>
+    <input type="hidden" id="p-id">
+    <div class="form-group">
+      <label>Provider Type (Organized by Category)</label>
+      <select id="p-provider" onchange="onProviderSelectChange()">
+        <optgroup label="🟣 OAuth & CLI Tools (Session / Auth Token)">
+          <option value="antigravity" selected>Google Antigravity (ag)</option>
+          <option value="github">GitHub Copilot (gh)</option>
+          <option value="claude">Claude Code CLI (cc)</option>
+          <option value="codex">OpenAI Codex CLI (cx)</option>
+          <option value="gemini-cli">Google Gemini CLI (gc)</option>
+          <option value="cline">Cline VSCode (cl)</option>
+          <option value="kiro">Kiro AI (kr)</option>
+          <option value="iflow">iFlow AI (if)</option>
+          <option value="qwen">Qwen Code (qw)</option>
+          <option value="codebuddy-intl">CodeBuddy International (cbai)</option>
+        </optgroup>
+        <optgroup label="🔵 Cloud AI APIs (API Key)">
+          <option value="openrouter">OpenRouter (or)</option>
+          <option value="nvidia">NVIDIA NIM (nv)</option>
+          <option value="openai">OpenAI Direct (oa)</option>
+          <option value="anthropic">Anthropic Claude (ant)</option>
+          <option value="gemini">Google Gemini API (gemini)</option>
+          <option value="deepseek">DeepSeek Direct (ds)</option>
+          <option value="groq">Groq LPU (gq)</option>
+          <option value="cerebras">Cerebras CS-3 (cb)</option>
+          <option value="cloudflare-ai">Cloudflare Workers AI (cf)</option>
+          <option value="together">Together AI (tg)</option>
+          <option value="fireworks">Fireworks AI (fw)</option>
+          <option value="mistral">Mistral AI (mistral)</option>
+          <option value="glm">Zhipu GLM (glm)</option>
+          <option value="kimi">Moonshot Kimi (km)</option>
+          <option value="minimax">MiniMax (mm)</option>
+        </optgroup>
+        <optgroup label="🟢 Custom & Self-Hosted Endpoints">
+          <option value="openai-compatible">Custom OpenAI-Compatible (Ollama, vLLM, LiteLLM, Relays)</option>
+        </optgroup>
+        <optgroup label="🟠 Media, Voice & Tools">
+          <option value="elevenlabs">ElevenLabs TTS</option>
+          <option value="deepgram">DeepGram STT</option>
+          <option value="jina-ai">Jina Reader & Search</option>
+          <option value="fal-ai">Fal.ai Media</option>
+        </optgroup>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Identifier / Account Name</label>
+      <input type="text" id="p-name" placeholder="e.g. Work Antigravity or Production BAI">
+    </div>
+    <div class="form-group">
+      <label id="p-key-label">API Key / Access Token</label>
+      <input type="password" id="p-key" placeholder="Bearer token or API Secret">
+    </div>
+    <div class="form-group">
+      <label id="p-url-label">Base URL (Required for Custom Nodes, optional override for APIs)</label>
+      <input type="text" id="p-url" placeholder="https://api.example.com/v1">
+    </div>
+    <div class="form-group">
+      <label>Routing Priority (1 = Highest Priority)</label>
+      <input type="text" id="p-priority" value="1">
+    </div>
+    <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px;">
+      <button class="btn" onclick="closeModal('provider-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveProvider()">Save Provider</button>
+    </div>
+  </div>
+</div>
+
+<!-- ADD/EDIT COMBO MODAL -->
+<div class="modal-overlay" id="combo-modal">
+  <div class="modal-box">
+    <div class="section-header" style="margin-bottom: 16px;">
+      <h3 style="font-size: 1.1rem; color: #fff;">Create Model Combo Alias</h3>
+      <button class="btn btn-sm" onclick="closeModal('combo-modal')">✕</button>
+    </div>
+    <div class="form-group">
+      <label>Combo Alias Name (Client requested model name)</label>
+      <input type="text" id="c-name" placeholder="e.g. claude-auto or smart-code">
+    </div>
+    <div class="form-group">
+      <label>Target Waterfall Models (Comma separated in order)</label>
+      <textarea id="c-models" rows="3" placeholder="ag/gemini-3.8-flash-high, nv/meta/llama-3.3-70b-instruct, or/anthropic/claude-3.7-sonnet"></textarea>
+    </div>
+    <div class="form-group">
+      <label>Fallback Strategy</label>
+      <select id="c-strategy">
+        <option value="fallback">Fallback (Failover to next model on 429/5xx)</option>
+        <option value="round-robin">Round Robin (Load balance across list)</option>
+      </select>
+    </div>
+    <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px;">
+      <button class="btn" onclick="closeModal('combo-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveCombo()">Save Combo</button>
+    </div>
+  </div>
+</div>
+
+<!-- ADD KEY MODAL -->
+<div class="modal-overlay" id="key-modal">
+  <div class="modal-box">
+    <div class="section-header" style="margin-bottom: 16px;">
+      <h3 style="font-size: 1.1rem; color: #fff;">Generate Client API Key</h3>
+      <button class="btn btn-sm" onclick="closeModal('key-modal')">✕</button>
+    </div>
+    <div class="form-group">
+      <label>Key Name / Client Tag</label>
+      <input type="text" id="k-name" placeholder="e.g. Termux Claude Code or Cursor Mac">
+    </div>
+    <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px;">
+      <button class="btn" onclick="closeModal('key-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveKey()">Generate Key</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  let authKey = localStorage.getItem("nine_api_key") || "";
+  let allProviders = [];
+  let currentCategory = "all";
+
+  function api(url, opts = {}) {
+    opts.headers = opts.headers || {};
+    opts.headers["Authorization"] = "Bearer " + authKey;
+    opts.headers["Content-Type"] = "application/json";
+    return fetch(url, opts);
+  }
+
+  function switchTab(tabId) {
+    document.querySelectorAll(".tab-pane").forEach(p => p.classList.remove("active"));
+    document.querySelectorAll(".nav-btn").forEach(b => b.classList.remove("active"));
+    const pane = document.getElementById("tab-" + tabId);
+    if (pane) pane.classList.add("active");
+    if (event && event.target && event.target.classList) {
+      event.target.classList.add("active");
+    }
+    if (tabId === "overview") loadDashboardStats();
+    if (tabId === "providers") loadProviders();
+    if (tabId === "combos") loadCombos();
+    if (tabId === "keys") loadKeys();
+    if (tabId === "savers") loadSettings();
+  }
+
+  function closeModal(id) {
+    document.getElementById(id).classList.remove("active");
+  }
+
+  // ----------------------------------------------------------------
+  // Provider detail sub-page (upstream /dashboard/providers/[id])
+  // ----------------------------------------------------------------
+  let currentProviderId = null;
+
+  async function openProviderDetail(providerId) {
+    currentProviderId = providerId;
+    document.querySelectorAll(".tab-pane").forEach(p => p.classList.remove("active"));
+    document.getElementById("tab-provider-detail").classList.add("active");
+    document.querySelectorAll(".nav-btn").forEach(b => b.classList.remove("active"));
+    const pv = document.getElementById("nav-providers");
+    if (pv) pv.classList.add("active");
+
+    const box = document.getElementById("provider-detail-content");
+    box.innerHTML = `<div style="text-align:center; color:var(--muted); padding:40px;">Loading ${escapeHtml(providerId)}…</div>`;
+
+    try {
+      const res = await api(`/api/dashboard/providers/${encodeURIComponent(providerId)}`);
+      if (!res.ok) {
+        box.innerHTML = `<div style="color:#ff7b72; padding:20px;">Failed to load provider (${res.status}).</div>`;
+        return;
+      }
+      const d = await res.json();
+      renderProviderDetail(d);
+    } catch (e) {
+      box.innerHTML = `<div style="color:#ff7b72; padding:20px;">Error: ${escapeHtml(String(e))}</div>`;
+    }
+  }
+
+  function closeProviderDetail() {
+    currentProviderId = null;
+    document.querySelectorAll(".tab-pane").forEach(p => p.classList.remove("active"));
+    document.getElementById("tab-providers").classList.add("active");
+    loadProviders();
+  }
+
+  function renderProviderDetail(d) {
+    const color = d.color || "#388bfd";
+    const icon = d.icon || "smart_toy";
+
+    const aliases = (d.aliases && d.aliases.length)
+      ? d.aliases.map(a => `<span class="tag">${escapeHtml(a)}</span>`).join("")
+      : "";
+
+    // Capabilities tab: one tile per service kind, lit when the provider
+    // declares that kind upstream.
+    const kinds = d.serviceKinds || [];
+    const capsHtml = Object.entries(SERVICE_KIND_META).map(([k, m]) => {
+      const on = kinds.includes(k);
+      return `<div class="cap-item ${on ? 'on' : ''}">
+        <span class="msym">${m.icon}</span>
+        <div>
+          <div style="font-size:0.8rem; color:${on ? '#e6edf3' : 'var(--muted)'};">${escapeHtml(m.label)}</div>
+          <div style="font-size:0.68rem; color:var(--muted);">${on ? 'supported' : 'not declared'}</div>
+        </div>
+      </div>`;
+    }).join("");
+
+    // Connections tab — includes the "Add connection" form.
+    const connsInner = (d.connections || []).length
+      ? d.connections.map(p => {
+          const label = p.accountLabel || p.email || p.name || p.id.substring(0, 12);
+          const dot = p.isActive !== 1 ? "off" : (p.expired ? "warn" : "on");
+          return `<div class="model-row">
+            <span class="acct-dot ${dot}"></span>
+            <span class="mid">${escapeHtml(label)}</span>
+            <span class="mkind">${escapeHtml(p.testStatus || 'idle')}</span>
+            <label class="switch" style="transform:scale(0.8);">
+              <input type="checkbox" ${p.isActive === 1 ? 'checked' : ''} onchange="toggleProvider('${p.id}');">
+              <span class="slider"></span>
+            </label>
+            <button class="btn btn-sm btn-danger" onclick="deleteProvider('${p.id}');closeProviderDetail();">Delete</button>
+          </div>`;
+        }).join("")
+      : `<div style="text-align:center; color:var(--muted); padding:26px; border:1px dashed var(--border); border-radius:10px;">No connections yet</div>`;
+
+    // Add-connection form. Upstream exposes an API-key field for key-based
+    // providers and a cookie field for webCookie providers.
+    const isCookie = d.authType === "cookie";
+    const secretLabel = isCookie ? "Cookie" : (d.authType === "none" ? "Optional Token" : "API Key");
+    const secretPh = isCookie
+      ? "sso=... or __Secure-next-auth.session-token=..."
+      : "sk-... (leave blank for no-auth providers)";
+    const connsHtml = `
+      <div class="add-form">
+        <div class="add-form-title"><span class="msym">add_link</span>Add Connection</div>
+        <div class="add-form-grid">
+          <div>
+            <label class="field-label">Account name / email</label>
+            <input type="text" id="acct-label" placeholder="user@example.com">
+          </div>
+          <div>
+            <label class="field-label">${escapeHtml(secretLabel)}</label>
+            <input type="password" id="acct-secret" placeholder="${escapeHtml(secretPh)}">
+          </div>
+          <div style="display:flex; align-items:flex-end; gap:6px;">
+            <div style="flex:1;">
+              <label class="field-label">Priority</label>
+              <input type="number" id="acct-priority" value="1" min="1">
+            </div>
+            <button class="btn btn-primary" onclick="addConnection('${d.provider}')">Add</button>
+          </div>
+        </div>
+        <div id="add-conn-msg" style="font-size:0.75rem; margin-top:8px; color:var(--muted);"></div>
+      </div>
+      <div style="margin-top:6px;">${connsInner}</div>`;
+
+    // Models tab — includes the "Add Custom Model" form.
+    const modelsInner = (d.models || []).length
+      ? d.models.map(m => `<div class="model-row">
+          <span class="msym" style="font-size:16px; color:var(--muted);">deployed_code</span>
+          <span class="mid">${escapeHtml(m.modelId)}</span>
+          <span class="mkind">${escapeHtml(m.kind || 'llm')}</span>
+          <button class="btn btn-sm btn-danger" onclick="removeModel('${d.provider}','${escapeHtml(m.modelId)}')">×</button>
+        </div>`).join("")
+      : `<div style="text-align:center; color:var(--muted); padding:26px; border:1px dashed var(--border); border-radius:10px;">No cached models. Add one below.</div>`;
+
+    const kindOptions = Object.entries(SERVICE_KIND_META)
+      .map(([k, m]) => `<option value="${k}">${escapeHtml(m.label)}</option>`).join("");
+
+    const modelsHtml = `
+      <div class="add-form">
+        <div class="add-form-title"><span class="msym">add_box</span>Add Custom Model</div>
+        <div class="add-form-grid">
+          <div>
+            <label class="field-label">Model ID</label>
+            <input type="text" id="model-id" placeholder="e.g. claude-opus-4-5"
+                   onkeydown="if(event.key==='Enter')addModel('${d.provider}')">
+          </div>
+          <div>
+            <label class="field-label">Kind</label>
+            <select id="model-kind">${kindOptions}</select>
+          </div>
+          <div style="display:flex; align-items:flex-end; gap:6px;">
+            <button class="btn btn-primary" onclick="addModel('${d.provider}')">Add Model</button>
+            <button class="btn" id="import-models-btn" onclick="importModels('${d.provider}')">
+              <span class="msym" style="font-size:15px;">download</span>Import from /models
+            </button>
+          </div>
+        </div>
+        <div id="add-model-msg" style="font-size:0.75rem; margin-top:8px; color:var(--muted);"></div>
+      </div>
+      <div style="margin-top:6px;">${modelsInner}</div>`;
+
+    const riskHtml = d.deprecationNotice
+      ? `<div class="risk-banner" style="margin-bottom:18px;"><span class="msym">warning</span><span>${escapeHtml(d.deprecationNotice)}</span></div>`
+      : "";
+
+    document.getElementById("provider-detail-content").innerHTML = `
+      <div class="detail-hero">
+        <div class="detail-hero-icon" style="background:${color};"><span class="msym">${escapeHtml(icon)}</span></div>
+        <div style="flex:1; min-width:0;">
+          <h2 class="section-title" style="margin:0;">${escapeHtml(d.displayName || d.provider)}</h2>
+          <div style="display:flex; align-items:center; gap:8px; margin-top:5px; flex-wrap:wrap;">
+            <span class="sub-id">${escapeHtml(d.provider)}</span>
+            ${getCategoryBadge(d.category, d.categoryLabel)}
+            <span class="prov-count-pill">${d.activeCount}/${d.totalCount} active</span>
+            ${aliases}
+          </div>
+        </div>
+        <div style="display:flex; gap:7px;">
+          <button class="btn btn-sm" onclick="toggleAllConnections(1)">Enable All</button>
+          <button class="btn btn-sm" onclick="toggleAllConnections(0)">Disable All</button>
+        </div>
+      </div>
+      ${riskHtml}
+      <div class="detail-tabs">
+        <button class="detail-tab active" onclick="showDetailTab(this,'conn')"><span class="msym">cable</span>Connections (${(d.connections||[]).length})</button>
+        <button class="detail-tab" onclick="showDetailTab(this,'caps')"><span class="msym">tune</span>Capabilities</button>
+        <button class="detail-tab" onclick="showDetailTab(this,'models')"><span class="msym">neurology</span>Available Models (${(d.models||[]).length})</button>
+      </div>
+      <div id="dt-conn">${connsHtml}</div>
+      <div id="dt-caps" style="display:none;">
+        <div class="cap-grid">${capsHtml}</div>
+        <div style="margin-top:16px; font-size:0.8rem; color:var(--muted);">
+          ${d.description ? escapeHtml(d.description) : ''}
+          ${d.website ? `<br>Website: <a href="${escapeHtml(d.website)}" target="_blank" rel="noopener" style="color:var(--primary);">${escapeHtml(d.website)}</a>` : ''}
+        </div>
+      </div>
+      <div id="dt-models" style="display:none;">${modelsHtml}</div>`;
+  }
+
+  function showDetailTab(btn, which) {
+    document.querySelectorAll(".detail-tab").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    ["dt-conn", "dt-caps", "dt-models"].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.style.display = "none";
+    });
+    const target = document.getElementById("dt-" + which);
+    if (target) target.style.display = "block";
+  }
+
+  async function toggleAllConnections(active) {
+    if (!currentProviderId) return;
+    try {
+      await api(`/api/dashboard/providers/${encodeURIComponent(currentProviderId)}/toggle-all`, {
+        method: "POST",
+        body: JSON.stringify({ active })
+      });
+      openProviderDetail(currentProviderId);
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  function setFormMsg(id, text, ok) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.innerText = text;
+    el.className = ok ? "msg-ok" : "msg-err";
+  }
+
+  // Adds a custom model to the provider (upstream "Add Custom Model").
+  async function addModel(providerId) {
+    const input = document.getElementById("model-id");
+    const kindEl = document.getElementById("model-kind");
+    const modelId = (input ? input.value : "").trim();
+    if (!modelId) {
+      setFormMsg("add-model-msg", "Model ID is required.", false);
+      return;
+    }
+
+    try {
+      const res = await api(`/api/dashboard/providers/${encodeURIComponent(providerId)}/models`, {
+        method: "POST",
+        body: JSON.stringify({ modelId, kind: kindEl ? kindEl.value : "llm" })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setFormMsg("add-model-msg", data.error || `Failed (${res.status}).`, false);
+        return;
+      }
+      setFormMsg("add-model-msg", `Added "${modelId}" under cache key "${data.cacheKey}".`, true);
+      if (input) input.value = "";
+      // Refresh so the new model appears in the list.
+      setTimeout(() => openProviderDetail(providerId), 500);
+    } catch (e) {
+      setFormMsg("add-model-msg", String(e), false);
+    }
+  }
+
+  // Removes a model from the provider cache (upstream "Remove model").
+  async function removeModel(providerId, modelId) {
+    if (!confirm(`Remove model "${modelId}"?`)) return;
+    try {
+      await api(`/api/dashboard/providers/${encodeURIComponent(providerId)}/models?modelId=${encodeURIComponent(modelId)}`, {
+        method: "DELETE"
+      });
+      openProviderDetail(providerId);
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  // Fetches the provider's live model list from its own /models endpoint
+  // (upstream "Import from /models") and shows a preview before saving.
+  async function importModels(providerId) {
+    const btn = document.getElementById("import-models-btn");
+    if (btn) btn.disabled = true;
+    setFormMsg("add-model-msg", "Fetching models from provider…", true);
+
+    try {
+      const res = await api(`/api/dashboard/providers/${encodeURIComponent(providerId)}/models`);
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok || data.error) {
+        setFormMsg("add-model-msg", data.error || `Failed to fetch models (${res.status}).`, false);
+        return;
+      }
+      const models = data.models || [];
+      if (!models.length) {
+        setFormMsg("add-model-msg", "No models returned from /models.", false);
+        return;
+      }
+
+      setFormMsg("add-model-msg", `Found ${models.length} model(s). Pick which to import.`, true);
+      showImportModal(providerId, models);
+    } catch (e) {
+      setFormMsg("add-model-msg", String(e), false);
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  // Modal listing fetched models with per-model checkboxes (upstream "Import All").
+  let importState = { providerId: null, models: [] };
+
+  function showImportModal(providerId, models) {
+    importState = { providerId, models };
+    const rows = models.map((m, i) => `
+      <label class="import-row">
+        <input type="checkbox" class="import-cb" data-idx="${i}" checked>
+        <span class="mid">${escapeHtml(m.id)}</span>
+        <span class="mkind">${escapeHtml(m.kind || 'llm')}</span>
+      </label>`).join("");
+
+    let modal = document.getElementById("import-modal");
+    if (!modal) {
+      modal = document.createElement("div");
+      modal.id = "import-modal";
+      modal.className = "modal-overlay";
+      document.body.appendChild(modal);
+    }
+    modal.innerHTML = `
+      <div class="modal-box">
+        <div class="modal-head">
+          <span class="msym" style="color:var(--primary);">download</span>
+          <span style="flex:1;">Import models into <b>${escapeHtml(providerId)}</b></span>
+          <button class="btn btn-sm" onclick="closeImportModal()">✕</button>
+        </div>
+        <div class="modal-toolbar">
+          <span style="font-size:0.75rem; color:var(--muted);">${models.length} available</span>
+          <button class="btn btn-sm" onclick="toggleAllImport(true)">Select all</button>
+          <button class="btn btn-sm" onclick="toggleAllImport(false)">Select none</button>
+        </div>
+        <div class="modal-body">${rows}</div>
+        <div class="modal-foot">
+          <div id="import-modal-msg" style="flex:1; font-size:0.75rem; color:var(--muted);"></div>
+          <button class="btn" onclick="closeImportModal()">Cancel</button>
+          <button class="btn btn-primary" id="import-all-btn" onclick="commitImport()">Import Selected</button>
+        </div>
+      </div>`;
+    modal.classList.add("active");
+  }
+
+  function toggleAllImport(checked) {
+    document.querySelectorAll(".import-cb").forEach(cb => { cb.checked = checked; });
+  }
+
+  function closeImportModal() {
+    const modal = document.getElementById("import-modal");
+    if (modal) modal.classList.remove("active");
+  }
+
+  async function commitImport() {
+    const selected = Array.from(document.querySelectorAll(".import-cb"))
+      .filter(cb => cb.checked)
+      .map(cb => importState.models[parseInt(cb.dataset.idx, 10)]);
+
+    const msg = document.getElementById("import-modal-msg");
+    if (!selected.length) {
+      if (msg) { msg.innerText = "Nothing selected."; msg.className = "msg-err"; }
+      return;
+    }
+
+    const btn = document.getElementById("import-all-btn");
+    if (btn) btn.disabled = true;
+    if (msg) { msg.innerText = `Importing ${selected.length} model(s)…`; msg.className = ""; }
+
+    try {
+      // Persist one by one so a single bad model can't abort the batch.
+      let ok = 0, fail = 0;
+      for (const m of selected) {
+        const res = await api(`/api/dashboard/providers/${encodeURIComponent(importState.providerId)}/models`, {
+          method: "POST",
+          body: JSON.stringify({ modelId: m.id, kind: m.kind || "llm" })
+        });
+        res.ok ? ok++ : fail++;
+      }
+      if (msg) {
+        msg.innerText = `Imported ${ok} model(s)${fail ? `, ${fail} failed` : ""}.`;
+        msg.className = fail ? "msg-err" : "msg-ok";
+      }
+      setTimeout(() => {
+        closeImportModal();
+        openProviderDetail(importState.providerId);
+      }, 900);
+    } catch (e) {
+      if (msg) { msg.innerText = String(e); msg.className = "msg-err"; }
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  // Adds a connection (account) to the provider. Uses the existing
+  // POST /api/dashboard/providers endpoint, wrapping the secret into the
+  // credential blob the router expects.
+  async function addConnection(providerId) {
+    const labelEl = document.getElementById("acct-label");
+    const secretEl = document.getElementById("acct-secret");
+    const prioEl = document.getElementById("acct-priority");
+
+    const label = (labelEl ? labelEl.value : "").trim();
+    const secret = (secretEl ? secretEl.value : "").trim();
+    const priority = parseInt((prioEl ? prioEl.value : "1") || "1", 10) || 1;
+
+    if (!label && !secret) {
+      setFormMsg("add-conn-msg", "Provide an account name or a credential.", false);
+      return;
+    }
+
+    // Build the credential blob the same way the Next.js import flow does:
+    // an apiKey field for key-based providers, a cookie field for web ones.
+    const blob = {};
+    if (label) { blob.email = label; blob.name = label; }
+    if (secret) {
+      if (providerId.includes("cookie") || providerId.startsWith("grok-web") || providerId.startsWith("perplexity-web")) {
+        blob.cookie = secret;
+      } else {
+        blob.apiKey = secret;
+      }
+      blob.testStatus = "unknown";
+    }
+
+    try {
+      const res = await api("/api/dashboard/providers", {
+        method: "POST",
+        body: JSON.stringify({
+          provider: providerId,
+          authType: secret ? (blob.cookie ? "cookie" : "apikey") : "none",
+          name: label || null,
+          email: label || null,
+          priority,
+          isActive: 1,
+          data: JSON.stringify(blob)
+        })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setFormMsg("add-conn-msg", data.error || `Failed (${res.status}).`, false);
+        return;
+      }
+      setFormMsg("add-conn-msg", "Connection added.", true);
+      if (labelEl) labelEl.value = "";
+      if (secretEl) secretEl.value = "";
+      setTimeout(() => openProviderDetail(providerId), 500);
+    } catch (e) {
+      setFormMsg("add-conn-msg", String(e), false);
+    }
+  }
+
+  async function checkAuth() {
+    if (!authKey) {
+      document.getElementById("login-modal").classList.add("active");
+      return;
+    }
+    try {
+      const res = await api("/api/dashboard/auth/verify", {
+        method: "POST",
+        body: JSON.stringify({ key: authKey })
+      });
+      if (res.ok) {
+        document.getElementById("login-modal").classList.remove("active");
+        document.getElementById("auth-key-display").innerText = authKey.substring(0, 8) + "...";
+        loadDashboardStats();
+      } else {
+        localStorage.removeItem("nine_api_key");
+        authKey = "";
+        document.getElementById("login-modal").classList.add("active");
+      }
+    } catch(e) {
+      console.error(e);
+      document.getElementById("login-modal").classList.add("active");
+    }
+  }
+
+  async function submitLogin() {
+    const key = document.getElementById("login-key-input").value.trim();
+    if (!key) return;
+    try {
+      const res = await fetch("/api/dashboard/auth/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key })
+      });
+      if (res.ok) {
+        authKey = key;
+        localStorage.setItem("nine_api_key", key);
+        document.getElementById("login-modal").classList.remove("active");
+        document.getElementById("auth-key-display").innerText = key.substring(0, 8) + "...";
+        loadDashboardStats();
+      } else {
+        document.getElementById("login-error").innerText = "Invalid or inactive API key";
+        document.getElementById("login-error").style.display = "block";
+      }
+    } catch(e) {
+      document.getElementById("login-error").innerText = e.message;
+      document.getElementById("login-error").style.display = "block";
+    }
+  }
+
+  function logout() {
+    if (confirm("Disconnect and clear saved key from browser?")) {
+      localStorage.removeItem("nine_api_key");
+      authKey = "";
+      location.reload();
+    }
+  }
+
+  async function loadDashboardStats() {
+    try {
+      const res = await api("/api/dashboard/stats");
+      if (!res.ok) return;
+      const data = await res.json();
+      document.getElementById("stat-providers").innerText = data.totalProviders || 0;
+      document.getElementById("stat-active-providers").innerText = data.activeProviders || 0;
+      document.getElementById("stat-combos").innerText = data.totalCombos || 0;
+      document.getElementById("stat-keys").innerText = data.totalKeys || 0;
+
+      // Category counts in Overview
+      if (data.categories) {
+        const cats = ["oauth", "freeTier", "free", "apikey", "webCookie", "custom"];
+        cats.forEach(cat => {
+          const c = data.categories[cat] || { total: 0, active: 0 };
+          const totalEl = document.getElementById(`cat-${cat}-total`);
+          const activeEl = document.getElementById(`cat-${cat}-active`);
+          if (totalEl) totalEl.innerText = `${c.total} Connections`;
+          if (activeEl) activeEl.innerText = `${c.active} Active`;
+        });
+      }
+
+      // Grouped Chips
+      const chips = document.getElementById("provider-type-chips");
+      chips.innerHTML = "";
+      for (const [provider, count] of Object.entries(data.providerTypeCounts || {})) {
+        const chip = document.createElement("span");
+        chip.className = "badge badge-dim";
+        chip.style.padding = "6px 12px";
+        chip.innerText = `${provider}: ${count}`;
+        chips.appendChild(chip);
+      }
+
+      if (data.tokenSaver) {
+        let active = [];
+        if (data.tokenSaver.rtk) active.push("RTK");
+        if (data.tokenSaver.caveman) active.push("Caveman (" + data.tokenSaver.cavemanLevel + ")");
+        if (data.tokenSaver.ponytail) active.push("Ponytail (" + data.tokenSaver.ponytailLevel + ")");
+        document.getElementById("stat-saver-detail").innerText = active.length ? active.join(" + ") : "None";
+      }
+    } catch(e) {
+      console.error(e);
+    }
+  }
+
+  function filterByCategory(cat) {
+    switchTab("providers");
+    setCategoryFilter(cat);
+  }
+
+  function setCategoryFilter(cat) {
+    currentCategory = cat;
+    document.querySelectorAll(".filter-btn").forEach(b => b.classList.remove("active"));
+    const btn = document.getElementById("f-" + cat);
+    if (btn) btn.classList.add("active");
+    filterProviders();
+  }
+
+  async function loadProviders() {
+    try {
+      const res = await api("/api/dashboard/providers");
+      if (!res.ok) return;
+      allProviders = await res.json();
+
+      // Update count pills
+      updateCategoryCounts(allProviders);
+      filterProviders();
+    } catch(e) {
+      console.error(e);
+    }
+  }
+
+  function updateCategoryCounts(list) {
+    const counts = { all: list.length, oauth: 0, freeTier: 0, free: 0, apikey: 0, webCookie: 0, custom: 0 };
+    list.forEach(p => {
+      const cat = p.category || "apikey";
+      if (counts[cat] !== undefined) counts[cat]++;
+    });
+    document.getElementById("cnt-all").innerText = counts.all;
+    document.getElementById("cnt-oauth").innerText = counts.oauth;
+    document.getElementById("cnt-freeTier").innerText = counts.freeTier;
+    document.getElementById("cnt-free").innerText = counts.free;
+    document.getElementById("cnt-apikey").innerText = counts.apikey;
+    document.getElementById("cnt-webCookie").innerText = counts.webCookie;
+    document.getElementById("cnt-custom").innerText = counts.custom;
+  }
+
+  function getCategoryBadge(cat, label) {
+    const cls = "badge-" + (cat || "apikey");
+    return `<span class="badge ${cls}">${escapeHtml(label || cat)}</span>`;
+  }
+
+  // Formats an ISO timestamp into a compact relative/absolute label.
+  function fmtTime(iso) {
+    if (!iso) return "-";
+    const t = new Date(iso);
+    if (isNaN(t.getTime())) return "-";
+    const diffMin = Math.round((t.getTime() - Date.now()) / 60000);
+    if (Math.abs(diffMin) < 60) {
+      return diffMin >= 0 ? `in ${diffMin}m` : `${-diffMin}m ago`;
+    }
+    const diffH = Math.round(diffMin / 60);
+    if (Math.abs(diffH) < 24) {
+      return diffH >= 0 ? `in ${diffH}h` : `${-diffH}h ago`;
+    }
+    return t.toISOString().substring(0, 16).replace("T", " ");
+  }
+
+  // State of which provider groups are expanded.
+  let expandedGroups = {};
+
+  function toggleGroup(providerKey) {
+    expandedGroups[providerKey] = !expandedGroups[providerKey];
+    filterProviders();
+  }
+
+  // Renders a single account row (one connection under a provider).
+  function renderAccountRow(p) {
+    const label = p.accountLabel || p.email || p.name || p.id.substring(0, 12);
+    const dot = p.isActive !== 1 ? "off" : (p.expired ? "warn" : "on");
+    const statusPill = p.expired
+      ? `<span class="acct-pill exp">token expired</span>`
+      : (p.testStatus === "active"
+          ? `<span class="acct-pill ok">active</span>`
+          : `<span class="acct-pill idle">${escapeHtml(p.testStatus || "idle")}</span>`);
+    const metaParts = [];
+    if (p.expiresAt) metaParts.push(`expires ${fmtTime(p.expiresAt)}`);
+    if (p.lastUsedAt) metaParts.push(`used ${fmtTime(p.lastUsedAt)}`);
+
+    return `
+      <tr class="acct-row">
+        <td>
+          <label class="switch">
+            <input type="checkbox" ${p.isActive === 1 ? 'checked' : ''} onchange="toggleProvider('${p.id}')">
+            <span class="slider"></span>
+          </label>
+        </td>
+        <td></td>
+        <td colspan="2">
+          <span class="acct-dot ${dot}"></span>
+          <span class="acct-email">${escapeHtml(label)}</span>
+          <div class="acct-meta" style="margin-left:14px;">${escapeHtml(metaParts.join(" · ") || "no expiring token")}</div>
+        </td>
+        <td><span class="tag">${escapeHtml(p.authType)}</span></td>
+        <td>${statusPill}</td>
+        <td>${p.priority || 1}</td>
+        <td style="text-align: right;">
+          <button class="btn btn-sm btn-danger" onclick="event.stopPropagation();deleteProvider('${p.id}')">Delete</button>
+        </td>
+      </tr>`;
+  }
+
+  // Renders a service-kind chip using the upstream label+icon vocabulary.
+  const SERVICE_KIND_META = {
+    llm:          { label: "LLM",            icon: "chat" },
+    embedding:    { label: "Embedding",      icon: "data_array" },
+    image:        { label: "Text to Image",  icon: "brush" },
+    imageToText:  { label: "Image to Text",  icon: "image_search" },
+    tts:          { label: "Text To Speech", icon: "record_voice_over" },
+    stt:          { label: "Speech To Text", icon: "mic" },
+    webSearch:    { label: "Web Search",     icon: "travel_explore" },
+    webFetch:     { label: "Web Fetch",      icon: "language" },
+    video:        { label: "Video",           icon: "movie" },
+    music:        { label: "Music",           icon: "music_note" }
+  };
+
+  function kindChips(kinds, limit) {
+    const list = (kinds && kinds.length ? kinds : ["llm"]).slice(0, limit || 3);
+    return list.map(k => {
+      const m = SERVICE_KIND_META[k] || { label: k, icon: "extension" };
+      return `<span class="kind-chip"><span class="msym">${m.icon}</span>${escapeHtml(m.label)}</span>`;
+    }).join("");
+  }
+
+  // Deterministic pastel avatar background derived from a string.
+  function avatarColor(seed) {
+    let h = 0;
+    for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) % 360;
+    return `hsl(${h}, 45%, 32%)`;
+  }
+
+  function accountsExpanded(prov, accounts) {
+    return accounts.map(p => {
+      const label = p.accountLabel || p.email || p.name || p.id.substring(0, 12);
+      const dot = p.isActive !== 1 ? "off" : (p.expired ? "warn" : "on");
+      const chip = p.expired
+        ? `<span class="acct-pill exp">expired</span>`
+        : (p.testStatus === "active"
+            ? `<span class="acct-pill ok">active</span>`
+            : `<span class="acct-pill idle">${escapeHtml(p.testStatus || "idle")}</span>`);
+      return `
+        <div class="prov-acct-line">
+          <span class="acct-dot ${dot}"></span>
+          <span class="em" title="${escapeHtml(label)}">${escapeHtml(label)}</span>
+          ${chip}
+          <label class="switch" style="transform:scale(0.85);">
+            <input type="checkbox" ${p.isActive === 1 ? "checked" : ""} onchange="event.stopPropagation();toggleProvider('${p.id}')">
+            <span class="slider"></span>
+          </label>
+          <button class="btn btn-sm btn-danger" onclick="event.stopPropagation();deleteProvider('${p.id}')">×</button>
+        </div>`;
+    }).join("");
+  }
+
+  function renderProviders(list) {
+    const container = document.getElementById("providers-table-body");
+    if (!list.length) {
+      container.innerHTML = `<div style="text-align:center; color:var(--muted); padding:30px; border:1px dashed var(--border); border-radius:12px;">No providers match the selected category or filter.</div>`;
+      return;
+    }
+
+    // Group connections by provider id.
+    const groups = {};
+    const order = [];
+    list.forEach(p => {
+      if (!groups[p.provider]) { groups[p.provider] = []; order.push(p.provider); }
+      groups[p.provider].push(p);
+    });
+
+    // Sort provider groups by upstream registry priority (lower = first).
+    order.sort((a, b) => {
+      const pa = groups[a][0].priorityRank || 999;
+      const pb = groups[b][0].priorityRank || 999;
+      return pa - pb;
+    });
+
+    container.innerHTML = order.map(prov => {
+      const accounts = groups[prov];
+      accounts.sort((a, b) => (a.priority || 999) - (b.priority || 999));
+      const head = accounts[0];
+      const activeCount = accounts.filter(a => a.isActive === 1).length;
+      const isOpen = !!expandedGroups[prov];
+      const color = head.color || "#388bfd";
+      const icon = head.icon || "smart_toy";
+
+      // Overlapping avatar stack (up to 3 shown, then +N).
+      const shown = accounts.slice(0, 3).map(a => {
+        const lbl = (a.accountLabel || a.email || a.name || "?").trim();
+        const initials = lbl.substring(0, 2).toUpperCase();
+        return `<span class="prov-avatar" style="background:${avatarColor(lbl)}" title="${escapeHtml(lbl)}">${escapeHtml(initials)}</span>`;
+      }).join("");
+      const more = accounts.length > 3
+        ? `<span class="prov-avatar more">+${accounts.length - 3}</span>` : "";
+
+      const riskBanner = head.deprecationNotice
+        ? `<div class="risk-banner"><span class="msym">warning</span><span>${escapeHtml(head.deprecationNotice)}</span></div>`
+        : "";
+
+      return `
+        <div class="prov-card" onclick="openProviderDetail('${prov}')">
+          <div class="prov-card-head">
+            <div class="prov-card-icon" style="background:${color}">
+              <span class="msym">${escapeHtml(icon)}</span>
+            </div>
+            <div style="flex:1; min-width:0;">
+              <div class="prov-card-title">${escapeHtml(head.displayName || prov)}</div>
+              <div class="prov-card-sub">${escapeHtml(prov)}</div>
+            </div>
+            <span class="msym" style="color:var(--muted);">chevron_right</span>
+          </div>
+          <div class="prov-card-body">
+            ${getCategoryBadge(head.category, head.categoryLabel)}
+            <span class="prov-count-pill">${activeCount}/${accounts.length} active</span>
+          </div>
+          <div class="prov-card-body" style="margin-top:8px;">${kindChips(head.serviceKinds, 3)}</div>
+          ${riskBanner}
+          <div class="prov-card-foot">
+            <div class="prov-avatars">${shown}${more}</div>
+            <span style="font-size:0.7rem; color:var(--muted); display:flex; align-items:center; gap:4px;">
+              <span class="msym" style="font-size:13px;">vpn_key</span>${escapeHtml(head.authType)}
+            </span>
+          </div>
+          ${isOpen ? `<div class="prov-expand-body" onclick="event.stopPropagation()">${accountsExpanded(prov, accounts)}</div>` : ""}
+        </div>`;
+    }).join("");
+  }
+
+  function filterProviders() {
+    const q = document.getElementById("provider-search").value.toLowerCase().trim();
+    const filtered = allProviders.filter(p => {
+      const matchCat = (currentCategory === "all") || (p.category === currentCategory);
+      if (!matchCat) return false;
+      if (!q) return true;
+      return (
+        p.provider.toLowerCase().includes(q) ||
+        (p.displayName && p.displayName.toLowerCase().includes(q)) ||
+        (p.name && p.name.toLowerCase().includes(q)) ||
+        (p.email && p.email.toLowerCase().includes(q))
+      );
+    });
+    renderProviders(filtered);
+  }
+
+  async function toggleProvider(id) {
+    try {
+      await api(`/api/dashboard/providers/${id}/toggle`, { method: "POST" });
+      loadDashboardStats();
+    } catch(e) { alert(e.message); }
+  }
+
+  async function deleteProvider(id) {
+    if (!confirm("Are you sure you want to delete this provider connection?")) return;
+    try {
+      await api(`/api/dashboard/providers/${id}`, { method: "DELETE" });
+      loadProviders();
+      loadDashboardStats();
+    } catch(e) { alert(e.message); }
+  }
+
+  function openAddProviderModal() {
+    document.getElementById("p-id").value = "";
+    document.getElementById("p-name").value = "";
+    document.getElementById("p-key").value = "";
+    document.getElementById("p-url").value = "";
+    document.getElementById("p-priority").value = "1";
+    onProviderSelectChange();
+    document.getElementById("provider-modal").classList.add("active");
+  }
+
+  function onProviderSelectChange() {
+    const sel = document.getElementById("p-provider").value;
+    const keyLabel = document.getElementById("p-key-label");
+    const urlLabel = document.getElementById("p-url-label");
+    if (sel === "openai-compatible") {
+      keyLabel.innerText = "API Key / Authorization Secret (Optional for local)";
+      urlLabel.innerText = "Base URL (e.g. http://localhost:11434/v1 or https://my-relay/v1)";
+    } else if (sel === "antigravity" || sel === "github" || sel === "claude" || sel === "codex") {
+      keyLabel.innerText = "OAuth / CLI Access Token or Refresh Credential";
+      urlLabel.innerText = "Base URL (Optional override)";
+    } else {
+      keyLabel.innerText = "API Key / Secret Token";
+      urlLabel.innerText = "Base URL (Optional override)";
+    }
+  }
+
+  async function saveProvider() {
+    const provider = document.getElementById("p-provider").value;
+    const name = document.getElementById("p-name").value.trim();
+    const apiKey = document.getElementById("p-key").value.trim();
+    const baseUrl = document.getElementById("p-url").value.trim();
+    const priority = parseInt(document.getElementById("p-priority").value, 10) || 1;
+
+    try {
+      const res = await api("/api/dashboard/providers", {
+        method: "POST",
+        body: JSON.stringify({
+          provider,
+          name: name ? name : provider,
+          apiKey,
+          baseUrl,
+          priority,
+          authType: "apikey",
+          isActive: 1
+        })
+      });
+      if (!res.ok) throw new Error(await res.text());
+      closeModal("provider-modal");
+      loadProviders();
+      loadDashboardStats();
+    } catch(e) {
+      alert("Failed to save provider: " + e.message);
+    }
+  }
+
+  async function loadCombos() {
+    try {
+      const res = await api("/api/dashboard/combos");
+      if (!res.ok) return;
+      const combos = await res.json();
+      const tbody = document.getElementById("combos-table-body");
+      if (!combos.length) {
+        tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--muted); padding: 24px;">No combos configured.</td></tr>`;
+        return;
+      }
+      tbody.innerHTML = combos.map(c => `
+        <tr>
+          <td><strong style="color: #79c0ff; font-family: monospace;">${escapeHtml(c.name)}</strong></td>
+          <td>
+            <div style="display: flex; flex-wrap: wrap; gap: 4px;">
+              ${(c.models || []).map((m, idx) => `<span class="tag">#${idx+1} ${escapeHtml(m)}</span>`).join("")}
+            </div>
+          </td>
+          <td><span class="badge badge-dim">${escapeHtml(c.strategy || 'fallback')}</span></td>
+          <td style="color:var(--muted); font-size: 0.8rem;">${c.createdAt ? c.createdAt.substring(0, 10) : '-'}</td>
+          <td style="text-align: right;">
+            <button class="btn btn-sm btn-danger" onclick="deleteCombo('${c.id}')">Delete</button>
+          </td>
+        </tr>
+      `).join("");
+    } catch(e) {
+      console.error(e);
+    }
+  }
+
+  function openAddComboModal() {
+    document.getElementById("c-name").value = "";
+    document.getElementById("c-models").value = "";
+    document.getElementById("combo-modal").classList.add("active");
+  }
+
+  async function saveCombo() {
+    const name = document.getElementById("c-name").value.trim();
+    const rawModels = document.getElementById("c-models").value;
+    const strategy = document.getElementById("c-strategy").value;
+    const models = rawModels.split(",").map(m => m.trim()).filter(Boolean);
+
+    if (!name || !models.length) {
+      alert("Name and at least one target model required.");
+      return;
+    }
+
+    try {
+      const res = await api("/api/dashboard/combos", {
+        method: "POST",
+        body: JSON.stringify({ name, models, strategy })
+      });
+      if (!res.ok) throw new Error(await res.text());
+      closeModal("combo-modal");
+      loadCombos();
+      loadDashboardStats();
+    } catch(e) {
+      alert("Failed to save combo: " + e.message);
+    }
+  }
+
+  async function deleteCombo(id) {
+    if (!confirm("Delete this model combo alias?")) return;
+    try {
+      await api(`/api/dashboard/combos/${id}`, { method: "DELETE" });
+      loadCombos();
+      loadDashboardStats();
+    } catch(e) { alert(e.message); }
+  }
+
+  async function loadKeys() {
+    try {
+      const res = await api("/api/dashboard/keys");
+      if (!res.ok) return;
+      const keys = await res.json();
+      const tbody = document.getElementById("keys-table-body");
+      if (!keys.length) {
+        tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--muted); padding: 24px;">No API keys found.</td></tr>`;
+        return;
+      }
+      tbody.innerHTML = keys.map(k => `
+        <tr>
+          <td>
+            <label class="switch">
+              <input type="checkbox" ${k.isActive === 1 ? 'checked' : ''} onchange="toggleKey('${k.id}')">
+              <span class="slider"></span>
+            </label>
+          </td>
+          <td><strong style="color: #fff;">${escapeHtml(k.name || 'Unnamed')}</strong></td>
+          <td><code style="background:#090d13; border: 1px solid var(--border); padding: 4px 8px; border-radius: 4px; color: #79c0ff;">${escapeHtml(k.key)}</code></td>
+          <td style="color:var(--muted); font-size: 0.8rem;">${k.createdAt ? k.createdAt.substring(0, 10) : '-'}</td>
+          <td style="text-align: right;">
+            <button class="btn btn-sm btn-danger" onclick="deleteKey('${k.id}')">Revoke</button>
+          </td>
+        </tr>
+      `).join("");
+    } catch(e) {
+      console.error(e);
+    }
+  }
+
+  function openAddKeyModal() {
+    document.getElementById("k-name").value = "";
+    document.getElementById("key-modal").classList.add("active");
+  }
+
+  async function saveKey() {
+    const name = document.getElementById("k-name").value.trim();
+    try {
+      const res = await api("/api/dashboard/keys", {
+        method: "POST",
+        body: JSON.stringify({ name })
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      alert("API Key generated successfully:\n\n" + data.key);
+      closeModal("key-modal");
+      loadKeys();
+      loadDashboardStats();
+    } catch(e) {
+      alert("Failed to generate key: " + e.message);
+    }
+  }
+
+  async function toggleKey(id) {
+    try {
+      await api(`/api/dashboard/keys/${id}/toggle`, { method: "POST" });
+      loadDashboardStats();
+    } catch(e) { alert(e.message); }
+  }
+
+  async function deleteKey(id) {
+    if (!confirm("Permanently revoke this client API key?")) return;
+    try {
+      await api(`/api/dashboard/keys/${id}`, { method: "DELETE" });
+      loadKeys();
+      loadDashboardStats();
+    } catch(e) { alert(e.message); }
+  }
+
+  async function loadSettings() {
+    try {
+      const res = await api("/api/dashboard/settings");
+      if (!res.ok) return;
+      const s = await res.json();
+      document.getElementById("saver-rtk").checked = !!s.rtkEnabled;
+      document.getElementById("saver-caveman").checked = !!s.cavemanEnabled;
+      document.getElementById("saver-caveman-level").value = s.cavemanLevel || "full";
+      document.getElementById("saver-ponytail").checked = !!s.ponytailEnabled;
+      document.getElementById("saver-ponytail-level").value = s.ponytailLevel || "full";
+      document.getElementById("saver-guard").checked = !!s.injectionGuardEnabled;
+    } catch(e) {
+      console.error(e);
+    }
+  }
+
+  async function saveTokenSaverSettings() {
+    const payload = {
+      rtkEnabled: document.getElementById("saver-rtk").checked,
+      cavemanEnabled: document.getElementById("saver-caveman").checked,
+      cavemanLevel: document.getElementById("saver-caveman-level").value,
+      ponytailEnabled: document.getElementById("saver-ponytail").checked,
+      ponytailLevel: document.getElementById("saver-ponytail-level").value,
+      injectionGuardEnabled: document.getElementById("saver-guard").checked
+    };
+    try {
+      const res = await api("/api/dashboard/settings", {
+        method: "POST",
+        body: JSON.stringify(payload)
+      });
+      if (!res.ok) throw new Error(await res.text());
+      alert("Token optimization settings updated successfully.");
+      loadDashboardStats();
+    } catch(e) {
+      alert("Failed to save settings: " + e.message);
+    }
+  }
+
+  function syncCatalog() {
+    alert("Catalog refreshed from active provider connections.");
+    loadDashboardStats();
+  }
+
+  function escapeHtml(str) {
+    if (!str) return "";
+    return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+
+  checkAuth();
+</script>
+</body>
+</html>

@@ -9,6 +9,7 @@ import (
 	"9router/proxy/internal/constants"
 	"9router/proxy/internal/db"
 	"9router/proxy/internal/handlers/chat"
+	"9router/proxy/internal/handlers/dashboard"
 	"9router/proxy/internal/handlers/media"
 	"9router/proxy/internal/handlers/oauth"
 	"9router/proxy/internal/handlers/shared"
@@ -120,7 +121,13 @@ func SetupRoutes(r interface {
 // SetupServerRouter mounts public endpoints (/health, /api/hello) and
 // API-key protected routes (all engine + admin routes) on the chi router.
 func SetupServerRouter(r chi.Router, repo *db.Repo, ts *TokenSaverConfig) {
-	// Public (unauthenticated) endpoints
+	dashH := dashboard.NewHandler(repo, ts)
+	dashH.RegisterRoutes(r)
+
+	// Public root and login routes load the embedded dashboard
+	r.Get("/", dashH.ServeUI)
+	r.Get("/login", dashH.ServeUI)
+
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set(constants.HeaderContentType, constants.ContentTypeJSON)
 		w.Write([]byte(`{"status":"ok"}`))
