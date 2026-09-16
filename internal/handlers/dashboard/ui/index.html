@@ -156,14 +156,14 @@
 
     /* Category sections (OAuth, Free Tier, API Key, …) mirroring the upstream
        Next.js providers page: a titled group per category, cards below. */
-    .prov-sections { display: flex; flex-direction: column; gap: 26px; }
-    .prov-section { display: flex; flex-direction: column; gap: 12px; }
-    .prov-section-head { display: flex; align-items: flex-start; gap: 9px; }
-    .prov-section-dot { width: 9px; height: 9px; border-radius: 50%; margin-top: 6px; flex-shrink: 0; }
-    .prov-section-text { min-width: 0; }
-    .prov-section-title { font-size: 1rem; font-weight: 600; color: #e6edf3; line-height: 1.3; margin: 0; display: flex; align-items: center; gap: 7px; }
-    .prov-section-count { font-size: 0.7rem; font-weight: 600; color: var(--muted); background: var(--panel-hover); border: 1px solid var(--border); border-radius: 999px; padding: 1px 8px; }
-    .prov-section-blurb { font-size: 0.75rem; color: var(--muted); margin: 2px 0 0; }
+    .prov-sections { display: flex; flex-direction: column; gap: 32px; }
+    .prov-section { display: flex; flex-direction: column; gap: 14px; }
+    .prov-section-head { display: flex; align-items: flex-start; gap: 10px; padding-bottom: 4px; border-bottom: 1px solid rgba(255,255,255,0.06); }
+    .prov-section-dot { width: 10px; height: 10px; border-radius: 50%; margin-top: 5px; flex-shrink: 0; box-shadow: 0 0 8px currentColor; }
+    .prov-section-text { min-width: 0; flex: 1; }
+    .prov-section-title { font-size: 1.05rem; font-weight: 600; color: #f0f6fc; line-height: 1.3; margin: 0; display: flex; align-items: center; gap: 8px; }
+    .prov-section-count { font-size: 0.72rem; font-weight: 600; color: var(--muted); background: var(--panel-hover); border: 1px solid var(--border); border-radius: 999px; padding: 1px 9px; }
+    .prov-section-blurb { font-size: 0.78rem; color: var(--muted); margin: 3px 0 0; }
 
     .prov-card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 14px; cursor: pointer; transition: border-color .15s, transform .15s; position: relative; overflow: hidden; display: flex; align-items: center; gap: 12px; }
     .prov-card:hover { border-color: var(--muted); transform: translateY(-1px); }
@@ -736,9 +736,17 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
   let currentProviderId = null;
   let currentModelAlias = null;
   let lastProviderDetail = null;
+  // Which detail sub-tab is open. renderProviderDetail rebuilds the whole panel
+  // (each model test re-renders it), so the open tab must live in state or every
+  // test would snap the operator back to the default "Connections" tab.
+  let activeDetailTab = "conn";
 
-  async function openProviderDetail(providerId) {
+  // keepTab: passed by actions taken from inside the panel (add/import/remove
+  // model, auto-disable) so a re-fetch does not kick the operator off the tab
+  // they are working in. Opening a provider from the grid leaves it false.
+  async function openProviderDetail(providerId, keepTab) {
     currentProviderId = providerId;
+    if (!keepTab) activeDetailTab = "conn";
     resetModelTestState();
     document.querySelectorAll(".tab-pane").forEach(p => p.classList.remove("active"));
     document.getElementById("tab-provider-detail").classList.add("active");
@@ -957,22 +965,23 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
       </div>
       ${riskHtml}
       <div class="detail-tabs">
-        <button class="detail-tab active" onclick="showDetailTab(this,'conn')"><span class="msym">cable</span>Connections (${(d.connections||[]).length})</button>
-        <button class="detail-tab" onclick="showDetailTab(this,'caps')"><span class="msym">tune</span>Capabilities</button>
-        <button class="detail-tab" onclick="showDetailTab(this,'models')"><span class="msym">neurology</span>Available Models (${(d.models||[]).length})</button>
+        <button class="detail-tab ${activeDetailTab === 'conn' ? 'active' : ''}" onclick="showDetailTab(this,'conn')"><span class="msym">cable</span>Connections (${(d.connections||[]).length})</button>
+        <button class="detail-tab ${activeDetailTab === 'caps' ? 'active' : ''}" onclick="showDetailTab(this,'caps')"><span class="msym">tune</span>Capabilities</button>
+        <button class="detail-tab ${activeDetailTab === 'models' ? 'active' : ''}" onclick="showDetailTab(this,'models')"><span class="msym">neurology</span>Available Models (${(d.models||[]).length})</button>
       </div>
-      <div id="dt-conn">${connsHtml}</div>
-      <div id="dt-caps" style="display:none;">
+      <div id="dt-conn" style="display:${activeDetailTab === 'conn' ? 'block' : 'none'};">${connsHtml}</div>
+      <div id="dt-caps" style="display:${activeDetailTab === 'caps' ? 'block' : 'none'};">
         <div class="cap-grid">${capsHtml}</div>
         <div style="margin-top:16px; font-size:0.8rem; color:var(--muted);">
           ${d.description ? escapeHtml(d.description) : ''}
           ${d.website ? `<br>Website: <a href="${escapeHtml(d.website)}" target="_blank" rel="noopener" style="color:var(--primary);">${escapeHtml(d.website)}</a>` : ''}
         </div>
       </div>
-      <div id="dt-models" style="display:none;">${modelsHtml}</div>`;
+      <div id="dt-models" style="display:${activeDetailTab === 'models' ? 'block' : 'none'};">${modelsHtml}</div>`;
   }
 
   function showDetailTab(btn, which) {
+    activeDetailTab = which;
     document.querySelectorAll(".detail-tab").forEach(b => b.classList.remove("active"));
     btn.classList.add("active");
     ["dt-conn", "dt-caps", "dt-models"].forEach(id => {
@@ -1025,8 +1034,8 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
       }
       setFormMsg("add-model-msg", `Added "${modelId}" under cache key "${data.cacheKey}".`, true);
       if (input) input.value = "";
-      // Refresh so the new model appears in the list.
-      setTimeout(() => openProviderDetail(providerId), 500);
+      // Refresh so the new model appears in the list. Keep the Models tab open.
+      setTimeout(() => openProviderDetail(providerId, true), 500);
     } catch (e) {
       setFormMsg("add-model-msg", String(e), false);
     }
@@ -1160,7 +1169,8 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
       renderProviderDetailRefresh();
       if (autoDisable && failCount > 0) {
         // Several models were removed server-side; refresh the list.
-        setTimeout(() => openProviderDetail(providerId), 800);
+        // keepTab: stay on Models so the operator sees the updated rows.
+        setTimeout(() => openProviderDetail(providerId, true), 800);
       }
     }
   }
@@ -1176,7 +1186,7 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
       await api(`/api/dashboard/providers/${encodeURIComponent(providerId)}/models?modelId=${encodeURIComponent(modelId)}`, {
         method: "DELETE"
       });
-      openProviderDetail(providerId);
+      openProviderDetail(providerId, true);
     } catch (e) {
       console.error(e);
     }
@@ -1296,7 +1306,7 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
       }
       setTimeout(() => {
         closeImportModal();
-        openProviderDetail(importState.providerId);
+        openProviderDetail(importState.providerId, true);
       }, 900);
     } catch (e) {
       if (msg) { msg.innerText = String(e); msg.className = "msg-err"; }
@@ -1918,29 +1928,36 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
   // providerSpecificData.clientProfile.
   // ---- Connection test (per-account) -----------------------------------
   // Probes the upstream provider with THIS connection's own credentials.
-  // Read-only server side: no state is written, and the verdict is bound to the
-  // connection id (never a row index) so results cannot land on the wrong row.
+  // Server side refreshes an expired OAuth token first (through the
+  // per-connection lock shared with the chat path), so an account that is one
+  // refresh away from healthy reports green instead of a stale "token expired".
+  // The verdict is bound to the connection id (never a row index) so results
+  // cannot land on the wrong row.
   function renderConnVerdict(id, res) {
     const chip = document.getElementById(`conn-status-${id}`);
     const btn = document.getElementById(`conn-test-${id}`);
     if (btn) { btn.disabled = false; btn.classList.remove("testing"); btn.textContent = "Test"; }
     if (!chip) return;
     chip.classList.remove("ok", "err", "warn");
+    const refreshNote = res.refreshed ? " Token refreshed just now." : "";
     let label, cls, tip;
     if (res.valid && res.geoBlocked) {
       // Auth is fine but the server's egress region is blocked. Showing this as
       // a plain success would be a false green: the operator would see OK while
       // every chat request fails. Amber, with actionable text.
       label = "region"; cls = "warn";
-      tip = res.warning || "Blocked by the provider's region policy (not an account problem).";
+      tip = (res.warning || "Blocked by the provider's region policy (not an account problem).") + refreshNote;
     } else if (res.valid && res.warning) {
-      label = "warn"; cls = "warn"; tip = res.warning;
+      label = "warn"; cls = "warn"; tip = res.warning + refreshNote;
     } else if (res.valid) {
-      label = "ok"; cls = "ok"; tip = "Probe passed" + (res.latencyMs != null ? ` in ${res.latencyMs}ms` : "") + ".";
+      label = "ok"; cls = "ok";
+      tip = "Probe passed" + (res.latencyMs != null ? ` in ${res.latencyMs}ms` : "") + "." + refreshNote;
     } else {
-      label = "fail"; cls = "err"; tip = res.error || "Test failed";
+      label = "fail"; cls = "err"; tip = (res.error || "Test failed") + refreshNote;
     }
-    chip.textContent = label;
+    // Make a refresh visible even when the chip only has room for a word: a
+    // small dot in the corner tells the operator the token was just renewed.
+    chip.textContent = label + (res.refreshed ? " ⟳" : "");
     chip.classList.add(cls);
     chip.title = tip;
   }
@@ -1961,9 +1978,10 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
     }
   }
 
-  // Sequential by default, matching the server: this fork's OAuth refresher has
-  // no per-connection mutex, so firing every account's probe at once is the one
-  // way to risk concurrent refreshes racing on the same refresh token.
+  // Sequential by default. The server serialises refreshes per connection via a
+  // lock shared with the chat path, so concurrency is no longer a correctness
+  // risk; staying sequential keeps the progress readout readable and avoids a
+  // burst of probes against one provider.
   let testingAllConns = false;
   async function testAllConnections(providerId) {
     if (testingAllConns) return;

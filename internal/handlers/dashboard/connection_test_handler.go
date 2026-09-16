@@ -12,7 +12,10 @@ import (
 
 	json "encoding/json/v2"
 
+	"9router/proxy/internal/log"
+	"9router/proxy/internal/models"
 	"9router/proxy/internal/providers"
+	"9router/proxy/internal/proxy/oauth"
 )
 
 // Per-account Connection Test — port of the upstream Next.js
@@ -133,24 +136,26 @@ func isAntigravityProviderID(provider string) bool {
 }
 
 // testConnection probes one account and returns a normalised verdict. It is
-// READ-ONLY: no credential state, activation flag or cooldown is written.
-// Upstream persists testStatus/lastError/rateLimitedUntil/backoffLevel from
-// this endpoint. That is deliberately NOT ported. Upstream gates the route
-// behind requireManagementAuth and pairs the writes with a credential-health
-// scheduler that re-probes every 300s and clears them. Here the dashboard
-// routes are unauthenticated (pre-existing fork behaviour) and there is no
-// recovery scheduler, so a write would be both a remote DoS primitive (loop
-// the endpoint to flip working accounts out of rotation) and sticky until
-// manual intervention. Reporting the verdict to the operator is the whole
-// feature; persisting it is unnecessary and unsafe.
+// READ-ONLY with respect to the connection's ROUTING state: no activation flag,
+// testStatus, cooldown or backoff is written. Upstream persists
+// testStatus/lastError/rateLimitedUntil/backoffLevel from this endpoint. That is
+// deliberately NOT ported. Upstream gates the route behind requireManagementAuth
+// and pairs the writes with a credential-health scheduler that re-probes every
+// 300s and clears them. Here the dashboard routes are unauthenticated
+// (pre-existing fork behaviour) and there is no recovery scheduler, so a write
+// would be both a remote DoS primitive (loop the endpoint to flip working
+// accounts out of rotation) and sticky until manual intervention. Reporting the
+// verdict to the operator is the whole feature; persisting it is unnecessary and
+// unsafe.
 //
-// It also never refreshes OAuth tokens. This fork's refresh path
-// (providers.NewStandardRefresher via KnownOAuthConfigs) has no per-connection
-// mutex or in-flight dedup — unlike upstream's getAccessToken. A test-triggered
-// refresh could therefore fire concurrent refreshes against the same refresh
-// token and invalidate a healthy account (refresh_token_reused), which is
-// strictly worse than reporting a stale-token 401. A 401 is reported as
-// "chat will refresh on next use" instead.
+// It DOES refresh an expired OAuth token before probing, because a red "token
+// expired" verdict for an account that is one refresh away from healthy is
+// worse than useless — it trains the operator to ignore the indicator. The
+// refresh goes through oauth.RefreshStoredConnection, which holds a
+// per-connection lock; that serialisation is what makes refreshing here safe
+// (the earlier version of this file refused to refresh at all precisely because
+// the chat path's refresh had no such lock and the two could race on a single-use
+// refresh token, bricking a healthy account).
 func (h *Handler) testConnection(ctx context.Context, connID string) (result connectionTestResult) {
 	conn, err := h.repo.GetProviderConnectionByID(connID)
 	if err != nil {
@@ -183,10 +188,94 @@ func (h *Handler) testConnection(ctx context.Context, connID string) (result con
 		}
 	}
 
+	// A locally-expired token is refreshed before probing so the operator gets a
+	// real verdict instead of a stale "token expired" — the account is usually one
+	// refresh away from healthy. This is a deliberate state change (the fresh token
+	// is persisted), serialised by oauth.RefreshStoredConnection's per-connection
+	// lock so it cannot race a live chat request.
+	//
+	// The freshness check happens INSIDE that lock, so when several tests run
+	// concurrently only one performs the exchange; the rest observe the token the
+	// first one just wrote. They must then ADOPT that token — see below — or they
+	// would probe with the stale copy they read before queueing on the lock.
+	//
+	// A FAILED refresh is not fatal: the probe runs with the old token and will
+	// report the upstream rejection accurately (401/403), which is the verdict the
+	// operator needs in that case.
+	if refresh, refreshErr := h.refreshExpiredTokenForTest(ctx, conn, raw); refreshErr != nil {
+		log.Warn("dashboard", "connection test token refresh failed", "conn", connID, "error", refreshErr)
+	} else if refresh.changed {
+		out.Refreshed = refresh.performed
+		// Use the token the refresher resolved (its own, or one written by a
+		// concurrent caller), and re-read the blob for any other fields a refresh
+		// may have updated (projectId, rotated refreshToken).
+		raw["accessToken"] = refresh.accessToken
+		if refresh.projectID != "" {
+			raw["projectId"] = refresh.projectID
+		}
+		if updated, err := h.repo.GetProviderConnectionByID(connID); err == nil && updated != nil {
+			conn = updated
+			if strings.TrimSpace(updated.Data) != "" {
+				var fresh map[string]any
+				if err := json.Unmarshal([]byte(updated.Data), &fresh); err == nil {
+					// Keep the resolved token authoritative: a concurrent refresh may
+					// have written a newer one between our load and this re-read.
+					fresh["accessToken"] = refresh.accessToken
+					raw = fresh
+				}
+			}
+		}
+	}
+
 	if isAntigravityProviderID(conn.Provider) {
 		return h.probeAntigravityConnection(ctx, raw, out)
 	}
 	return h.probeGenericConnection(ctx, raw, out)
+}
+
+// testRefresh carries the token a pre-probe refresh resolved for a connection.
+//
+// changed is true when the token on the connection is not the one the probe was
+// about to use — either because this caller refreshed it, or because a
+// concurrent caller did and this caller adopted their fresh token. performed
+// distinguishes "I did the exchange" from "someone else did", which is what the
+// UI reports as a refresh indicator.
+type testRefresh struct {
+	changed     bool
+	performed   bool
+	accessToken string
+	projectID   string
+}
+
+// refreshExpiredTokenForTest resolves a fresh OAuth token for the probe.
+//
+// It returns changed=false for connections that are not OAuth, have no refresh
+// token, or whose token is still valid AND was not concurrently refreshed — in
+// those cases the caller's existing blob is already correct.
+func (h *Handler) refreshExpiredTokenForTest(ctx context.Context, conn *models.ProviderConnection, raw map[string]any) (testRefresh, error) {
+	if conn == nil || conn.ID == "" {
+		return testRefresh{}, nil
+	}
+	// Only OAuth connections carry a refresh token; an API-key connection has
+	// nothing to refresh and must not be touched.
+	oauthData := providers.ParseOAuthConnection(raw)
+	if oauthData == nil || oauthData.RefreshToken == "" {
+		return testRefresh{}, nil
+	}
+
+	token, projectID, refreshed, err := oauth.RefreshStoredConnection(ctx, h.repo, h.httpClientForTest(), conn.ID, false)
+	if err != nil {
+		// Even on error the helper returns the best-known token; adopt it so a
+		// partially-successful refresh (token swapped but persist failed) is used.
+		return testRefresh{changed: token != "" && token != oauthData.AccessToken, accessToken: token, projectID: projectID}, err
+	}
+
+	// refreshed=true means THIS call did the exchange. refreshed=false with a
+	// different token means a concurrent caller did, and the lock handed us their
+	// result. Both cases require the probe to use the returned token; only the
+	// former is reported as "refreshed just now" in the UI.
+	changed := refreshed || (token != "" && token != oauthData.AccessToken)
+	return testRefresh{changed: changed, performed: refreshed, accessToken: token, projectID: projectID}, nil
 }
 
 // connString reads the first non-empty string field from a raw connection blob.
@@ -223,11 +312,13 @@ func (h *Handler) probeAntigravityConnection(ctx context.Context, raw map[string
 		return out
 	}
 
-	// A locally-known-expired token is reported without a network round trip:
-	// it is free to detect, and probing it would only burn a request to learn
-	// what we already know.
+	// Reaching here means the token is still (locally) expired after the
+	// pre-probe refresh attempt — either the refresh failed, or the connection
+	// has no refresh token. Report it without a network round trip: it is free to
+	// detect, and probing it would only burn a request to learn what we already
+	// know.
 	if antigravityTokenExpired(raw) {
-		out.Error = "Token expired — the next chat request will refresh it automatically."
+		out.Error = "Token expired and could not be refreshed (no usable refresh token, or the refresh was rejected). Sign the account in again."
 		return out
 	}
 
