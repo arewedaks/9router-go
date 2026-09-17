@@ -74,9 +74,20 @@ func TestRequireApiKeyWithSessionCookieScopedToDashboardPaths(t *testing.T) {
 	repo := db.NewRepo(database)
 
 	valid := func(token string) bool { return token == "good-token" }
-	mw := RequireApiKeyWithSession(repo, valid, "/api/oauth/", "/api/dashboard/")
+	mw := RequireApiKeyWithSession(repo, valid,
+		"/api/oauth/", "/api/dashboard/", "/api/translator/", "/translator/", "/usage/", "/api/usage/")
 
-	allowed := []string{"/api/oauth/cline/authorize", "/api/dashboard/providers"}
+	allowed := []string{
+		"/api/oauth/cline/authorize",
+		"/api/dashboard/providers",
+		// The browser console-log viewer and usage stream cannot attach an
+		// Authorization header (EventSource has no header API), so the session
+		// cookie is the only credential a password-logged-in dashboard holds.
+		"/api/translator/console-logs",
+		"/api/translator/console-logs/stream",
+		"/translator/console-logs",
+		"/api/usage/stats",
+	}
 	for _, path := range allowed {
 		req := httptest.NewRequest(http.MethodGet, path, nil)
 		req.AddCookie(&http.Cookie{Name: "auth_token", Value: "good-token"})
@@ -143,14 +154,17 @@ func TestSessionPathAllowed(t *testing.T) {
 	if !sessionPathAllowed("/v1/models", nil) {
 		t.Error("empty allow-list should permit every path")
 	}
-	allowed := []string{"/api/oauth/", "/api/dashboard/"}
+	allowed := []string{"/api/oauth/", "/api/dashboard/", "/api/translator/", "/translator/", "/usage/", "/api/usage/"}
 	cases := map[string]bool{
-		"/api/oauth/cline/authorize": true,
-		"/api/oauth/github/exchange": true,
-		"/api/dashboard/providers":   true,
-		"/v1/models":                 false,
-		"/chat/completions":          false,
-		"/api/oauth":                 false, // no trailing slash: not a prefix match
+		"/api/oauth/cline/authorize":     true,
+		"/api/oauth/github/exchange":     true,
+		"/api/dashboard/providers":       true,
+		"/api/translator/console-logs":   true,
+		"/translator/console-logs/stream": true,
+		"/api/usage/stats":               true,
+		"/v1/models":                     false,
+		"/chat/completions":              false,
+		"/api/oauth":                     false, // no trailing slash: not a prefix match
 	}
 	for path, want := range cases {
 		if got := sessionPathAllowed(path, allowed); got != want {

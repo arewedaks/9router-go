@@ -1720,10 +1720,20 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
 
   async function clearConsoleLogs() {
     try {
-      await fetch("/api/translator/console-logs", { method: "DELETE" });
+      await api("/api/translator/console-logs", { method: "DELETE" });
       consoleLogs = [];
       applyConsoleFilter();
     } catch (_) {}
+  }
+
+  // consoleLogURL returns the console-log endpoint with the API key attached as
+  // a query parameter. EventSource cannot send an Authorization header, so the
+  // key has to travel in the URL for the API-key login path. When the operator
+  // signed in with the dashboard password there is no authKey and the browser's
+  // httpOnly session cookie authenticates the request instead, so the URL is
+  // left untouched.
+  function consoleLogURL(path) {
+    return authKey ? path + "?key=" + encodeURIComponent(authKey) : path;
   }
 
   function startConsoleLogs() {
@@ -1734,8 +1744,8 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
       statusBadge.className = "badge badge-idle";
     }
 
-    // Initial log buffer fetch
-    fetch("/api/translator/console-logs")
+    // Initial log buffer fetch (api() carries the header/cookie credential)
+    api("/api/translator/console-logs")
       .then(r => r.json())
       .then(data => {
         if (data.success && Array.isArray(data.logs)) {
@@ -1747,7 +1757,7 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
 
     // SSE Stream
     try {
-      consoleEventSource = new EventSource("/api/translator/console-logs/stream");
+      consoleEventSource = new EventSource(consoleLogURL("/api/translator/console-logs/stream"));
       consoleEventSource.onopen = () => {
         if (statusBadge) {
           statusBadge.textContent = "● Live Connected";
