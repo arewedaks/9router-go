@@ -57,6 +57,14 @@ func ForwardCodebuddyCN(w http.ResponseWriter, req *Request) error {
 	return jsonResponse(req.Ctx, w, bytes.NewReader(data), req.TranslateResp, req.ResponseBuf)
 }
 
+// codebuddyRequiredSystemPrompt is the first message every CodeBuddy request
+// must carry. The gateway fingerprints the client on it: a request without this
+// exact leading system prompt is rejected as
+// `400 code 11128 "Illegal API invocation from an unapproved channel"`,
+// regardless of how correct the surrounding headers are. VansRouter seeds the
+// same constant in its CodeBuddyIntlExecutor/CodeBuddyExecutor.
+const codebuddyRequiredSystemPrompt = "You are CodeBuddy Code."
+
 // transformCodebuddyBody forces stream=true and handles reasoning params.
 func transformCodebuddyBody(body []byte) ([]byte, error) {
 	var reqMap map[string]interface{}
@@ -78,6 +86,48 @@ func transformCodebuddyBody(body []byte) ([]byte, error) {
 			// reasoning_summary so CodeBuddy surfaces the model's reasoning.
 			reqMap["reasoning_summary"] = "auto"
 		}
+	}
+
+	// Shape the messages the way the official IDE client does. Two things matter
+	// to the gateway's client fingerprint, and both were missing before:
+	//   1. a leading `You are CodeBuddy Code.` system message;
+	//   2. user content as typed blocks (`[{type:"text",text:...}]`) instead of
+	//      a bare string.
+	// An agent CLI sends the bare string, so its request was refused with
+	// `11128 Illegal API invocation from an unapproved channel`.
+	if msgs, ok := reqMap["messages"].([]interface{}); ok {
+		shaped := make([]interface{}, 0, len(msgs)+1)
+		shaped = append(shaped, map[string]interface{}{
+			"role":    "system",
+			"content": codebuddyRequiredSystemPrompt,
+		})
+		seedSeen := false
+		for _, mAny := range msgs {
+			m, ok := mAny.(map[string]interface{})
+			if !ok {
+				shaped = append(shaped, mAny)
+				continue
+			}
+			role, _ := m["role"].(string)
+			content, _ := m["content"].(string)
+			// The caller may already carry the seed prompt (e.g. a client that
+			// copied it). Keep only the first copy so the gateway never sees two.
+			if role == "system" && content == codebuddyRequiredSystemPrompt {
+				if seedSeen {
+					continue
+				}
+				seedSeen = true
+				continue
+			}
+			if role == "user" && content != "" {
+				m["content"] = []interface{}{map[string]interface{}{
+					"type": "text",
+					"text": content,
+				}}
+			}
+			shaped = append(shaped, m)
+		}
+		reqMap["messages"] = shaped
 	}
 
 	return json.Marshal(reqMap)

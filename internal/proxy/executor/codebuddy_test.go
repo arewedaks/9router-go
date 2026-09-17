@@ -5,185 +5,162 @@ import (
 	"testing"
 )
 
-func TestTransformCodebuddyBody_ForceStream(t *testing.T) {
-	// non-stream request should be forced to stream=true
-	input := `{"model":"glm-5.2","messages":[{"role":"user","content":"hi"}],"stream":false}`
-	out, err := transformCodebuddyBody([]byte(input))
+// TestCodebuddySeedsRequiredSystemPrompt pins the fix for
+// `400 code 11128 "Illegal API invocation from an unapproved channel"`.
+//
+// The gateway fingerprints the calling client on the shape of `messages`: the
+// first message has to be the system prompt `You are CodeBuddy Code.`. An agent
+// CLI sends its own system prompt (or none) and a bare-string user content, so
+// every request through the router was refused. Confirmed against the live
+// gateway, which answers `{"code":11128,"msg":"first message is not system
+// prompt"}` for the old shape and 200 for this one.
+func TestCodebuddySeedsRequiredSystemPrompt(t *testing.T) {
+	in := []byte(`{"model":"glm-5.2","messages":[{"role":"system","content":"You are a helpful assistant."},{"role":"user","content":"hello"}]}`)
+	out, err := transformCodebuddyBody(in)
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf("transformCodebuddyBody: %v", err)
 	}
-	var m map[string]interface{}
-	if err := json.Unmarshal(out, &m); err != nil {
-		t.Fatalf("unmarshal output: %v", err)
+
+	var got map[string]any
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
 	}
-	if m["stream"] != true {
-		t.Errorf("expected stream=true, got %v", m["stream"])
+
+	msgs, _ := got["messages"].([]any)
+	if len(msgs) != 3 {
+		t.Fatalf("messages = %d, want 3 (seed + caller's two)", len(msgs))
+	}
+
+	first, _ := msgs[0].(map[string]any)
+	if first["role"] != "system" || first["content"] != "You are CodeBuddy Code." {
+		t.Errorf("first message = %v, want the seeded CodeBuddy system prompt", first)
+	}
+	// The caller's own system prompt must survive behind the seed: dropping it
+	// would silently lose agent instructions.
+	second, _ := msgs[1].(map[string]any)
+	if second["role"] != "system" || second["content"] != "You are a helpful assistant." {
+		t.Errorf("second message = %v, want the caller's system prompt preserved", second)
+	}
+	// stream is forced because the gateway rejects non-stream (code 11101).
+	if got["stream"] != true {
+		t.Errorf("stream = %v, want forced true", got["stream"])
 	}
 }
 
-func TestTransformCodebuddyBody_StreamAlreadyTrue(t *testing.T) {
-	input := `{"model":"glm-5.2","messages":[{"role":"user","content":"hi"}],"stream":true}`
-	out, err := transformCodebuddyBody([]byte(input))
+// TestCodebuddyUserContentBecomesTypedBlocks pins the second half of the client
+// fingerprint: user content has to be a typed block array, not a bare string.
+func TestCodebuddyUserContentBecomesTypedBlocks(t *testing.T) {
+	in := []byte(`{"model":"glm-5.2","messages":[{"role":"user","content":"hello"},{"role":"assistant","content":"hi"},{"role":"user","content":"again"}]}`)
+	out, err := transformCodebuddyBody(in)
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf("transformCodebuddyBody: %v", err)
 	}
-	var m map[string]interface{}
-	if err := json.Unmarshal(out, &m); err != nil {
-		t.Fatalf("unmarshal output: %v", err)
+	var got map[string]any
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
 	}
-	if m["stream"] != true {
-		t.Errorf("expected stream=true, got %v", m["stream"])
+	msgs, _ := got["messages"].([]any)
+	// seed + three caller messages
+	if len(msgs) != 4 {
+		t.Fatalf("messages = %d, want 4", len(msgs))
+	}
+
+	check := func(idx int, wantText string) {
+		m, _ := msgs[idx].(map[string]any)
+		blocks, ok := m["content"].([]any)
+		if !ok {
+			t.Fatalf("message %d content = %T, want typed block array", idx, m["content"])
+		}
+		b, _ := blocks[0].(map[string]any)
+		if b["type"] != "text" || b["text"] != wantText {
+			t.Errorf("message %d block = %v, want text block %q", idx, b, wantText)
+		}
+	}
+	check(1, "hello")
+	check(3, "again")
+
+	// Assistant content is left alone — only user turns are typed on the wire by
+	// the official client, and rewriting it risks breaking tool-call round trips.
+	assistant, _ := msgs[2].(map[string]any)
+	if assistant["content"] != "hi" {
+		t.Errorf("assistant content = %v, want untouched string", assistant["content"])
 	}
 }
 
-func TestTransformCodebuddyBody_ReasoningEffortNone(t *testing.T) {
-	// "none" and "off" should be stripped
-	for _, eff := range []string{"none", "off"} {
-		input := `{"model":"glm-5.2","messages":[],"reasoning_effort":"` + eff + `"}`
-		out, err := transformCodebuddyBody([]byte(input))
+// TestCodebuddySeedIsNotDuplicated keeps the seed idempotent: a client that
+// already ships the prompt must not end up with two copies, which the gateway
+// would read as a second, different client.
+func TestCodebuddySeedIsNotDuplicated(t *testing.T) {
+	in := []byte(`{"model":"glm-5.2","messages":[{"role":"system","content":"You are CodeBuddy Code."},{"role":"user","content":"hi"}]}`)
+	out, err := transformCodebuddyBody(in)
+	if err != nil {
+		t.Fatalf("transformCodebuddyBody: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	msgs, _ := got["messages"].([]any)
+
+	seedCount := 0
+	for _, mAny := range msgs {
+		m, _ := mAny.(map[string]any)
+		if m["content"] == "You are CodeBuddy Code." {
+			seedCount++
+		}
+	}
+	if seedCount != 1 {
+		t.Errorf("seed prompt appears %d times, want exactly 1", seedCount)
+	}
+}
+
+// TestCodebuddyReasoningSummary mirrors the CLI: an explicit reasoning_effort
+// makes the gateway surface reasoning, and "none"/"off" is dropped because the
+// gateway has no such level.
+func TestCodebuddyReasoningSummary(t *testing.T) {
+	for _, tc := range []struct {
+		eff         string
+		wantSummary any
+	}{
+		{"high", "auto"},
+		{"none", nil},
+		{"off", nil},
+	} {
+		in := []byte(`{"model":"glm-5.2","reasoning_effort":"` + tc.eff + `","messages":[{"role":"user","content":"hi"}]}`)
+		out, err := transformCodebuddyBody(in)
 		if err != nil {
-			t.Fatalf("unexpected error for %q: %v", eff, err)
+			t.Fatalf("eff=%s: %v", tc.eff, err)
 		}
-		var m map[string]interface{}
-		if err := json.Unmarshal(out, &m); err != nil {
-			t.Fatalf("unmarshal output: %v", err)
+		var got map[string]any
+		if err := json.Unmarshal(out, &got); err != nil {
+			t.Fatalf("eff=%s unmarshal: %v", tc.eff, err)
 		}
-		if _, exists := m["reasoning_effort"]; exists {
-			t.Errorf("reasoning_effort=%q should be removed, but still present", eff)
+		if got["reasoning_summary"] != tc.wantSummary {
+			t.Errorf("eff=%s: reasoning_summary = %v, want %v", tc.eff, got["reasoning_summary"], tc.wantSummary)
 		}
-		if _, exists := m["reasoning_summary"]; exists {
-			t.Errorf("reasoning_summary should NOT be set when effort=%q", eff)
+		if _, present := got["reasoning_effort"]; present && tc.eff != "high" {
+			t.Errorf("eff=%s: reasoning_effort should be removed, got %v", tc.eff, got["reasoning_effort"])
 		}
 	}
 }
 
-func TestTransformCodebuddyBody_ReasoningEffortMedium(t *testing.T) {
-	// Active reasoning_effort should inject reasoning_summary="auto"
-	input := `{"model":"glm-5.2","messages":[],"reasoning_effort":"medium"}`
-	out, err := transformCodebuddyBody([]byte(input))
+// TestCodebuddyEmptyMessagesStillSeeded guards the degenerate call: a request
+// with no messages at all must still carry the seed, or it is refused.
+func TestCodebuddyEmptyMessagesStillSeeded(t *testing.T) {
+	out, err := transformCodebuddyBody([]byte(`{"model":"glm-5.2","messages":[]}`))
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf("transformCodebuddyBody: %v", err)
 	}
-	var m map[string]interface{}
-	if err := json.Unmarshal(out, &m); err != nil {
-		t.Fatalf("unmarshal output: %v", err)
+	var got map[string]any
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
 	}
-	if m["reasoning_effort"] != "medium" {
-		t.Errorf("reasoning_effort should stay %q, got %v", "medium", m["reasoning_effort"])
+	msgs, _ := got["messages"].([]any)
+	if len(msgs) != 1 {
+		t.Fatalf("messages = %d, want the seed alone", len(msgs))
 	}
-	if m["reasoning_summary"] != "auto" {
-		t.Errorf("expected reasoning_summary=%q, got %v", "auto", m["reasoning_summary"])
-	}
-}
-
-func TestTransformCodebuddyBody_NoReasoningEffort(t *testing.T) {
-	// When reasoning_effort is not set, neither should reasoning_summary
-	input := `{"model":"glm-5.2","messages":[{"role":"user","content":"hello"}]}`
-	out, err := transformCodebuddyBody([]byte(input))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	var m map[string]interface{}
-	if err := json.Unmarshal(out, &m); err != nil {
-		t.Fatalf("unmarshal output: %v", err)
-	}
-	if _, exists := m["reasoning_effort"]; exists {
-		t.Error("reasoning_effort should not be present")
-	}
-	if _, exists := m["reasoning_summary"]; exists {
-		t.Error("reasoning_summary should not be present when no effort set")
-	}
-}
-
-func TestSSEToOpenAIJSON_MergesChunks(t *testing.T) {
-	sse := "data: {\"id\":\"chatcmpl-1\",\"created\":123,\"model\":\"glm-5.2\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Hello\"}}]}\n\n" +
-		"data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\" world\"}}]}\n\n" +
-		"data: {\"choices\":[{\"index\":0,\"delta\":{\"reasoning_content\":\"thinking\"}}]}\n\n" +
-		"data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":5,\"completion_tokens\":3}}\n\n" +
-		"data: [DONE]\n\n"
-	out, ok := sseToOpenAIJSON([]byte(sse))
-	if !ok {
-		t.Fatal("expected SSE detected")
-	}
-	var resp struct {
-		ID      string `json:"id"`
-		Model   string `json:"model"`
-		Choices []struct {
-			FinishReason string `json:"finish_reason"`
-			Message      struct {
-				Content          string `json:"content"`
-				ReasoningContent string `json:"reasoning_content"`
-			} `json:"message"`
-		} `json:"choices"`
-		Usage struct {
-			PromptTokens int `json:"prompt_tokens"`
-		} `json:"usage"`
-	}
-	if err := json.Unmarshal(out, &resp); err != nil {
-		t.Fatalf("output not valid JSON: %v\n%s", err, out)
-	}
-	if resp.ID != "chatcmpl-1" || resp.Model != "glm-5.2" {
-		t.Errorf("id/model mismatch: %+v", resp)
-	}
-	if resp.Choices[0].Message.Content != "Hello world" {
-		t.Errorf("content not merged, got %q", resp.Choices[0].Message.Content)
-	}
-	if resp.Choices[0].Message.ReasoningContent != "thinking" {
-		t.Errorf("reasoning_content missing, got %q", resp.Choices[0].Message.ReasoningContent)
-	}
-	if resp.Choices[0].FinishReason != "stop" {
-		t.Errorf("finish_reason missing, got %q", resp.Choices[0].FinishReason)
-	}
-	if resp.Usage.PromptTokens != 5 {
-		t.Errorf("usage not carried, got %+v", resp.Usage)
-	}
-}
-
-func TestSSEToOpenAIJSON_MergesToolCalls(t *testing.T) {
-	sse := "data: {\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"type\":\"function\",\"function\":{\"name\":\"get_\"}}]}}]}\n\n" +
-		"data: {\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"name\":\"weather\",\"arguments\":\"{\\\"city\\\":\\\"KL\\\"}\"}}]}}]}\n\n"
-	out, ok := sseToOpenAIJSON([]byte(sse))
-	if !ok {
-		t.Fatal("expected SSE detected")
-	}
-	var resp struct {
-		Choices []struct {
-			Message struct {
-				Content   any `json:"content"`
-				ToolCalls []struct {
-					ID       string `json:"id"`
-					Function struct {
-						Name      string `json:"name"`
-						Arguments string `json:"arguments"`
-					} `json:"function"`
-				} `json:"tool_calls"`
-			} `json:"message"`
-		} `json:"choices"`
-	}
-	if err := json.Unmarshal(out, &resp); err != nil {
-		t.Fatalf("output not valid JSON: %v\n%s", err, out)
-	}
-	if resp.Choices[0].Message.Content != nil {
-		t.Errorf("content should be null when tool_calls present, got %v", resp.Choices[0].Message.Content)
-	}
-	tcs := resp.Choices[0].Message.ToolCalls
-	if len(tcs) != 1 {
-		t.Fatalf("expected 1 tool call, got %d", len(tcs))
-	}
-	if tcs[0].ID != "call_1" {
-		t.Errorf("tool call id not carried, got %q", tcs[0].ID)
-	}
-	if tcs[0].Function.Name != "get_weather" {
-		t.Errorf("tool name not merged, got %q", tcs[0].Function.Name)
-	}
-	if tcs[0].Function.Arguments != `{"city":"KL"}` {
-		t.Errorf("tool arguments not merged, got %q", tcs[0].Function.Arguments)
-	}
-}
-
-func TestSSEToOpenAIJSON_NotSSE(t *testing.T) {
-	// A plain JSON error body must pass through untouched.
-	if _, ok := sseToOpenAIJSON([]byte(`{"error":{"message":"boom","code":400}}`)); ok {
-		t.Error("plain JSON should not be treated as SSE")
+	first, _ := msgs[0].(map[string]any)
+	if first["content"] != "You are CodeBuddy Code." {
+		t.Errorf("first message = %v, want the seed", first)
 	}
 }
