@@ -598,6 +598,9 @@ func parseNodePrefix(rawData string) string {
 // so the two cannot disagree about a model's alias.
 func (h *ChatHandler) nodePrefixByID() map[string]string {
 	out := map[string]string{}
+	if h.Repo == nil {
+		return out
+	}
 	nodes, err := h.Repo.GetAllProviderNodes()
 	if err != nil {
 		return out
@@ -627,6 +630,9 @@ func (h *ChatHandler) aliveAliases() map[string]bool {
 	}
 	for k := range providers.ProviderAliasMap {
 		alive[k] = true
+	}
+	if h.Repo == nil {
+		return alive
 	}
 	if nodes, err := h.Repo.GetAllProviderNodes(); err == nil {
 		for _, n := range nodes {
