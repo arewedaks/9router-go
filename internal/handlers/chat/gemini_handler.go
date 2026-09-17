@@ -46,7 +46,14 @@ func (h *ChatHandler) forwardGeminiNativeRequest(
 	var projectID string
 	refreshedKey, pid, err := h.refreshOAuthTokenIfExpired(connectionID, apiKey)
 	if err != nil {
+		// A failed refresh must not discard what we already know: the caller
+		// still has a usable token, and projectID was read from the connection
+		// row before the refresh was attempted. Dropping it here turned every
+		// refresh failure into "no project ID", which is a different bug.
 		log.Warn("gemini", "token refresh error", "conn", connectionID, "error", err)
+		if pid != "" {
+			projectID = pid
+		}
 	} else {
 		apiKey = refreshedKey
 		projectID = pid
