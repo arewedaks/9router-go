@@ -481,6 +481,57 @@ ported from VansRouter (`src/lib/auth/*`, `src/app/api/auth/*`):
     silently read or clear the other's fields. Settings now uses `set-cur-pw` /
     `set-new-pw` / `set-confirm-pw`, and `TestUIHasNoDuplicateIDs` fails on any
     repeated id in the served markup.
+- **Settings has a Backup & Restore section**, ported from VansRouter's Profile
+  page (`src/app/api/settings/database/route.js` + `exportDb`/`importDb` in
+  `src/lib/db/index.js`). Two things about the reference are load-bearing and
+  kept: a restore **replaces** rather than merges, and both directions re-check
+  the dashboard password instead of trusting the session alone.
+  - `GET /api/dashboard/database` returns the whole database as one JSON file
+    (`Content-Disposition: attachment`, `Cache-Control: no-store`). The password
+    travels in an `x-9r-password` header; the UI saves the reply through a Blob
+    so the password never reaches the URL bar, history, or an access log.
+  - `POST /api/dashboard/database` restores from that file. `POST
+    /api/dashboard/database/inspect` describes a file without applying it.
+    `internal/dbbackup` does the work: rows are read and written as **maps**, not
+    typed structs, because each table keeps its variable parts in a JSON `data`
+    column whose keys grow as providers are added — a struct would silently drop
+    every field it did not know about, which is the one thing a backup must
+    never do.
+  - Import is **one transaction**. A failure part-way leaves the previous
+    configuration untouched. `TestImportUsesASingleTransaction` holds a
+    competing write lock and fails if an import reports success while it is
+    held, which is what a table-by-table commit would do.
+  - The wipe is **scoped**: settings, connections, nodes, proxy pools, keys,
+    combos and the two kv scopes are replaced, but `usageHistory`,
+    `requestDetails` and `cachedProviderModels` are preserved. They are derived
+    or historical data that no backup carries, and clearing them would destroy
+    real records for nothing.
+  - Deleting is skipped for tables that are absent, and the optional columns
+    (`apiKeys.allowedProviders`/`allowedCombos`/`allowedKinds`,
+    `combos.context_length`) are read and bound only when the file has them. A
+    clean install does **not** create `proxyPools`/`proxyPoolFitness`, so an
+    export that assumed they exist would fail with a 500 there.
+  - `settings.password` is carried deliberately: a restore is meant to bring the
+    credentials of the machine that produced the file. The hash is checked with
+    `bcrypt.Cost` **before** anything is written, because restoring an unusable
+    hash succeeds and then locks the operator out with no way back in short of
+    editing the database by hand. A hash is *not* accepted as the dashboard
+    password itself, so a backup file alone cannot open the dashboard
+    (`TestBackupHashIsNotAUsablePassword`).
+  - The session secret lives in `dataDir`, not the database
+    (`LoadSessionSecret`), so a restore does not invalidate existing sessions and
+    a backup can never be used to forge one.
+  - Restoring surfaced a genuine mismatch: `EnsureSchema` had drifted from the
+    schema production actually runs — it omitted `apiKeys`' three scoped columns,
+    `combos.context_length`, and both proxy tables, and defined
+    `cachedProviderModels` with `payload`/`cachedAt` instead of the
+    `kind`/`ownedBy`/`capabilities`/`updatedAt` the code queries. A fresh install
+    therefore could not store a scoped key, a combo context length, or a proxy
+    pool, while a database migrated by the Next.js dashboard had them all.
+    `EnsureSchema` now matches production column for column, `dbtest` delegates
+    to it rather than keeping a second copy, and
+    `TestSchemaStatementsCoverEveryUsedTable` fails if the schema stops covering
+    a table or column the code names.
 - The model cache (`cachedProviderModels`) is keyed by **short alias** (`ag`),
   not the canonical provider ID (`antigravity`). `ResolveModelCacheKey` writes
   new models under whichever key already holds data, otherwise the router never

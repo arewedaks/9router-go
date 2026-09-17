@@ -582,6 +582,55 @@
       </div>
     </div>
 
+    <!-- BACKUP -->
+    <h3 class="settings-group-title">💾 Backup & Restore</h3>
+    <p style="font-size: 0.85rem; color: var(--muted); margin: -6px 0 14px;">
+      Download a copy of this router's whole configuration — connections, keys,
+      combos and settings — or restore one you saved earlier.
+    </p>
+
+    <div class="grid">
+      <div class="card">
+        <h3 style="margin:0 0 4px; font-size:1rem; color:#fff;">Download Backup</h3>
+        <p style="font-size:0.85rem; color:var(--muted); margin-bottom:12px;">
+          Saves a single JSON file containing every connection, API key, combo and
+          setting.
+        </p>
+        <div class="settings-warn">
+          ⚠️ The file contains your provider tokens and password hash in plain text,
+          so it can be used to sign in. Keep it somewhere private.
+        </div>
+        <div class="form-group">
+          <label>Confirm your password</label>
+          <input type="password" id="backup-pw" autocomplete="current-password" placeholder="Dashboard password">
+        </div>
+        <div id="backup-msg" class="settings-msg"></div>
+        <button class="btn btn-primary" id="backup-btn" onclick="downloadBackup()" style="width:100%; justify-content:center;">⬇️ Download Backup</button>
+      </div>
+
+      <div class="card" style="border-left:3px solid var(--danger);">
+        <h3 style="margin:0 0 4px; font-size:1rem; color:#fff;">Restore From Backup</h3>
+        <p style="font-size:0.85rem; color:var(--muted); margin-bottom:12px;">
+          Replaces everything listed above with the contents of the file.
+        </p>
+        <div class="settings-warn">
+          ⚠️ This is a full replace, not a merge. Connections, API keys, combos and
+          settings that are not in the file will be deleted. Usage history is kept.
+        </div>
+        <div class="form-group">
+          <label>Backup file (.json)</label>
+          <input type="file" id="restore-file" accept="application/json,.json" onchange="onRestoreFileChosen()">
+        </div>
+        <div class="form-group">
+          <label>Confirm your password</label>
+          <input type="password" id="restore-pw" autocomplete="current-password" placeholder="Dashboard password">
+        </div>
+        <div id="restore-preview"></div>
+        <div id="restore-msg" class="settings-msg"></div>
+        <button class="btn" id="restore-btn" onclick="restoreBackup()" style="width:100%; justify-content:center; border-color:var(--danger); color:var(--danger);">⬆️ Restore &amp; Replace</button>
+      </div>
+    </div>
+
     <!-- TOKEN OPTIMIZATION -->
     <h3 class="settings-group-title">⚡ Token Optimization</h3>
     <p style="font-size: 0.85rem; color: var(--muted); margin: -6px 0 14px;">Intelligent token reduction pipeline saving 60-90% bandwidth</p>
@@ -1090,6 +1139,156 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
       setTimeout(() => signOut(), 900);
     } catch (e) {
       setMsg("pw-reset-msg", "Network error: " + e.message, false);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  // ----------------------------------------------------------------
+  // Backup & restore (Settings)
+  // ----------------------------------------------------------------
+
+  // Both directions re-check the password server-side, so the value here is a
+  // confirmation, not the real guard. It is read fresh at click time rather
+  // than cached, so a password change does not leave a stale copy in memory.
+  function backupPassword(fieldId) {
+    return (document.getElementById(fieldId) || {}).value || "";
+  }
+
+  async function downloadBackup() {
+    const pw = backupPassword("backup-pw");
+    if (!pw) return setMsg("backup-msg", "Enter your password to confirm.", false);
+
+    const btn = document.getElementById("backup-btn");
+    btn.disabled = true;
+    try {
+      const res = await fetch("/api/dashboard/database", {
+        headers: { "x-9r-password": pw },
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        const m = res.status === 401 ? "That password is not correct." : errorMessage(data, res.status);
+        return setMsg("backup-msg", m, false);
+      }
+
+      // Save via a blob rather than navigating to the URL: a plain link would
+      // have to carry the password in the query string, where it would end up
+      // in history and logs.
+      const blob = await res.blob();
+      const name = filenameFromResponse(res) || "9router-backup.json";
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      // Give the browser a moment to start the download before dropping the blob.
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+
+      document.getElementById("backup-pw").value = "";
+      setMsg("backup-msg", "✅ Backup downloaded.", true);
+    } catch (e) {
+      setMsg("backup-msg", "Network error: " + e.message, false);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  // filenameFromResponse reads the name the server chose, so the UI does not
+  // invent its own and drift from what the API produces.
+  function filenameFromResponse(res) {
+    const cd = res.headers.get("Content-Disposition") || "";
+    const m = /filename="?([^";]+)"?/.exec(cd);
+    return m ? m[1] : "";
+  }
+
+  // onRestoreFileChosen shows what the file holds before anything is replaced.
+  // Overwriting a whole configuration is worth one clear look first.
+  async function onRestoreFileChosen() {
+    const input = document.getElementById("restore-file");
+    const preview = document.getElementById("restore-preview");
+    preview.textContent = "";
+    const file = input.files && input.files[0];
+    if (!file) return;
+
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      // A backup whose stored password is not a usable hash would restore fine
+      // and then lock the operator out, so flag it here rather than let them
+      // replace a working configuration with a dead one.
+      const pwHash = data.settings && data.settings.password;
+      if (pwHash && !/^\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}$/.test(pwHash)) {
+        preview.innerHTML = '<div style="font-size:0.8rem; color:var(--danger); margin-bottom:10px; padding:10px; background:rgba(255,0,0,0.06); border-radius:8px;">' +
+          "This file's stored password is not a valid hash. Restoring it would lock you out of the dashboard, so the server will refuse it." +
+          "</div>";
+        return;
+      }
+      // Count locally: the file has already been read, so this needs no round
+      // trip and works even when the password field is still empty.
+      const counts = {
+        connections: (data.providerConnections || []).length,
+        keys: (data.apiKeys || []).length,
+        combos: (data.combos || []).length,
+        nodes: (data.providerNodes || []).length,
+        pools: (data.proxyPools || []).length,
+      };
+      const when = data.exportedAt ? new Date(data.exportedAt).toLocaleString() : "unknown time";
+      preview.innerHTML =
+        '<div style="font-size:0.8rem; color:var(--muted); margin-bottom:10px; padding:10px; background:rgba(255,255,255,0.03); border-radius:8px;">' +
+        "<div style=\"color:#fff; margin-bottom:6px;\">" + escapeHtml(file.name) + "</div>" +
+        "Taken " + escapeHtml(when) + "<br>" +
+        counts.connections + " connections · " + counts.keys + " keys · " + counts.combos + " combos · " +
+        counts.nodes + " nodes · " + counts.pools + " proxy pools" +
+        "</div>";
+    } catch (e) {
+      preview.innerHTML = '<div style="font-size:0.8rem; color:var(--danger); margin-bottom:10px;">Not a valid backup file: ' + escapeHtml(e.message) + "</div>";
+    }
+  }
+
+  async function restoreBackup() {
+    const input = document.getElementById("restore-file");
+    const pw = backupPassword("restore-pw");
+    const file = input.files && input.files[0];
+    if (!file) return setMsg("restore-msg", "Choose a backup file first.", false);
+    if (!pw) return setMsg("restore-msg", "Enter your password to confirm.", false);
+
+    if (!confirm(
+      "Restore " + file.name + "?\n\n" +
+      "This REPLACES all connections, API keys, combos and settings with the contents of this file. " +
+      "Anything not in the file will be deleted.\n\nThis cannot be undone."
+    )) return;
+
+    const btn = document.getElementById("restore-btn");
+    btn.disabled = true;
+    try {
+      const text = await file.text();
+      let payload;
+      try {
+        payload = JSON.parse(text);
+      } catch (e) {
+        return setMsg("restore-msg", "That file is not valid JSON.", false);
+      }
+      payload.password = pw;
+
+      const res = await fetch("/api/dashboard/database", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const m = res.status === 401 ? "That password is not correct." : errorMessage(data, res.status);
+        return setMsg("restore-msg", m, false);
+      }
+
+      setMsg("restore-msg", "✅ Restored. Reloading…", true);
+      // Everything on screen now describes the old configuration, so reload
+      // rather than trying to patch each view in place.
+      setTimeout(() => location.reload(), 900);
+    } catch (e) {
+      setMsg("restore-msg", "Network error: " + e.message, false);
     } finally {
       btn.disabled = false;
     }
