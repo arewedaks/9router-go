@@ -101,3 +101,13 @@ func IsGeneratedNodeID(providerID string) bool {
 	}
 	return true
 }
+
+// IsClaudeCodeNodeID reports whether a generated node id identifies a Claude Code
+// compatible endpoint. Older nodes encode the variant in the id itself; newer
+// ones record it in the data blob as compatMode, so a caller that has the blob
+// should prefer that and use this only as a fallback.
+func IsClaudeCodeNodeID(providerID string) bool {
+	key := strings.TrimSpace(providerID)
+	return strings.HasPrefix(key, ClaudeCodeCompatibleNode) ||
+		strings.HasPrefix(key, "claude-code-compatible-")
+}

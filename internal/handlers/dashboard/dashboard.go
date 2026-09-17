@@ -124,6 +124,12 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 		// Stats & Overview
 		dr.Get("/stats", h.HandleStats)
 		dr.Get("/providers/catalog", h.HandleCatalog)
+		// Compatible endpoints (OpenAI/Anthropic) are created as provider nodes,
+		// not connections, so they get their own create + pre-save probe routes.
+		dr.Post("/provider-nodes", h.HandleCreateProviderNode)
+		dr.Post("/provider-nodes/validate", h.HandleValidateProviderNode)
+		dr.Patch("/provider-nodes/{id}", h.HandleUpdateProviderNode)
+		dr.Delete("/provider-nodes/{id}", h.HandleDeleteProviderNode)
 
 		// Providers
 		dr.Get("/providers", h.HandleListProviders)
@@ -474,6 +480,57 @@ func nodePrefixOf(node *models.ProviderNode) string {
 	return strings.TrimSpace(raw.Prefix)
 }
 
+// buildProviderNodeInfo assembles the read-only endpoint view the compatible-node
+// card renders. It reuses the node accessor so it sees the same fields the
+// executor does; a missing/partial blob degrades to empty strings rather than an
+// error, because an older node may predate any given field.
+func buildProviderNodeInfo(h *Handler, node *models.ProviderNode) *ProviderNodeInfo {
+	if node == nil {
+		return nil
+	}
+	info := &ProviderNodeInfo{ID: node.ID}
+	if node.Name != nil {
+		info.Name = strings.TrimSpace(*node.Name)
+	}
+
+	var blob struct {
+		Prefix     string `json:"prefix"`
+		APIType    string `json:"apiType"`
+		BaseURL    string `json:"baseUrl"`
+		NodeName   string `json:"nodeName"`
+		ChatPath   string `json:"chatPath"`
+		ModelsPath string `json:"modelsPath"`
+		IconURL    string `json:"iconUrl"`
+		CompatMode string `json:"compatMode"`
+	}
+	if node.Data != "" {
+		_ = json.Unmarshal([]byte(node.Data), &blob)
+	}
+	info.Prefix = strings.TrimSpace(blob.Prefix)
+	info.APIType = strings.TrimSpace(blob.APIType)
+	info.BaseURL = strings.TrimSpace(blob.BaseURL)
+	info.ChatPath = strings.TrimSpace(blob.ChatPath)
+	info.ModelsPath = strings.TrimSpace(blob.ModelsPath)
+	info.IconURL = strings.TrimSpace(blob.IconURL)
+	info.CompatMode = strings.TrimSpace(blob.CompatMode)
+	if info.CompatMode == "" && providers.IsClaudeCodeNodeID(node.ID) {
+		info.CompatMode = providers.CompatModeCC
+	}
+	if info.Name == "" {
+		info.Name = strings.TrimSpace(blob.NodeName)
+	}
+
+	// The protocol in words: an Anthropic node speaks the Messages API whichever
+	// api type is recorded, and the Claude Code variant is still Anthropic.
+	nodeType := providers.NodeTypeOpenAICompatible
+	if strings.HasPrefix(node.ID, providers.AnthropicCompatiblePrefix) {
+		nodeType = providers.NodeTypeAnthropicCompatible
+	}
+	info.APILabel = providers.APITypeLabel(nodeType, info.APIType)
+	info.APIPath = providers.APIPath(nodeType, info.CompatMode, info.APIType, info.ChatPath)
+	return info
+}
+
 // HandleCatalog returns known providers structured by category.
 func (h *Handler) HandleCatalog(w http.ResponseWriter, r *http.Request) {
 	catalog := providers.GetCatalogByCategory()
@@ -504,6 +561,31 @@ type ProviderDetail struct {
 	Models        []db.CachedModel  `json:"models"`
 	ActiveCount   int               `json:"activeCount"`
 	TotalCount    int               `json:"totalCount"`
+
+	// Node carries the endpoint details of a compatible provider (the upstream
+	// "CompatibleNodeCard"). It is nil for a built-in provider. The UI shows
+	// these so an operator can see — and verify — the URL a node actually
+	// points at, which is otherwise invisible after creation.
+	Node *ProviderNodeInfo `json:"node,omitempty"`
+}
+
+// ProviderNodeInfo is the read-only view of a compatible node, mirroring the
+// fields upstream renders on its CompatibleNodeCard.
+type ProviderNodeInfo struct {
+	ID         string `json:"id"`
+	Name       string `json:"name,omitempty"`
+	Prefix     string `json:"prefix,omitempty"`
+	BaseURL    string `json:"baseUrl,omitempty"`
+	APIType    string `json:"apiType,omitempty"`
+	ChatPath   string `json:"chatPath,omitempty"`
+	ModelsPath string `json:"modelsPath,omitempty"`
+	IconURL    string `json:"iconUrl,omitempty"`
+	CompatMode string `json:"compatMode,omitempty"`
+	// APILabel is the protocol in words ("Messages API", "Chat Completions",
+	// ...) and APIPath the endpoint path with its leading slash removed, so the
+	// UI can render "<baseUrl>/<apiPath>" verbatim.
+	APILabel string `json:"apiLabel,omitempty"`
+	APIPath  string `json:"apiPath,omitempty"`
 }
 
 // HandleProviderDetail returns capabilities, connections and cached models for
@@ -588,6 +670,13 @@ func (h *Handler) HandleProviderDetail(w http.ResponseWriter, r *http.Request) {
 				break
 			}
 		}
+	}
+
+	// Compatible endpoints get the upstream "CompatibleNodeCard": the endpoint the
+	// node actually calls, plus its own Add/Edit/Delete actions. A built-in
+	// provider has no node, so this stays nil and the UI renders as before.
+	if node, ok := nodeMap[targetID]; ok {
+		detail.Node = buildProviderNodeInfo(h, node)
 	}
 
 	for _, c := range all {

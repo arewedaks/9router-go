@@ -318,7 +318,54 @@ func (r *Repo) CreateProviderNode(n *models.ProviderNode) error {
 	return err
 }
 
-// UpsertCombo creates or updates a combo.
+// UpdateProviderNode rewrites a node's name and data blob, bumping updatedAt.
+// The id and type are immutable: the id is the routing key connections reference
+// and the type is baked into the id, so changing either would orphan the node.
+func (r *Repo) UpdateProviderNode(id, name, data string) error {
+	_, err := r.db.Exec(
+		`UPDATE providerNodes SET name = ?, data = ?, updatedAt = ? WHERE id = ?`,
+		name, data, time.Now().UTC().Format(time.RFC3339), id,
+	)
+	return err
+}
+
+// DeleteProviderNode removes a node. It reports whether a row was actually
+// deleted so the caller can answer 404 instead of a misleading 200.
+func (r *Repo) DeleteProviderNode(id string) (bool, error) {
+	res, err := r.db.Exec(`DELETE FROM providerNodes WHERE id = ?`, id)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return n > 0, nil
+}
+
+// CountProviderNodeConnections returns how many connections point at a node.
+// Deleting a node that still has connections would leave them unreachable, so
+// the delete handler refuses unless the caller explicitly cascades.
+func (r *Repo) CountProviderNodeConnections(id string) (int, error) {
+	var n int
+	err := r.db.QueryRow(
+		`SELECT COUNT(*) FROM providerConnections WHERE provider = ?`, id,
+	).Scan(&n)
+	return n, err
+}
+
+// DeleteConnectionsForProvider removes every connection of a provider.
+func (r *Repo) DeleteConnectionsForProvider(provider string) (int, error) {
+	res, err := r.db.Exec(`DELETE FROM providerConnections WHERE provider = ?`, provider)
+	if err != nil {
+		return 0, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	return int(n), nil
+}
 func (r *Repo) UpsertCombo(c *models.Combo) error {
 	now := time.Now().UTC().Format(time.RFC3339)
 	if c.CreatedAt == "" {
