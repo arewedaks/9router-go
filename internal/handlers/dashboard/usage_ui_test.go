@@ -156,9 +156,10 @@ func TestUsageChartTogglesAndBareArrayConsumption(t *testing.T) {
 	if !strings.Contains(ui, `data-vmode="costs"`) {
 		t.Error("the table view-mode toggle lost its Costs button")
 	}
-	// The chart endpoint returns a bare array; the UI must iterate it directly.
-	if !strings.Contains(ui, `usageState.chart = await chartRes.json();`) {
-		t.Error("the chart response is not stored as a bare array")
+	// The chart endpoint returns a bare array; the UI must iterate it directly
+	// rather than reaching for an object wrapper like { points: [...] }.
+	if !strings.Contains(ui, "nextChart = await chartRes.json();") {
+		t.Error("the chart response is no longer read as a bare array")
 	}
 	if strings.Contains(ui, "chartRes.json()).points") {
 		t.Error("the chart response is being read as an object wrapper")
@@ -327,5 +328,138 @@ func TestUsageTopologyModes(t *testing.T) {
 	// the only connection filtered out is one the operator switched off.
 	if !strings.Contains(ui, "if (!p.noConnection && p.isActive === false) return;") {
 		t.Error("the graph no longer admits keyless providers, or no longer skips inactive connections")
+	}
+}
+
+// The Usage page used to load once per visit, so a new request was invisible
+// until a manual browser refresh. It now polls itself, and these tests pin the
+// parts of that contract that are easy to break by accident.
+func TestUsageAutoRefresh(t *testing.T) {
+	ui := readEmbeddedUI(t)
+
+	checks := []struct {
+		what string
+		need string
+	}{
+		{"poll interval constant", "const USAGE_REFRESH_MS = 5000;"},
+		{"single timer owner", "let usageRefreshTimer = null;"},
+		{"poll entry point", "async function refreshUsage(force)"},
+		{"timer start", "function startUsageRefresh()"},
+		{"timer stop", "function stopUsageRefresh()"},
+		{"interval is actually scheduled", "usageRefreshTimer = setInterval(() => { refreshUsage(false); }, USAGE_REFRESH_MS);"},
+		{"timer is actually cleared", "clearInterval(usageRefreshTimer);"},
+		{"live indicator rendered", "function renderUsageUpdated()"},
+		{"live indicator element", `id="usage-updated"`},
+	}
+	for _, c := range checks {
+		if !strings.Contains(ui, c.need) {
+			t.Errorf("%s: expected to find %q", c.what, c.need)
+		}
+	}
+}
+
+// Polling must pause in exactly the situations where refreshing would be
+// wasteful or actively hostile, and it must resume when they end.
+func TestUsageAutoRefreshPauses(t *testing.T) {
+	ui := readEmbeddedUI(t)
+
+	// A hidden document, an inactive tab, an open drawer and a focused filter
+	// input all defer the poll rather than dropping it.
+	if !strings.Contains(ui, "function usageRefreshPaused()") {
+		t.Fatal("usageRefreshPaused is missing")
+	}
+	for _, guard := range []string{
+		"if (document.hidden) return true;",
+		"if (!usageTabVisible()) return true;",
+		"if (usageState.interactionLock) return true;",
+		`drawer.classList.contains("open")`,
+	} {
+		if !strings.Contains(ui, guard) {
+			t.Errorf("the poll no longer pauses on: %s", guard)
+		}
+	}
+
+	// Returning to the tab or the window refreshes immediately instead of
+	// waiting out the interval.
+	if !strings.Contains(ui, `document.addEventListener("visibilitychange"`) {
+		t.Error("returning to the tab does not refresh immediately")
+	}
+	// The re-entrancy guard must sit at the top of refreshUsage, before any
+	// await, so a slow response cannot stack a second request on top of it.
+	if !strings.Contains(ui, "function refreshUsage(force) {\n    if (usageState.refreshing) return;") {
+		t.Error("overlapping refreshes are no longer prevented")
+	}
+	if !strings.Contains(ui, "usageState.refreshing = true;") ||
+		!strings.Contains(ui, "usageState.refreshing = false;") {
+		t.Error("the in-flight flag is never set or never cleared")
+	}
+
+	// Leaving the tab must stop the timer: a background timer would keep
+	// hitting the database for a page nobody is looking at.
+	if !strings.Contains(ui, "if (tabId === \"usage\") loadUsage();\n    else stopUsageRefresh();") {
+		t.Error("the poll keeps running after leaving the Usage tab")
+	}
+	if !strings.Contains(ui, "location.reload()") {
+		t.Error("sign-out no longer tears the page down, which would leak the timer")
+	}
+}
+
+// A failing background poll must not blank out data the operator is reading,
+// and a successful one must not flash a loading placeholder over it.
+func TestUsageAutoRefreshDoesNotClobber(t *testing.T) {
+	ui := readEmbeddedUI(t)
+
+	if !strings.Contains(ui, "const hadStats = !!usageState.stats;") {
+		t.Error("loadUsageOverview no longer remembers whether it had data to keep")
+	}
+	if !strings.Contains(ui, "if (hadStats) return;") {
+		t.Error("a failed poll can still wipe the last good snapshot")
+	}
+	// The first load still reports failure; only a poll with data on screen is
+	// allowed to swallow it.
+	if !strings.Contains(ui, "Failed to load usage statistics.") {
+		t.Error("the first-load failure state is gone")
+	}
+	if !strings.Contains(ui, "async function loadUsageDetails(silent)") {
+		t.Error("loadUsageDetails no longer supports a silent background refresh")
+	}
+	if !strings.Contains(ui, "if (!silent) body.innerHTML =") {
+		t.Error("the details table flashes a loading row on every poll")
+	}
+	if !strings.Contains(ui, "if (silent) return;") {
+		t.Error("a failed silent poll can still blank the details table")
+	}
+}
+
+// Opening the request drawer holds the poll, closing it resumes.
+func TestUsageDrawerHoldsRefresh(t *testing.T) {
+	ui := readEmbeddedUI(t)
+
+	if !strings.Contains(ui, `usageState.interactionLock = "drawer";`) {
+		t.Error("opening the drawer does not hold the auto-refresh")
+	}
+	if !strings.Contains(ui, `if (usageState.interactionLock === "drawer") usageState.interactionLock = null;`) {
+		t.Error("closing the drawer does not release the auto-refresh")
+	}
+	if !strings.Contains(ui, "refreshUsage(true);\n  }") {
+		t.Error("closing the drawer does not refresh immediately")
+	}
+}
+
+// The indicator must be populated from the first render, on both sub-tabs. It
+// used to be written only by refreshUsage, so it stayed blank until the first
+// poll five seconds in — which reads as "this page is not live".
+func TestUsageUpdatedIndicatorSetOnFirstLoad(t *testing.T) {
+	ui := readEmbeddedUI(t)
+
+	// Both loaders stamp the time and repaint the label themselves.
+	if n := strings.Count(ui, "usageState.lastUpdated = Date.now();\n    renderUsageUpdated();"); n < 2 {
+		t.Errorf("both loaders must stamp the fetch time; found %d", n)
+	}
+	if !strings.Contains(ui, "if (!usageState.lastUpdated) { el.textContent = \"\"; return; }") {
+		t.Error("the indicator no longer handles the pre-first-load state")
+	}
+	if !strings.Contains(ui, `el.classList.toggle("stale", secs >= 30);`) {
+		t.Error("the indicator no longer warns when the data has gone stale")
 	}
 }
