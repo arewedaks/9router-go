@@ -412,8 +412,15 @@ func TestImportIsAtomic(t *testing.T) {
 	db := newTestDB(t)
 	seed(t, db)
 
-	// Second row has a NULL name where the schema allows it, but a duplicate
-	// primary key after a valid first row is a clean way to fail mid-transaction.
+	// The failure has to be one the importer cannot repair. combos.models is
+	// NOT NULL with no default, so a row without it violates the constraint on
+	// insert. It deliberately is not a duplicate key: every insert is
+	// INSERT OR REPLACE, so a duplicate within one batch would simply overwrite
+	// rather than fail.
+	//
+	// This used to rely on a nil data column on providerNodes. A missing data
+	// value is now defaulted to an empty object instead of aborting the restore,
+	// which is the more useful behaviour, so the trigger had to move.
 	bad := &Document{
 		FormatVersion: FormatVersion,
 		Settings:      map[string]any{"rtkEnabled": false},
@@ -421,11 +428,10 @@ func TestImportIsAtomic(t *testing.T) {
 			{"id": "n1", "provider": "antigravity", "authType": "oauth", "name": "ok",
 				"isActive": true, "data": map[string]any{"a": 1},
 				"createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-01T00:00:00Z"},
-			// providerNodes has a NOT NULL data column; a nil forces the insert to fail.
-			{"id": "n2", "provider": "antigravity", "authType": "oauth", "name": "bad",
-				"createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-01T00:00:00Z"},
 		},
-		ProviderNodes: []map[string]any{{"id": "x", "data": nil, "createdAt": "z", "updatedAt": "z"}},
+		Combos: []map[string]any{
+			{"id": "c-bad", "name": "broken", "models": nil, "createdAt": "z", "updatedAt": "z"},
+		},
 	}
 
 	err := Import(db, bad)
@@ -624,4 +630,239 @@ func validBcryptHash(t *testing.T) string {
 		t.Fatalf("bcrypt: %v", err)
 	}
 	return string(b)
+}
+
+// TestDocumentAcceptsObjectShapedKvScopes: VansRouter writes modelAliases and
+// customModels as objects keyed by alias ({} when empty), this build writes them
+// as lists of {key, value}. A list-only struct rejects an otherwise perfectly
+// usable reference backup before it reads a single connection, which is what
+// happened the first time a real VansRouter file was restored here.
+func TestDocumentAcceptsObjectShapedKvScopes(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		keys []string
+	}{
+		{
+			name: "empty object as the reference exports it",
+			body: `{"formatVersion":1,"modelAliases":{},"customModels":{}}`,
+			keys: nil,
+		},
+		{
+			name: "object with entries",
+			body: `{"formatVersion":1,"modelAliases":{"a":"m1","b":"m2"}}`,
+			keys: []string{"a", "b"},
+		},
+		{
+			name: "our own list form still works",
+			body: `{"formatVersion":1,"modelAliases":[{"key":"a","value":"m1"}]}`,
+			keys: []string{"a"},
+		},
+		{
+			name: "null is treated as absent",
+			body: `{"formatVersion":1,"modelAliases":null}`,
+			keys: nil,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			var doc Document
+			if err := json.Unmarshal([]byte(c.body), &doc); err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
+			if len(doc.ModelAliases) != len(c.keys) {
+				t.Fatalf("modelAliases = %d rows, want %d", len(doc.ModelAliases), len(c.keys))
+			}
+			for i, want := range c.keys {
+				if got := doc.ModelAliases[i]["key"]; got != want {
+					t.Errorf("row %d key = %v, want %q", i, got, want)
+				}
+			}
+		})
+	}
+}
+
+// TestDocumentRejectsScores: a number where rows belong is a real error, not a
+// shape we should quietly coerce into nothing.
+func TestDocumentRejectsScores(t *testing.T) {
+	var doc Document
+	if err := json.Unmarshal([]byte(`{"modelAliases":42}`), &doc); err == nil {
+		t.Fatal("a numeric modelAliases was accepted")
+	}
+}
+
+// TestObjectShapedKvScopeOrdersKeysDeterministically: Go map iteration is
+// random, so without sorting the same file would produce a different payload on
+// every import and every diff would look like a change.
+func TestObjectShapedKvScopeOrdersKeysDeterministically(t *testing.T) {
+	body := `{"modelAliases":{"z":"1","a":"2","m":"3"}}`
+	want := []string{"a", "m", "z"}
+	for i := 0; i < 20; i++ {
+		var doc Document
+		if err := json.Unmarshal([]byte(body), &doc); err != nil {
+			t.Fatal(err)
+		}
+		for j, k := range want {
+			if got := doc.ModelAliases[j]["key"]; got != k {
+				t.Fatalf("run %d: row %d = %v, want %q", i, j, got, k)
+			}
+		}
+	}
+}
+
+// TestImportFoldsFlatReferenceRows: VansRouter keeps a connection's apiKey and
+// its modelLock_<model> flags as flat columns on the row and writes no `data`,
+// while this build keeps them inside a JSON `data` column. Importing a
+// reference file used to abort on the first row with
+// "NOT NULL constraint failed: providerConnections.data", discarding an
+// otherwise usable backup over packaging rather than content.
+func TestImportFoldsFlatReferenceRows(t *testing.T) {
+	db := newTestDB(t)
+
+	doc := &Document{
+		FormatVersion: FormatVersion,
+		Settings:      map[string]any{},
+		ProviderConnections: []map[string]any{
+			{
+				// The reference shape: everything flat, no data object.
+				"id":                     "conn-1",
+				"provider":               "nvidia",
+				"authType":               "apikey",
+				"name":                   "acct",
+				"isActive":               true,
+				"apiKey":                 "nvapi-secret",
+				"testStatus":             "active",
+				"backoffLevel":           float64(2),
+				"modelLock_z-ai/glm-5.2": true,
+			},
+		},
+		ProviderNodes: []map[string]any{
+			{
+				"id":        "node-1",
+				"type":      "openai-compatible",
+				"name":      "BAI",
+				"baseUrl":   "https://api.b.ai/v1",
+				"prefix":    "bai",
+				"apiType":   "chat",
+				"createdAt": "2026-09-02T02:44:03.704Z",
+			},
+		},
+		ProxyPools: []map[string]any{
+			{
+				"id":       "pool-1",
+				"isActive": true,
+				"name":     "relay",
+				"proxyUrl": "https://example.workers.dev",
+				"type":     "cloudflare",
+			},
+		},
+	}
+
+	// customModels goes through JSON because the reference's bare-list form is
+	// only recognised while decoding; building the slice directly would skip the
+	// code path this test exists to cover.
+	if err := json.Unmarshal([]byte(`{
+		"formatVersion": 1,
+		"settings": {},
+		"customModels": [
+			{"providerAlias":"oc","id":"mimo-v2.5-free","type":"llm","name":"mimo-v2.5-free"}
+		]
+	}`), doc); err != nil {
+		t.Fatalf("unmarshal reference customModels: %v", err)
+	}
+
+	if err := Import(db, doc); err != nil {
+		t.Fatalf("Import: %v", err)
+	}
+
+	// The connection's flat fields must have landed inside data.
+	var raw string
+	if err := db.QueryRow(`SELECT data FROM providerConnections WHERE id='conn-1'`).Scan(&raw); err != nil {
+		t.Fatalf("connection not restored: %v", err)
+	}
+	var data map[string]any
+	if err := json.Unmarshal([]byte(raw), &data); err != nil {
+		t.Fatalf("data is not JSON: %v", err)
+	}
+	for _, k := range []string{"apiKey", "testStatus", "backoffLevel", "modelLock_z-ai/glm-5.2"} {
+		if _, ok := data[k]; !ok {
+			t.Errorf("data is missing the folded field %q", k)
+		}
+	}
+	// Identity columns must not be duplicated into data.
+	for _, k := range []string{"id", "provider", "name", "isActive"} {
+		if _, ok := data[k]; ok {
+			t.Errorf("data wrongly contains the column %q", k)
+		}
+	}
+
+	// Node fields.
+	var nodeData string
+	if err := db.QueryRow(`SELECT data FROM providerNodes WHERE id='node-1'`).Scan(&nodeData); err != nil {
+		t.Fatalf("node not restored: %v", err)
+	}
+	var node map[string]any
+	if err := json.Unmarshal([]byte(nodeData), &node); err != nil {
+		t.Fatal(err)
+	}
+	if node["baseUrl"] != "https://api.b.ai/v1" || node["prefix"] != "bai" {
+		t.Errorf("node data = %v", node)
+	}
+
+	// Pool fields.
+	var poolData string
+	if err := db.QueryRow(`SELECT data FROM proxyPools WHERE id='pool-1'`).Scan(&poolData); err != nil {
+		t.Fatalf("pool not restored: %v", err)
+	}
+	var pool map[string]any
+	if err := json.Unmarshal([]byte(poolData), &pool); err != nil {
+		t.Fatal(err)
+	}
+	if pool["name"] != "relay" {
+		t.Errorf("pool data = %v", pool)
+	}
+
+	// The bare custom-model object must have gained our derived key.
+	var key string
+	if err := db.QueryRow(`SELECT key FROM kv WHERE scope='customModels'`).Scan(&key); err != nil {
+		t.Fatalf("custom model not restored: %v", err)
+	}
+	if key != "oc|mimo-v2.5-free|llm" {
+		t.Errorf("custom model key = %q, want %q", key, "oc|mimo-v2.5-free|llm")
+	}
+}
+
+// TestImportLeavesOwnLayoutAlone keeps our own exports faithful: a row that
+// already has a data object must round-trip without being refolded, or a restore
+// would move fields between the row and its payload on every pass.
+func TestImportLeavesOwnLayoutAlone(t *testing.T) {
+	db := newTestDB(t)
+	own := map[string]any{
+		"id":       "conn-own",
+		"provider": "openrouter",
+		"authType": "apikey",
+		"name":     "acct",
+		"data":     map[string]any{"apiKey": "sk-or-secret", "testStatus": "active"},
+	}
+	if err := Import(db, &Document{
+		FormatVersion:       FormatVersion,
+		Settings:            map[string]any{},
+		ProviderConnections: []map[string]any{own},
+	}); err != nil {
+		t.Fatalf("Import: %v", err)
+	}
+	var raw string
+	if err := db.QueryRow(`SELECT data FROM providerConnections WHERE id='conn-own'`).Scan(&raw); err != nil {
+		t.Fatal(err)
+	}
+	var data map[string]any
+	if err := json.Unmarshal([]byte(raw), &data); err != nil {
+		t.Fatal(err)
+	}
+	if data["apiKey"] != "sk-or-secret" {
+		t.Errorf("apiKey = %v", data["apiKey"])
+	}
+	if _, ok := data["id"]; ok {
+		t.Error("id leaked into data on a row that already had one")
+	}
 }
