@@ -3,8 +3,6 @@ package db
 import (
 	"path/filepath"
 	"testing"
-
-	"9router/proxy/internal/dbtest"
 )
 
 // newSettingsRepo opens a temporary database with the canonical schema.
@@ -15,8 +13,8 @@ func newSettingsRepo(t *testing.T) *Repo {
 		t.Fatalf("OpenDatabase: %v", err)
 	}
 	t.Cleanup(func() { database.Close() })
-	if err := dbtest.CreateTables(database); err != nil {
-		t.Fatalf("CreateTables: %v", err)
+	if err := EnsureSchema(database); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
 	}
 	return NewRepo(database)
 }

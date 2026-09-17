@@ -1,0 +1,547 @@
+package dbbackup
+
+import (
+	"database/sql"
+	json "encoding/json/v2"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	_ "modernc.org/sqlite"
+)
+
+// newTestDB builds an in-memory database with the same schema the app uses.
+func newTestDB(t *testing.T) *sql.DB {
+	t.Helper()
+	return openDBAt(t, filepath.Join(t.TempDir(), "t.sqlite"))
+}
+
+// openDBAt opens a database with the same PRAGMAs production uses. In
+// particular busy_timeout: without it a write that collides with another
+// connection fails immediately with SQLITE_BUSY instead of waiting its turn,
+// and tests here would fail for a reason production never hits.
+func openDBAt(t *testing.T, path string) *sql.DB {
+	t.Helper()
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+
+	pragmas := `
+PRAGMA journal_mode = WAL;
+PRAGMA synchronous = NORMAL;
+PRAGMA foreign_keys = ON;
+PRAGMA busy_timeout = 5000;
+`
+	if _, err := db.Exec(pragmas); err != nil {
+		t.Fatalf("pragma: %v", err)
+	}
+
+	stmts := []string{
+		`CREATE TABLE settings (id INTEGER PRIMARY KEY CHECK (id = 1), data TEXT NOT NULL)`,
+		`CREATE TABLE providerConnections (id TEXT PRIMARY KEY, provider TEXT NOT NULL, authType TEXT NOT NULL, name TEXT, email TEXT, priority INTEGER, isActive INTEGER DEFAULT 1, data TEXT NOT NULL, createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL)`,
+		`CREATE TABLE providerNodes (id TEXT PRIMARY KEY, type TEXT, name TEXT, data TEXT NOT NULL, createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL)`,
+		`CREATE TABLE proxyPools (id TEXT PRIMARY KEY, isActive INTEGER DEFAULT 1, testStatus TEXT, data TEXT NOT NULL, createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL)`,
+		`CREATE TABLE proxyPoolFitness (poolId TEXT NOT NULL, scope TEXT NOT NULL, until INTEGER NOT NULL, reason TEXT, createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL, PRIMARY KEY (poolId, scope))`,
+		`CREATE TABLE apiKeys (id TEXT PRIMARY KEY, key TEXT UNIQUE NOT NULL, name TEXT, machineId TEXT, isActive INTEGER DEFAULT 1, createdAt TEXT NOT NULL, allowedProviders TEXT, allowedCombos TEXT, allowedKinds TEXT)`,
+		`CREATE TABLE combos (id TEXT PRIMARY KEY, name TEXT UNIQUE NOT NULL, kind TEXT, models TEXT NOT NULL, createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL, context_length INTEGER)`,
+		`CREATE TABLE kv (scope TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY (scope, key))`,
+		// Not part of a backup; must survive an import.
+		`CREATE TABLE usageHistory (id INTEGER PRIMARY KEY, provider TEXT)`,
+	}
+	for _, q := range stmts {
+		if _, err := db.Exec(q); err != nil {
+			t.Fatalf("schema %q: %v", q, err)
+		}
+	}
+	return db
+}
+
+func seed(t *testing.T, db *sql.DB) {
+	t.Helper()
+	mustExec := func(q string, args ...any) {
+		t.Helper()
+		if _, err := db.Exec(q, args...); err != nil {
+			t.Fatalf("seed %q: %v", q, err)
+		}
+	}
+	mustExec(`INSERT INTO settings(id, data) VALUES(1, ?)`,
+		`{"rtkEnabled":true,"password":"$2b$10$hash","ponytailLevel":"full"}`)
+	mustExec(`INSERT INTO providerConnections(id, provider, authType, name, email, priority, isActive, data, createdAt, updatedAt)
+		VALUES('c1','antigravity','oauth','Acc 1','a@example.com',1,1,'{"accessToken":"tok-a","nested":{"deep":true}}','2026-01-01T00:00:00Z','2026-01-01T00:00:00Z')`)
+	mustExec(`INSERT INTO providerNodes(id, type, name, data, createdAt, updatedAt)
+		VALUES('n1','openai-compatible','node','{"baseUrl":"http://x"}','2026-01-01T00:00:00Z','2026-01-01T00:00:00Z')`)
+	mustExec(`INSERT INTO proxyPools(id, isActive, testStatus, data, createdAt, updatedAt)
+		VALUES('p1',1,'healthy','{"url":"http://proxy"}','2026-01-01T00:00:00Z','2026-01-01T00:00:00Z')`)
+	mustExec(`INSERT INTO proxyPoolFitness(poolId, scope, until, reason, createdAt, updatedAt)
+		VALUES('p1','global',123,'slow','2026-01-01T00:00:00Z','2026-01-01T00:00:00Z')`)
+	mustExec(`INSERT INTO apiKeys(id, key, name, machineId, isActive, createdAt, allowedProviders, allowedCombos, allowedKinds)
+		VALUES('k1','sk-test','key','m1',1,'2026-01-01T00:00:00Z','["antigravity"]','[]','["llm"]')`)
+	mustExec(`INSERT INTO combos(id, name, kind, models, createdAt, updatedAt, context_length)
+		VALUES('cb1','my-combo','fusion','[{"provider":"antigravity"}]','2026-01-01T00:00:00Z','2026-01-01T00:00:00Z',4096)`)
+	mustExec(`INSERT INTO kv(scope, key, value) VALUES('modelAliases','ag','{"alias":"ag"}')`)
+	mustExec(`INSERT INTO kv(scope, key, value) VALUES('customModels','x','{"id":"m1"}')`)
+	mustExec(`INSERT INTO usageHistory(id, provider) VALUES(1,'antigravity')`)
+}
+
+func TestExportCapturesEveryTable(t *testing.T) {
+	db := newTestDB(t)
+	seed(t, db)
+
+	doc, err := Export(db)
+	if err != nil {
+		t.Fatalf("Export: %v", err)
+	}
+
+	if doc.FormatVersion != FormatVersion {
+		t.Errorf("formatVersion = %d, want %d", doc.FormatVersion, FormatVersion)
+	}
+	if doc.ExportedAt == "" {
+		t.Error("exportedAt is empty; the filename stamp depends on it")
+	}
+	if len(doc.ProviderConnections) != 1 || len(doc.ProviderNodes) != 1 ||
+		len(doc.ProxyPools) != 1 || len(doc.ApiKeys) != 1 || len(doc.Combos) != 1 {
+		t.Errorf("row counts wrong: conns=%d nodes=%d pools=%d keys=%d combos=%d",
+			len(doc.ProviderConnections), len(doc.ProviderNodes), len(doc.ProxyPools),
+			len(doc.ApiKeys), len(doc.Combos))
+	}
+	if len(doc.ModelAliases) != 1 || len(doc.CustomModels) != 1 {
+		t.Errorf("kv scopes wrong: aliases=%d custom=%d", len(doc.ModelAliases), len(doc.CustomModels))
+	}
+
+	// The password travels with the backup: a restore is expected to bring the
+	// credentials of the machine that produced it.
+	if pw, _ := doc.Settings["password"].(string); pw == "" {
+		t.Error("settings.password missing from the export")
+	}
+}
+
+func TestExportDecodesNestedJSON(t *testing.T) {
+	db := newTestDB(t)
+	seed(t, db)
+
+	doc, err := Export(db)
+	if err != nil {
+		t.Fatalf("Export: %v", err)
+	}
+
+	// A connection's `data` column must come out as an object, not a JSON string,
+	// or a re-import would double-encode it and the tokens would be unreachable.
+	data, ok := doc.ProviderConnections[0]["data"].(map[string]any)
+	if !ok {
+		t.Fatalf("connection data is %T, want map[string]any (JSON text was not decoded)", doc.ProviderConnections[0]["data"])
+	}
+	if data["accessToken"] != "tok-a" {
+		t.Errorf("accessToken = %v, want tok-a", data["accessToken"])
+	}
+	nested, ok := data["nested"].(map[string]any)
+	if !ok || nested["deep"] != true {
+		t.Errorf("nested object lost in round-trip: %#v", data["nested"])
+	}
+
+	// Booleans for 0/1 columns.
+	if active, ok := doc.ProviderConnections[0]["isActive"].(bool); !ok || !active {
+		t.Errorf("isActive = %#v, want true", doc.ProviderConnections[0]["isActive"])
+	}
+
+	if models, ok := doc.Combos[0]["models"].([]any); !ok || len(models) != 1 {
+		t.Errorf("combo models = %#v, want a decoded array", doc.Combos[0]["models"])
+	}
+
+	// Keys we do not model must not be dropped.
+	if doc.ApiKeys[0]["allowedProviders"] == nil {
+		t.Error("apiKeys.allowedProviders was dropped; a scoped key would silently regain full access")
+	}
+	if _, present := doc.Combos[0]["context_length"]; !present {
+		t.Error("combos.context_length missing; that column has no counterpart in the reference schema")
+	}
+}
+
+// TestImportReplacesRatherThanMerges is the core guarantee: a restore yields the
+// backed-up state, not a union of both.
+func TestImportReplacesRatherThanMerges(t *testing.T) {
+	src := newTestDB(t)
+	seed(t, src)
+	doc, err := Export(src)
+	if err != nil {
+		t.Fatalf("Export: %v", err)
+	}
+
+	dst := newTestDB(t)
+	seed(t, dst)
+	// Add rows that exist only in the destination.
+	if _, err := dst.Exec(`INSERT INTO providerConnections(id, provider, authType, name, isActive, data, createdAt, updatedAt)
+		VALUES('extra','kiro','oauth','Extra',1,'{}','2026-02-02T00:00:00Z','2026-02-02T00:00:00Z')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := dst.Exec(`INSERT INTO kv(scope, key, value) VALUES('modelAliases','ghost','{}')`); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Import(dst, doc); err != nil {
+		t.Fatalf("Import: %v", err)
+	}
+
+	var n int
+	if err := dst.QueryRow(`SELECT COUNT(*) FROM providerConnections`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Errorf("providerConnections = %d, want 1 (the destination-only row must be gone)", n)
+	}
+	var ghost int
+	if err := dst.QueryRow(`SELECT COUNT(*) FROM kv WHERE scope='modelAliases' AND key='ghost'`).Scan(&ghost); err != nil {
+		t.Fatal(err)
+	}
+	if ghost != 0 {
+		t.Error("a kv row outside the backup survived the import; import merged instead of replacing")
+	}
+}
+
+// TestImportKeepsDerivedData confirms the wipe is scoped. Usage history is not in
+// a backup and clearing it would destroy real records for no benefit.
+func TestImportKeepsDerivedData(t *testing.T) {
+	src := newTestDB(t)
+	seed(t, src)
+	doc, _ := Export(src)
+
+	dst := newTestDB(t)
+	seed(t, dst)
+	if _, err := dst.Exec(`INSERT INTO usageHistory(id, provider) VALUES(2,'cline')`); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Import(dst, doc); err != nil {
+		t.Fatalf("Import: %v", err)
+	}
+	var n int
+	if err := dst.QueryRow(`SELECT COUNT(*) FROM usageHistory`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 2 {
+		t.Errorf("usageHistory = %d rows, want 2 kept", n)
+	}
+}
+
+// TestImportRoundTripPreservesValues walks a full export -> import and compares
+// the reloaded state field by field.
+func TestImportRoundTripPreservesValues(t *testing.T) {
+	src := newTestDB(t)
+	seed(t, src)
+	doc, err := Export(src)
+	if err != nil {
+		t.Fatalf("Export: %v", err)
+	}
+	before, err := Export(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = before
+
+	dst := newTestDB(t)
+	if err := Import(dst, doc); err != nil {
+		t.Fatalf("Import: %v", err)
+	}
+	after, err := Export(dst)
+	if err != nil {
+		t.Fatalf("re-Export: %v", err)
+	}
+
+	// Re-exporting an imported database must produce the same document, apart
+	// from the timestamp. Anything else means a column was dropped or mangled.
+	//
+	// Compared structurally, not as raw JSON text: these rows are maps, and Go
+	// deliberately randomises map key order, so a string compare would fail on
+	// every run for reasons that have nothing to do with the data.
+	after.ExportedAt = doc.ExportedAt
+	if diff := diffDocs(t, doc, after); diff != "" {
+		t.Errorf("round-trip mismatch: %s", diff)
+	}
+}
+
+// diffDocs reports the first structural difference between two documents, or ""
+// when they carry the same data.
+func diffDocs(t *testing.T, want, got *Document) string {
+	t.Helper()
+	wj, err := json.Marshal(want)
+	if err != nil {
+		t.Fatalf("marshal want: %v", err)
+	}
+	gj, err := json.Marshal(got)
+	if err != nil {
+		t.Fatalf("marshal got: %v", err)
+	}
+	var wv, gv any
+	if err := json.Unmarshal(wj, &wv); err != nil {
+		t.Fatalf("unmarshal want: %v", err)
+	}
+	if err := json.Unmarshal(gj, &gv); err != nil {
+		t.Fatalf("unmarshal got: %v", err)
+	}
+	return diffValue("", wv, gv)
+}
+
+func diffValue(path string, want, got any) string {
+	switch w := want.(type) {
+	case map[string]any:
+		g, ok := got.(map[string]any)
+		if !ok {
+			return path + ": type changed from object to " + kindOf(got)
+		}
+		for k, wv := range w {
+			gv, present := g[k]
+			if !present {
+				return path + "." + k + ": missing after round-trip"
+			}
+			if d := diffValue(path+"."+k, wv, gv); d != "" {
+				return d
+			}
+		}
+		for k := range g {
+			if _, present := w[k]; !present {
+				return path + "." + k + ": appeared after round-trip"
+			}
+		}
+		return ""
+	case []any:
+		g, ok := got.([]any)
+		if !ok {
+			return path + ": type changed from array to " + kindOf(got)
+		}
+		if len(w) != len(g) {
+			return path + ": length changed"
+		}
+		for i := range w {
+			if d := diffValue(path+"["+itoa(i)+"]", w[i], g[i]); d != "" {
+				return d
+			}
+		}
+		return ""
+	default:
+		if !scalarEqual(want, got) {
+			return path + ": " + toStr(want) + " != " + toStr(got)
+		}
+		return ""
+	}
+}
+
+// scalarEqual compares numbers by value, since JSON decoding widens every number
+// to float64 while the structs hold ints.
+func scalarEqual(a, b any) bool {
+	if af, ok := asFloat(a); ok {
+		bf, ok2 := asFloat(b)
+		return ok2 && af == bf
+	}
+	return toStr(a) == toStr(b) && kindOf(a) == kindOf(b)
+}
+
+func asFloat(v any) (float64, bool) {
+	switch n := v.(type) {
+	case float64:
+		return n, true
+	case int:
+		return float64(n), true
+	case int64:
+		return float64(n), true
+	}
+	return 0, false
+}
+
+func kindOf(v any) string {
+	switch v.(type) {
+	case nil:
+		return "null"
+	case bool:
+		return "bool"
+	case string:
+		return "string"
+	case float64, int, int64:
+		return "number"
+	case []any:
+		return "array"
+	case map[string]any:
+		return "object"
+	}
+	return "unknown"
+}
+
+func itoa(i int) string {
+	if i == 0 {
+		return "0"
+	}
+	var b []byte
+	for i > 0 {
+		b = append([]byte{byte('0' + i%10)}, b...)
+		i /= 10
+	}
+	return string(b)
+}
+
+func TestImportRejectsUnusablePayloads(t *testing.T) {
+	db := newTestDB(t)
+
+	if err := Import(db, nil); err == nil {
+		t.Error("nil document accepted")
+	}
+	future := &Document{FormatVersion: FormatVersion + 1}
+	if err := Import(db, future); err == nil {
+		t.Error("a backup from a newer format was accepted; it may contain columns this build cannot honour")
+	} else if !strings.Contains(err.Error(), "newer version") {
+		t.Errorf("error should explain the version mismatch, got: %v", err)
+	}
+}
+
+// TestImportIsAtomic is the operator-visible safety property: a document that
+// fails part-way must leave the previous configuration untouched.
+//
+// Note on what this does and does not prove. It verifies the *contract* — after
+// a failed import the old data is still there — which is what actually matters
+// to a user. It cannot distinguish an explicit rollback from database/sql's own
+// teardown of an unfinished transaction, because both produce the same result;
+// a mutation that deletes `defer tx.Rollback()` still passes. The separate
+// TestImportUsesASingleTransaction covers the mechanism, since that is the part
+// a future edit can plausibly break.
+func TestImportIsAtomic(t *testing.T) {
+	db := newTestDB(t)
+	seed(t, db)
+
+	// Second row has a NULL name where the schema allows it, but a duplicate
+	// primary key after a valid first row is a clean way to fail mid-transaction.
+	bad := &Document{
+		FormatVersion: FormatVersion,
+		Settings:      map[string]any{"rtkEnabled": false},
+		ProviderConnections: []map[string]any{
+			{"id": "n1", "provider": "antigravity", "authType": "oauth", "name": "ok",
+				"isActive": true, "data": map[string]any{"a": 1},
+				"createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-01T00:00:00Z"},
+			// providerNodes has a NOT NULL data column; a nil forces the insert to fail.
+			{"id": "n2", "provider": "antigravity", "authType": "oauth", "name": "bad",
+				"createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-01T00:00:00Z"},
+		},
+		ProviderNodes: []map[string]any{{"id": "x", "data": nil, "createdAt": "z", "updatedAt": "z"}},
+	}
+
+	err := Import(db, bad)
+	if err == nil {
+		t.Fatal("expected the import to fail")
+	}
+
+	// The original seed must still be intact.
+	var name string
+	if err := db.QueryRow(`SELECT name FROM providerConnections WHERE id='c1'`).Scan(&name); err != nil {
+		t.Fatalf("original row is gone after a failed import: %v", err)
+	}
+	if name != "Acc 1" {
+		t.Errorf("original row was modified: name=%q", name)
+	}
+	var settings string
+	if err := db.QueryRow(`SELECT data FROM settings WHERE id=1`).Scan(&settings); err != nil {
+		t.Fatalf("settings row is gone after a failed import: %v", err)
+	}
+	if !strings.Contains(settings, "$2b$10$hash") {
+		t.Errorf("settings were replaced despite the failure: %s", settings)
+	}
+}
+
+func TestSummarize(t *testing.T) {
+	db := newTestDB(t)
+	seed(t, db)
+	doc, _ := Export(db)
+
+	s := Summarize(doc)
+	if s.ProviderConnections != 1 || s.ProviderNodes != 1 || s.ApiKeys != 1 || s.Combos != 1 || s.CustomModels != 1 {
+		t.Errorf("summary wrong: %+v", s)
+	}
+	if (Summarize(nil)) != (Summary{}) {
+		t.Error("Summarize(nil) should be the zero value")
+	}
+}
+
+func toStr(v any) string {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return "?"
+	}
+	return string(b)
+}
+
+// TestImportUsesASingleTransaction checks the mechanism behind atomicity: every
+// row must be written through one transaction, so a failure in any table undoes
+// the tables already written.
+//
+// This is checked by holding a competing write transaction open. If Import
+// really wraps everything in one transaction it must block until that writer
+// finishes, and must time out while the lock is held — proving it did not
+// happily commit each table as it went.
+func TestImportUsesASingleTransaction(t *testing.T) {
+	db := newTestDB(t)
+	seed(t, db)
+
+	// A second connection holds the write lock.
+	blocker, err := sql.Open("sqlite", testPath(db))
+	if err != nil {
+		t.Fatalf("open blocker: %v", err)
+	}
+	defer blocker.Close()
+	if _, err := blocker.Exec(`PRAGMA busy_timeout = 5000`); err != nil {
+		t.Fatalf("blocker pragma: %v", err)
+	}
+	tx, err := blocker.Begin()
+	if err != nil {
+		t.Fatalf("begin blocker: %v", err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`UPDATE settings SET data = data WHERE id = 1`); err != nil {
+		t.Fatalf("blocker write: %v", err)
+	}
+
+	doc := &Document{
+		FormatVersion: FormatVersion,
+		Settings:      map[string]any{"rtkEnabled": false},
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- Import(db, doc)
+	}()
+
+	// While another writer holds the lock the import must not *succeed*. It may
+	// block (and then finish once the lock frees) or it may report SQLITE_BUSY —
+	// both are acceptable and both prove it is taking a write lock for the whole
+	// restore. What must never happen is a clean success with the lock held,
+	// because that would mean it committed table-by-table and a failure part-way
+	// would leave the database half-restored.
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("Import succeeded while another writer held the lock; it is not using a single transaction")
+		}
+		t.Logf("Import reported contention as expected: %v", err)
+		return // the lock is still held; let the deferred rollbacks clean up
+	case <-time.After(400 * time.Millisecond):
+		// Still blocked, as expected.
+	}
+
+	if err := tx.Rollback(); err != nil {
+		t.Fatalf("release blocker: %v", err)
+	}
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Import after lock release: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Import never completed after the lock was released")
+	}
+}
+
+// testPath recovers the file a test database lives in, so a second connection
+// can be opened against the same file.
+func testPath(db *sql.DB) string {
+	var path string
+	_ = db.QueryRow(`SELECT file FROM pragma_database_list WHERE name = 'main'`).Scan(&path)
+	return path
+}

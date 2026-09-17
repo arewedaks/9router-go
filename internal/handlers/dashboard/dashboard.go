@@ -164,6 +164,13 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 		// Token Saver Settings
 		dr.Get("/settings", h.HandleGetSettings)
 		dr.Post("/settings", h.HandleUpdateSettings)
+
+		// Backup: export/import the whole database. Both re-check the dashboard
+		// password rather than trusting the session alone — see
+		// confirmBackupPassword.
+		dr.Get("/database", h.HandleExportDatabase)
+		dr.Post("/database", h.HandleImportDatabase)
+		dr.Post("/database/inspect", h.HandleInspectBackup)
 	})
 }
 

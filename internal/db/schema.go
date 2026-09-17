@@ -17,14 +17,29 @@ import (
 // The statements mirror the canonical schema shared with the dashboard (see
 // internal/dbtest.SchemaStatements) so both implementations agree on shape.
 func EnsureSchema(database *sql.DB) error {
-	statements := []string{
+	for _, stmt := range SchemaStatements() {
+		if _, err := database.Exec(stmt); err != nil {
+			return fmt.Errorf("ensure schema: %w", err)
+		}
+	}
+	return nil
+}
+
+// SchemaStatements returns the canonical CREATE TABLE statements. It is exported
+// so test helpers build the same schema production does; duplicating the list
+// is how the test copy drifted from reality in the first place.
+func SchemaStatements() []string {
+	return []string{
 		`CREATE TABLE IF NOT EXISTS apiKeys (
 			id TEXT PRIMARY KEY,
 			key TEXT UNIQUE NOT NULL,
 			name TEXT,
 			machineId TEXT,
 			isActive INTEGER DEFAULT 1,
-			createdAt TEXT NOT NULL
+			createdAt TEXT NOT NULL,
+			allowedProviders TEXT,
+			allowedCombos TEXT,
+			allowedKinds TEXT
 		)`,
 		`CREATE TABLE IF NOT EXISTS providerConnections (
 			id TEXT PRIMARY KEY,
@@ -50,7 +65,8 @@ func EnsureSchema(database *sql.DB) error {
 			kind TEXT,
 			models TEXT NOT NULL,
 			createdAt TEXT NOT NULL,
-			updatedAt TEXT NOT NULL
+			updatedAt TEXT NOT NULL,
+			context_length INTEGER
 		)`,
 		`CREATE TABLE IF NOT EXISTS settings (
 			id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -67,17 +83,30 @@ func EnsureSchema(database *sql.DB) error {
 		`CREATE TABLE IF NOT EXISTS cachedProviderModels (
 			providerId TEXT NOT NULL,
 			modelId TEXT NOT NULL,
-			payload TEXT NOT NULL,
-			cachedAt TEXT NOT NULL,
+			kind TEXT DEFAULT 'llm',
+			ownedBy TEXT NOT NULL,
+			capabilities TEXT,
+			updatedAt INTEGER NOT NULL,
 			PRIMARY KEY (providerId, modelId)
 		)`,
+		`CREATE TABLE IF NOT EXISTS proxyPools (
+			id TEXT PRIMARY KEY,
+			isActive INTEGER DEFAULT 1,
+			testStatus TEXT,
+			data TEXT NOT NULL,
+			createdAt TEXT NOT NULL,
+			updatedAt TEXT NOT NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS proxyPoolFitness (
+			poolId TEXT NOT NULL,
+			scope TEXT NOT NULL,
+			until INTEGER NOT NULL,
+			reason TEXT,
+			createdAt TEXT NOT NULL,
+			updatedAt TEXT NOT NULL,
+			PRIMARY KEY (poolId, scope)
+		)`,
 	}
-	for _, stmt := range statements {
-		if _, err := database.Exec(stmt); err != nil {
-			return fmt.Errorf("ensure schema: %w", err)
-		}
-	}
-	return nil
 }
 
 // EnsureSchema on the global connection, for callers that do not hold the *sql.DB.
