@@ -228,3 +228,104 @@ func TestUsageDerivesSplitCosts(t *testing.T) {
 		t.Error("the summary row no longer derives output cost")
 	}
 }
+
+// The Provider Topology panel renders the "web" of provider spokes around the
+// router. It is hand-rolled SVG — the design forbids a graph library — so these
+// tests pin the pieces that make that true, plus the string the empty state
+// shows.
+func TestUsageTopologyPanelExists(t *testing.T) {
+	ui := readEmbeddedUI(t)
+
+	checks := []struct {
+		what string
+		need string
+	}{
+		{"panel mount point", `id="usage-topology"`},
+		{"panel label", ">Provider Topology<"},
+		{"empty state", "No providers connected"},
+		{"renderer", "function renderUsageTopology()"},
+		{"layout maths", "TOPO_NODE_W = 180"},
+		{"ellipse placement", "const angle = -Math.PI / 2 + (2 * Math.PI * i) / count;"},
+		{"ellipse aspect ratio", "const ry = Math.max(TOPO_BASE_RY, rx * 0.55);"},
+		{"minimum radius grows with node count", "const minRx = ((TOPO_NODE_W + 24) * count) / (2 * Math.PI);"},
+		{"pan installer", "function installTopoPan("},
+		{"zoom", "function topoZoom("},
+		{"reset", "function topoReset("},
+		{"legend", "topo-legend"},
+		{"zoom controls", "topo-zoom-btns"},
+	}
+	for _, c := range checks {
+		if !strings.Contains(ui, c.need) {
+			t.Errorf("%s: expected to find %q", c.what, c.need)
+		}
+	}
+
+	// No charting/graph library may be pulled in: the bundle has no build step
+	// and must stay dependency-free.
+	for _, forbidden := range []string{"@xyflow/react", "react-flow", "recharts", "d3.select"} {
+		if strings.Contains(ui, forbidden) {
+			t.Errorf("the topology must not depend on %q", forbidden)
+		}
+	}
+}
+
+// The topology draws one spoke per provider, animated when the provider is
+// active. The three edge classes are the contract the CSS hangs off.
+func TestUsageTopologyEdgeStates(t *testing.T) {
+	ui := readEmbeddedUI(t)
+
+	for _, cls := range []string{"topo-edge topo-active", "topo-edge topo-last", `class="${cls}" d="${d}"`} {
+		if !strings.Contains(ui, cls) {
+			t.Errorf("edge markup missing: %q", cls)
+		}
+	}
+	if !strings.Contains(ui, "<animateMotion dur=") {
+		t.Error("active spokes no longer carry travelling particles")
+	}
+	if !strings.Contains(ui, "for (let k = 0; k < 6; k++)") {
+		t.Error("the travelling-particle count changed")
+	}
+	if !strings.Contains(ui, `"#22d3ee"`) {
+		t.Error("the active spoke colour changed")
+	}
+}
+
+// Generated compatible-node ids are a long UUID and must never surface in the
+// graph, exactly as they never surface in the provider grid. Labels prefer the
+// operator-facing names.
+func TestUsageTopologyNeverShowsGeneratedNodeIDs(t *testing.T) {
+	ui := readEmbeddedUI(t)
+
+	if !strings.Contains(ui, "function providerLabel(id)") {
+		t.Fatal("providerLabel is missing")
+	}
+	if !strings.Contains(ui, `return isGeneratedNodeId(id) ? "Custom endpoint" : id;`) {
+		t.Error("providerLabel no longer falls back to a friendly name for generated ids")
+	}
+	if !strings.Contains(ui, "p.nodeName || p.displayName || p.registryName || p.accountLabel || p.name") {
+		t.Error("providerLabel no longer prefers the operator-facing names")
+	}
+	// The icon resolver must be the shared one, so the \"no logo for a generated
+	// id\" rule has a single implementation.
+	if !strings.Contains(ui, "const resolved = providerLogoId(id);") {
+		t.Error("the topology does not reuse providerLogoId for brand assets")
+	}
+}
+
+func TestUsageTopologyModes(t *testing.T) {
+	ui := readEmbeddedUI(t)
+
+	if !strings.Contains(ui, `data-tmode="all"`) || !strings.Contains(ui, `data-tmode="used"`) {
+		t.Error("the All / Used mode toggle is missing")
+	}
+	// \"all\" is the default, matching upstream, where every connected LLM
+	// provider is drawn even before it serves a request.
+	if !strings.Contains(ui, `topologyMode: "all",`) {
+		t.Error("the topology no longer defaults to showing every provider")
+	}
+	// Keyless providers carry no connection but are still real LLM routes, so
+	// the only connection filtered out is one the operator switched off.
+	if !strings.Contains(ui, "if (!p.noConnection && p.isActive === false) return;") {
+		t.Error("the graph no longer admits keyless providers, or no longer skips inactive connections")
+	}
+}
