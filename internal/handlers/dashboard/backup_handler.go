@@ -133,6 +133,15 @@ func (h *Handler) HandleInspectBackup(w http.ResponseWriter, r *http.Request) {
 		handlerutil.WriteJSONError(w, http.StatusBadRequest, "Invalid backup file: "+err.Error())
 		return
 	}
+	// Surface the same checks Import will apply, so a file that cannot be
+	// restored is reported here rather than after the operator commits to it.
+	if err := dbbackup.ValidatePasswordHash(doc.Settings); err != nil {
+		handlerutil.WriteJSON(w, http.StatusOK, map[string]any{
+			"valid":  false,
+			"reason": err.Error(),
+		})
+		return
+	}
 	handlerutil.WriteJSON(w, http.StatusOK, map[string]any{
 		"valid":       true,
 		"exportedAt":  doc.ExportedAt,

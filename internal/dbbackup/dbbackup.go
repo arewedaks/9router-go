@@ -23,6 +23,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 // FormatVersion identifies the layout of the document. It is written so a future
@@ -340,6 +342,12 @@ func Import(db *sql.DB, doc *Document) error {
 		return fmt.Errorf("backup was written by a newer version (format %d, this build understands %d)",
 			doc.FormatVersion, FormatVersion)
 	}
+	// Validate the password hash before anything is written. A corrupt or
+	// hand-edited value would restore cleanly and then lock the operator out of
+	// the dashboard, with no way back in except editing the database by hand.
+	if err := ValidatePasswordHash(doc.Settings); err != nil {
+		return err
+	}
 
 	tx, err := db.Begin()
 	if err != nil {
@@ -530,6 +538,33 @@ func importKVScope(tx *sql.Tx, scope string, entries []map[string]any) error {
 			scope, key, string(encoded)); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// validatePasswordHash rejects a settings.password that is not a well-formed
+// bcrypt hash.
+//
+// An absent or empty hash is allowed: that is how a dashboard with no password
+// is represented, and restoring such a backup intentionally returns the router
+// to the default-password state.
+func ValidatePasswordHash(settings map[string]any) error {
+	if settings == nil {
+		return nil
+	}
+	raw, present := settings["password"]
+	if !present || raw == nil {
+		return nil
+	}
+	hash, ok := raw.(string)
+	if !ok {
+		return fmt.Errorf("backup settings.password is %T, want a string", raw)
+	}
+	if hash == "" {
+		return nil
+	}
+	if _, err := bcrypt.Cost([]byte(hash)); err != nil {
+		return fmt.Errorf("backup settings.password is not a valid bcrypt hash: %w", err)
 	}
 	return nil
 }

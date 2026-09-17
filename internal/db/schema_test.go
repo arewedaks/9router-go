@@ -80,7 +80,7 @@ func tableBody(schema, table string) string {
 				// PRIMARY KEY (a, b) closes and reopens before the table does,
 				// and returning at the first outer-depth zero would cut the body
 				// short, hiding every column declared after the key clause.
-				return rest[open : i+1]
+				return rest[open:i]
 			}
 		}
 	}
@@ -93,7 +93,11 @@ func tableBody(schema, table string) string {
 // PRIMARY KEY (...) clause — both are valid ways to declare it, and missing the
 // second produced a false report that proxyPoolFitness had no poolId.
 func containsColumn(body, name string) bool {
-	for _, line := range strings.Split(body, ",") {
+	inner := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(body, "("), ")"))
+	// Split on commas that are not inside parentheses, so
+	// `PRIMARY KEY (poolId, scope)` stays a single definition line instead of
+	// being torn into fragments.
+	for _, line := range splitTopLevel(inner) {
 		trimmed := strings.TrimSpace(line)
 		fields := strings.Fields(trimmed)
 		if len(fields) == 0 {
@@ -115,6 +119,27 @@ func containsColumn(body, name string) bool {
 		}
 	}
 	return false
+}
+
+// splitTopLevel splits on commas outside parentheses.
+func splitTopLevel(s string) []string {
+	var out []string
+	depth, start := 0, 0
+	for i, r := range s {
+		switch r {
+		case '(':
+			depth++
+		case ')':
+			depth--
+		case ',':
+			if depth == 0 {
+				out = append(out, s[start:i])
+				start = i + 1
+			}
+		}
+	}
+	out = append(out, s[start:])
+	return out
 }
 
 // TestEnsureSchemaIsIdempotent: it runs on every startup, including against a

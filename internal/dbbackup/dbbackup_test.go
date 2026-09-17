@@ -3,6 +3,9 @@ package dbbackup
 import (
 	"database/sql"
 	json "encoding/json/v2"
+	"fmt"
+
+	"golang.org/x/crypto/bcrypt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -67,8 +70,10 @@ func seed(t *testing.T, db *sql.DB) {
 			t.Fatalf("seed %q: %v", q, err)
 		}
 	}
+	// A real bcrypt hash: Import validates the one in settings, so a placeholder
+	// would make unrelated tests fail on the validation rather than their subject.
 	mustExec(`INSERT INTO settings(id, data) VALUES(1, ?)`,
-		`{"rtkEnabled":true,"password":"$2b$10$hash","ponytailLevel":"full"}`)
+		fmt.Sprintf(`{"rtkEnabled":true,"password":%q,"ponytailLevel":"full"}`, validBcryptHash(t)))
 	mustExec(`INSERT INTO providerConnections(id, provider, authType, name, email, priority, isActive, data, createdAt, updatedAt)
 		VALUES('c1','antigravity','oauth','Acc 1','a@example.com',1,1,'{"accessToken":"tok-a","nested":{"deep":true}}','2026-01-01T00:00:00Z','2026-01-01T00:00:00Z')`)
 	mustExec(`INSERT INTO providerNodes(id, type, name, data, createdAt, updatedAt)
@@ -440,7 +445,7 @@ func TestImportIsAtomic(t *testing.T) {
 	if err := db.QueryRow(`SELECT data FROM settings WHERE id=1`).Scan(&settings); err != nil {
 		t.Fatalf("settings row is gone after a failed import: %v", err)
 	}
-	if !strings.Contains(settings, "$2b$10$hash") {
+	if !strings.Contains(settings, "rtkEnabled") || !strings.Contains(settings, "ponytailLevel") {
 		t.Errorf("settings were replaced despite the failure: %s", settings)
 	}
 }
@@ -544,4 +549,79 @@ func testPath(db *sql.DB) string {
 	var path string
 	_ = db.QueryRow(`SELECT file FROM pragma_database_list WHERE name = 'main'`).Scan(&path)
 	return path
+}
+
+// TestImportRejectsCorruptPasswordHash guards against a restore that succeeds
+// and then locks the operator out: a settings.password that is not a valid
+// bcrypt hash cannot sign anyone in, and there would be no way back in short of
+// editing the database by hand.
+func TestImportRejectsCorruptPasswordHash(t *testing.T) {
+	cases := []struct {
+		name  string
+		value any
+		ok    bool
+	}{
+		{"absent", nil, true},
+		{"empty string", "", true},
+		{"valid bcrypt", validBcryptHash(t), false},
+		{"garbage", "$2b$10$mPTmr", false},
+		{"plain text", "password123", false},
+		{"wrong type", 12345, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			settings := map[string]any{}
+			if c.value != nil {
+				settings["password"] = c.value
+			}
+			doc := &Document{FormatVersion: FormatVersion, Settings: settings}
+
+			db := newTestDB(t)
+			seed(t, db)
+			err := Import(db, doc)
+
+			// The two "valid" cases still fail here for an unrelated reason: the
+			// document has no required tables. What matters is that the error, if
+			// any, is not the hash complaint.
+			hashErr := err != nil && (strings.Contains(err.Error(), "bcrypt") ||
+				strings.Contains(err.Error(), "settings.password"))
+			switch c.name {
+			case "absent", "empty string":
+				if hashErr {
+					t.Errorf("an empty password should be allowed, got: %v", err)
+				}
+			case "valid bcrypt":
+				if hashErr {
+					t.Errorf("a well-formed bcrypt hash was rejected: %v", err)
+				}
+			default:
+				if !hashErr {
+					t.Errorf("a corrupt password hash was accepted (err = %v); "+
+						"this restore would lock the operator out", err)
+				}
+			}
+
+			// Whatever the outcome, the seeded data must be intact when the
+			// import was refused.
+			if err != nil {
+				var n int
+				if qerr := db.QueryRow(`SELECT COUNT(*) FROM providerConnections`).Scan(&n); qerr != nil {
+					t.Fatalf("count: %v", qerr)
+				}
+				if n != 1 {
+					t.Errorf("connections = %d after a refused import, want 1", n)
+				}
+			}
+		})
+	}
+}
+
+// validBcryptHash produces a hash that bcrypt.Cost accepts.
+func validBcryptHash(t *testing.T) string {
+	t.Helper()
+	b, err := bcrypt.GenerateFromPassword([]byte("x"), bcrypt.MinCost)
+	if err != nil {
+		t.Fatalf("bcrypt: %v", err)
+	}
+	return string(b)
 }
