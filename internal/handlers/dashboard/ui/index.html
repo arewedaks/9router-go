@@ -1234,11 +1234,13 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
         nodes: (data.providerNodes || []).length,
         pools: (data.proxyPools || []).length,
       };
-      const when = data.exportedAt ? new Date(data.exportedAt).toLocaleString() : "unknown time";
+      // VansRouter backups carry no exportedAt; say nothing rather than print a
+      // placeholder date the file never contained.
+      const when = data.exportedAt ? new Date(data.exportedAt).toLocaleString() : "";
       preview.innerHTML =
         '<div style="font-size:0.8rem; color:var(--muted); margin-bottom:10px; padding:10px; background:rgba(255,255,255,0.03); border-radius:8px;">' +
         "<div style=\"color:#fff; margin-bottom:6px;\">" + escapeHtml(file.name) + "</div>" +
-        "Taken " + escapeHtml(when) + "<br>" +
+        (when ? "Taken " + escapeHtml(when) + "<br>" : "") +
         counts.connections + " connections · " + counts.keys + " keys · " + counts.combos + " combos · " +
         counts.nodes + " nodes · " + counts.pools + " proxy pools" +
         "</div>";
@@ -1432,7 +1434,8 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
     const connsInner = (d.connections || []).length
       ? d.connections.map(p => {
           const label = p.accountLabel || p.email || p.name || p.id.substring(0, 12);
-          const dot = p.isActive !== 1 ? "off" : (p.expired ? "warn" : "on");
+          const dot = acctDotClass(p);
+          const connStatus = effectiveStatusOf(p);
           // Antigravity connections share one backend but two official client
           // identities; surface a profile switch so operators can match the
           // credentials they imported (IDE app vs standalone CLI).
@@ -1447,7 +1450,7 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
             <span class="mid" title="${escapeHtml(label)}">${escapeHtml(label)}</span>
             <span class="conn-actions">
               ${profileSel}
-              <span class="mkind conn-status" id="conn-status-${p.id}" title="status: ${escapeHtml(p.testStatus || 'idle')}">${escapeHtml(p.testStatus || 'idle')}</span>
+              <span class="mkind conn-status ${connStatusClass(p)}" id="conn-status-${p.id}" title="status: ${escapeHtml(connStatus)}">${escapeHtml(connStatus)}</span>
               <button class="btn btn-sm conn-test-btn" id="conn-test-${p.id}" onclick="testConnection('${p.id}');" title="Test this account against the upstream provider">Test</button>
               <label class="switch" style="transform:scale(0.8);">
                 <input type="checkbox" ${p.isActive === 1 ? 'checked' : ''} onchange="toggleProvider('${p.id}');">
@@ -2729,7 +2732,9 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
         const chip = document.createElement("span");
         chip.className = "badge badge-dim";
         chip.style.padding = "6px 12px";
-        chip.innerText = `${provider}: ${count}`;
+        // Never surface a generated provider key ("openai-compatible-chat-<uuid>")
+        // in the label; fall back to the display name when the backend sent an id.
+        chip.innerText = `${niceProviderLabel(provider)}: ${count}`;
         chips.appendChild(chip);
       }
 
@@ -2821,15 +2826,69 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
     filterProviders();
   }
 
+  // Custom OpenAI/Anthropic-compatible endpoints are identified internally by a
+  // generated key such as "openai-compatible-chat-<uuid>" (upstream builds it
+  // from `${PREFIX}${apiType}-${randomUUID()}`). That key is never a user-facing
+  // name — upstream always renders `node.name`. If one ever reaches this helper
+  // unresolved, degrade it to the category label rather than leaking the UUID.
+  function niceProviderLabel(key) {
+    if (!key) return "Unknown";
+    if (key.indexOf("openai-compatible-") === 0) return "OpenAI Compatible";
+    if (key.indexOf("anthropic-compatible-") === 0) return "Anthropic Compatible";
+    if (key.indexOf("custom-embedding-") === 0) return "Custom Embedding";
+    return key;
+  }
+
+  // Effective connection status, computed in the backend as
+  // providers.EffectiveStatus. The toggle alone does NOT mean "connected":
+  // a credit-exhausted account keeps isActive=1 while testStatus reports
+  // "unavailable". Older payloads may omit the derived fields, so fall back
+  // to the raw testStatus.
+  function effectiveStatusOf(p) {
+    if (p.effectiveStatus) return p.effectiveStatus;
+    return p.isActive === 1 ? (p.testStatus || "idle") : "disabled";
+  }
+
+  function isEffectivelyActive(p) {
+    if (typeof p.isEffectivelyActive === "boolean") return p.isEffectivelyActive;
+    return p.isActive === 1 && (p.testStatus === "active" || p.testStatus === "success");
+  }
+
+  // Dot colour mirrors the upstream three-bucket convention: grey when the
+  // account is switched off, green when usable, amber when the token merely
+  // expired, red when the account is genuinely failing.
+  function acctDotClass(p) {
+    if (p.isActive !== 1) return "off";
+    if (p.expired) return "warn";
+    return isEffectivelyActive(p) ? "on" : "warn";
+  }
+
+  // Status chip. "active" is green; failing states are red so a
+  // credit-exhausted account no longer looks healthy next to a green dot.
+  function statusPillFor(p) {
+    if (p.isActive !== 1) return `<span class="acct-pill idle">disabled</span>`;
+    if (p.expired) return `<span class="acct-pill exp">token expired</span>`;
+    const status = effectiveStatusOf(p);
+    if (status === "active" || status === "success") {
+      return `<span class="acct-pill ok">active</span>`;
+    }
+    return `<span class="acct-pill exp">${escapeHtml(status)}</span>`;
+  }
+
+  // Chip class for the connection status shown on the provider detail page.
+  // Uses the same three buckets as renderConnVerdict (ok/err/warn) so a
+  // tested chip and a freshly-rendered chip speak the same visual language.
+  function connStatusClass(p) {
+    if (p.isActive !== 1) return "";
+    if (p.expired) return "warn";
+    return isEffectivelyActive(p) ? "ok" : "err";
+  }
+
   // Renders a single account row (one connection under a provider).
   function renderAccountRow(p) {
     const label = p.accountLabel || p.email || p.name || p.id.substring(0, 12);
-    const dot = p.isActive !== 1 ? "off" : (p.expired ? "warn" : "on");
-    const statusPill = p.expired
-      ? `<span class="acct-pill exp">token expired</span>`
-      : (p.testStatus === "active"
-          ? `<span class="acct-pill ok">active</span>`
-          : `<span class="acct-pill idle">${escapeHtml(p.testStatus || "idle")}</span>`);
+    const dot = acctDotClass(p);
+    const statusPill = statusPillFor(p);
     const metaParts = [];
     if (p.expiresAt) metaParts.push(`expires ${fmtTime(p.expiresAt)}`);
     if (p.lastUsedAt) metaParts.push(`used ${fmtTime(p.lastUsedAt)}`);
@@ -2912,12 +2971,8 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
   function accountsExpanded(prov, accounts) {
     return accounts.map(p => {
       const label = p.accountLabel || p.email || p.name || p.id.substring(0, 12);
-      const dot = p.isActive !== 1 ? "off" : (p.expired ? "warn" : "on");
-      const chip = p.expired
-        ? `<span class="acct-pill exp">expired</span>`
-        : (p.testStatus === "active"
-            ? `<span class="acct-pill ok">active</span>`
-            : `<span class="acct-pill idle">${escapeHtml(p.testStatus || "idle")}</span>`);
+      const dot = acctDotClass(p);
+      const chip = statusPillFor(p);
       return `
         <div class="prov-acct-line">
           <span class="acct-dot ${dot}"></span>
@@ -2980,7 +3035,7 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
       const accounts = groups[prov];
       accounts.sort((a, b) => (a.priority || 999) - (b.priority || 999));
       const head = accounts[0];
-      const activeCount = accounts.filter(a => a.isActive === 1).length;
+      const activeCount = accounts.filter(isEffectivelyActive).length;
       const isOpen = !!expandedGroups[prov];
       const color = head.color || "#388bfd";
       const icon = head.icon || "smart_toy";
