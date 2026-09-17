@@ -27,8 +27,8 @@ func readEmbeddedUI(t *testing.T) string {
 }
 
 // TestUIViewIsRememberedOnRefresh guards the fix for a refresh always dropping
-// the operator on Overview: the selected view has to be recorded in the URL and
-// re-applied on load.
+// the operator on the first tab: the selected view has to be recorded in the URL
+// and re-applied on load.
 func TestUIViewIsRememberedOnRefresh(t *testing.T) {
 	ui := readEmbeddedUI(t)
 
@@ -120,7 +120,7 @@ func TestUINoFlickerOnRefresh(t *testing.T) {
 // like it works until the operator refreshes.
 func TestUINavButtonsRecordHash(t *testing.T) {
 	ui := readEmbeddedUI(t)
-	tabs := []string{"overview", "providers", "combos", "keys", "health", "settings"}
+	tabs := []string{"endpoint", "providers", "combos", "health", "settings"}
 	for _, tab := range tabs {
 		if !strings.Contains(ui, `navigateTab('`+tab+`')`) {
 			t.Errorf("nav button for %q is not wired to navigateTab", tab)
@@ -150,7 +150,7 @@ func TestUINavigationLivesInSidebar(t *testing.T) {
 	}
 
 	// Every pane needs a nav button, and vice versa.
-	for _, tab := range []string{"overview", "providers", "combos", "keys", "health", "settings"} {
+	for _, tab := range []string{"endpoint", "providers", "combos", "health", "settings"} {
 		if !strings.Contains(ui, `id="tab-`+tab+`" class="tab-pane"`) {
 			t.Errorf("pane for %q is missing", tab)
 		}
@@ -269,10 +269,12 @@ func TestUIPasswordFormIsOnlyInSettings(t *testing.T) {
 		t.Errorf("expected exactly one new-password field, found %d", n)
 	}
 
-	// The API Keys tab must still be intact — only the password block was removed.
-	for _, need := range []string{`id="tab-keys"`, "keys-table-body", "function loadKeys()"} {
+	// The key list must still be intact — only the password block was removed.
+	// The standalone Keys tab was later folded into Endpoint & Key, so the list
+	// now lives there.
+	for _, need := range []string{`id="tab-endpoint"`, "endpoint-keys-body", "function loadKeys()"} {
 		if !strings.Contains(ui, need) {
-			t.Errorf("removing the password form damaged the API Keys tab: %q is gone", need)
+			t.Errorf("removing the password form damaged the API key list: %q is gone", need)
 		}
 	}
 }
@@ -343,21 +345,28 @@ func TestUIHasNoHardcodedActiveFallbackForStatus(t *testing.T) {
 }
 
 // TestUINeverLabelsChipsWithGeneratedProviderKey pins the label rule on the
-// served bytes: the Overview chips must go through niceProviderLabel so a
-// custom endpoint's generated key ("openai-compatible-chat-<uuid>") can never
-// be printed verbatim. Upstream shows node.name and keeps the id internal.
+// served bytes: a custom endpoint's generated key
+// ("openai-compatible-chat-<uuid>") must never be printed verbatim. Upstream
+// shows node.name and keeps the id internal. The Overview chip list that first
+// motivated this was retired, so the rule is now pinned where the label is
+// still rendered: the provider detail hero.
 func TestUINeverLabelsChipsWithGeneratedProviderKey(t *testing.T) {
 	body := readEmbeddedUI(t)
 
 	if !strings.Contains(body, "function niceProviderLabel(") {
 		t.Fatal("niceProviderLabel helper missing from the served UI")
 	}
-	if !strings.Contains(body, "chip.innerText = `${niceProviderLabel(provider)}: ${count}`;") {
-		t.Fatal("the chip label must be routed through niceProviderLabel")
+	// The detail hero must resolve the display label through the helper rather
+	// than interpolating the raw provider id.
+	if !strings.Contains(body, "niceProviderLabel(d.provider)") {
+		t.Fatal("the provider display label must be routed through niceProviderLabel")
 	}
-	// The old raw interpolation must be gone.
+	// The retired Overview chips must not linger in the served bytes.
 	if strings.Contains(body, "chip.innerText = `${provider}: ${count}`;") {
-		t.Fatal("the raw provider key is still interpolated into the chip label")
+		t.Fatal("the raw provider key is still interpolated into a chip label")
+	}
+	if strings.Contains(body, "provider-type-chips") {
+		t.Fatal("the retired Overview chips container is still in the served UI")
 	}
 }
 

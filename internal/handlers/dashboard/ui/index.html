@@ -181,7 +181,27 @@
     .form-group { margin-bottom: 14px; }
     .form-group label { display: block; font-size: 0.82rem; color: var(--muted); margin-bottom: 6px; }
     
-    .code-block { background: #0d1117; border: 1px solid var(--border); border-radius: 6px; padding: 12px; font-family: monospace; font-size: 0.82rem; color: #79c0ff; overflow-x: auto; }
+    .code-block { background: #0d1117; border: 1px solid var(--border); border-radius: 6px; padding: 12px; font-family: monospace; font-size: 0.82rem; color: #79c0ff; overflow-x: auto; white-space: pre-wrap; word-break: break-word; }
+
+    /* Endpoint & Key page */
+    .badge-ok { background: #0d2818; color: #3fb950; border: 1px solid #238636; }
+    .badge-err { background: #2d1214; color: #f85149; border: 1px solid #da3633; }
+    .endpoint-rows { display: flex; flex-direction: column; gap: 8px; }
+    .endpoint-row { display: flex; align-items: center; gap: 8px; }
+    .endpoint-tag { font-family: monospace; font-size: 0.7rem; padding: 4px 8px; border-radius: 4px; min-width: 74px; text-align: center; background: var(--surface2); color: var(--muted); shrink: 0; flex: 0 0 auto; }
+    .endpoint-tag.active { background: rgba(56,139,253,0.12); color: #79c0ff; }
+    .endpoint-url { flex: 1 1 auto; min-width: 0; font-family: monospace; font-size: 0.82rem; }
+    .endpoint-security { display: grid; gap: 10px; }
+    .endpoint-lock { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+    .endpoint-lock p { flex: 1 1 100%; margin: 0; font-size: 0.8rem; color: var(--muted); }
+    .endpoint-lock code { background: #0d1117; border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; font-size: 0.78rem; color: #79c0ff; }
+    .endpoint-warn { margin-top: 12px; padding: 10px 12px; border-radius: 6px; font-size: 0.82rem; background: rgba(210,153,34,0.1); border: 1px solid #9e6a03; color: #e3b341; }
+    .key-secret { display: flex; align-items: center; gap: 6px; }
+    .key-secret code { background: #090d13; border: 1px solid var(--border); padding: 4px 8px; border-radius: 4px; color: #79c0ff; font-size: 0.78rem; }
+    .icon-btn { background: none; border: none; cursor: pointer; font-size: 0.85rem; padding: 2px 4px; border-radius: 4px; opacity: 0.65; }
+    .icon-btn:hover { opacity: 1; background: rgba(255,255,255,0.06); }
+    .row-paused { opacity: 0.55; }
+    .key-paused { margin: 2px 0 0; font-size: 0.72rem; color: #d29922; }
     .tag { display: inline-block; background: var(--primary-dim); color: var(--primary); border: 1px solid #1f3554; border-radius: 4px; padding: 2px 6px; font-size: 0.75rem; margin: 2px; }
     .sub-id { font-size: 0.75rem; color: var(--muted); font-family: monospace; display: block; margin-top: 2px; }
 
@@ -451,11 +471,10 @@
   </div>
 
   <nav class="sidebar-nav">
-    <button class="nav-btn" id="nav-overview" onclick="navigateTab('overview')"><span class="nav-icon">📊</span> Overview</button>
+    <button class="nav-btn" id="nav-endpoint" onclick="navigateTab('endpoint')"><span class="nav-icon">🔌</span> Endpoint &amp; Key</button>
     <button class="nav-btn" id="nav-usage" onclick="navigateTab('usage')"><span class="nav-icon">📈</span> Usage</button>
     <button class="nav-btn" id="nav-providers" onclick="navigateTab('providers')"><span class="nav-icon">🔌</span> Providers</button>
     <button class="nav-btn" id="nav-combos" onclick="navigateTab('combos')"><span class="nav-icon">🔀</span> Combos</button>
-    <button class="nav-btn" id="nav-keys" onclick="navigateTab('keys')"><span class="nav-icon">🔑</span> API Keys</button>
     <button class="nav-btn" id="nav-health" onclick="navigateTab('health')"><span class="nav-icon">🩺</span> Health &amp; Setup</button>
 
     <div class="nav-group-label">Configuration</div>
@@ -473,7 +492,7 @@
 <header>
   <div style="display:flex; align-items:center; gap:12px;">
     <button class="sidebar-toggle" id="sidebar-toggle" onclick="toggleSidebar()" aria-label="Toggle navigation">☰</button>
-    <div id="page-title" style="font-weight:600; color:#fff;">Overview</div>
+    <div id="page-title" style="font-weight:600; color:#fff;">Endpoint &amp; Key</div>
   </div>
   <div>
     <span class="badge badge-go">Go Engine</span>
@@ -482,105 +501,95 @@
 
 <main>
   <!-- OVERVIEW TAB -->
-  <div id="tab-overview" class="tab-pane">
-    <div class="grid">
-      <div class="card">
-        <h3>Total Providers</h3>
-        <div class="stat-val" id="stat-providers">-</div>
-        <div class="stat-sub"><span id="stat-active-providers">-</span> active in rotation</div>
-      </div>
-      <div class="card">
-        <h3>Model Combos</h3>
-        <div class="stat-val" id="stat-combos">-</div>
-        <div class="stat-sub">Fallback cascades & fusion</div>
-      </div>
-      <div class="card">
-        <h3>Client API Keys</h3>
-        <div class="stat-val" id="stat-keys">-</div>
-        <div class="stat-sub">Authorized consumers</div>
-      </div>
-      <div class="card">
-        <h3>Token Optimization</h3>
-        <div class="stat-val" id="stat-saver-status">ACTIVE</div>
-        <div class="stat-sub" id="stat-saver-detail">RTK + Ponytail</div>
+  <!-- ENDPOINT & KEY (mirrors the upstream /dashboard/endpoint page) -->
+  <div id="tab-endpoint" class="tab-pane">
+    <div class="section-header">
+      <div>
+        <h2 class="section-title">Endpoint &amp; Key</h2>
+        <p style="font-size: 0.85rem; color: var(--muted);">The base URL your clients talk to, and the keys that authorize them</p>
       </div>
     </div>
 
-    <!-- CATEGORY DISTRIBUTION ROW (mirrors Next.js 9router sections) -->
-    <div class="grid" style="margin-bottom: 24px;">
-      <div class="card" style="border-left: 3px solid #8957e5; cursor: pointer;" onclick="filterByCategory('oauth')">
-        <div style="display:flex; justify-content:space-between; align-items:center;">
-          <h3 style="color:#d2a8ff; margin:0;">🟣 OAuth Providers</h3>
-          <span class="badge badge-oauth" id="cat-oauth-active">0 Active</span>
+    <!-- API ENDPOINT -->
+    <div class="card" style="margin-bottom: 20px;">
+      <div class="section-header" style="margin-bottom: 14px;">
+        <span class="section-title" style="font-size: 1rem;">🔌 API Endpoint</span>
+        <span class="badge badge-ok" id="endpoint-status">checking…</span>
+      </div>
+
+      <div class="endpoint-rows">
+        <div class="endpoint-row">
+          <span class="endpoint-tag active">Local</span>
+          <input class="endpoint-url" id="endpoint-local" readonly value="http://localhost:20129/v1">
+          <button class="btn btn-sm" onclick="copyEndpoint('endpoint-local', this)">Copy</button>
         </div>
-        <div class="stat-val" id="cat-oauth-total" style="font-size: 1.6rem; margin-top: 8px;">-</div>
-        <div class="stat-sub">Antigravity, Copilot, Claude Code, Codex, Cursor, Kilo</div>
-      </div>
-
-      <div class="card" style="border-left: 3px solid #388bfd; cursor: pointer;" onclick="filterByCategory('freeTier')">
-        <div style="display:flex; justify-content:space-between; align-items:center;">
-          <h3 style="color:#79c0ff; margin:0;">🔵 Free Tier Providers</h3>
-          <span class="badge badge-freeTier" id="cat-freeTier-active">0 Active</span>
+        <div class="endpoint-row">
+          <span class="endpoint-tag">Docker</span>
+          <input class="endpoint-url" id="endpoint-docker" readonly value="http://host.docker.internal:20129/v1">
+          <button class="btn btn-sm" onclick="copyEndpoint('endpoint-docker', this)">Copy</button>
         </div>
-        <div class="stat-val" id="cat-freeTier-total" style="font-size: 1.6rem; margin-top: 8px;">-</div>
-        <div class="stat-sub">OpenRouter, NVIDIA NIM, Gemini, Cloudflare, Vertex</div>
       </div>
 
-      <div class="card" style="border-left: 3px solid #238636; cursor: pointer;" onclick="filterByCategory('free')">
-        <div style="display:flex; justify-content:space-between; align-items:center;">
-          <h3 style="color:#56d364; margin:0;">🟩 Free Providers</h3>
-          <span class="badge badge-free" id="cat-free-active">0 Active</span>
-        </div>
-        <div class="stat-val" id="cat-free-total" style="font-size: 1.6rem; margin-top: 8px;">-</div>
-        <div class="stat-sub">Gemini CLI, Kiro AI, MiMo Code Free, OpenCode Free</div>
-      </div>
-
-      <div class="card" style="border-left: 3px solid #9e6a03; cursor: pointer;" onclick="filterByCategory('apikey')">
-        <div style="display:flex; justify-content:space-between; align-items:center;">
-          <h3 style="color:#e3b341; margin:0;">🟡 API Key Providers</h3>
-          <span class="badge badge-apikey" id="cat-apikey-active">0 Active</span>
-        </div>
-        <div class="stat-val" id="cat-apikey-total" style="font-size: 1.6rem; margin-top: 8px;">-</div>
-        <div class="stat-sub">OpenAI, Anthropic, DeepSeek, Groq, ElevenLabs</div>
-      </div>
-
-      <div class="card" style="border-left: 3px solid #bf4b8a; cursor: pointer;" onclick="filterByCategory('webCookie')">
-        <div style="display:flex; justify-content:space-between; align-items:center;">
-          <h3 style="color:#ff9ec4; margin:0;">🍪 Web Cookie Providers</h3>
-          <span class="badge badge-webCookie" id="cat-webCookie-active">0 Active</span>
-        </div>
-        <div class="stat-val" id="cat-webCookie-total" style="font-size: 1.6rem; margin-top: 8px;">-</div>
-        <div class="stat-sub">Grok Web (Subscription), Perplexity Web (Pro/Max)</div>
-      </div>
-
-      <div class="card" style="border-left: 3px solid #2ea043; cursor: pointer;" onclick="filterByCategory('custom')">
-        <div style="display:flex; justify-content:space-between; align-items:center;">
-          <h3 style="color:#7ee787; margin:0;">🟢 Compatible Endpoints</h3>
-          <span class="badge badge-custom" id="cat-custom-active">0 Active</span>
-        </div>
-        <div class="stat-val" id="cat-custom-total" style="font-size: 1.6rem; margin-top: 8px;">-</div>
-        <div class="stat-sub">BAI, Atria AI, Ollama, vLLM, LiteLLM, Custom Relays</div>
-      </div>
-    </div>
-
-    <div class="card" style="margin-bottom: 24px;">
-      <div class="section-header" style="margin-bottom: 12px;">
-        <span class="section-title" style="font-size: 1rem;">Provider Topology Breakdown</span>
-      </div>
-      <div id="provider-type-chips" style="display: flex; flex-wrap: wrap; gap: 8px;">
-        <!-- Injected dynamically -->
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="section-header" style="margin-bottom: 12px;">
-        <span class="section-title" style="font-size: 1rem;">Quick Client Integration</span>
-      </div>
-      <p style="font-size: 0.85rem; color: var(--muted); margin-bottom: 12px;">Use this 9Router Go proxy with any OpenAI or Claude compatible AI client:</p>
+      <!-- The endpoint is only useful if the operator knows what to paste into
+           a client. This block used to live on the retired Overview tab. -->
+      <p style="font-size: 0.85rem; color: var(--muted); margin: 16px 0 8px;">Use this proxy with any OpenAI- or Claude-compatible client:</p>
       <div class="code-block" id="curl-sample">curl http://localhost:20129/v1/chat/completions \
-  -H "Authorization: Bearer <YOUR_KEY>" \
+  -H "Authorization: Bearer &lt;YOUR_KEY&gt;" \
   -H "Content-Type: application/json" \
   -d '{"model": "gemini-3.7-flash", "messages": [{"role": "user", "content": "Hello!"}]}'</div>
+      <button class="btn btn-sm" style="margin-top: 10px;" onclick="copyCurlSample(this)">Copy command</button>
+    </div>
+
+    <!-- SECURITY -->
+    <div class="card" style="margin-bottom: 20px;">
+      <div class="section-header" style="margin-bottom: 14px;">
+        <span class="section-title" style="font-size: 1rem;">🔐 Security</span>
+      </div>
+      <div class="endpoint-security">
+        <div class="endpoint-lock">
+          <strong>Require API key</strong>
+          <span class="badge badge-ok">Always on</span>
+          <p>Every request to <code>/v1/*</code> must carry a valid key. This build does not expose a switch to turn it off.</p>
+        </div>
+        <div class="endpoint-lock">
+          <strong>Dashboard session</strong>
+          <span class="badge badge-ok">Scoped</span>
+          <p>A login cookie only opens <code>/api/dashboard/*</code> and <code>/api/oauth/*</code>. It can never reach the model proxy.</p>
+        </div>
+      </div>
+      <div class="endpoint-warn" id="endpoint-exposed-warn" style="display:none;">
+        ⚠️ This server is reachable from another machine and a key can be used from anywhere. Treat keys as secrets.
+      </div>
+    </div>
+
+    <!-- API KEYS -->
+    <div class="card">
+      <div class="section-header" style="margin-bottom: 14px;">
+        <div>
+          <span class="section-title" style="font-size: 1rem;">🔑 API Keys</span>
+          <p style="font-size: 0.8rem; color: var(--muted); margin-top: 2px;">Keys for authorized clients connecting to 9Router</p>
+        </div>
+        <button class="btn btn-primary" onclick="openAddKeyModal()">+ Create Key</button>
+      </div>
+      <div id="endpoint-keys-empty" class="usage-empty" style="display:none; min-height:140px;">
+        No API keys yet — create your first key to get started.
+      </div>
+      <div class="table-container" id="endpoint-keys-table" style="display:none;">
+        <table>
+          <thead>
+            <tr>
+              <th>Active</th>
+              <th>Key Name</th>
+              <th>Secret</th>
+              <th>Created</th>
+              <th style="text-align: right;">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="endpoint-keys-body">
+            <tr><td colspan="5" style="text-align: center; color: var(--muted);">Loading keys…</td></tr>
+          </tbody>
+        </table>
+      </div>
     </div>
   </div>
 
@@ -783,34 +792,6 @@
   </div>
 
   <!-- KEYS TAB -->
-  <div id="tab-keys" class="tab-pane">
-    <div class="section-header">
-      <div>
-        <h2 class="section-title">Client API Keys</h2>
-        <p style="font-size: 0.85rem; color: var(--muted);">Keys for authorized clients connecting to 9Router</p>
-      </div>
-      <button class="btn btn-primary" onclick="openAddKeyModal()">+ Generate API Key</button>
-    </div>
-
-    <div class="table-container">
-      <table>
-        <thead>
-          <tr>
-            <th>Active</th>
-            <th>Key Name</th>
-            <th>API Secret Key</th>
-            <th>Created At</th>
-            <th style="text-align: right;">Actions</th>
-          </tr>
-        </thead>
-        <tbody id="keys-table-body">
-          <tr><td colspan="5" style="text-align: center; color: var(--muted);">Loading keys...</td></tr>
-        </tbody>
-      </table>
-    </div>
-
-  </div>
-
   <!-- TOKEN SAVERS TAB -->
   <!-- SETTINGS TAB -->
   <div id="tab-settings" class="tab-pane">
@@ -1016,7 +997,7 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
 
        This has to be a synchronous inline script, not part of the main bundle:
        the bundle only runs after checkAuth() resolves, and until then the
-       browser would paint the default Overview pane and then snap to the real
+       browser would paint the default pane and then snap to the real
        one — the visible flicker on refresh. All this does is pre-select the
        right pane and nav button so the first paint is already correct; the
        bundle still does the actual data loading.
@@ -1026,7 +1007,7 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
     (function () {
       var raw = (location.hash || "").replace(/^#/, "");
       var parts = raw.split("/").filter(Boolean).map(decodeURIComponent);
-      var tabs = ["overview", "usage", "providers", "combos", "keys", "health", "settings"];
+      var tabs = ["endpoint", "usage", "providers", "combos", "health", "settings"];
       var pane = null, nav = null;
       if (parts[0] === "provider" && parts[1]) {
         pane = document.getElementById("tab-provider-detail");
@@ -1035,18 +1016,18 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
         pane = document.getElementById("tab-" + parts[0]);
         nav = document.getElementById("nav-" + parts[0]);
       }
-      if (!pane) return; // no/unknown hash: leave the default Overview in place
+      if (!pane) return; // no/unknown hash: leave the default tab in place
       document.querySelectorAll(".tab-pane").forEach(function (el) { el.classList.remove("active"); });
       document.querySelectorAll(".nav-btn").forEach(function (el) { el.classList.remove("active"); });
       pane.classList.add("active");
       if (nav) nav.classList.add("active");
       // Keep the top-bar title correct on the first frame as well, otherwise it
-      // would read "Overview" until the bundle runs.
-      var titles = { overview: "Overview", usage: "Usage", providers: "Providers", combos: "Combos",
-                     keys: "API Keys", health: "Health & Setup", settings: "Settings",
+      // would read the default title until the bundle runs.
+      var titles = { endpoint: "Endpoint & Key", usage: "Usage", providers: "Providers", combos: "Combos",
+                     health: "Health & Setup", settings: "Settings",
                      "provider-detail": "Provider Detail" };
       var t = document.getElementById("page-title");
-      if (t) t.textContent = titles[pane.id.replace(/^tab-/, "")] || "Overview";
+      if (t) t.textContent = titles[pane.id.replace(/^tab-/, "")] || "Endpoint & Key";
     })();
   </script>
 
@@ -1462,19 +1443,19 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
   // ----------------------------------------------------------------
   // Navigation state, kept in the URL hash
   // ----------------------------------------------------------------
-  // A refresh used to drop the operator back on Overview no matter what they
-  // were looking at, because the pane was only ever selected by a click. The
-  // hash is the natural home for this: it survives reload, and it gives the
+  // A refresh used to drop the operator back on the first tab no matter what
+  // they were looking at, because the pane was only ever selected by a click.
+  // The hash is the natural home for this: it survives reload, and it gives the
   // browser's back/forward buttons something meaningful to move through.
   //
-  // Shape: `#overview`, `#providers`, `#combos`, `#keys`, `#health`, `#settings`,
+  // Shape: `#endpoint`, `#providers`, `#combos`, `#keys`, `#health`, `#settings`,
   // or `#provider/<id>` / `#provider/<id>/<subtab>` for a provider detail page.
-  const HASH_TABS = ["overview", "usage", "providers", "combos", "keys", "health", "settings"];
+  const HASH_TABS = ["endpoint", "usage", "providers", "combos", "health", "settings"];
 
   // Page titles shown in the top bar, keyed by tab id.
   const TAB_TITLES = {
-    overview: "Overview", usage: "Usage", providers: "Providers", combos: "Combos",
-    keys: "API Keys", health: "Health & Setup", settings: "Settings",
+    endpoint: "Endpoint & Key", usage: "Usage", providers: "Providers", combos: "Combos",
+    health: "Health & Setup", settings: "Settings",
     "provider-detail": "Provider Detail",
   };
 
@@ -1492,16 +1473,16 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
   }
 
   // parseHash splits the current hash into a tab id plus optional provider
-  // detail parts. Anything unrecognised falls back to Overview.
+  // detail parts. Anything unrecognised falls back to the first tab.
   function parseHash() {
     const raw = (location.hash || "").replace(/^#/, "");
-    if (!raw) return { tab: "overview" };
+    if (!raw) return { tab: "endpoint" };
     const parts = raw.split("/").filter(Boolean).map(decodeURIComponent);
     if (parts[0] === "provider" && parts[1]) {
       return { tab: "provider-detail", providerId: parts[1], subTab: parts[2] || "conn" };
     }
     if (HASH_TABS.includes(parts[0])) return { tab: parts[0] };
-    return { tab: "overview" };
+    return { tab: "endpoint" };
   }
 
   function switchTab(tabId) {
@@ -1517,12 +1498,11 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
     const title = document.getElementById("page-title");
     if (title) title.textContent = TAB_TITLES[tabId] || "9Router";
     toggleSidebar(false); // the drawer is single-use on mobile
-    if (tabId === "overview") loadDashboardStats();
+    if (tabId === "endpoint") loadEndpointTab();
     if (tabId === "usage") loadUsage();
     else stopUsageRefresh();
     if (tabId === "providers") loadProviders();
     if (tabId === "combos") loadCombos();
-    if (tabId === "keys") loadKeys();
     if (tabId === "settings") loadSettings();
   }
 
@@ -1763,7 +1743,7 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
 
   // restoreFromHash applies the view named in the URL. It runs once after a
   // successful sign-in, which is what makes a refresh land on the same page
-  // instead of always snapping back to Overview.
+  // instead of always snapping back to the first tab.
   function restoreFromHash() {
     const r = parseHash();
     if (r.tab === "provider-detail") {
@@ -3499,56 +3479,68 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
     location.reload();
   }
 
-  async function loadDashboardStats() {
+  // loadEndpointTab fills the Endpoint & Key page. It replaced loadDashboardStats,
+  // which fed the retired Overview counters.
+  async function loadEndpointTab() {
+    renderEndpointHost();
+    loadKeys();
+    loadEndpointStatus();
+  }
+
+  // The endpoint URLs are derived from the address the operator actually used,
+  // so opening the dashboard over Tailscale or a LAN IP shows that host rather
+  // than a hard-coded localhost that would not work from their other machine.
+  function renderEndpointHost() {
+    const host = location.hostname || "localhost";
+    const port = location.port || "20129";
+    const local = document.getElementById("endpoint-local");
+    if (local) local.value = `${location.protocol}//${host}:${port}/v1`;
+    const docker = document.getElementById("endpoint-docker");
+    if (docker) docker.value = `http://host.docker.internal:${port}/v1`;
+    // A loopback host means only this machine can reach the proxy; anything
+    // else is exposed, and that is worth saying out loud next to the key list.
+    const localHosts = ["localhost", "127.0.0.1", "::1", "0.0.0.0", ""];
+    const warn = document.getElementById("endpoint-exposed-warn");
+    if (warn) warn.style.display = localHosts.includes(host) ? "none" : "";
+  }
+
+  // The status pill probes the public /health route from the browser, the same
+  // way a client would, so a broken tunnel or firewall shows up here.
+  async function loadEndpointStatus() {
+    const el = document.getElementById("endpoint-status");
+    if (!el) return;
     try {
-      const res = await api("/api/dashboard/stats");
-      if (!res.ok) return;
-      const data = await res.json();
-      document.getElementById("stat-providers").innerText = data.totalProviders || 0;
-      document.getElementById("stat-active-providers").innerText = data.activeProviders || 0;
-      document.getElementById("stat-combos").innerText = data.totalCombos || 0;
-      document.getElementById("stat-keys").innerText = data.totalKeys || 0;
-
-      // Category counts in Overview
-      if (data.categories) {
-        const cats = ["oauth", "freeTier", "free", "apikey", "webCookie", "custom"];
-        cats.forEach(cat => {
-          const c = data.categories[cat] || { total: 0, active: 0 };
-          const totalEl = document.getElementById(`cat-${cat}-total`);
-          const activeEl = document.getElementById(`cat-${cat}-active`);
-          if (totalEl) totalEl.innerText = `${c.total} Connections`;
-          if (activeEl) activeEl.innerText = `${c.active} Active`;
-        });
-      }
-
-      // Grouped Chips
-      const chips = document.getElementById("provider-type-chips");
-      chips.innerHTML = "";
-      for (const [provider, count] of Object.entries(data.providerTypeCounts || {})) {
-        const chip = document.createElement("span");
-        chip.className = "badge badge-dim";
-        chip.style.padding = "6px 12px";
-        // Never surface a generated provider key ("openai-compatible-chat-<uuid>")
-        // in the label; fall back to the display name when the backend sent an id.
-        chip.innerText = `${niceProviderLabel(provider)}: ${count}`;
-        chips.appendChild(chip);
-      }
-
-      if (data.tokenSaver) {
-        let active = [];
-        if (data.tokenSaver.rtk) active.push("RTK");
-        if (data.tokenSaver.caveman) active.push("Caveman (" + data.tokenSaver.cavemanLevel + ")");
-        if (data.tokenSaver.ponytail) active.push("Ponytail (" + data.tokenSaver.ponytailLevel + ")");
-        document.getElementById("stat-saver-detail").innerText = active.length ? active.join(" + ") : "None";
-      }
-    } catch(e) {
-      console.error(e);
+      const res = await fetch("/health", { cache: "no-store" });
+      el.textContent = res.ok ? "reachable" : "unreachable";
+      el.className = "badge " + (res.ok ? "badge-ok" : "badge-err");
+    } catch (_) {
+      el.textContent = "unreachable";
+      el.className = "badge badge-err";
     }
   }
 
-  function filterByCategory(cat) {
-    navigateTab("providers");
-    setCategoryFilter(cat);
+  function copyEndpoint(id, btn) {
+    const el = document.getElementById(id);
+    if (el) copyText(el.value, btn);
+  }
+
+  function copyCurlSample(btn) {
+    const el = document.getElementById("curl-sample");
+    if (el) copyText(el.innerText, btn);
+  }
+
+  function copyText(text, btn) {
+    const done = () => {
+      if (!btn) return;
+      const prev = btn.textContent;
+      btn.textContent = "Copied";
+      setTimeout(() => { btn.textContent = prev; }, 1500);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done).catch(() => {});
+    } else {
+      done();
+    }
   }
 
   function setCategoryFilter(cat) {
@@ -4175,7 +4167,7 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
   async function toggleProvider(id) {
     try {
       await api(`/api/dashboard/providers/${id}/toggle`, { method: "POST" });
-      loadDashboardStats();
+      loadProviders();
     } catch(e) { alert(e.message); }
   }
 
@@ -4283,7 +4275,6 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
     try {
       await api(`/api/dashboard/providers/${id}`, { method: "DELETE" });
       loadProviders();
-      loadDashboardStats();
     } catch(e) { alert(e.message); }
   }
 
@@ -4336,7 +4327,6 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
       if (!res.ok) throw new Error(await res.text());
       closeModal("provider-modal");
       loadProviders();
-      loadDashboardStats();
     } catch(e) {
       alert("Failed to save provider: " + e.message);
     }
@@ -4397,7 +4387,6 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
       if (!res.ok) throw new Error(await res.text());
       closeModal("combo-modal");
       loadCombos();
-      loadDashboardStats();
     } catch(e) {
       alert("Failed to save combo: " + e.message);
     }
@@ -4408,36 +4397,74 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
     try {
       await api(`/api/dashboard/combos/${id}`, { method: "DELETE" });
       loadCombos();
-      loadDashboardStats();
     } catch(e) { alert(e.message); }
   }
 
+  // The revealed-key ids are kept in memory only: a page refresh hides every
+  // secret again, so a screenshot or a shoulder-surfer cannot inherit state.
+  const revealedKeys = new Set();
+  // Last fetched keys, keyed by id, for the copy button.
+  const allKeysById = new Map();
+
+  function toggleKeySecret(id) {
+    if (revealedKeys.has(id)) revealedKeys.delete(id); else revealedKeys.add(id);
+    loadKeys();
+  }
+
+  function maskKey(k) {
+    if (!k || k.length <= 12) return k || "";
+    return k.slice(0, 8) + "\u2026" + k.slice(-6);
+  }
+
+  function copyKeySecret(id) {
+    const k = (allKeysById.get(id) || {}).key;
+    if (k) copyText(k, null);
+    alert("API key copied to clipboard.");
+  }
+
   async function loadKeys() {
+    const tbody = document.getElementById("endpoint-keys-body");
+    const empty = document.getElementById("endpoint-keys-empty");
+    const table = document.getElementById("endpoint-keys-table");
+    if (!tbody) return;
     try {
       const res = await api("/api/dashboard/keys");
       if (!res.ok) return;
       const keys = await res.json();
-      const tbody = document.getElementById("keys-table-body");
-      if (!keys.length) {
-        tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--muted); padding: 24px;">No API keys found.</td></tr>`;
-        return;
-      }
-      tbody.innerHTML = keys.map(k => `
-        <tr>
+      allKeysById.clear();
+      keys.forEach(k => allKeysById.set(k.id, k));
+
+      if (empty) empty.style.display = keys.length ? "none" : "";
+      if (table) table.style.display = keys.length ? "" : "none";
+
+      tbody.innerHTML = keys.map(k => {
+        const paused = k.isActive === 0 || k.isActive === false;
+        const shown = revealedKeys.has(k.id);
+        return `
+        <tr class="${paused ? "row-paused" : ""}">
           <td>
             <label class="switch">
-              <input type="checkbox" ${k.isActive === 1 ? 'checked' : ''} onchange="toggleKey('${k.id}')">
+              <input type="checkbox" ${paused ? "" : "checked"} onchange="toggleKey('${k.id}')">
               <span class="slider"></span>
             </label>
           </td>
-          <td><strong style="color: #fff;">${escapeHtml(k.name || 'Unnamed')}</strong></td>
-          <td><code style="background:#090d13; border: 1px solid var(--border); padding: 4px 8px; border-radius: 4px; color: #79c0ff;">${escapeHtml(k.key)}</code></td>
-          <td style="color:var(--muted); font-size: 0.8rem;">${k.createdAt ? k.createdAt.substring(0, 10) : '-'}</td>
+          <td>
+            <strong style="color: #fff;">${escapeHtml(k.name || "Unnamed")}</strong>
+            ${paused ? '<p class="key-paused">Paused</p>' : ""}
+          </td>
+          <td>
+            <div class="key-secret">
+              <code>${escapeHtml(shown ? k.key : maskKey(k.key))}</code>
+              <button class="icon-btn" onclick="toggleKeySecret('${k.id}')" title="${shown ? "Hide key" : "Show key"}">${shown ? "🙈" : "👁"}</button>
+              <button class="icon-btn" onclick="copyKeySecret('${k.id}')" title="Copy key">📋</button>
+            </div>
+          </td>
+          <td style="color:var(--muted); font-size: 0.8rem;">${k.createdAt ? escapeHtml(k.createdAt.substring(0, 10)) : "-"}</td>
           <td style="text-align: right;">
             <button class="btn btn-sm btn-danger" onclick="deleteKey('${k.id}')">Revoke</button>
           </td>
-        </tr>
-      `).join("");
+        </tr>`;
+      }).join("");
     } catch(e) {
       console.error(e);
     }
@@ -4460,7 +4487,6 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
       alert("API Key generated successfully:\n\n" + data.key);
       closeModal("key-modal");
       loadKeys();
-      loadDashboardStats();
     } catch(e) {
       alert("Failed to generate key: " + e.message);
     }
@@ -4469,7 +4495,7 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
   async function toggleKey(id) {
     try {
       await api(`/api/dashboard/keys/${id}/toggle`, { method: "POST" });
-      loadDashboardStats();
+      loadKeys();
     } catch(e) { alert(e.message); }
   }
 
@@ -4478,7 +4504,6 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
     try {
       await api(`/api/dashboard/keys/${id}`, { method: "DELETE" });
       loadKeys();
-      loadDashboardStats();
     } catch(e) { alert(e.message); }
   }
 
@@ -4515,7 +4540,7 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
       });
       if (!res.ok) throw new Error(await res.text());
       alert("Token optimization settings updated successfully.");
-      loadDashboardStats();
+      loadSettings();
     } catch(e) {
       alert("Failed to save settings: " + e.message);
     }
@@ -4523,7 +4548,7 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
 
   function syncCatalog() {
     alert("Catalog refreshed from active provider connections.");
-    loadDashboardStats();
+    loadProviders();
   }
 
   function escapeHtml(str) {
