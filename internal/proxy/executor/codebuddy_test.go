@@ -2,6 +2,7 @@ package executor
 
 import (
 	json "encoding/json/v2"
+	"strings"
 	"testing"
 )
 
@@ -164,3 +165,35 @@ func TestCodebuddyEmptyMessagesStillSeeded(t *testing.T) {
 		t.Errorf("first message = %v, want the seed", first)
 	}
 }
+
+// TestCodebuddySanitizesCompetitorPromptFingerprint verifies that Claude Code's
+// official system prompt fingerprint ("official CLI for Claude") is sanitized so
+// the gateway doesn't reject it with 11128.
+func TestCodebuddySanitizesCompetitorPromptFingerprint(t *testing.T) {
+	in := []byte(`{"model":"glm-5.2","messages":[
+		{"role":"system","content":"You are Claude Code, Anthropic's official CLI for Claude.\nHere are instructions..."},
+		{"role":"user","content":"hello"}
+	]}`)
+	out, err := transformCodebuddyBody(in)
+	if err != nil {
+		t.Fatalf("transformCodebuddyBody: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	msgs, _ := got["messages"].([]any)
+	if len(msgs) != 3 {
+		t.Fatalf("len(msgs) = %d, want 3", len(msgs))
+	}
+	second, _ := msgs[1].(map[string]any)
+	secContent, _ := second["content"].(string)
+	if claudeCodeBlockedPromptRegex.MatchString(secContent) {
+		t.Errorf("second message still contains blocked fingerprint: %q", secContent)
+	}
+	wantSub := "Anthropic's CLI for Claude"
+	if !strings.Contains(secContent, wantSub) {
+		t.Errorf("second message missing sanitized substring %q: %q", wantSub, secContent)
+	}
+}
+

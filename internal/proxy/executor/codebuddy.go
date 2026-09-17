@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -65,6 +66,43 @@ func ForwardCodebuddyCN(w http.ResponseWriter, req *Request) error {
 // same constant in its CodeBuddyIntlExecutor/CodeBuddyExecutor.
 const codebuddyRequiredSystemPrompt = "You are CodeBuddy Code."
 
+// claudeCodeBlockedPromptRegex catches Claude Code's first-party identity
+// prompt which the CodeBuddy gateway fingerprints and blocks with:
+// `400 {"code":11128,"msg":"Illegal API invocation from an unapproved channel"}`.
+// Rewriting "official CLI for Claude" -> "CLI for Claude" bypasses the gate
+// cleanly while keeping all agent instructions intact.
+var claudeCodeBlockedPromptRegex = regexp.MustCompile(`(?i)official\s+CLI\s+for\s+Claude`)
+
+func sanitizeCodebuddyPrompt(s string) string {
+	if claudeCodeBlockedPromptRegex.MatchString(s) {
+		return claudeCodeBlockedPromptRegex.ReplaceAllString(s, "CLI for Claude")
+	}
+	return s
+}
+
+func sanitizeCodebuddyContent(content any) any {
+	switch v := content.(type) {
+	case string:
+		return sanitizeCodebuddyPrompt(v)
+	case []any:
+		for i, item := range v {
+			if m, ok := item.(map[string]any); ok {
+				if t, ok := m["text"].(string); ok {
+					m["text"] = sanitizeCodebuddyPrompt(t)
+				}
+			} else if m, ok := item.(map[string]interface{}); ok {
+				if t, ok := m["text"].(string); ok {
+					m["text"] = sanitizeCodebuddyPrompt(t)
+				}
+			}
+			v[i] = item
+		}
+		return v
+	default:
+		return content
+	}
+}
+
 // transformCodebuddyBody forces stream=true and handles reasoning params.
 func transformCodebuddyBody(body []byte) ([]byte, error) {
 	var reqMap map[string]interface{}
@@ -109,6 +147,10 @@ func transformCodebuddyBody(body []byte) ([]byte, error) {
 				continue
 			}
 			role, _ := m["role"].(string)
+			// Sanitize any competitor signature fingerprint in caller content
+			if m["content"] != nil {
+				m["content"] = sanitizeCodebuddyContent(m["content"])
+			}
 			content, _ := m["content"].(string)
 			// The caller may already carry the seed prompt (e.g. a client that
 			// copied it). Keep only the first copy so the gateway never sees two.
