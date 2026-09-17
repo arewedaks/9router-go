@@ -3,95 +3,19 @@ package dbtest
 import (
 	"database/sql"
 	"fmt"
+
+	"9router/proxy/internal/db"
 )
 
 // SchemaStatements returns all CREATE TABLE statements used by 9Router tests.
-// Matches the canonical schema shared with the Next.js dashboard.
+//
+// The statements live in internal/db so tests and production build the same
+// schema. They used to be duplicated here, and the copies drifted: tests were
+// creating an apiKeys table without the allowedProviders/allowedCombos/
+// allowedKinds columns and no proxyPools table at all, so a test could pass
+// against a shape production does not have.
 func SchemaStatements() []string {
-	return []string{
-		`CREATE TABLE apiKeys (
-			id TEXT PRIMARY KEY,
-			key TEXT UNIQUE NOT NULL,
-			name TEXT,
-			machineId TEXT,
-			isActive INTEGER DEFAULT 1,
-			createdAt TEXT NOT NULL
-		)`,
-		`CREATE TABLE providerConnections (
-			id TEXT PRIMARY KEY,
-			provider TEXT NOT NULL,
-			authType TEXT NOT NULL,
-			name TEXT,
-			email TEXT,
-			priority INTEGER,
-			isActive INTEGER DEFAULT 1,
-			data TEXT NOT NULL,
-			createdAt TEXT NOT NULL,
-			updatedAt TEXT NOT NULL
-		)`,
-		`CREATE TABLE kv (
-			scope TEXT NOT NULL,
-			key TEXT NOT NULL,
-			value TEXT NOT NULL,
-			PRIMARY KEY (scope, key)
-		)`,
-		`CREATE TABLE combos (
-			id TEXT PRIMARY KEY,
-			name TEXT UNIQUE NOT NULL,
-			kind TEXT,
-			models TEXT NOT NULL,
-			createdAt TEXT NOT NULL,
-			updatedAt TEXT NOT NULL
-		)`,
-		`CREATE TABLE settings (
-			id INTEGER PRIMARY KEY CHECK (id = 1),
-			data TEXT NOT NULL
-		)`,
-		`CREATE TABLE providerNodes (
-			id TEXT PRIMARY KEY,
-			type TEXT,
-			name TEXT,
-			data TEXT NOT NULL,
-			createdAt TEXT NOT NULL,
-			updatedAt TEXT NOT NULL
-		)`,
-		`CREATE TABLE IF NOT EXISTS cachedProviderModels (
-			providerId TEXT NOT NULL,
-			modelId TEXT NOT NULL,
-			kind TEXT DEFAULT 'llm',
-			ownedBy TEXT NOT NULL,
-			capabilities TEXT,
-			updatedAt INTEGER NOT NULL,
-			PRIMARY KEY (providerId, modelId)
-		)`,
-		`CREATE TABLE IF NOT EXISTS usageHistory (
-			timestamp TEXT,
-			provider TEXT,
-			model TEXT,
-			connectionId TEXT,
-			apiKey TEXT,
-			endpoint TEXT,
-			promptTokens INTEGER,
-			completionTokens INTEGER,
-			cost REAL,
-			status TEXT,
-			tokens TEXT,
-			meta TEXT
-		)`,
-		`CREATE TABLE IF NOT EXISTS usageDaily (
-			dateKey TEXT PRIMARY KEY,
-			data TEXT NOT NULL
-		)`,
-		`CREATE TABLE IF NOT EXISTS requestDetails (
-			id TEXT PRIMARY KEY,
-			timestamp TEXT,
-			provider TEXT,
-			model TEXT,
-			connectionId TEXT,
-			status TEXT,
-			data TEXT
-		)`,
-	}
+	return db.SchemaStatements()
 }
 
 // CreateTables creates all tables from SchemaStatements in the given database.

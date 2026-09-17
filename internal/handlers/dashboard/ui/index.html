@@ -25,8 +25,53 @@
       --radius: 8px;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif; }
-    body { background-color: var(--bg); color: var(--text); min-height: 100vh; display: flex; flex-direction: column; }
-    header { background: var(--panel); border-bottom: 1px solid var(--border); padding: 12px 24px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 100; }
+    body { background-color: var(--bg); color: var(--text); min-height: 100vh; display: flex; }
+
+    /* ----------------------------------------------------------------
+       Sidebar layout
+       ----------------------------------------------------------------
+       Navigation moved out of the top bar into a left rail: the header was
+       running out of room and the list only grows. The shell is a flex row —
+       fixed sidebar, then a column holding the top bar and the scrolling main
+       content. */
+    .sidebar {
+      width: 232px; flex: 0 0 232px; background: var(--panel);
+      border-right: 1px solid var(--border);
+      display: flex; flex-direction: column; padding: 16px 12px;
+      position: sticky; top: 0; height: 100vh;
+    }
+    .sidebar-brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 1.05rem; color: #fff; padding: 6px 10px 18px; }
+    .sidebar-nav { display: flex; flex-direction: column; gap: 2px; flex: 1; overflow-y: auto; }
+    /* A faint label between groups — the list is short enough that headings
+       would add noise, so only the gap plus label for the last group. */
+    .nav-group-label { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); padding: 14px 10px 6px; }
+    .sidebar-foot { border-top: 1px solid var(--border); padding-top: 12px; margin-top: 12px; }
+    .sidebar-foot .btn { width: 100%; justify-content: center; }
+
+    .shell { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+    /* The old pill buttons are gone, but the class name is kept so the
+       navigation tests and any muscle memory still line up. */
+    .nav-btn {
+      background: transparent; border: none; color: var(--muted);
+      padding: 9px 10px; border-radius: var(--radius); cursor: pointer;
+      font-weight: 500; font-size: 0.9rem; transition: 0.15s;
+      display: flex; align-items: center; gap: 10px; text-align: left; width: 100%;
+    }
+    .nav-btn:hover { color: var(--text); background: var(--panel-hover); }
+    .nav-btn.active { color: #fff; background: var(--primary-dim); box-shadow: inset 2px 0 0 var(--primary); }
+    .nav-icon { font-size: 1.05rem; line-height: 1; width: 20px; text-align: center; flex: 0 0 20px; }
+
+    /* Mobile: the rail collapses to a drawer toggled from the top bar. */
+    .sidebar-toggle { display: none; background: transparent; border: 1px solid var(--border); color: var(--text); border-radius: var(--radius); padding: 6px 10px; cursor: pointer; font-size: 1rem; }
+    .sidebar-scrim { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.55); z-index: 140; }
+    .sidebar-scrim.show { display: block; }
+    @media (max-width: 860px) {
+      .sidebar { position: fixed; left: 0; top: 0; z-index: 150; transform: translateX(-100%); transition: transform 0.2s ease; box-shadow: 0 0 24px rgba(0,0,0,0.5); }
+      .sidebar.open { transform: translateX(0); }
+      .sidebar-toggle { display: inline-flex; align-items: center; gap: 6px; }
+    }
+
+    header { background: var(--panel); border-bottom: 1px solid var(--border); padding: 12px 24px; display: flex; align-items: center; justify-content: space-between; gap: 12px; position: sticky; top: 0; z-index: 100; }
     .logo { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 1.15rem; color: #fff; }
     .badge { padding: 2px 8px; border-radius: 12px; font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px; display: inline-flex; align-items: center; gap: 4px; }
     .badge-go { background: #00add8; color: #fff; }
@@ -86,12 +131,8 @@
     .acct-pill.idle { background: var(--panel-hover); color: var(--muted); }
 
     .nav-tabs { display: flex; gap: 6px; }
-    .nav-btn { background: transparent; border: 1px solid transparent; color: var(--muted); padding: 8px 14px; border-radius: var(--radius); cursor: pointer; font-weight: 500; font-size: 0.9rem; transition: 0.15s; }
-    .nav-btn:hover { color: var(--text); background: var(--panel-hover); }
-    .nav-btn.active { color: #fff; background: var(--primary-dim); border-color: var(--primary); }
     
-    main { flex: 1; padding: 24px; max-width: 1240px; width: 100%; margin: 0 auto; }
-    .tab-pane { display: none; }
+    main { flex: 1; padding: 24px; max-width: 1240px; width: 100%; margin: 0 auto; }    .tab-pane { display: none; }
     .tab-pane.active { display: block; }
     
     .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-bottom: 24px; }
@@ -245,31 +286,57 @@
     .import-row .mnames { flex: 1 1 auto; min-width: 90px; display: flex; flex-direction: column; gap: 1px; overflow: hidden; }
     .import-row .msub { font-size: 0.68rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .import-row input { accent-color: var(--primary); }
+
+    /* Settings page */
+    .settings-group-title { font-size: 0.95rem; color: #fff; margin: 22px 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+    .settings-group-title:first-of-type { margin-top: 0; }
+    .settings-warn { font-size: 0.78rem; color: #f0b849; background: rgba(210,153,34,0.1); border: 1px solid rgba(210,153,34,0.35); border-radius: var(--radius); padding: 10px 12px; margin-bottom: 14px; line-height: 1.5; }
+    .settings-msg { font-size: 0.8rem; min-height: 18px; margin-bottom: 10px; }
+    .settings-msg.ok { color: #56d364; }
+    .settings-msg.err { color: #f85149; }
   </style>
 </head>
 <body>
 
-<header>
-  <div class="logo">
+<!-- SIDEBAR NAVIGATION -->
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-brand">
     <span>⚡ 9Router</span>
-    <span class="badge badge-go">Go Engine</span>
+    <span class="badge badge-go">Go</span>
   </div>
-  <div class="nav-tabs">
-    <button class="nav-btn active" onclick="switchTab('overview')">📊 Overview</button>
-    <button class="nav-btn" id="nav-providers" onclick="switchTab('providers')">🔌 Providers</button>
-    <button class="nav-btn" onclick="switchTab('combos')">🔀 Combos</button>
-    <button class="nav-btn" onclick="switchTab('keys')">🔑 API Keys</button>
-    <button class="nav-btn" onclick="switchTab('savers')">⚡ Token Savers</button>
-    <button class="nav-btn" onclick="switchTab('health')">🩺 Health & Setup</button>
+
+  <nav class="sidebar-nav">
+    <button class="nav-btn" id="nav-overview" onclick="navigateTab('overview')"><span class="nav-icon">📊</span> Overview</button>
+    <button class="nav-btn" id="nav-providers" onclick="navigateTab('providers')"><span class="nav-icon">🔌</span> Providers</button>
+    <button class="nav-btn" id="nav-combos" onclick="navigateTab('combos')"><span class="nav-icon">🔀</span> Combos</button>
+    <button class="nav-btn" id="nav-keys" onclick="navigateTab('keys')"><span class="nav-icon">🔑</span> API Keys</button>
+    <button class="nav-btn" id="nav-health" onclick="navigateTab('health')"><span class="nav-icon">🩺</span> Health &amp; Setup</button>
+
+    <div class="nav-group-label">Configuration</div>
+    <button class="nav-btn" id="nav-settings" onclick="navigateTab('settings')"><span class="nav-icon">⚙️</span> Settings</button>
+  </nav>
+
+  <div class="sidebar-foot">
+    <button class="btn btn-sm" onclick="signOut()" id="auth-status-btn">🔒 Sign out</button>
+  </div>
+</aside>
+
+<div class="sidebar-scrim" id="sidebar-scrim" onclick="toggleSidebar(false)"></div>
+
+<div class="shell">
+<header>
+  <div style="display:flex; align-items:center; gap:12px;">
+    <button class="sidebar-toggle" id="sidebar-toggle" onclick="toggleSidebar()" aria-label="Toggle navigation">☰</button>
+    <div id="page-title" style="font-weight:600; color:#fff;">Overview</div>
   </div>
   <div>
-    <button class="btn btn-sm" onclick="signOut()" id="auth-status-btn">🔒 Sign out</button>
+    <span class="badge badge-go">Go Engine</span>
   </div>
 </header>
 
 <main>
   <!-- OVERVIEW TAB -->
-  <div id="tab-overview" class="tab-pane active">
+  <div id="tab-overview" class="tab-pane">
     <div class="grid">
       <div class="card">
         <h3>Total Providers</h3>
@@ -466,43 +533,58 @@
       </table>
     </div>
 
-    <!-- Dashboard Security -->
-    <div class="section-header" style="margin-top: 28px;">
-      <div>
-        <h2 class="section-title">Dashboard Security</h2>
-        <p style="font-size: 0.85rem; color: var(--muted);">Your sign-in password for this dashboard. Client API keys above are separate and still authorise <code>/v1</code> requests.</p>
-      </div>
-    </div>
-    <div class="modal-box" style="max-width: 460px; margin: 0;">
-      <div id="pw-first-time" style="font-size: 0.8rem; color: var(--muted); margin-bottom: 12px; display: none;">
-        No password has been set yet — the default is <code>123456</code>. Change it now, especially if this dashboard is reachable from another machine.
-      </div>
-      <div class="form-group">
-        <label>Current password</label>
-        <input type="password" id="pw-current" placeholder="Current password" autocomplete="current-password">
-      </div>
-      <div class="form-group">
-        <label>New password</label>
-        <input type="password" id="pw-new" placeholder="New password" autocomplete="new-password">
-      </div>
-      <div class="form-group">
-        <label>Confirm new password</label>
-        <input type="password" id="pw-confirm" placeholder="Repeat new password" autocomplete="new-password">
-      </div>
-      <div id="pw-msg" style="font-size: 0.8rem; margin-bottom: 12px; display: none;"></div>
-      <button class="btn btn-primary" onclick="changeDashboardPassword()">Update password</button>
-    </div>
   </div>
 
   <!-- TOKEN SAVERS TAB -->
-  <div id="tab-savers" class="tab-pane">
+  <!-- SETTINGS TAB -->
+  <div id="tab-settings" class="tab-pane">
     <div class="section-header">
       <div>
-        <h2 class="section-title">Token Optimization Matrix</h2>
-        <p style="font-size: 0.85rem; color: var(--muted);">Intelligent token reduction pipeline saving 60-90% bandwidth</p>
+        <h2 class="section-title">Settings</h2>
+        <p style="font-size: 0.85rem; color: var(--muted);">Dashboard credentials and token optimization pipeline</p>
       </div>
       <button class="btn btn-primary" onclick="saveTokenSaverSettings()">💾 Save Settings</button>
     </div>
+
+    <!-- SECURITY -->
+    <h3 class="settings-group-title">🔐 Security</h3>
+
+    <div class="grid">
+      <div class="card">
+        <h3 style="margin:0 0 4px; font-size:1rem; color:#fff;">Change Password</h3>
+        <p style="font-size:0.85rem; color:var(--muted); margin-bottom:14px;">Update the password used to sign in to this dashboard.</p>
+        <div class="form-group">
+          <label>Current password</label>
+          <input type="password" id="set-cur-pw" autocomplete="current-password" placeholder="Current password">
+        </div>
+        <div class="form-group">
+          <label>New password</label>
+          <input type="password" id="set-new-pw" autocomplete="new-password" placeholder="At least 6 characters">
+        </div>
+        <div class="form-group">
+          <label>Confirm new password</label>
+          <input type="password" id="set-confirm-pw" autocomplete="new-password" placeholder="Repeat new password">
+        </div>
+        <div id="pw-change-msg" class="settings-msg"></div>
+        <button class="btn btn-primary" id="pw-change-btn" onclick="changePassword()" style="width:100%; justify-content:center;">Update Password</button>
+      </div>
+
+      <div class="card" style="border-left:3px solid var(--danger);">
+        <h3 style="margin:0 0 4px; font-size:1rem; color:#fff;">Reset Password</h3>
+        <p style="font-size:0.85rem; color:var(--muted); margin-bottom:12px;">Clears the stored password and restores the built-in default, so you can get back in if the password is lost.</p>
+        <div class="settings-warn">
+          ⚠️ Anyone who can reach this dashboard on this machine can use this to
+          regain access. Only works from localhost. You will have to sign in
+          again afterwards.
+        </div>
+        <div id="pw-reset-msg" class="settings-msg"></div>
+        <button class="btn" id="pw-reset-btn" onclick="resetPasswordConfirm()" style="width:100%; justify-content:center; border-color:var(--danger); color:var(--danger);">Reset to Default Password</button>
+      </div>
+    </div>
+
+    <!-- TOKEN OPTIMIZATION -->
+    <h3 class="settings-group-title">⚡ Token Optimization</h3>
+    <p style="font-size: 0.85rem; color: var(--muted); margin: -6px 0 14px;">Intelligent token reduction pipeline saving 60-90% bandwidth</p>
 
     <div class="grid">
       <div class="card">
@@ -603,6 +685,45 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
     </div>
   </div>
 </main>
+</div><!-- /.shell -->
+
+  <!-- Apply the view named in the URL before the body paints.
+
+       This has to be a synchronous inline script, not part of the main bundle:
+       the bundle only runs after checkAuth() resolves, and until then the
+       browser would paint the default Overview pane and then snap to the real
+       one — the visible flicker on refresh. All this does is pre-select the
+       right pane and nav button so the first paint is already correct; the
+       bundle still does the actual data loading.
+
+       It intentionally carries no dependency on the rest of the page. -->
+  <script>
+    (function () {
+      var raw = (location.hash || "").replace(/^#/, "");
+      var parts = raw.split("/").filter(Boolean).map(decodeURIComponent);
+      var tabs = ["overview", "providers", "combos", "keys", "health", "settings"];
+      var pane = null, nav = null;
+      if (parts[0] === "provider" && parts[1]) {
+        pane = document.getElementById("tab-provider-detail");
+        nav = document.getElementById("nav-providers");
+      } else if (tabs.indexOf(parts[0]) !== -1) {
+        pane = document.getElementById("tab-" + parts[0]);
+        nav = document.getElementById("nav-" + parts[0]);
+      }
+      if (!pane) return; // no/unknown hash: leave the default Overview in place
+      document.querySelectorAll(".tab-pane").forEach(function (el) { el.classList.remove("active"); });
+      document.querySelectorAll(".nav-btn").forEach(function (el) { el.classList.remove("active"); });
+      pane.classList.add("active");
+      if (nav) nav.classList.add("active");
+      // Keep the top-bar title correct on the first frame as well, otherwise it
+      // would read "Overview" until the bundle runs.
+      var titles = { overview: "Overview", providers: "Providers", combos: "Combos",
+                     keys: "API Keys", health: "Health & Setup", settings: "Settings",
+                     "provider-detail": "Provider Detail" };
+      var t = document.getElementById("page-title");
+      if (t) t.textContent = titles[pane.id.replace(/^tab-/, "")] || "Overview";
+    })();
+  </script>
 
 <!-- LOGIN MODAL -->
 <div class="modal-overlay" id="login-modal">
@@ -833,20 +954,179 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
     return true;
   }
 
+  // ----------------------------------------------------------------
+  // Navigation state, kept in the URL hash
+  // ----------------------------------------------------------------
+  // A refresh used to drop the operator back on Overview no matter what they
+  // were looking at, because the pane was only ever selected by a click. The
+  // hash is the natural home for this: it survives reload, and it gives the
+  // browser's back/forward buttons something meaningful to move through.
+  //
+  // Shape: `#overview`, `#providers`, `#combos`, `#keys`, `#health`, `#settings`,
+  // or `#provider/<id>` / `#provider/<id>/<subtab>` for a provider detail page.
+  const HASH_TABS = ["overview", "providers", "combos", "keys", "health", "settings"];
+
+  // Page titles shown in the top bar, keyed by tab id.
+  const TAB_TITLES = {
+    overview: "Overview", providers: "Providers", combos: "Combos",
+    keys: "API Keys", health: "Health & Setup", settings: "Settings",
+    "provider-detail": "Provider Detail",
+  };
+
+  // writingHash stops the hashchange handler from re-running a navigation that
+  // this code just performed — otherwise every switchTab would fetch twice.
+  let writingHash = false;
+
+  function writeHash(hash) {
+    if (location.hash === hash) return;
+    writingHash = true;
+    location.hash = hash;
+    // The hashchange event is async; clear the flag on the next task so a
+    // genuine user-initiated change is still observed.
+    setTimeout(() => { writingHash = false; }, 0);
+  }
+
+  // parseHash splits the current hash into a tab id plus optional provider
+  // detail parts. Anything unrecognised falls back to Overview.
+  function parseHash() {
+    const raw = (location.hash || "").replace(/^#/, "");
+    if (!raw) return { tab: "overview" };
+    const parts = raw.split("/").filter(Boolean).map(decodeURIComponent);
+    if (parts[0] === "provider" && parts[1]) {
+      return { tab: "provider-detail", providerId: parts[1], subTab: parts[2] || "conn" };
+    }
+    if (HASH_TABS.includes(parts[0])) return { tab: parts[0] };
+    return { tab: "overview" };
+  }
+
   function switchTab(tabId) {
     document.querySelectorAll(".tab-pane").forEach(p => p.classList.remove("active"));
     document.querySelectorAll(".nav-btn").forEach(b => b.classList.remove("active"));
     const pane = document.getElementById("tab-" + tabId);
     if (pane) pane.classList.add("active");
-    if (event && event.target && event.target.classList) {
-      event.target.classList.add("active");
-    }
+    // Highlight the nav button by id. This used to read the global `event`,
+    // which only exists for real click events — calling switchTab() from code
+    // (restoring a refresh, a category shortcut) left every nav button unlit.
+    const nav = document.getElementById("nav-" + tabId);
+    if (nav) nav.classList.add("active");
+    const title = document.getElementById("page-title");
+    if (title) title.textContent = TAB_TITLES[tabId] || "9Router";
+    toggleSidebar(false); // the drawer is single-use on mobile
     if (tabId === "overview") loadDashboardStats();
     if (tabId === "providers") loadProviders();
     if (tabId === "combos") loadCombos();
     if (tabId === "keys") loadKeys();
-    if (tabId === "savers") loadSettings();
+    if (tabId === "settings") loadSettings();
   }
+
+  // ----------------------------------------------------------------
+  // Sidebar drawer (mobile only; the rail is always visible on desktop)
+  // ----------------------------------------------------------------
+  function toggleSidebar(force) {
+    const sb = document.getElementById("sidebar");
+    const scrim = document.getElementById("sidebar-scrim");
+    if (!sb) return;
+    const open = typeof force === "boolean" ? force : !sb.classList.contains("open");
+    sb.classList.toggle("open", open);
+    if (scrim) scrim.classList.toggle("show", open);
+  }
+
+  // ----------------------------------------------------------------
+  // Password management (Settings)
+  // ----------------------------------------------------------------
+  function setMsg(id, text, ok) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = text;
+    el.className = "settings-msg " + (ok ? "ok" : "err");
+  }
+
+  async function changePassword() {
+    const cur = document.getElementById("set-cur-pw").value;
+    const nw = document.getElementById("set-new-pw").value;
+    const conf = document.getElementById("set-confirm-pw").value;
+    if (!cur || !nw) return setMsg("pw-change-msg", "Fill in your current and new password.", false);
+    if (nw.length < 6) return setMsg("pw-change-msg", "New password must be at least 6 characters.", false);
+    if (nw !== conf) return setMsg("pw-change-msg", "The two new passwords do not match.", false);
+
+    const btn = document.getElementById("pw-change-btn");
+    btn.disabled = true;
+    try {
+      const res = await fetch("/api/dashboard/auth/change-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ currentPassword: cur, newPassword: nw }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        // The server says "Unauthorized" here, which does not tell the operator
+        // which field was wrong.
+        const m = res.status === 401 ? "Your current password is incorrect." : errorMessage(data, res.status);
+        return setMsg("pw-change-msg", m, false);
+      }
+      document.getElementById("set-cur-pw").value = "";
+      document.getElementById("set-new-pw").value = "";
+      document.getElementById("set-confirm-pw").value = "";
+      setMsg("pw-change-msg", "✅ Password updated.", true);
+    } catch (e) {
+      setMsg("pw-change-msg", "Network error: " + e.message, false);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  // Resetting drops the stored password back to the built-in default, so it is
+  // deliberately noisy: a confirm() plus a sign-out, because the session that
+  // authorised the change is about to be the wrong credential.
+  async function resetPasswordConfirm() {
+    if (!confirm("Reset the dashboard password to the default?\n\nAnyone who can reach this machine will be able to sign in with the default password. You will be signed out.")) return;
+    const btn = document.getElementById("pw-reset-btn");
+    btn.disabled = true;
+    try {
+      const res = await fetch("/api/dashboard/auth/reset-password", { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) return setMsg("pw-reset-msg", errorMessage(data, res.status), false);
+      setMsg("pw-reset-msg", "✅ Password reset. Signing out…", true);
+      setTimeout(() => signOut(), 900);
+    } catch (e) {
+      setMsg("pw-reset-msg", "Network error: " + e.message, false);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  // navigateTab is the user-facing entry point: it selects the tab *and*
+  // records it in the hash so a refresh comes back here.
+  function navigateTab(tabId) {
+    writeHash("#" + tabId);
+    switchTab(tabId);
+  }
+
+  // restoreFromHash applies the view named in the URL. It runs once after a
+  // successful sign-in, which is what makes a refresh land on the same page
+  // instead of always snapping back to Overview.
+  function restoreFromHash() {
+    const r = parseHash();
+    if (r.tab === "provider-detail") {
+      // openProviderDetail sets the hash itself; passing subTab restores the
+      // sub-tab the operator had open.
+      openProviderDetail(r.providerId, false, r.subTab);
+      return;
+    }
+    switchTab(r.tab);
+  }
+
+  // Back/forward support. Skipped for changes we made ourselves, so a plain
+  // tab click does not trigger a second fetch of the same data.
+  //
+  // While the login modal is up there is nothing to render against yet, so the
+  // hash is left alone; checkAuth's restoreFromHash covers that case once the
+  // operator is signed in.
+  window.addEventListener("hashchange", () => {
+    if (writingHash) return;
+    if (document.getElementById("login-modal").classList.contains("active")) return;
+    restoreFromHash();
+  });
 
   function closeModal(id) {
     document.getElementById(id).classList.remove("active");
@@ -866,9 +1146,15 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
   // keepTab: passed by actions taken from inside the panel (add/import/remove
   // model, auto-disable) so a re-fetch does not kick the operator off the tab
   // they are working in. Opening a provider from the grid leaves it false.
-  async function openProviderDetail(providerId, keepTab) {
+  //
+  // subTab (optional) selects a detail sub-tab explicitly, which is how a
+  // refresh restores the exact view the operator left; when omitted, the
+  // existing activeDetailTab is respected unless keepTab is false.
+  async function openProviderDetail(providerId, keepTab, subTab) {
     currentProviderId = providerId;
     if (!keepTab) activeDetailTab = "conn";
+    if (subTab) activeDetailTab = subTab;
+    writeHash("#provider/" + encodeURIComponent(providerId) + "/" + activeDetailTab);
     resetModelTestState();
     document.querySelectorAll(".tab-pane").forEach(p => p.classList.remove("active"));
     document.getElementById("tab-provider-detail").classList.add("active");
@@ -895,8 +1181,12 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
 
   function closeProviderDetail() {
     currentProviderId = null;
+    writeHash("#providers");
     document.querySelectorAll(".tab-pane").forEach(p => p.classList.remove("active"));
     document.getElementById("tab-providers").classList.add("active");
+    document.querySelectorAll(".nav-btn").forEach(b => b.classList.remove("active"));
+    const pv = document.getElementById("nav-providers");
+    if (pv) pv.classList.add("active");
     loadProviders();
   }
 
@@ -1132,6 +1422,11 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
 
   function showDetailTab(btn, which) {
     activeDetailTab = which;
+    // Record the open sub-tab so a refresh returns to it rather than dropping
+    // back to Connections.
+    if (currentProviderId) {
+      writeHash("#provider/" + encodeURIComponent(currentProviderId) + "/" + which);
+    }
     document.querySelectorAll(".detail-tab").forEach(b => b.classList.remove("active"));
     btn.classList.add("active");
     ["dt-conn", "dt-caps", "dt-models"].forEach(id => {
@@ -2030,12 +2325,10 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
         const st = await res.json();
         if (st.requireLogin === false) {
           document.getElementById("login-modal").classList.remove("active");
-          loadDashboardStats();
+          restoreFromHash();
           return;
         }
         authHasPassword = !!st.hasPassword;
-        const firstTime = document.getElementById("pw-first-time");
-        if (firstTime) firstTime.style.display = st.hasPassword ? "none" : "block";
       }
     } catch (e) { /* fall through to the session check */ }
 
@@ -2048,7 +2341,7 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
         const s = await res.json();
         if (s.authenticated) {
           document.getElementById("login-modal").classList.remove("active");
-          loadDashboardStats();
+          restoreFromHash();
           return;
         }
       }
@@ -2064,7 +2357,7 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
         });
         if (res.ok) {
           document.getElementById("login-modal").classList.remove("active");
-          loadDashboardStats();
+          restoreFromHash();
           return;
         }
       } catch (e) { /* ignore, show login */ }
@@ -2137,7 +2430,7 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
         document.getElementById("login-password-input").value = "";
         document.getElementById("login-reset-hint").style.display = "none";
         document.getElementById("login-modal").classList.remove("active");
-        loadDashboardStats();
+        restoreFromHash();
         return;
       }
       setLoginError(errorMessage(data, res.status));
@@ -2184,7 +2477,7 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
         authKey = key;
         localStorage.setItem("nine_api_key", key);
         document.getElementById("login-modal").classList.remove("active");
-        loadDashboardStats();
+        restoreFromHash();
       } else {
         setLoginError("Invalid or inactive API key");
       }
@@ -2202,41 +2495,10 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
     // machine does not silently re-authenticate the next person.
     localStorage.removeItem("nine_api_key");
     authKey = "";
+    // Drop the remembered view too: restoring it after sign-out would open a
+    // provider page against a session that no longer exists.
+    history.replaceState(null, "", location.pathname);
     location.reload();
-  }
-
-  // changeDashboardPassword drives the Settings → Security form.
-  async function changeDashboardPassword() {
-    const current = document.getElementById("pw-current").value;
-    const next = document.getElementById("pw-new").value;
-    const confirmPw = document.getElementById("pw-confirm").value;
-    const msg = document.getElementById("pw-msg");
-    const show = (text, ok) => {
-      msg.innerText = text;
-      msg.style.color = ok ? "#22c55e" : "var(--danger)";
-      msg.style.display = "block";
-    };
-    if (!current || !next) { show("Enter your current and new password.", false); return; }
-    if (next !== confirmPw) { show("The new passwords do not match.", false); return; }
-    try {
-      const res = await fetch("/api/dashboard/auth/change-password", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ currentPassword: current, newPassword: next })
-      });
-      const data = await res.json().catch(() => ({}));
-      if (res.ok && data.success) {
-        document.getElementById("pw-current").value = "";
-        document.getElementById("pw-new").value = "";
-        document.getElementById("pw-confirm").value = "";
-        show("Password updated. Use it on your next sign-in.", true);
-      } else {
-        const detail = errorMessage(data, res.status);
-        show(detail, false);
-      }
-    } catch (e) {
-      show(e.message, false);
-    }
   }
 
   async function loadDashboardStats() {
@@ -2285,7 +2547,7 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
   }
 
   function filterByCategory(cat) {
-    switchTab("providers");
+    navigateTab("providers");
     setCategoryFilter(cat);
   }
 

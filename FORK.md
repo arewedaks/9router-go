@@ -405,6 +405,82 @@ ported from VansRouter (`src/lib/auth/*`, `src/app/api/auth/*`):
   the operator back to the Connections tab on every result. `openProviderDetail`
   takes a `keepTab` flag; actions taken *inside* the panel pass `true`, while
   opening a provider from the grid resets to Connections.
+
+- **The current view is remembered across a refresh, via the URL hash.** Before
+  this, reloading always landed on Overview: the visible pane was only ever set
+  by a click, so there was nothing to restore. The hash is the natural fix — it
+  survives a reload and gives back/forward something to move through.
+  - Shape: `#overview`, `#providers`, `#combos`, `#keys`, `#health`, `#settings`,
+    and `#provider/<id>/<subtab>` for a detail page (`conn`, `caps`, `models`).
+    A recognised tab wins; anything else falls back to Overview, so a stale or
+    hand-typed hash is harmless.
+  - `navigateTab` is the user-facing entry point (select + record). `switchTab`
+    only selects, so internal callers that do not represent navigation — such as
+    restoring state — do not rewrite the URL and fight the hashchange handler.
+  - `writeHash` sets a `writingHash` flag that `hashchange` checks, so a click
+    does not trigger a second fetch of the same data; a genuine back/forward
+    still does.
+  - All three sign-in paths (no-login, session cookie, legacy API key) call
+    `restoreFromHash()` instead of `loadDashboardStats()`; otherwise a refresh
+    would restore the hash only to overwrite it a moment later.
+  - `signOut` clears the hash with `history.replaceState` — restoring a provider
+    page after signing out would open it against a session that is gone.
+  - This also removed a latent bug: `switchTab` read the global `event` to
+    highlight the nav button, which only exists for real click events, so every
+    programmatic call left the nav bar unlit. Buttons now carry `id="nav-…"`
+    and are resolved by that.
+  - `ui_navigation_test.go` asserts against the **served** bytes (not the file on
+    disk), covering the helpers, the three restore call sites, the absence of
+    the `event` global, and that every nav button records the hash.
+  - Restoring after `checkAuth()` resolves was not enough on its own: the pane
+    was still hard-coded `active` in the markup, so the browser painted Overview
+    first and then snapped to the real view — a visible flicker on every refresh
+    that got worse as the auth round-trip got slower. The `active` class is now
+    gone from the static markup, and a **synchronous inline bootstrap** placed
+    just after `</main>` (after the panes are parsed, before the main bundle)
+    pre-selects the pane named in the hash. It does no fetching — the bundle
+    still loads the data — so the first paint is already correct. Covered by
+    `TestUINoFlickerOnRefresh`, which fails if a pane is hard-coded active or if
+    the bootstrap slips behind the bundle.
+
+- **Navigation lives in a left sidebar, not the top bar.** The header was out
+  of horizontal room and the list only grows; the shell is now a flex row of
+  `aside.sidebar` + `.shell` (top bar over `main`).
+  - The `.nav-btn` class is deliberately kept even though the pill styling is
+    gone, so the navigation tests and the `id="nav-…"` highlight lookup still
+    line up.
+  - Below 860px the rail becomes a drawer toggled by `#sidebar-toggle`, with a
+    scrim behind it. `switchTab` closes it on every navigation, since a drawer
+    that stays open after a tap is just a thing in the way.
+  - `#page-title` in the top bar is set by both the pre-paint bootstrap and
+    `switchTab`, so the title is never wrong for a frame.
+
+- **The old "Token Savers" tab is now the Settings tab**, with a Security
+  section above it. Token Savers was already editing exactly the fields
+  `GET/POST /api/dashboard/settings` manages, so keeping two pages that write
+  the same settings only invited confusion about which one had saved.
+  - Settings → Security exposes change-password and reset-password against the
+    endpoints the backend already served. The four token toggles and their
+    level selectors are unchanged, just relocated.
+  - **`reset-password` requires no authentication** — only `isLocalRequest`.
+    Anyone able to reach the dashboard from the machine can put the password
+    back to the default and sign in. That is upstream behaviour, so the UI does
+    not hide it, but it does confirm first, warns on the page, and signs the
+    operator out afterwards.
+  - The API Keys tab used to carry its own **"Dashboard Security"** block that
+    changed the same password — the same job in two places, so an operator could
+    edit one form and find the other still showing the old fields. That block
+    (and its orphaned `changeDashboardPassword` handler) is removed; Settings →
+    Security is the single place for credentials. The API Keys tab keeps only
+    client key management. `authHasPassword` is still tracked, since the login
+    modal needs to know whether a password exists.
+  - This move surfaced a real latent bug: the Settings password fields were
+    first given the ids `pw-current`/`pw-new`/`pw-confirm`, which the login
+    modal's own first-run password form already used. Duplicate ids make
+    `getElementById` return whichever element comes first, so one form would
+    silently read or clear the other's fields. Settings now uses `set-cur-pw` /
+    `set-new-pw` / `set-confirm-pw`, and `TestUIHasNoDuplicateIDs` fails on any
+    repeated id in the served markup.
 - The model cache (`cachedProviderModels`) is keyed by **short alias** (`ag`),
   not the canonical provider ID (`antigravity`). `ResolveModelCacheKey` writes
   new models under whichever key already holds data, otherwise the router never
