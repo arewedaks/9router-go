@@ -288,6 +288,22 @@ func (h *ChatHandler) HandleTriggerUpdate(w http.ResponseWriter, r *http.Request
 	}()
 }
 
+// parseNodePrefix extracts the configured model prefix from a providerNode's
+// data JSON ("prefix":"atri"). Returns "" when absent or unparseable; callers
+// then fall back to the node id, matching upstream.
+func parseNodePrefix(rawData string) string {
+	if rawData == "" {
+		return ""
+	}
+	var d struct {
+		Prefix string `json:"prefix"`
+	}
+	if err := json.Unmarshal([]byte(rawData), &d); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(d.Prefix)
+}
+
 // HandleModels responds with the list of available model identifiers from the DB.
 func (h *ChatHandler) HandleModels(w http.ResponseWriter, r *http.Request) {
 	type modelObj struct {
@@ -335,6 +351,21 @@ func (h *ChatHandler) HandleModels(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Node prefixes: a custom OpenAI/Anthropic-compatible endpoint is stored
+	// under a generated key ("openai-compatible-chat-<uuid>"), but clients must
+	// see the short prefix ("atri/glm-4.7"). Upstream resolves this via
+	// `outputAlias = providerSpecificData.prefix || alias || providerId`; do the
+	// same so a restored backup — which may store the generated id in
+	// customModels.providerAlias — is not advertised as "<uuid>/model".
+	nodePrefixByID := make(map[string]string)
+	if nodes, err := h.Repo.GetAllProviderNodes(); err == nil {
+		for _, n := range nodes {
+			if nd := parseNodePrefix(n.Data); nd != "" {
+				nodePrefixByID[n.ID] = nd
+			}
+		}
+	}
+
 	// Include custom models with live caps (port of Next.js GET /api/models customModels merge)
 	if customs, err := h.Repo.GetCustomModels(); err == nil {
 		seen := make(map[string]bool, len(data))
@@ -342,7 +373,10 @@ func (h *ChatHandler) HandleModels(w http.ResponseWriter, r *http.Request) {
 			seen[m.ID] = true
 		}
 		for _, cm := range customs {
-			fullModel := cm.ProviderAlias + "/" + cm.ID
+			// Export under the node's prefix when the stored alias is a generated
+			// node id; leave plain aliases ("openrouter") untouched.
+			alias := providers.NormalizeModelAlias(cm.ProviderAlias, nodePrefixByID)
+			fullModel := alias + "/" + cm.ID
 			if seen[fullModel] {
 				continue
 			}
@@ -368,14 +402,14 @@ func (h *ChatHandler) HandleModels(w http.ResponseWriter, r *http.Request) {
 				if cm.Caps["audio"] {
 					caps.AudioInput = true
 				}
-				providers.SetCustomModelCaps(cm.ProviderAlias, cm.ID, caps)
+				providers.SetCustomModelCaps(alias, cm.ID, caps)
 				// If custom caps enable vision/reasoning, reflect in token limits display? Keep as is.
 			}
 			data = append(data, modelObj{
 				ID:                  fullModel,
 				Object:              "model",
 				Created:             now,
-				OwnedBy:             cm.ProviderAlias,
+				OwnedBy:             alias,
 				ContextLength:       ctxLen,
 				ContextWindow:       ctxLen,
 				MaxCompletionTokens: maxOut,

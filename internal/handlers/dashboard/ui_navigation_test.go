@@ -276,3 +276,87 @@ func TestUIPasswordFormIsOnlyInSettings(t *testing.T) {
 		}
 	}
 }
+
+// TestUIProviderCountsUseEffectiveStatus pins the fix for the "no accounts are
+// connecting" report. The provider cards counted a connection as active when
+// its toggle was on (`isActive === 1`), so 33 openai-compatible keys that all
+// failed upstream with "credit insufficient balance" rendered as "33/33
+// active". The UI must count health, not the switch position.
+func TestUIProviderCountsUseEffectiveStatus(t *testing.T) {
+	ui := readEmbeddedUI(t)
+
+	// The shared helpers that interpret the connection status must exist.
+	for _, need := range []string{
+		"function effectiveStatusOf(",
+		"function isEffectivelyActive(",
+		"function acctDotClass(",
+		"function statusPillFor(",
+		"function connStatusClass(",
+	} {
+		if !strings.Contains(ui, need) {
+			t.Errorf("status helper missing: %q", need)
+		}
+	}
+
+	// The provider card counter must go through the effective-status helper.
+	if !strings.Contains(ui, "accounts.filter(isEffectivelyActive).length") {
+		t.Error("provider card active count does not use isEffectivelyActive()")
+	}
+	if strings.Contains(ui, "accounts.filter(a => a.isActive === 1).length") {
+		t.Error("provider card still counts a connection as active just because its toggle is on")
+	}
+
+	// The account-row and expanded-list statuses must be derived, never read
+	// straight from testStatus (a stale "unavailable" is not a broken account).
+	// The only sanctioned direct comparison is the legacy-payload fallback
+	// inside isEffectivelyActive itself.
+	if n := strings.Count(ui, `p.testStatus === "active"`); n != 1 {
+		t.Errorf("expected exactly one direct testStatus comparison (the fallback in isEffectivelyActive), found %d", n)
+	}
+
+	// The dot must distinguish a failing-but-enabled account from a healthy one.
+	if !strings.Contains(ui, "return isEffectivelyActive(p) ? \"on\" : \"warn\";") {
+		t.Error("account dot no longer colours an enabled-but-failing account distinctly")
+	}
+
+	// A failing status must render as the red pill, not the neutral idle one.
+	if !strings.Contains(ui, "return `<span class=\"acct-pill exp\">${escapeHtml(status)}</span>`;") {
+		t.Error("a failing effective status is not shown with the error pill")
+	}
+}
+
+// TestUIHasNoHardcodedActiveFallbackForStatus guards against regressing to the
+// old "isActive means connected" reading in the connection list markup.
+func TestUIHasNoHardcodedActiveFallbackForStatus(t *testing.T) {
+	ui := readEmbeddedUI(t)
+
+	// The provider-detail connection list used to read:
+	//   const dot = p.isActive !== 1 ? "off" : (p.expired ? "warn" : "on");
+	// which lit a green dot for a credit-exhausted, enabled account.
+	if strings.Contains(ui, `const dot = p.isActive !== 1 ? "off" : (p.expired ? "warn" : "on")`) {
+		t.Error("the connection list still colours dots from isActive alone")
+	}
+	// And it printed the raw testStatus with no class, hiding failures.
+	if strings.Contains(ui, `title="status: ${escapeHtml(p.testStatus || 'idle')}"`) {
+		t.Error("the connection status chip still shows the raw testStatus without a severity class")
+	}
+}
+
+// TestUINeverLabelsChipsWithGeneratedProviderKey pins the label rule on the
+// served bytes: the Overview chips must go through niceProviderLabel so a
+// custom endpoint's generated key ("openai-compatible-chat-<uuid>") can never
+// be printed verbatim. Upstream shows node.name and keeps the id internal.
+func TestUINeverLabelsChipsWithGeneratedProviderKey(t *testing.T) {
+	body := readEmbeddedUI(t)
+
+	if !strings.Contains(body, "function niceProviderLabel(") {
+		t.Fatal("niceProviderLabel helper missing from the served UI")
+	}
+	if !strings.Contains(body, "chip.innerText = `${niceProviderLabel(provider)}: ${count}`;") {
+		t.Fatal("the chip label must be routed through niceProviderLabel")
+	}
+	// The old raw interpolation must be gone.
+	if strings.Contains(body, "chip.innerText = `${provider}: ${count}`;") {
+		t.Fatal("the raw provider key is still interpolated into the chip label")
+	}
+}

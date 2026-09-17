@@ -243,6 +243,27 @@ func (h *Handler) HandleStats(w http.ResponseWriter, r *http.Request) {
 	activeProviders := 0
 	providerTypeCounts := make(map[string]int)
 
+	// The chips are labelled by a connection's provider key, which for custom
+	// OpenAI/Anthropic-compatible endpoints is a generated identifier like
+	// "openai-compatible-chat-<uuid>" (upstream builds it the same way:
+	// `${OPENAI_COMPATIBLE_PREFIX}${apiType}-${randomUUID()}`). That identifier
+	// is an internal key, never a name: upstream shows `node.name` and keeps the
+	// id out of sight. Resolve the node name here so the Overview chips read
+	// "BAI: 33", not a UUID.
+	nodeMap := make(map[string]*models.ProviderNode)
+	if nodes, err := h.repo.GetAllProviderNodes(); err == nil {
+		for _, n := range nodes {
+			nodeMap[n.ID] = n
+		}
+	}
+	// displayKeyFor maps a provider key to the label to show for it.
+	displayKeyFor := func(providerKey string) string {
+		if node, ok := nodeMap[providerKey]; ok && node.Name != nil && *node.Name != "" {
+			return *node.Name
+		}
+		return providerKey
+	}
+
 	// Category buckets mirror the upstream Next.js sections:
 	// OAuth, Free Tier (free + freeTier), API Key, Web Cookie, Compatible Endpoints.
 	categoryCounts := map[string]map[string]int{
@@ -262,11 +283,16 @@ func (h *Handler) HandleStats(w http.ResponseWriter, r *http.Request) {
 		}
 		categoryCounts[catKey]["total"]++
 
-		if p.IsActive == 1 {
+		// "Active" means the account can actually serve a request, not merely
+		// that its toggle is on: a credit-exhausted connection stays isActive=1
+		// while testStatus reports unavailable. Counting the toggle alone made
+		// the dashboard claim 33 broken accounts were connected.
+		acct := extractAccountInfo(p.Data)
+		if providers.IsEffectivelyActiveWithError(p.IsActive, acct.TestStatus, acct.HasActiveCooldown, acct.LastError) {
 			activeProviders++
 			categoryCounts[catKey]["active"]++
 		}
-		providerTypeCounts[p.Provider]++
+		providerTypeCounts[displayKeyFor(p.Provider)]++
 	}
 
 	stats := map[string]any{
@@ -313,6 +339,15 @@ type ProviderSummary struct {
 	LastUsedAt   string `json:"lastUsedAt,omitempty"`
 	Expired      bool   `json:"expired,omitempty"`
 
+	// EffectiveStatus is the status the dashboard should show for this
+	// connection. It is derived (see providers.EffectiveStatus) rather than
+	// read verbatim from testStatus, because a stale "unavailable" marker with
+	// no live cooldown means the account is usable again. IsEffectivelyActive
+	// is the matching boolean used by the counters.
+	EffectiveStatus     string `json:"effectiveStatus,omitempty"`
+	IsEffectivelyActive bool   `json:"isEffectivelyActive"`
+	HasActiveCooldown   bool   `json:"hasActiveCooldown,omitempty"`
+
 	// ClientProfile is the selected Antigravity client identity ("ide" or
 	// "cli") for Antigravity connections; empty for other providers.
 	ClientProfile string `json:"clientProfile,omitempty"`
@@ -335,6 +370,35 @@ type accountInfo struct {
 	ExpiresAt    string
 	LastUsedAt   string
 	Expired      bool
+
+	// HasActiveCooldown is true when the credential blob still carries a live
+	// "modelLock_*" entry. It is what distinguishes a genuinely broken account
+	// from one carrying a stale "unavailable" marker left behind by an expired
+	// cooldown.
+	HasActiveCooldown bool
+
+	// LastError is the stored upstream error. It matters beyond diagnostics:
+	// a spent credit/quota budget does not refill on a timer, so the status
+	// stays "quota_exhausted" instead of silently recovering to "active".
+	LastError string
+}
+
+// hasLiveModelLock reports whether the credential blob still holds any
+// modelLock_* entry whose deadline is in the future.
+func hasLiveModelLock(m map[string]any, now time.Time) bool {
+	for key, val := range m {
+		if !strings.HasPrefix(key, "modelLock_") {
+			continue
+		}
+		s, ok := val.(string)
+		if !ok || s == "" {
+			continue
+		}
+		if t, err := time.Parse(time.RFC3339, s); err == nil && now.Before(t) {
+			return true
+		}
+	}
+	return false
 }
 
 // extractAccountInfo parses the stored credential JSON blob and pulls out
@@ -369,6 +433,8 @@ func extractAccountInfo(raw string) accountInfo {
 	info.TestStatus = str("testStatus")
 	info.ExpiresAt = str("expiresAt")
 	info.LastUsedAt = str("lastUsedAt")
+	info.LastError = str("lastError")
+	info.HasActiveCooldown = hasLiveModelLock(m, time.Now().UTC())
 
 	if info.ExpiresAt != "" {
 		if t, err := time.Parse(time.RFC3339, info.ExpiresAt); err == nil {
@@ -508,6 +574,10 @@ func (h *Handler) HandleProviderDetail(w http.ResponseWriter, r *http.Request) {
 			ExpiresAt:     acct.ExpiresAt,
 			LastUsedAt:    acct.LastUsedAt,
 			Expired:       acct.Expired,
+
+			EffectiveStatus:     providers.EffectiveStatusWithError(c.IsActive, acct.TestStatus, acct.HasActiveCooldown, acct.LastError),
+			IsEffectivelyActive: providers.IsEffectivelyActiveWithError(c.IsActive, acct.TestStatus, acct.HasActiveCooldown, acct.LastError),
+			HasActiveCooldown:   acct.HasActiveCooldown,
 		}
 		if isAntigravityProvider(c.Provider) {
 			sum.ClientProfile = string(antigravityClientProfileFromData(c.Data))
@@ -515,7 +585,7 @@ func (h *Handler) HandleProviderDetail(w http.ResponseWriter, r *http.Request) {
 		applyProviderMeta(&sum, m, hasMeta)
 		detail.Connections = append(detail.Connections, sum)
 		detail.TotalCount++
-		if c.IsActive == 1 {
+		if sum.IsEffectivelyActive {
 			detail.ActiveCount++
 		}
 	}
@@ -804,6 +874,7 @@ func (h *Handler) HandleListProviders(w http.ResponseWriter, r *http.Request) {
 		}
 
 		expired := acct.Expired
+		effective := providers.EffectiveStatusWithError(c.IsActive, acct.TestStatus, acct.HasActiveCooldown, acct.LastError)
 		summary := ProviderSummary{
 			ID:            c.ID,
 			Provider:      c.Provider,
@@ -823,6 +894,10 @@ func (h *Handler) HandleListProviders(w http.ResponseWriter, r *http.Request) {
 			ExpiresAt:     acct.ExpiresAt,
 			LastUsedAt:    acct.LastUsedAt,
 			Expired:       expired,
+
+			EffectiveStatus:     effective,
+			IsEffectivelyActive: providers.IsEffectivelyActiveWithError(c.IsActive, acct.TestStatus, acct.HasActiveCooldown, acct.LastError),
+			HasActiveCooldown:   acct.HasActiveCooldown,
 		}
 		applyProviderMeta(&summary, meta, hasMeta)
 		res = append(res, summary)

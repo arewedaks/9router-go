@@ -710,6 +710,136 @@ ported from VansRouter (`src/lib/auth/*`, `src/app/api/auth/*`):
   still served (with a `warning`) when the live call fails, so Import always
   completes.
 
+### Connection health: a toggle is not a connection
+
+**Symptom reported:** the OpenAI-compatible category showed accounts but "none of
+them connect".
+
+**What was actually true.** The two `openai-compatible-chat-*` nodes (BAI, Atria
+AI) held 53 keys, all `isActive=1`. Every BAI key carried
+`lastError: [400] {"error":{"message":"credit insufficient balance: balance=0 …"}}`
+and `testStatus: "unavailable"` — the accounts were genuinely out of balance.
+
+**Bug 1 — the dashboard lied.** `HandleStats`, the provider cards and the account
+rows all treated `isActive == 1` as "active", so the category read **33/33
+active** while nothing could serve a request. Fixed by deriving the status from
+health, not the switch position:
+
+- `providers.EffectiveStatus` / `IsEffectivelyActive` (`internal/providers/connection_status.go`)
+  are the single source of truth, mirroring upstream
+  `getStatusVariant(isActive, effectiveStatus)` (three buckets: success / error /
+  default).
+- `ProviderSummary` now carries `effectiveStatus`, `isEffectivelyActive` and
+  `hasActiveCooldown`; the SPA has matching `effectiveStatusOf()`, `acctDotClass()`,
+  `statusPillFor()` and `connStatusClass()` helpers so no widget re-derives it.
+- The provider card counts `accounts.filter(isEffectivelyActive).length`, and the
+detail page's `activeCount` uses the same predicate.
+
+**Bug 2 — a spent balance healed itself every 30 seconds.** Upstream clears
+`testStatus: "unavailable"` back to `"active"` once no cooldown remains
+(`providers/page.js`: `testStatus === "unavailable" && !isCooldown ? "active" : …`),
+and a lapsed lock *does* mean a transient throttle has passed. But a zero balance
+is not a timer: `errorclassify.go` had no quota rule at all, so
+`credit insufficient balance` fell through to the 30-second transient default,
+surfacing the account as healthy again half a minute after every failure.
+
+- Added the upstream `classify429` vocabulary: `quotaExhaustedPatterns` +
+  `LooksLikeQuotaExhausted`, and quota rules at the head of `ErrorRules` with
+  `QuotaExhaustedCooldownMs = 1h` (`Quota` flag on `ErrorRule`). A rate limit
+  still backs off exponentially; a spent budget is parked for an hour.
+- `EffectiveStatusWithError` refuses the timer recovery when the stored
+  `lastError` reads as quota/billing exhaustion, so the connection reports
+  `quota_exhausted` until real evidence of recovery exists. This is the upstream
+  `terminalStatus.ts` idea (`credits_exhausted` is terminal) applied to the
+  dashboard's read path only — the request path is unchanged.
+
+**Verified** against the real database: the BAI card went from `33/33` to `0/33`,
+`custom.active` from 33 to 0, and the detail page renders
+`quota_exhausted` chips (`conn-status err`) with amber dots — no page errors. A
+transient `unavailable` with a lapsed lock still recovers to `active`, and a
+disabled connection never counts, both pinned by tests.
+
+### A generated key is not a name
+
+**Symptom reported:** why is the provider called
+`openai-compatible-chat-8db0a9e6-970e-4903-9a9f-27365f3763e2` when the JSON
+already carries the prefix?
+
+The identifier is **correct and intentional** — it is upstream's format, not a
+bug. `src/app/api/provider-nodes/route.js` creates the node as:
+
+```js
+id: `${OPENAI_COMPATIBLE_PREFIX}${apiType}-${randomUUID()}`,
+```
+
+so `openai-compatible-chat-<uuid>` is the *internal key*, while the model-routing
+`prefix` (`bai`, `atri`) and the display `name` (`BAI`, `Atria AI`) are separate
+fields on the same node. Upstream renders `node.name` everywhere
+(`providers/page.js`: `name: node.name || "OpenAI Compatible"`) and never shows
+the id.
+
+Our cards and detail titles already resolved `displayName || provider`. The one
+place the raw key leaked was the Overview "Grouped Chips", which keyed its
+buckets on `p.Provider`:
+
+- `HandleStats` now builds a node map (as `HandleListProviders` already did) and
+  buckets `providerTypeCounts` by `node.name`, falling back to the raw key only
+  when no node exists.
+- The SPA routes the label through a new `niceProviderLabel()` helper, so an
+  unresolved key degrades to "OpenAI Compatible" instead of printing a UUID.
+- Pinned by `TestStatsChipsUseNodeNameNotGeneratedKey` (backend) and
+  `TestUINeverLabelsChipsWithGeneratedProviderKey` (served bytes).
+
+Verified in the browser: the chip reads `BAI: 33`, and a full-page scan finds no
+remaining `openai-compatible-chat-<uuid>` text.
+
+### Model ids, not just labels: the prefix must win
+
+**Symptom reported:** model names are still long because they use the uuid
+instead of the prefix.
+
+This is a second, deeper layer than the chip label. `GET /v1/models` advertised
+1504 of 2068 models as `openai-compatible-chat-<uuid>/model`. Upstream never does
+that — `buildConnectedProviderIds` computes:
+
+```js
+const outputAlias = (conn?.providerSpecificData?.prefix || alias || providerId).trim();
+// ...
+entries.push({ id: `${outputAlias}/${modelId}`, owned_by: outputAlias });
+```
+
+The prefix always wins. So `customModels.providerAlias` may legitimately hold the
+generated node id (that is what a VansRouter-era backup stores), but the model
+must be **exported** under the node's prefix.
+
+Two fixes in `HandleModels` (`internal/handlers/chat/chat.go`), backed by new
+helpers in `internal/providers/model_alias.go`:
+
+- `OutputAlias(providerID, prefix)` encodes the upstream precedence
+  (prefix → static alias → raw id).
+- `NormalizeModelAlias(alias, nodePrefixByID)` rewrites a custom model's stored
+  alias to the node's prefix when the alias is a known node id, and leaves
+  everything else alone. A blank alias still yields a blank result so callers
+  never build `/model`.
+
+Verified against the real database: the node-keyed models now export as
+`bai/...`, while `prefix-based` requests already routed correctly before this
+change (`bai/glm-5.3-flash` reaches upstream; `<uuid>/gpt-5.5` answers
+`no active connections for provider: <uuid>`).
+
+**Residual data issue, deliberately not "fixed" in code:** of 2057 custom models,
+only 4 resolve to a live node. The other 1504 point at 19 node ids that exist in
+*neither* `providerNodes` *nor* `providerConnections` — orphan rows the upstream
+VansRouter instance was already carrying (its own backup shipped 66 connections,
+2 nodes and 2057 custom models). There is no prefix to recover: no node means no
+prefix, and upstream would not list them either, because it only emits models for
+aliases backed by an active connection. They are inert (a request for one fails
+with `no active connections for provider`), but they pollute `/v1/models`.
+
+Hiding orphans silently was rejected: it is client-visible behaviour and would
+paper over a data-integrity problem. The dashboard/cleanup options are tracked as
+an open decision rather than guessed at.
+
 ## Contributing back
 
 `main` mirrors upstream, so upstream-friendly changes can be cherry-picked from
