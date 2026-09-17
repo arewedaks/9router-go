@@ -203,6 +203,17 @@
     .prov-sections { display: flex; flex-direction: column; gap: 32px; }
     .prov-section { display: flex; flex-direction: column; gap: 14px; }
     .prov-section-head { display: flex; align-items: flex-start; gap: 10px; padding-bottom: 4px; border-bottom: 1px solid rgba(255,255,255,0.06); }
+    /* Section actions (e.g. the Compatible Endpoints "+ Add" buttons) are pinned
+       to the right so they never depend on how wide the title/blurb happens to be. */
+    .prov-section-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; margin-left: auto; }
+    .hint-text { font-size: 0.78rem; color: var(--muted); margin-top: 3px; line-height: 1.35; }
+    .field-error { font-size: 0.78rem; color: #f85149; margin-top: 3px; }
+    .advanced-toggle { display: flex; align-items: center; gap: 5px; background: none; border: none; color: var(--muted); font-size: 0.82rem; cursor: pointer; padding: 2px 0; font-family: inherit; }
+    .advanced-toggle:hover { color: #f0f6fc; }
+    .advanced-body { display: flex; flex-direction: column; gap: 10px; padding-left: 10px; border-left: 2px solid var(--border); margin-top: 4px; }
+    .validate-row { display: flex; gap: 8px; align-items: flex-end; }
+    .validate-result { display: flex; flex-direction: column; gap: 4px; margin-top: 2px; }
+    .warn-banner { display: flex; gap: 8px; align-items: flex-start; background: rgba(245,158,11,0.10); border: 1px solid rgba(245,158,11,0.25); border-radius: var(--radius); padding: 8px 10px; font-size: 0.8rem; color: var(--muted); }
     .prov-section-dot { width: 10px; height: 10px; border-radius: 50%; margin-top: 5px; flex-shrink: 0; box-shadow: 0 0 8px currentColor; }
     .prov-section-text { min-width: 0; flex: 1; }
     .prov-section-title { font-size: 1.05rem; font-weight: 600; color: #f0f6fc; line-height: 1.3; margin: 0; display: flex; align-items: center; gap: 8px; }
@@ -878,6 +889,156 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
   </div>
 </div>
 
+<!-- ADD COMPATIBLE PROVIDER MODAL (OpenAI / Anthropic / Claude Code) -->
+<!-- Mirrors OmniRoute AddCompatibleProviderModal: one form, three modes. -->
+<div class="modal-overlay" id="compatible-modal">
+  <div class="modal-box">
+    <div class="section-header" style="margin-bottom: 16px;">
+      <h3 style="font-size: 1.1rem; color: #fff;" id="compat-modal-title">Add Compatible Provider</h3>
+      <button class="btn btn-sm" onclick="closeModal('compatible-modal')">✕</button>
+    </div>
+
+    <div class="warn-banner" id="compat-warning" style="display:none; margin-bottom: 12px;">
+      <span class="msym" style="font-size:17px; color:#f59e0b;">warning</span>
+      <p style="margin:0;">Claude Code compatible endpoints reply in a variant format. Validate with a real API key before relying on them.</p>
+    </div>
+
+    <div class="form-group">
+      <label>Name</label>
+      <input type="text" id="compat-name" placeholder="e.g. Production Gateway">
+      <p class="hint-text" id="compat-name-hint">A label for this provider. Shown on its card.</p>
+    </div>
+
+    <div class="form-group">
+      <label>Prefix (routing key)</label>
+      <input type="text" id="compat-prefix" placeholder="e.g. mygw">
+      <p class="hint-text" id="compat-prefix-hint">Models are addressed as <code>&lt;prefix&gt;/&lt;model&gt;</code>. Must be unique.</p>
+    </div>
+
+    <div class="form-group" id="compat-apitype-group">
+      <label>API Type</label>
+      <select id="compat-apitype">
+        <option value="chat" selected>Chat Completions</option>
+        <option value="responses">Responses API</option>
+        <option value="embeddings">Embeddings</option>
+        <option value="audio-transcriptions">Audio Transcriptions</option>
+        <option value="audio-speech">Audio Speech</option>
+        <option value="images-generations">Images Generations</option>
+      </select>
+    </div>
+
+    <div class="form-group">
+      <label>Base URL</label>
+      <input type="text" id="compat-baseurl" placeholder="https://api.openai.com/v1">
+      <p class="hint-text" id="compat-baseurl-hint">Root of the API. A pasted <code>/chat/completions</code> or <code>/messages</code> suffix is stripped automatically.</p>
+    </div>
+
+    <div class="form-group">
+      <label>Icon URL <span style="color:var(--muted); font-weight:400;">(optional)</span></label>
+      <input type="text" id="compat-iconurl" placeholder="https://example.com/logo.png">
+      <p class="hint-text" id="compat-iconurl-hint">Shown on the provider card.</p>
+    </div>
+
+    <button type="button" class="advanced-toggle" id="compat-advanced-toggle" onclick="toggleCompatAdvanced()" aria-expanded="false" aria-controls="compat-advanced">
+      <span class="msym" id="compat-advanced-caret" style="font-size:16px;">chevron_right</span>Advanced Settings
+    </button>
+    <div class="advanced-body" id="compat-advanced" style="display:none;">
+      <div class="form-group" style="margin:0;">
+        <label>Chat Path <span style="color:var(--muted); font-weight:400;">(optional)</span></label>
+        <input type="text" id="compat-chatpath" placeholder="/v1/chat/completions">
+        <p class="hint-text">Override the chat endpoint path if this provider differs from the default.</p>
+      </div>
+      <div class="form-group" id="compat-modelspath-group" style="margin:0;">
+        <label>Models Path <span style="color:var(--muted); font-weight:400;">(optional)</span></label>
+        <input type="text" id="compat-modelspath" placeholder="/models">
+        <p class="hint-text">Path used to list models and to validate the key.</p>
+      </div>
+    </div>
+
+    <div class="form-group" style="margin-top:12px; border-top:1px solid var(--border); padding-top:12px;">
+      <label>Verify before saving</label>
+      <div class="validate-row">
+        <div style="flex:1;">
+          <input type="password" id="compat-checkkey" placeholder="API key for check" autocomplete="off">
+        </div>
+        <button class="btn" id="compat-checkbtn" onclick="validateCompatNode()">Check</button>
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Test Model ID <span style="color:var(--muted); font-weight:400;">(optional)</span></label>
+      <input type="text" id="compat-checkmodel" placeholder="e.g. gpt-4o-mini">
+      <p class="hint-text">If <code>/models</code> is unavailable, a tiny chat request is sent with this model instead.</p>
+    </div>
+    <div class="validate-result" id="compat-validate-result" style="display:none;">
+      <span class="acct-pill idle" id="compat-validate-badge"></span>
+      <span class="hint-text" id="compat-validate-msg"></span>
+    </div>
+
+    <div class="field-error" id="compat-error" style="display:none;"></div>
+
+    <div class="modal-foot" style="padding:14px 0 0; border:none; gap:8px;">
+      <button class="btn btn-primary" id="compat-submit" onclick="submitCompatibleNode()" style="flex:1;">Add</button>
+      <button class="btn" onclick="closeModal('compatible-modal')" style="flex:1;">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- EDIT COMPATIBLE NODE MODAL -->
+<div class="modal-overlay" id="node-modal">
+  <div class="modal-box">
+    <div class="section-header" style="margin-bottom: 16px;">
+      <h3 style="font-size: 1.1rem; color: #fff;">Edit Compatible Endpoint</h3>
+      <button class="btn btn-sm" onclick="closeModal('node-modal')">✕</button>
+    </div>
+    <input type="hidden" id="node-edit-id">
+    <div class="form-group">
+      <label>Name</label>
+      <input type="text" id="node-name" placeholder="e.g. Production Gateway">
+      <p class="hint-text">Shown on this provider's card.</p>
+    </div>
+    <div class="form-group">
+      <label>Prefix</label>
+      <input type="text" id="node-prefix" placeholder="e.g. bai">
+      <p class="hint-text">Routes models as <code>prefix/model-id</code>. Must be unique.</p>
+    </div>
+    <div class="form-group">
+      <label>Base URL</label>
+      <input type="text" id="node-baseurl" placeholder="https://api.example.com/v1">
+      <p class="hint-text">The endpoint root. A pasted <code>/chat/completions</code> suffix is stripped automatically.</p>
+    </div>
+    <div class="form-group" id="node-apitype-group">
+      <label>API Type</label>
+      <select id="node-apitype">
+        <option value="chat">Chat Completions</option>
+        <option value="responses">Responses API</option>
+        <option value="embeddings">Embeddings</option>
+        <option value="audio-transcriptions">Audio Transcriptions</option>
+        <option value="audio-speech">Audio Speech</option>
+        <option value="images-generations">Images Generations</option>
+      </select>
+    </div>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+      <div class="form-group">
+        <label>Chat Path <span style="color:var(--muted); font-weight:400;">(optional)</span></label>
+        <input type="text" id="node-chatpath" placeholder="default">
+      </div>
+      <div class="form-group" id="node-modelspath-group">
+        <label>Models Path <span style="color:var(--muted); font-weight:400;">(optional)</span></label>
+        <input type="text" id="node-modelspath" placeholder="/models">
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Icon URL <span style="color:var(--muted); font-weight:400;">(optional)</span></label>
+      <input type="text" id="node-iconurl" placeholder="https://.../logo.png">
+    </div>
+    <div class="field-error" id="node-error" style="display:none;"></div>
+    <div class="modal-foot" style="padding:14px 0 0; border:none; gap:8px;">
+      <button class="btn btn-primary" onclick="submitNodeEdit()" style="flex:1;">Save</button>
+      <button class="btn" onclick="closeModal('node-modal')" style="flex:1;">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <!-- ADD/EDIT COMBO MODAL -->
 <div class="modal-overlay" id="combo-modal">
   <div class="modal-box">
@@ -1391,6 +1552,141 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
     loadProviders();
   }
 
+  // Compatible-node card. Mirrors OmniRoute's CompatibleNodeCard: it states which
+  // endpoint the node calls (protocol in words + the full URL) and owns the
+  // Add/Edit/Delete actions for the node. The warning banner is shown for the
+  // Claude Code variant only, because that variant's path is non-obvious.
+  //
+  // Returns '' for built-in providers, so the hero stays unchanged for them.
+  function renderCompatibleNodeCard(d) {
+    const n = d.node;
+    if (!n) return '';
+    const isCC = n.compatMode === 'cc';
+    const isAnthropic = String(n.id || '').indexOf('anthropic-compatible-') === 0;
+    const fallback = isCC ? 'CC' : (isAnthropic ? 'AC' : 'OC');
+    const kindLabel = isCC ? 'Claude Code Compatible' : (isAnthropic ? 'Anthropic Compatible' : 'OpenAI Compatible');
+    const base = String(n.baseUrl || '').replace(/\/$/, '');
+    const endpoint = base ? (base + '/' + (n.apiPath || '')) : '(no base URL set)';    const icon = n.iconUrl
+      ? `<img src="${escapeHtml(n.iconUrl)}" alt="" style="width:32px; height:32px; border-radius:8px; flex:0 0 auto;" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'msym',textContent:'${fallback}'}));">`
+      : `<span class="msym" style="width:32px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:8px;background:rgba(255,255,255,0.06);font-size:15px;">${fallback}</span>`;
+    const warn = isCC
+      ? `<div class="warn-banner" style="margin-top:12px;">
+           <span class="msym">warning</span>
+           <span>Claude Code endpoints must speak the Anthropic Messages API. Point the base URL at your proxy root and verify the model list before routing traffic.</span>
+         </div>`
+      : '';
+    const safeId = escapeHtml(n.id);
+    return `<div class="add-form" style="margin-bottom:18px;">
+      <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+        ${icon}
+        <div style="flex:1; min-width:180px;">
+          <div style="font-weight:600;">${escapeHtml(kindLabel)}</div>
+          <div style="font-size:0.75rem; color:var(--muted); margin-top:2px; word-break:break-all;">
+            ${escapeHtml(n.apiLabel || 'Messages API')} &middot; ${escapeHtml(endpoint)}
+          </div>
+        </div>
+        <div style="display:flex; gap:6px;">
+          <button class="btn btn-sm btn-primary" onclick="openNodeModal('${safeId}')">
+            <span class="msym" style="font-size:14px;">edit</span>Edit
+          </button>
+          <button class="btn btn-sm btn-danger" onclick="deleteNode('${safeId}')">
+            <span class="msym" style="font-size:14px;">delete</span>Delete
+          </button>
+        </div>
+      </div>
+      ${warn}
+    </div>`;
+  }
+
+  // Opens the edit modal for the compatible node currently on screen. The node
+  // details come from the detail payload we already hold, so editing works
+  // offline of an extra round-trip; the id is the internal key and is never shown.
+  function openNodeModal(nodeId) {
+    const d = lastProviderDetail;
+    if (!d || !d.node || d.node.id !== nodeId) return;
+    const n = d.node;
+    document.getElementById("node-edit-id").value = n.id;
+    document.getElementById("node-name").value = n.name || "";
+    document.getElementById("node-prefix").value = n.prefix || "";
+    document.getElementById("node-baseurl").value = n.baseUrl || "";
+    document.getElementById("node-chatpath").value = n.chatPath || "";
+    document.getElementById("node-modelspath").value = n.modelsPath || "";
+    document.getElementById("node-iconurl").value = n.iconUrl || "";
+    const isAnthropic = String(n.id || "").indexOf("anthropic-compatible-") === 0;
+    const isCC = n.compatMode === "cc";
+    // An Anthropic node always speaks Messages, so the OpenAI api-type picker is
+    // meaningless for it (upstream hides it for the same reason).
+    document.getElementById("node-apitype-group").style.display = isAnthropic ? "none" : "";
+    document.getElementById("node-apitype").value = n.apiType || "chat";
+    document.getElementById("node-modelspath-group").style.display = isCC ? "none" : "";
+    const err = document.getElementById("node-error");
+    err.style.display = "none";
+    err.textContent = "";
+    document.getElementById("node-modal").classList.add("active");
+  }
+
+  function showNodeError(text) {
+    const err = document.getElementById("node-error");
+    err.textContent = text;
+    err.style.display = "block";
+  }
+
+  async function submitNodeEdit() {
+    const id = document.getElementById("node-edit-id").value;
+    if (!id) return;
+    const payload = {
+      name: document.getElementById("node-name").value.trim(),
+      prefix: document.getElementById("node-prefix").value.trim(),
+      baseUrl: document.getElementById("node-baseurl").value.trim(),
+      apiType: document.getElementById("node-apitype").value,
+      chatPath: document.getElementById("node-chatpath").value.trim(),
+      modelsPath: document.getElementById("node-modelspath").value.trim(),
+      iconUrl: document.getElementById("node-iconurl").value.trim()
+    };
+    const cur = lastProviderDetail && lastProviderDetail.node;
+    if (cur && cur.compatMode) payload.compatMode = cur.compatMode;
+    if (!payload.name) return showNodeError("Name is required");
+    if (!payload.prefix) return showNodeError("Prefix is required");
+    if (!payload.baseUrl) return showNodeError("Base URL is required");
+    try {
+      const res = await api(`/api/dashboard/provider-nodes/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) return showNodeError(errorMessage(data, res.status));
+      closeModal("node-modal");
+      // Re-open the detail so the card reflects the new endpoint. The id keeps the
+      // page on the same node even if the prefix changed.
+      await openProviderDetail(id);
+      loadProviders();
+    } catch (e) {
+      showNodeError(String(e && e.message ? e.message : e));
+    }
+  }
+
+  async function deleteNode(nodeId) {
+    const d = lastProviderDetail;
+    const label = (d && d.node && d.node.name) ? d.node.name : (d && d.displayName) || "this endpoint";
+    const count = (d && d.connections) ? d.connections.length : 0;
+    // Deleting a node with accounts also deletes those accounts, so say so
+    // explicitly instead of leaving the operator to discover it.
+    const msg = count > 0
+      ? `Delete ${label}?\n\nThis also deletes its ${count} connection(s). This cannot be undone.`
+      : `Delete ${label}?\n\nThis cannot be undone.`;
+    if (!confirm(msg)) return;
+    try {
+      const qs = count > 0 ? "?cascade=1" : "";
+      const res = await api(`/api/dashboard/provider-nodes/${encodeURIComponent(nodeId)}${qs}`, { method: "DELETE" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) return alert(errorMessage(data, res.status));
+      closeProviderDetail();
+      loadProviders();
+    } catch (e) {
+      alert(String(e && e.message ? e.message : e));
+    }
+  }
+
   function renderProviderDetail(d) {
     lastProviderDetail = d;
     // The router addresses a model as "<alias>/<modelId>", where <alias> is the
@@ -1594,6 +1890,11 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
       ? `<div class="risk-banner" style="margin-bottom:18px;"><span class="msym">warning</span><span>${escapeHtml(d.deprecationNotice)}</span></div>`
       : "";
 
+    // Compatible endpoints render the upstream "CompatibleNodeCard": the endpoint
+    // this node actually calls, in words, plus Add/Edit/Delete for the node itself.
+    // Built-in providers have no node and stay exactly as before.
+    const nodeHtml = renderCompatibleNodeCard(d);
+
     document.getElementById("provider-detail-content").innerHTML = `
       <div class="detail-hero">
         <div class="detail-hero-icon" style="background:${color};"><span class="msym">${escapeHtml(icon)}</span></div>
@@ -1612,6 +1913,7 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
         </div>
       </div>
       ${riskHtml}
+      ${nodeHtml}
       <div class="detail-tabs">
         <button class="detail-tab ${activeDetailTab === 'conn' ? 'active' : ''}" onclick="showDetailTab(this,'conn')"><span class="msym">cable</span>Connections (${(d.connections||[]).length})</button>
         <button class="detail-tab ${activeDetailTab === 'caps' ? 'active' : ''}" onclick="showDetailTab(this,'caps')"><span class="msym">tune</span>Capabilities</button>
@@ -2845,6 +3147,187 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
     return key;
   }
 
+  // ----------------------------------------------------------------
+  // Add Compatible Provider modal (OmniRoute AddCompatibleProviderModal)
+  // ----------------------------------------------------------------
+  // One form serves three modes. Its defaults mirror upstream MODE_DEFAULTS:
+  // OpenAI exposes an apiType + modelsPath, Anthropic hides apiType, CC adds a
+  // warning and defaults the chat path.
+  const CC_DEFAULT_CHAT_PATH = "/v1/messages?beta=true";
+  const COMPAT_MODES = {
+    openai: {
+      type: "openai-compatible", baseUrl: "https://api.openai.com/v1",
+      chatPath: "", hasApiType: true, hasModelsPath: true, hasWarning: false,
+      title: "Add OpenAI Compatible Provider",
+      namePh: "e.g. Production Gateway",
+      prefixPh: "e.g. mygw",
+      baseUrlPh: "https://api.openai.com/v1",
+      chatPathPh: "/v1/chat/completions"
+    },
+    anthropic: {
+      type: "anthropic-compatible", baseUrl: "https://api.anthropic.com/v1",
+      chatPath: "", hasApiType: false, hasModelsPath: true, hasWarning: false,
+      title: "Add Anthropic Compatible Provider",
+      namePh: "e.g. Claude Gateway",
+      prefixPh: "e.g. clgw",
+      baseUrlPh: "https://api.anthropic.com/v1",
+      chatPathPh: "/messages"
+    },
+    cc: {
+      type: "anthropic-compatible", baseUrl: "",
+      chatPath: CC_DEFAULT_CHAT_PATH, compatMode: "cc",
+      hasApiType: false, hasModelsPath: false, hasWarning: true,
+      title: "Add Claude Code Compatible Provider",
+      namePh: "e.g. Claude Code Gateway",
+      prefixPh: "e.g. ccgw",
+      baseUrlPh: "https://host/v1",
+      chatPathPh: CC_DEFAULT_CHAT_PATH
+    }
+  };
+  let compatMode = "openai";
+
+  function openCompatModal(mode) {
+    compatMode = COMPAT_MODES[mode] ? mode : "openai";
+    const cfg = COMPAT_MODES[compatMode];
+
+    document.getElementById("compat-modal-title").innerText = cfg.title;
+    document.getElementById("compat-name").value = "";
+    document.getElementById("compat-name").placeholder = cfg.namePh;
+    document.getElementById("compat-prefix").value = "";
+    document.getElementById("compat-prefix").placeholder = cfg.prefixPh;
+    document.getElementById("compat-baseurl").value = cfg.baseUrl;
+    document.getElementById("compat-baseurl").placeholder = cfg.baseUrlPh;
+    document.getElementById("compat-iconurl").value = "";
+    document.getElementById("compat-chatpath").value = cfg.chatPath;
+    document.getElementById("compat-chatpath").placeholder = cfg.chatPathPh;
+    document.getElementById("compat-modelspath").value = "";
+    document.getElementById("compat-checkkey").value = "";
+    document.getElementById("compat-checkmodel").value = "";
+    document.getElementById("compat-apitype").value = "chat";
+
+    // Fields that only exist for some modes.
+    document.getElementById("compat-apitype-group").style.display = cfg.hasApiType ? "" : "none";
+    document.getElementById("compat-modelspath-group").style.display = cfg.hasModelsPath ? "" : "none";
+    document.getElementById("compat-warning").style.display = cfg.hasWarning ? "" : "none";
+
+    closeCompatAdvanced();
+    setValidateResult(null);
+    document.getElementById("compat-error").style.display = "none";
+    document.getElementById("compat-submit").disabled = false;
+    document.getElementById("compat-submit").innerText = "Add";
+
+    document.getElementById("compatible-modal").classList.add("active");
+  }
+
+  function toggleCompatAdvanced() {
+    const body = document.getElementById("compat-advanced");
+    const open = body.style.display === "none";
+    body.style.display = open ? "" : "none";
+    document.getElementById("compat-advanced-toggle").setAttribute("aria-expanded", open ? "true" : "false");
+    document.getElementById("compat-advanced-caret").innerText = open ? "expand_more" : "chevron_right";
+  }
+
+  function closeCompatAdvanced() {
+    document.getElementById("compat-advanced").style.display = "none";
+    document.getElementById("compat-advanced-toggle").setAttribute("aria-expanded", "false");
+    document.getElementById("compat-advanced-caret").innerText = "chevron_right";
+  }
+
+  function setValidateResult(res) {
+    const wrap = document.getElementById("compat-validate-result");
+    const badge = document.getElementById("compat-validate-badge");
+    const msg = document.getElementById("compat-validate-msg");
+    if (!res) { wrap.style.display = "none"; msg.innerText = ""; badge.innerText = ""; return; }
+    wrap.style.display = "";
+    badge.innerText = res.valid ? "Valid" : "Invalid";
+    badge.className = "acct-pill " + (res.valid ? "ok" : "exp");
+    let text = res.error || (res.valid ? "Key accepted." : "");
+    if (res.valid && res.method === "chat") text = "Key accepted via chat endpoint.";
+    msg.innerText = text || "";
+  }
+
+  function compatPayload() {
+    const cfg = COMPAT_MODES[compatMode];
+    const body = {
+      type: cfg.type,
+      name: document.getElementById("compat-name").value.trim(),
+      prefix: document.getElementById("compat-prefix").value.trim(),
+      baseUrl: document.getElementById("compat-baseurl").value.trim(),
+      iconUrl: document.getElementById("compat-iconurl").value.trim(),
+      chatPath: document.getElementById("compat-chatpath").value.trim()
+    };
+    if (cfg.hasApiType) body.apiType = document.getElementById("compat-apitype").value;
+    if (cfg.hasModelsPath) body.modelsPath = document.getElementById("compat-modelspath").value.trim();
+    if (cfg.compatMode) body.compatMode = cfg.compatMode;
+    return body;
+  }
+
+  function showCompatError(text) {
+    const el = document.getElementById("compat-error");
+    el.innerText = text;
+    el.style.display = text ? "" : "none";
+  }
+
+  async function validateCompatNode() {
+    const key = document.getElementById("compat-checkkey").value.trim();
+    const baseUrl = document.getElementById("compat-baseurl").value.trim();
+    if (!key || !baseUrl) {
+      setValidateResult({ valid: false, error: "Base URL and API key are both required to check." });
+      return;
+    }
+    const btn = document.getElementById("compat-checkbtn");
+    btn.disabled = true; btn.innerText = "Checking…";
+    const cfg = COMPAT_MODES[compatMode];
+    const body = { baseUrl, apiKey: key, type: cfg.type };
+    if (cfg.hasApiType) body.apiType = document.getElementById("compat-apitype").value;
+    if (cfg.hasModelsPath) body.modelsPath = document.getElementById("compat-modelspath").value.trim();
+    if (cfg.compatMode) body.compatMode = cfg.compatMode;
+    const modelId = document.getElementById("compat-checkmodel").value.trim();
+    if (modelId) body.modelId = modelId;
+
+    try {
+      const r = await fetch("/api/dashboard/provider-nodes/validate", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body)
+      });
+      const data = await r.json().catch(() => ({}));
+      setValidateResult({ valid: !!data.valid, error: data.error || null, method: data.method || null });
+    } catch (e) {
+      setValidateResult({ valid: false, error: "Network error: " + e.message });
+    } finally {
+      btn.disabled = false; btn.innerText = "Check";
+    }
+  }
+
+  async function submitCompatibleNode() {
+    const body = compatPayload();
+    if (!body.name || !body.prefix || !body.baseUrl) {
+      showCompatError("Name, prefix, and base URL are all required.");
+      return;
+    }
+    showCompatError("");
+    const btn = document.getElementById("compat-submit");
+    btn.disabled = true; btn.innerText = "Creating…";
+    try {
+      const r = await fetch("/api/dashboard/provider-nodes", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body)
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        showCompatError(errorMessage(data, r.status));
+        return;
+      }
+      const node = data.node;
+      closeModal("compatible-modal");
+      await loadProviders();
+      // Land on the new node's page, mirroring upstream router.push(...).
+      if (node && node.id) openProviderDetail(node.id);
+    } catch (e) {
+      showCompatError("Network error: " + e.message);
+    } finally {
+      btn.disabled = false; btn.innerText = "Add";
+    }
+  }
+
   // Effective connection status, computed in the backend as
   // providers.EffectiveStatus. The toggle alone does NOT mean "connected":
   // a credit-exhausted account keeps isActive=1 while testStatus reports
@@ -2964,8 +3447,9 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
     custom:    { label: "Compatible Endpoints", dot: "#14b8a6", blurb: "OpenAI/Anthropic-compatible endpoints." }
   };
 
-  // Render order (top -> bottom), mirroring providers.CategoryOrder.
-  const CATEGORY_ORDER = ["oauth", "freeTier", "apikey", "webCookie", "custom"];
+  // Render order (top -> bottom): compatible endpoints are surfaced first so a
+  // freshly added gateway is the first thing on the page.
+  const CATEGORY_ORDER = ["custom", "oauth", "freeTier", "apikey", "webCookie"];
 
   // The backend groups "free" under the "Free Tier" section, so a card's
   // category must be normalised before it can pick a section.
@@ -3074,6 +3558,14 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
             <h3 class="prov-section-title">${escapeHtml(meta.label)} <span class="prov-section-count">${cardCount}</span></h3>
             ${meta.blurb ? `<p class="prov-section-blurb">${escapeHtml(meta.blurb)}</p>` : ""}
           </div>
+          ${key === "custom" ? `<div class="prov-section-actions">
+            <button class="btn btn-sm" onclick="openCompatModal('anthropic')">
+              <span class="msym" style="font-size:15px;">add</span>Anthropic Compatible
+            </button>
+            <button class="btn btn-sm" onclick="openCompatModal('openai')">
+              <span class="msym" style="font-size:15px;">add</span>OpenAI Compatible
+            </button>
+          </div>` : ""}
         </div>` : "";
 
       return `

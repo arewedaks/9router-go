@@ -402,3 +402,180 @@ func TestUIModelPrefixUsesNodePrefixNotGeneratedKey(t *testing.T) {
 		t.Fatalf("currentModelAlias still short-circuits to d.provider: %q", stmt)
 	}
 }
+
+// The Add Compatible Provider modal is a single form serving three modes, the
+// way OmniRoute's AddCompatibleProviderModal does. These tests assert against the
+// bytes the server actually serves, so a broken embed fails them too.
+func TestUIHasCompatibleProviderModal(t *testing.T) {
+	body := readEmbeddedUI(t)
+
+	for _, want := range []string{
+		`id="compatible-modal"`,
+		`id="compat-name"`,
+		`id="compat-prefix"`,
+		`id="compat-baseurl"`,
+		`id="compat-apitype"`,
+		`id="compat-modelspath"`,
+		`id="compat-checkkey"`,
+		`id="compat-advanced"`,
+		`openCompatModal`,
+		`submitCompatibleNode`,
+		`validateCompatNode`,
+		`toggleCompatAdvanced`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("served UI is missing the compatible-provider modal piece %s", want)
+		}
+	}
+
+	// The three modes and their distinguishing defaults.
+	for _, want := range []string{
+		`"/api/dashboard/provider-nodes/validate"`,
+		`"/api/dashboard/provider-nodes"`,
+		`CC_DEFAULT_CHAT_PATH`,
+		`"/v1/messages?beta=true"`,
+		`"anthropic-compatible"`,
+		`"openai-compatible"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("served UI does not reference %s", want)
+		}
+	}
+}
+
+// TestUICompatibleModalPrefersPrefixAsRoutingKey pins the one piece of the create
+// payload the operator is most likely to get wrong: models are addressed by
+// `<prefix>/<model>`, so the prefix must be sent as `prefix`, exactly.
+func TestUICompatibleModalSendsPrefixField(t *testing.T) {
+	body := readEmbeddedUI(t)
+
+	idx := strings.Index(body, "function compatPayload()")
+	if idx < 0 {
+		t.Fatal("compatPayload not found in served UI")
+	}
+	end := strings.Index(body[idx:], "\n  }")
+	if end < 0 {
+		t.Fatal("compatPayload body not terminated")
+	}
+	fn := body[idx : idx+end]
+
+	if !strings.Contains(fn, `prefix:`) {
+		t.Fatalf("compatPayload does not send a prefix: %q", fn)
+	}
+	// Guard against reintroducing the raw provider key as a label anywhere in
+	// the modal's payload builder.
+	if strings.Contains(fn, "provider:") {
+		t.Fatalf("compatPayload must not send a raw provider key: %q", fn)
+	}
+}
+
+// TestUICompatibleEndpointsSectionComesFirst pins that the Compatible Endpoints
+// section renders above every other section, so a just-added gateway is the
+// first thing the operator sees.
+func TestUICompatibleEndpointsSectionComesFirst(t *testing.T) {
+	body := readEmbeddedUI(t)
+
+	idx := strings.Index(body, "const CATEGORY_ORDER")
+	if idx < 0 {
+		t.Fatal("CATEGORY_ORDER not found in served UI")
+	}
+	end := strings.Index(body[idx:], "]")
+	if end < 0 {
+		t.Fatal("CATEGORY_ORDER is not terminated")
+	}
+	decl := body[idx : idx+end]
+
+	// "custom" must be the first key in the literal.
+	open := strings.Index(decl, "[")
+	if open < 0 {
+		t.Fatalf("CATEGORY_ORDER has no literal list: %q", decl)
+	}
+	list := decl[open+1:]
+	first := strings.TrimSpace(strings.SplitN(list, ",", 2)[0])
+	if first != `"custom"` {
+		t.Fatalf("CATEGORY_ORDER does not start with custom: %q", decl)
+	}
+	if !strings.Contains(list, `"custom"`) {
+		t.Fatalf("CATEGORY_ORDER dropped custom entirely: %q", decl)
+	}
+}
+
+// TestUIHasCompatibleNodeCard pins the compatible-node card on the provider
+// detail page. Upstream renders the endpoint (base URL + protocol + path) with
+// its own Edit/Delete actions; without it an operator can never see — or fix — the
+// URL a node points at after creating it.
+func TestUIHasCompatibleNodeCard(t *testing.T) {
+	body := readEmbeddedUI(t)
+
+	for _, want := range []string{
+		`function renderCompatibleNodeCard(d)`,
+		`renderCompatibleNodeCard(d)`,
+		`n.baseUrl`,
+		`n.apiPath`,
+		`n.apiLabel`,
+		`n.compatMode`,
+		`function openNodeModal(`,
+		`function submitNodeEdit(`,
+		`function deleteNode(`,
+		`id="node-modal"`,
+		`id="node-name"`,
+		`id="node-prefix"`,
+		`id="node-baseurl"`,
+		`id="node-apitype-group"`,
+		`id="node-modelspath-group"`,
+		`id="node-error"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("embedded UI is missing %q", want)
+		}
+	}
+
+	// The card must be gated on the node payload; a built-in provider has none and
+	// must render exactly as before.
+	if !strings.Contains(body, `const n = d.node;`) || !strings.Contains(body, `if (!n) return '';`) {
+		t.Error("compatible-node card must return empty when there is no node")
+	}
+}
+
+// TestUICompatibleNodeCardNeverShowsNodeID pins the display rule: the generated
+// node id is an internal routing key, so the card may only use it in the fetch
+// URL (encoded), never as rendered text.
+func TestUICompatibleNodeCardNeverShowsNodeID(t *testing.T) {
+	body := readEmbeddedUI(t)
+
+	// The card prints the operator's own name and the endpoint, never the id.
+	// The id does appear inside onclick attributes (escaped) so the buttons can
+	// address the right node — what must never happen is rendering it as text.
+	if strings.Contains(body, `>${escapeHtml(n.id)}<`) {
+		t.Error("card must not render the node id as text")
+	}
+	if !strings.Contains(body, `provider-nodes/${encodeURIComponent(`) {
+		t.Error("node id should only appear encoded inside request URLs")
+	}
+}
+
+// TestUICompatibleNodeCardShowsWarnOnlyForCC pins that the Claude Code warning is
+// conditional: an ordinary OpenAI/Anthropic node must not carry it, or the banner
+// becomes noise the operator learns to ignore.
+func TestUICompatibleNodeCardShowsWarnOnlyForCC(t *testing.T) {
+	body := readEmbeddedUI(t)
+	if !strings.Contains(body, `const isCC = n.compatMode === 'cc';`) {
+		t.Error("card must detect the cc compat mode")
+	}
+	if !strings.Contains(body, `const warn = isCC`) {
+		t.Error("the warning banner must be conditional on isCC")
+	}
+}
+
+// TestUIDeleteNodeWarnsAboutConnections pins the destructive-action honesty:
+// deleting a node removes its accounts too, so the confirm text must say so when
+// connections exist.
+func TestUIDeleteNodeWarnsAboutConnections(t *testing.T) {
+	body := readEmbeddedUI(t)
+	if !strings.Contains(body, `This also deletes its ${count} connection(s)`) {
+		t.Error("delete confirm must mention the connections it will remove")
+	}
+	if !strings.Contains(body, `?cascade=1`) {
+		t.Error("delete must pass cascade=1 once the operator has confirmed")
+	}
+}

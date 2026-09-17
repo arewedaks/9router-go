@@ -200,6 +200,14 @@ type ProviderNodeData struct {
 	Prefix  string `json:"prefix"`
 	APIType string `json:"apiType"`
 	BaseURL string `json:"baseUrl"`
+	// The remaining fields are optional and only present when the operator set
+	// them in the dashboard's Advanced Settings. They are read back so the
+	// compatible-node card can show the real endpoint instead of guessing.
+	NodeName   string `json:"nodeName"`
+	ChatPath   string `json:"chatPath"`
+	ModelsPath string `json:"modelsPath"`
+	IconURL    string `json:"iconUrl"`
+	CompatMode string `json:"compatMode"`
 }
 
 // GetProviderNodeByID retrieves a provider node by its primary key.

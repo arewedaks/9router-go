@@ -235,6 +235,8 @@ POST   /api/dashboard/providers/{id}/toggle-all
 GET    /api/dashboard/providers/{id}/models          # live fetch (?save=1 to persist)
 POST   /api/dashboard/providers/{id}/models          # add custom model
 DELETE /api/dashboard/providers/{id}/models?modelId= # remove model
+POST   /api/dashboard/provider-nodes                 # create an OpenAI/Anthropic-compatible node
+POST   /api/dashboard/provider-nodes/validate        # probe a key before saving
 POST   /api/dashboard/models/test                    # ping one model
 POST   /api/dashboard/providers/{id}/test-models     # batch test + auto-disable
 POST   /api/dashboard/connections/{id}/client-profile # set Antigravity ide|cli
@@ -912,6 +914,77 @@ entry — it has a `prefix` — so the fallback rendered the uuid as the prefix
 Note that `provider` is still the raw key in every JSON payload — it is the
 write handle (`addModel`, `removeModel`, `testModel` all post it back). Only the
 labels resolve to the prefix/name.
+
+### Adding a compatible endpoint from the dashboard
+
+Compatible nodes used to be creatable only by restoring a backup. The dashboard
+now has the upstream OmniRoute panel, reachable from the **Compatible Endpoints**
+section header (`+ Add Anthropic Compatible` / `+ Add OpenAI Compatible`). That
+section is rendered first, above every built-in provider category, so a gateway
+you just added is the first thing on the page.
+
+One modal serves three modes, selected by the trigger button or by `compatMode`:
+
+| mode | `type` | apiType field | modelsPath field | defaults |
+|---|---|---|---|---|
+| `openai` | `openai-compatible` | shown | shown | `https://api.openai.com/v1` |
+| `anthropic` | `anthropic-compatible` | hidden | shown | `https://api.anthropic.com/v1` |
+| `cc` | `anthropic-compatible` (`compatMode: cc`) | hidden | hidden | chatPath `/v1/messages?beta=true`, warning banner |
+
+The node id is generated as `${type}-${apiType}-${uuid}` — for Anthropic nodes no
+api type is embedded, because Anthropic has a single chat shape.
+
+`POST /api/dashboard/provider-nodes` sanitises the base URL the way upstream does,
+so pasting the full chat URL is not punished:
+
+| pasted | stored |
+|---|---|
+| `https://x.dev/v1/chat/completions` | `https://x.dev/v1` |
+| `https://a.dev/v1/messages?beta=true` | `https://a.dev/v1` (Anthropic keeps the `/v1`) |
+| `https://cc.dev/v1/messages?beta=true` | `https://cc.dev` (Claude Code variant drops the version) |
+
+A duplicate prefix is rejected with `409`, and the message names the existing
+provider by its **display name** — never by its generated node id, which is an
+internal key.
+
+`POST /api/dashboard/provider-nodes/validate` probes the endpoint before anything
+is saved. It `GET`s `{baseUrl}{modelsPath}` with `Authorization: Bearer`, and
+falls back to a one-token `POST {chatPath}` when `/models` is not there and a test
+model id was supplied. A `401`/`403` short-circuits: retrying with the same key
+cannot help, so the chat fallback is not attempted.
+
+### Managing a compatible endpoint after it exists
+
+The provider page for a compatible node carries upstream's `CompatibleNodeCard`:
+the protocol in words (`Messages API`, `Chat Completions`, …) and the exact
+endpoint the node calls, built as `baseUrl` + `/` + the resolved path. That
+matters because the URL is otherwise invisible after creation — you would have to
+open the DB to check which gateway a node points at. The Claude Code variant
+also shows its warning banner here; an OpenAI/Anthropic node does not, so the
+banner stays meaningful.
+
+Three actions live on the card:
+
+| action | endpoint | notes |
+|---|---|---|
+| Edit | `PATCH /api/dashboard/provider-nodes/{id}` | name, prefix, base URL, paths, icon |
+| Delete | `DELETE /api/dashboard/provider-nodes/{id}` | `409` while connections remain |
+| Delete (forced) | `DELETE …?cascade=1` | also deletes the node's connections |
+
+The node **id and type are immutable**: the id is what every connection stores as
+its `provider`, and the type is baked into the id, so changing either would orphan
+the accounts. Only the metadata in the `data` blob moves. A save that keeps the
+node's own prefix is not a collision — the guard excludes the row being edited.
+
+Deleting is deliberately two-step. A node still referenced by connections is
+refused with `409` and the count, because those accounts would silently become
+unreachable; the UI only sends `cascade=1` after a confirm that names the number
+of connections about to be lost.
+
+`GET /api/dashboard/providers/{id}` gained a `node` object with these details
+(`baseUrl`, `apiType`, `apiLabel`, `apiPath`, `chatPath`, `modelsPath`, `iconUrl`,
+`compatMode`). It is absent for built-in providers, which is what keeps their
+page unchanged.
 
 ## Contributing back
 
