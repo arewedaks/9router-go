@@ -18,9 +18,11 @@
 package dbbackup
 
 import (
+	"bytes"
 	"database/sql"
 	json "encoding/json/v2"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -51,10 +53,90 @@ type Document struct {
 	ApiKeys             []map[string]any `json:"apiKeys"`
 	Combos              []map[string]any `json:"combos"`
 
-	// Key/value scopes, mirroring the reference's shape so the same file stays
-	// roughly readable to anyone who has seen a VansRouter backup.
-	ModelAliases []map[string]any `json:"modelAliases"`
-	CustomModels []map[string]any `json:"customModels"`
+	// Key/value scopes. VansRouter stores these two scopes as an object keyed by
+	// alias, while this build stores a list of {key, value} rows. KVScopeRows
+	// accepts either so a backup made by the Next.js dashboard can be restored
+	// here, which is the whole point of keeping the file shape close to the
+	// reference in the first place.
+	ModelAliases KVScopeRows `json:"modelAliases"`
+	CustomModels KVScopeRows `json:"customModels"`
+}
+
+// KVScopeRows is a list of kv rows that also decodes the reference dashboard's
+// object form ({"<key>": <value>}).
+//
+// Ignoring the difference would be worse than it looks: VansRouter exports an
+// empty modelAlaises as {}, an object, and a struct expecting a list rejects the
+// whole file with an unmarshal error before any of the connections it came for
+// are even considered.
+type KVScopeRows []map[string]any
+
+// kvKeyForModelRow builds this build's kv key for a bare custom-model object.
+//
+// VansRouter exports customModels as a list of the model objects themselves,
+// while this build keys each one as "<providerAlias>|<id>|<type>" and stores the
+// object as its value. The key is derivable from the object, so a reference file
+// needs no rewriting -- it just needs the key built before the insert.
+func kvKeyForModelRow(row map[string]any) (string, bool) {
+	alias, _ := row["providerAlias"].(string)
+	id, _ := row["id"].(string)
+	kind, _ := row["type"].(string)
+	if alias == "" || id == "" || kind == "" {
+		return "", false
+	}
+	return alias + "|" + id + "|" + kind, true
+}
+
+// UnmarshalJSON accepts a list of {key, value} rows, or an object whose members
+// become those rows.
+func (k *KVScopeRows) UnmarshalJSON(data []byte) error {
+	trimmed := bytes.TrimSpace(data)
+	if len(trimmed) == 0 || string(trimmed) == "null" {
+		*k = nil
+		return nil
+	}
+	switch trimmed[0] {
+	case '[':
+		var rows []map[string]any
+		if err := json.Unmarshal(data, &rows); err != nil {
+			return err
+		}
+		// A list is either our own [{key, value}] rows or the reference's bare
+		// list of custom-model objects. Tell them apart by whether a key is
+		// present, and derive one for the bare form so both import identically.
+		for i, row := range rows {
+			if key, _ := row["key"].(string); key != "" {
+				continue
+			}
+			derived, ok := kvKeyForModelRow(row)
+			if !ok {
+				return fmt.Errorf("row %d: entry has neither a key nor a providerAlias/id/type to derive one from", i)
+			}
+			rows[i] = map[string]any{"key": derived, "value": row}
+		}
+		*k = rows
+		return nil
+	case '{':
+		var obj map[string]any
+		if err := json.Unmarshal(data, &obj); err != nil {
+			return err
+		}
+		// Sort the keys so a round trip is deterministic; map order is random
+		// and an unstable file would make every diff look like a change.
+		keys := make([]string, 0, len(obj))
+		for key := range obj {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		rows := make([]map[string]any, 0, len(keys))
+		for _, key := range keys {
+			rows = append(rows, map[string]any{"key": key, "value": obj[key]})
+		}
+		*k = rows
+		return nil
+	default:
+		return fmt.Errorf("expected a list or an object of key/value rows, got %s", trimmed[:1])
+	}
 }
 
 // tableSpec describes one table's rows: the columns to read, and how to write
@@ -77,6 +159,12 @@ type tableSpec struct {
 	boolFields map[string]bool
 	// target is where the exported rows are placed.
 	target func(*Document) *[]map[string]any
+	// normalize adapts a row from another dashboard's file into this one's
+	// shape. It runs before the row is written, and may return the row
+	// unchanged. It exists because "the same table" does not mean "the same
+	// layout": VansRouter keeps a connection's apiKey and model locks as flat
+	// columns on the row, while this build keeps them inside a JSON data column.
+	normalize func(row map[string]any) (map[string]any, error)
 }
 
 var tables = []tableSpec{
@@ -86,12 +174,14 @@ var tables = []tableSpec{
 		jsonFields: map[string]bool{"data": true},
 		boolFields: map[string]bool{"isActive": true},
 		target:     func(d *Document) *[]map[string]any { return &d.ProviderConnections },
+		normalize:  foldRow("providerConnections"),
 	},
 	{
 		name:       "providerNodes",
 		columns:    []string{"id", "type", "name", "data", "createdAt", "updatedAt"},
 		jsonFields: map[string]bool{"data": true},
 		target:     func(d *Document) *[]map[string]any { return &d.ProviderNodes },
+		normalize:  foldRow("providerNodes"),
 	},
 	{
 		name:       "proxyPools",
@@ -99,6 +189,7 @@ var tables = []tableSpec{
 		jsonFields: map[string]bool{"data": true},
 		boolFields: map[string]bool{"isActive": true},
 		target:     func(d *Document) *[]map[string]any { return &d.ProxyPools },
+		normalize:  foldRow("proxyPools"),
 	},
 	{
 		name:    "proxyPoolFitness",
@@ -414,6 +505,81 @@ func Import(db *sql.DB, doc *Document) error {
 	return tx.Commit()
 }
 
+// flatColumnsByTable names, per table, the columns that are read straight off a
+// row. Anything else in the row belongs to that row's JSON data payload.
+//
+// Both dashboards share these tables but split them differently: here the row
+// holds identity, ordering and status, and the provider-specific remainder
+// (apiKey, oauth tokens, baseUrl, prefix, modelLock_<model> flags, ...) lives in
+// a JSON `data` column. VansRouter keeps those values as flat columns and writes
+// no `data` at all. Folding the flat form into `data` is what makes a reference
+// backup restorable here instead of failing on the first row with
+// "NOT NULL constraint failed: <table>.data".
+var flatColumnsByTable = map[string]map[string]bool{
+	"providerConnections": setOf(
+		"id", "provider", "authType", "name", "email",
+		"priority", "isActive", "createdAt", "updatedAt"),
+	"providerNodes": setOf(
+		"id", "type", "name", "createdAt", "updatedAt"),
+	"proxyPools": setOf(
+		"id", "isActive", "testStatus", "createdAt", "updatedAt"),
+}
+
+func setOf(names ...string) map[string]bool {
+	out := make(map[string]bool, len(names))
+	for _, n := range names {
+		out[n] = true
+	}
+	return out
+}
+
+// foldFlatRow rewrites a row so its non-column fields live in `data`.
+//
+// A row that already carries a data object is in our own layout and is returned
+// unchanged, so our own exports round-trip byte for byte. id is NOT NULL in all
+// three tables, so a row without one is reported by name rather than as an
+// opaque constraint failure.
+// foldRow binds a table's normalizer so it can be attached to a tableSpec.
+func foldRow(table string) func(map[string]any) (map[string]any, error) {
+	return func(row map[string]any) (map[string]any, error) {
+		return foldFlatRow(table, row)
+	}
+}
+
+func foldFlatRow(table string, row map[string]any) (map[string]any, error) {
+	if row == nil {
+		return row, nil
+	}
+	if existing, ok := row["data"]; ok && existing != nil {
+		if _, isMap := existing.(map[string]any); isMap {
+			return row, nil
+		}
+	}
+	flat := flatColumnsByTable[table]
+	if flat == nil {
+		return row, nil
+	}
+
+	if id, _ := row["id"].(string); strings.TrimSpace(id) == "" {
+		return nil, fmt.Errorf("%s row has no id", table)
+	}
+
+	data := map[string]any{}
+	out := make(map[string]any, len(row)+1)
+	for k, v := range row {
+		switch {
+		case k == "data":
+			// Replaced below with the collected payload.
+		case flat[k]:
+			out[k] = v
+		default:
+			data[k] = v
+		}
+	}
+	out["data"] = data
+	return out, nil
+}
+
 func importTable(tx *sql.Tx, t tableSpec, rows []map[string]any) error {
 	if len(rows) == 0 {
 		return nil
@@ -450,6 +616,13 @@ func importTable(tx *sql.Tx, t tableSpec, rows []map[string]any) error {
 	defer stmt.Close()
 
 	for i, rec := range rows {
+		if t.normalize != nil {
+			normalized, err := t.normalize(rec)
+			if err != nil {
+				return fmt.Errorf("row %d: %w", i, err)
+			}
+			rec = normalized
+		}
 		vals := make([]any, len(cols))
 		for j, col := range cols {
 			v, err := convertIn(rec[col], t, col)
@@ -501,8 +674,29 @@ func columnExistsTx(tx *sql.Tx, table, column string) (bool, error) {
 
 // convertIn returns the value to bind for a column, re-encoding JSON text and
 // turning booleans back into 0/1.
+// notNullDefault supplies a value for a NOT NULL column the file omitted.
+//
+// A backup is not obliged to carry every column: VansRouter's own rows happen to
+// set createdAt/updatedAt, but nothing promises it, and a hand-trimmed file or a
+// future format may not. Inserting NULL would abort the whole restore on a
+// constraint the operator cannot act on, so a sensible default is used instead.
+func notNullDefault(col string) (any, bool) {
+	switch col {
+	case "createdAt", "updatedAt":
+		return time.Now().UTC().Format("2006-01-02T15:04:05.000Z"), true
+	case "data":
+		// Every table's data column is a JSON object; "{}" preserves the row
+		// without inventing fields the file never had.
+		return "{}", true
+	}
+	return nil, false
+}
+
 func convertIn(v any, t tableSpec, col string) (any, error) {
 	if v == nil {
+		if def, ok := notNullDefault(col); ok {
+			return def, nil
+		}
 		return nil, nil
 	}
 	if t.jsonFields[col] {

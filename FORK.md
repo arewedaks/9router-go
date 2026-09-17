@@ -521,6 +521,34 @@ ported from VansRouter (`src/lib/auth/*`, `src/app/api/auth/*`):
   - The session secret lives in `dataDir`, not the database
     (`LoadSessionSecret`), so a restore does not invalidate existing sessions and
     a backup can never be used to forge one.
+  - **A real VansRouter backup restores as-is.** The two dashboards share these
+    tables but split them differently, and the first attempt at a real reference
+    file failed on three separate layouts before it would load. Each was a
+    difference in *packaging*, not content, so each is now normalised rather
+    than rejected:
+    - `modelAliases`/`customModels` are objects keyed by alias in the reference
+      and lists of `{key, value}` here. `KVScopeRows` decodes either, and sorts
+      object keys so a round trip is deterministic. The reference also lists
+      `customModels` as bare model objects rather than `{key, value}` rows; the
+      key is derivable (`providerAlias|id|type`) and is built during decoding.
+    - `providerConnections`, `providerNodes` and `proxyPools` keep the
+      provider-specific remainder (`apiKey`, oauth tokens, `baseUrl`, `prefix`,
+      `testStatus`, one `modelLock_<model>` flag per locked model) as **flat
+      columns**, while this build keeps them inside a JSON `data` column and
+      writes no such columns. `foldFlatRow` moves everything that is not a
+      known column into `data`. Without it a reference file dies on its first
+      row with `NOT NULL constraint failed: providerConnections.data`.
+    - Unknown top-level fields (`mitmAlias`, `pricing`, `password`) are ignored
+      rather than fatal, so a file with extras still restores.
+    A row that already carries a `data` object is passed through untouched, so
+    our own exports still round-trip exactly.
+  - A **NOT NULL column the file omits** gets a default (`createdAt`/`updatedAt`
+    to now, `data` to `{}`) instead of aborting the restore. The reference sets
+    those columns, but nothing promises it, and failing an entire import over a
+    timestamp the operator cannot act on helps nobody. The atomicity test had to
+    move to a trigger the importer genuinely cannot repair (`combos.models`,
+    NOT NULL with no default) — its old trigger was a nil `data` column, which is
+    now recovered instead.
   - Restoring surfaced a genuine mismatch: `EnsureSchema` had drifted from the
     schema production actually runs — it omitted `apiKeys`' three scoped columns,
     `combos.context_length`, and both proxy tables, and defined
