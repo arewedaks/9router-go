@@ -6,10 +6,12 @@ import (
 	"encoding/hex"
 	json "encoding/json/v2"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -24,7 +26,12 @@ import (
 	proxoauth "9router/proxy/internal/proxy/oauth"
 )
 
-//go:embed ui/*
+// ui/* already descends into subdirectories, so it would embed ui/providers
+// too. The all: prefix is used deliberately for a different reason: it also
+// picks up files whose names begin with "_" or ".", so dropping a logo in as
+// `_scratch.webp` while iterating cannot silently vanish from the build.
+//
+//go:embed all:ui
 var uiAssets embed.FS
 
 // Handler manages dashboard API endpoints and embedded web UI.
@@ -171,6 +178,21 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 		dr.Get("/settings", h.HandleGetSettings)
 		dr.Post("/settings", h.HandleUpdateSettings)
 
+		// Proxy pools. Read-only here: the provider-strategies picker needs to
+		// list pools by id + name, and backup preview already counts them. Pool
+		// creation stays in the deploy/import paths, so there is no POST.
+		dr.Get("/proxy-pools", h.HandleListProxyPools)
+
+		// Historical usage. These power the Usage page and are deliberately
+		// separate from the live /api/usage/* endpoints, which stream in-flight
+		// requests and are mounted outside the session group.
+		dr.Get("/usage/stats", h.HandleUsageHistoryStats)
+		dr.Get("/usage/chart", h.HandleUsageHistoryChart)
+		dr.Get("/usage/history", h.HandleUsageHistory)
+		dr.Get("/usage/filters", h.HandleUsageFilterOptions)
+		dr.Get("/usage/request-details", h.HandleRequestDetails)
+		dr.Get("/usage/request-details/{id}", h.HandleRequestDetailByID)
+
 		// Backup: export/import the whole database. Both re-check the dashboard
 		// password rather than trusting the session alone — see
 		// confirmBackupPassword.
@@ -190,6 +212,58 @@ func (h *Handler) ServeUI(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(content)
+}
+
+// ServeProviderLogo serves an embedded provider brand image from
+// ui/providers/{id}.{webp,png}. It is a plain static asset: the same bytes go to
+// every caller, so there is nothing to authorise beyond the request itself.
+//
+// 404s are expected and cheap — the UI keeps a glyph fallback for providers with
+// no brand asset — so a miss is reported without an error body.
+func (h *Handler) ServeProviderLogo(w http.ResponseWriter, r *http.Request) {
+	name := chi.URLParam(r, "file")
+	// Only a bare "<id>.webp"/"<id>.png" is addressable. Rejecting anything with a
+	// separator or a leading dot keeps ".." and nested reads out of the embed FS.
+	if name == "" || strings.ContainsAny(name, "/\\") || strings.HasPrefix(name, ".") {
+		http.NotFound(w, r)
+		return
+	}
+	// Only the two raster formats we actually ship. SVG is deliberately absent:
+	// it can carry script, and serving it from this origin would turn a future
+	// logo drop into stored XSS.
+	ext := strings.ToLower(strings.TrimPrefix(filepath.Ext(name), "."))
+	var contentType string
+	switch ext {
+	case "webp":
+		contentType = "image/webp"
+	case "png":
+		contentType = "image/png"
+	default:
+		http.NotFound(w, r)
+		return
+	}
+
+	data, err := uiAssets.ReadFile("ui/providers/" + name)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	// The assets are immutable for a given build, so let the browser keep them.
+	// ETag lets a hard-refresh still revalidate instead of re-downloading.
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	w.Header().Set("ETag", logoETag(data))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(data)
+}
+
+// logoETag derives a stable validator from the asset bytes. FNV-1a is plenty:
+// this only has to change when the file does, not resist an attacker.
+func logoETag(data []byte) string {
+	h := fnv.New64a()
+	_, _ = h.Write(data)
+	return `"` + strconv.FormatUint(h.Sum64(), 36) + `"`
 }
 
 // HandleAuthVerify checks if the provided API key is valid.
@@ -357,6 +431,12 @@ type ProviderSummary struct {
 	// ClientProfile is the selected Antigravity client identity ("ide" or
 	// "cli") for Antigravity connections; empty for other providers.
 	ClientProfile string `json:"clientProfile,omitempty"`
+
+	// NoConnection marks a card synthesised for a registry provider that needs no
+	// credential (see providers.NoAuthProviders) and therefore has no connection
+	// row. The UI uses it to say "no account needed" instead of rendering a
+	// 0/0 account counter, which would read as "broken".
+	NoConnection bool `json:"noConnection,omitempty"`
 
 	// Upstream display metadata so cards match the Next.js UI exactly.
 	Icon            string   `json:"icon,omitempty"`
@@ -562,6 +642,12 @@ type ProviderDetail struct {
 	ActiveCount   int               `json:"activeCount"`
 	TotalCount    int               `json:"totalCount"`
 
+	// NoConnection marks a keyless provider that owns no connection row by
+	// design (see providers.NoAuthProviders). Without it the hero renders
+	// "0/0 active", which reads as a broken provider rather than one that needs
+	// no credential at all.
+	NoConnection bool `json:"noConnection,omitempty"`
+
 	// Node carries the endpoint details of a compatible provider (the upstream
 	// "CompatibleNodeCard"). It is nil for a built-in provider. The UI shows
 	// these so an operator can see — and verify — the URL a node actually
@@ -610,6 +696,8 @@ func (h *Handler) HandleProviderDetail(w http.ResponseWriter, r *http.Request) {
 		detail.Category = string(meta.Category)
 		detail.CategoryLabel = providers.GetCategoryLabel(meta.Category)
 		detail.AuthType = meta.AuthType
+		// A no-auth provider needs no account, so "0/0 active" would misdescribe it.
+		detail.NoConnection = meta.AuthType == "none"
 		detail.Description = meta.Description
 		detail.Icon = meta.Icon
 		detail.Color = meta.Color
@@ -835,7 +923,11 @@ func (h *Handler) HandleImportModels(w http.ResponseWriter, r *http.Request) {
 		creds = conns[0].Data
 		credsConnID = conns[0].ID
 	}
-	if creds == "" {
+	if creds == "" && !providers.IsNoAuthProvider(canonical) && !providers.IsNoAuthProvider(raw) {
+		// Only a credential-requiring provider needs a connection. Keyless
+		// providers authenticate with their registry default key below, so
+		// refusing here would make a provider the operator can chat with look
+		// like it cannot list models at all.
 		handlerutil.WriteJSONError(w, http.StatusBadRequest,
 			"Add a connection to enable importing models.")
 		return
@@ -1053,6 +1145,40 @@ func (h *Handler) HandleListProviders(w http.ResponseWriter, r *http.Request) {
 			if node, ok := nodeMap[c.Provider]; ok && node.Name != nil && *node.Name != "" {
 				summary.RegistryName = *node.Name
 			}
+		}
+		res = append(res, summary)
+	}
+
+	// A no-auth provider (OpenCode Free, the local TTS/search servers) has nothing
+	// to connect, so it owns no connection row — yet the grid above is built from
+	// connections and would never render it. Append a zero-connection card for any
+	// registry provider that authenticates with no credential and is not already
+	// present, mirroring upstream's always-visible "No Auth" section (#3290).
+	seen := make(map[string]bool, len(res))
+	for _, c := range res {
+		seen[providers.ResolveAlias(c.Provider)] = true
+	}
+	for _, meta := range providers.NoAuthProviders() {
+		if seen[meta.ID] {
+			continue
+		}
+		summary := ProviderSummary{
+			// Stable synthetic id: the detail page resolves either a uuid or a
+			// provider prefix, so the registry id is a valid handle here and is
+			// what the UI already passes to openProviderDetail().
+			ID:                  meta.ID,
+			Provider:            meta.ID,
+			DisplayName:         meta.Name,
+			Category:            string(meta.Category),
+			CategoryLabel:       providers.GetCategoryLabel(meta.Category),
+			AuthType:            meta.AuthType,
+			IsActive:            1,
+			EffectiveStatus:     "active",
+			IsEffectivelyActive: true,
+			NoConnection:        true,
+		}
+		if m, ok := providers.GetProviderMeta(meta.ID); ok {
+			applyProviderMeta(&summary, m, true)
 		}
 		res = append(res, summary)
 	}
@@ -1368,9 +1494,36 @@ func (h *Handler) HandleGetSettings(w http.ResponseWriter, r *http.Request) {
 		"ponytailLevel":         h.tokenSaver.PonytailLevel(),
 		"injectionGuardEnabled": h.tokenSaver.InjectionGuardEnabled(),
 		"autoUpdate":            s.AutoUpdate,
+		// providerStrategies drives proxy routing for no-auth/free providers.
+		// Normalized to an object so the UI never has to null-check.
+		"providerStrategies": providerStrategiesOrEmpty(s.ProviderStrategies),
 	}
 
 	handlerutil.WriteJSON(w, http.StatusOK, resp)
+}
+
+// HandleListProxyPools returns the proxy pools a provider strategy may target.
+// Only metadata is exposed; proxy URLs stay server-side so credentials embedded
+// in them never reach the browser.
+func (h *Handler) HandleListProxyPools(w http.ResponseWriter, r *http.Request) {
+	pools, err := h.repo.ListProxyPools(false)
+	if err != nil {
+		handlerutil.WriteJSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if pools == nil {
+		pools = []db.ProxyPoolSummary{}
+	}
+	handlerutil.WriteJSON(w, http.StatusOK, map[string]any{"proxyPools": pools})
+}
+
+// providerStrategiesOrEmpty returns a non-nil map so the JSON payload always
+// carries "providerStrategies": {} rather than null.
+func providerStrategiesOrEmpty(m map[string]db.ProviderStrategy) map[string]db.ProviderStrategy {
+	if m == nil {
+		return map[string]db.ProviderStrategy{}
+	}
+	return m
 }
 
 // HandleUpdateSettings updates token saver settings in memory and SQLite.
@@ -1388,6 +1541,10 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		PonytailLevel         *string `json:"ponytailLevel"`
 		InjectionGuardEnabled *bool   `json:"injectionGuardEnabled"`
 		AutoUpdate            *bool   `json:"autoUpdate"`
+		// providerStrategies is a full-replace map keyed by provider id, matching
+		// VansRouter's PATCH /api/settings behavior. An entry with no fields left
+		// set is dropped so the settings blob stays clean.
+		ProviderStrategies *map[string]db.ProviderStrategy `json:"providerStrategies"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -1428,6 +1585,32 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	if req.AutoUpdate != nil {
 		s.AutoUpdate = *req.AutoUpdate
 	}
+	if req.ProviderStrategies != nil {
+		// providerStrategies arrives as the operator's complete view of the map,
+		// but other callers (scripts, the Next.js dashboard) may patch a single
+		// provider. Replacing the whole map would silently wipe every other
+		// provider's routing, so merge per provider key instead: a key present in
+		// the payload wins (including an all-empty entry, which is how a provider
+		// is explicitly cleared), and absent keys are left untouched.
+		merged := make(map[string]db.ProviderStrategy, len(s.ProviderStrategies)+len(*req.ProviderStrategies))
+		for k, v := range s.ProviderStrategies {
+			merged[k] = v
+		}
+		for k, v := range *req.ProviderStrategies {
+			if k == "" {
+				continue
+			}
+			if v.ProxyPoolID == "__none__" {
+				v.ProxyPoolID = ""
+			}
+			if v.IsEmpty() {
+				delete(merged, k)
+				continue
+			}
+			merged[k] = v
+		}
+		s.ProviderStrategies = sanitizeProviderStrategies(merged)
+	}
 
 	if err := h.repo.SaveSettingsData(s); err != nil {
 		handlerutil.WriteJSONError(w, http.StatusInternalServerError, "Failed to save settings: "+err.Error())
@@ -1443,5 +1626,29 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		"ponytailLevel":         h.tokenSaver.PonytailLevel(),
 		"injectionGuardEnabled": h.tokenSaver.InjectionGuardEnabled(),
 		"autoUpdate":            s.AutoUpdate,
+		"providerStrategies":    providerStrategiesOrEmpty(s.ProviderStrategies),
 	})
+}
+
+// sanitizeProviderStrategies drops entries that carry no configuration, so a
+// provider whose fields were all cleared does not linger as an empty object.
+// Mirrors VansRouter, which deletes the key when the override becomes empty.
+func sanitizeProviderStrategies(in map[string]db.ProviderStrategy) map[string]db.ProviderStrategy {
+	out := make(map[string]db.ProviderStrategy, len(in))
+	for id, strat := range in {
+		if id == "" {
+			continue
+		}
+		if strat.ProxyPoolID == "__none__" {
+			strat.ProxyPoolID = ""
+		}
+		if strat.IsEmpty() {
+			continue
+		}
+		out[id] = strat
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }

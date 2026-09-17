@@ -91,6 +91,29 @@ var freeModelCatalog = []freeBudget{
 	{"glm-cn", "glm-4.7-flash", regimeRecurringUncapped, ""},
 	{"glm-cn", "glm-signup-bonus", regimeOneTimeInitial, "Z.AI — 20M signup bonus"},
 
+	// OpenCode (upstream "opencode", this fork's short alias "oc"). A keyless
+	// free tier: every free id is reachable with the literal API key "public"
+	// (see KnownProviders["opencode"].DefaultAPIKey), which is why the provider
+	// is filed under CategoryFree / AuthType "none" rather than freeTier.
+	//
+	// The ids below are the ones the live catalogue currently serves with a
+	// "-free" suffix, verified against https://opencode.ai/zen/v1/models. Note
+	// that the suffix is "-free", NOT OpenRouter's ":free", so the payload
+	// signal never fires and the catalogue entry is the only thing that can
+	// badge these models. Upstream rotates this line-up (OmniRoute's own
+	// catalogue still lists an older set: minimax-m2.5-free, ling-2.6-1t-free,
+	// trinity-large-preview-free, nemotron-3-super-free, qwen3.6-plus-free);
+	// listing the current ids keeps the badge honest without inventing
+	// provenance for retired ones.
+	{"opencode", "big-pickle", regimeKeyless, ""},
+	{"opencode", "deepseek-v4-flash-free", regimeKeyless, ""},
+	{"opencode", "mimo-v2.5-free", regimeKeyless, ""},
+	{"opencode", "ling-3.0-flash-fin-free", regimeKeyless, ""},
+	{"opencode", "nemotron-3-ultra-free", regimeKeyless, ""},
+	{"opencode", "nemotron-3.5-lightning-free", regimeKeyless, ""},
+	{"opencode", "muse-spark-1.3-contributor-free", regimeKeyless, ""},
+	{"opencode", "muse-spark-1.2-contributor-free", regimeKeyless, ""},
+
 	// Google AI Studio (api-key free tier).
 	{"gemini", "gemini-2.5-flash", regimeRecurringDaily, ""},
 	{"gemini", "gemini-2.5-flash-lite", regimeRecurringDaily, ""},

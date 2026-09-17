@@ -967,9 +967,15 @@ Three actions live on the card:
 
 | action | endpoint | notes |
 |---|---|---|
+| Add | opens the Add Connection modal | adds an account to this node |
 | Edit | `PATCH /api/dashboard/provider-nodes/{id}` | name, prefix, base URL, paths, icon |
 | Delete | `DELETE /api/dashboard/provider-nodes/{id}` | `409` while connections remain |
 | Delete (forced) | `DELETE …?cascade=1` | also deletes the node's connections |
+
+Because the card owns Add, the connections toolbar hides its own Add button for a
+compatible endpoint (`showKeyForm` is false when `d.node` is set) — upstream does
+the same in `ConnectionsHeaderToolbar`, which renders Add only when `!isCompatible`.
+A built-in provider still gets the toolbar button, so nothing is lost there.
 
 The node **id and type are immutable**: the id is what every connection stores as
 its `provider`, and the type is baked into the id, so changing either would orphan
@@ -985,6 +991,202 @@ of connections about to be lost.
 (`baseUrl`, `apiType`, `apiLabel`, `apiPath`, `chatPath`, `modelsPath`, `iconUrl`,
 `compatMode`). It is absent for built-in providers, which is what keeps their
 page unchanged.
+
+### Adding a connection is a modal, not an inline form
+
+The key/cookie form used to sit permanently at the top of the Connections tab.
+It is now a modal opened by that button, mirroring upstream's `AddApiKeyModal`.
+The credential label is derived from the provider's auth type when the modal
+opens, so a `webCookie` provider asks for a **Cookie** and a no-auth provider for
+an **Optional Token** instead of a hardcoded "API Key". An empty submit is
+refused in place, and a successful one closes the modal and re-opens the detail
+page so the new account is visible.
+
+### OpenCode Free could not list or badge a single model
+
+OpenCode's keyless free tier (`opencode`, alias `oc`, shown as **OpenCode Free**)
+was reachable for routing but blank in the dashboard, because of two independent
+omissions:
+
+1. **No model fetcher.** `knownModelFetchers` had no `opencode` entry, so the
+   provider page answered `Provider opencode does not support models listing` for
+   a route that returns **200**. Both tiers are registered now —
+   `https://opencode.ai/zen/v1/models` (71 ids) and
+   `https://opencode.ai/zen/go/v1/models` (38 ids), both verified live, both
+   authenticating with the literal keyless token `public`
+   (`KnownProviders["opencode"].DefaultAPIKey`) plus the same
+   `x-opencode-client` header the executor sends.
+2. **No free-tier catalogue entry.** The provider was absent from
+   `freeModelCatalog`, so `ProviderHasFreeModels("opencode")` was `false` and the
+   green **Free** badge never rendered — for a provider whose whole point is a
+   free tier.
+
+The suffix trap is worth remembering: these models end in `"-free"`, **not**
+OpenRouter's `":free"`, so the payload-signal path never fires and the catalogue
+entry is the *only* thing that can badge them. The catalogue carries the ids the
+live endpoint currently serves; upstream rotates this line-up (OmniRoute's own
+catalogue still lists an older set), and a retired id simply stops being
+advertised. A model the catalogue does not know stays unbadged rather than being
+assumed free from its name.
+
+Net effect, verified against the live upstream: `GET
+/api/dashboard/providers/oc/models` reports `supported: true` with 71 models, of
+which exactly the 8 free ids are flagged `isFree`, and the detail page renders the
+same 8 badges. `opencode-go` lists 38 models with **zero** free badges — the Go
+tier is paid, and the badge must not leak across tiers.
+
+### A keyless provider owns no connection, so the grid could not show it
+
+Fixing the badge was not enough: **OpenCode Free still did not appear on the
+providers page at all.** `HandleListProviders` builds the grid by iterating
+provider *connections*, and a no-auth provider has nothing to connect — it never
+gets a row. The card was therefore structurally invisible no matter how many
+models it served.
+
+Upstream hit the same problem and states the rule in
+`providerPageUtils.ts::filterConfiguredProviderEntries` (#3290): "no-auth
+providers never create a DB connection row (stats.total === 0) but are always
+usable … so they must not be hidden", rendered by a dedicated
+`NoAuthProvidersSection`. We now match that: `providers.NoAuthProviders()`
+enumerates the registry entries that are keyless **and** serve chat
+(`AuthType == "none"` and `ServiceKinds` contains `"llm"`), and
+`HandleListProviders` appends a zero-connection card for each that is not already
+present.
+
+That second condition is the whole subtlety, and getting it wrong the first time
+is instructive. `AuthType == "none"` on its own also matches six local
+media/utility servers — `coqui`, `edge-tts`, `google-tts`, `local-device`,
+`tortoise` (text-to-speech) and `searxng` (search) — so a naive "show every
+keyless provider" rule promotes all seven and fills the page with cards an
+operator cannot act on, since none of them can serve a chat request. Upstream
+draws exactly this line, splitting them across catalog files: `noauth.ts` holds
+only LLM providers, while the TTS servers live in `audio.ts` and SearXNG in
+`search.ts`. Our registry expresses the same split through `ServiceKinds`, and it
+aligns cleanly — `opencode` is the sole no-auth entry declaring `["llm"]`.
+
+The synthetic card carries `noConnection: true` and is keyed by the **registry
+id** (`opencode`), which the detail page already accepts as a handle. That flag is
+load-bearing: the card and the detail hero both render an account counter, and
+`0/0 active` is exactly what a broken provider looks like — so a keyless one says
+**"no key needed"** instead, on both surfaces.
+
+Two consequences worth knowing. The `/providers` response is now a superset of
+the connection rows, so a caller that counted the array to mean "connections" is
+wrong — filter on `noConnection` (tests use a `filterConnected` helper). And the
+added card is only OpenCode Free: the six keyless TTS/search servers stay off the
+grid by the `llm` rule above.
+
+### A keyless provider could not import models
+
+The synthetic card got OpenCode Free onto the grid, but its detail page still
+refused the one action that makes it useful: **Import from /models** answered
+*"Add a connection to enable importing models."* — advice the operator cannot
+follow, because a keyless provider has nothing to store and therefore never gets
+a connection row. The provider was visible but permanently unusable.
+
+Upstream guards this in two places, and we had only implemented the second:
+
+```js
+// upstream ProviderModelsSection / useModelImportHandlers
+const canImportModels = isFreeNoAuth || connections.some((c) => c.isActive !== false);
+// upstream GET /api/providers/[id]/models — before requiring a connection
+if (noAuthProviderId) return buildNoAuthModelsResponse(noAuthProviderId, ...);
+```
+
+The `isFreeNoAuth` clause was missing. Two layers had to change:
+
+- **`HandleImportModels`** refused when no stored credential existed. It now
+  refuses only for providers that genuinely need one, via
+  `providers.IsNoAuthProvider`.
+- **`fetchUpstreamModels`** sent an empty bearer token, because the registry's
+  `DefaultAPIKey` was declared but never applied on this path. It now falls back
+  to that key (opencode's literal `"public"`), and still errors for providers
+  without one.
+
+A keyless provider thus imports with **zero connections**: upstream lists 71 ids
+and 8 carry the Free badge — the badge can only come from `freeModelCatalog`,
+because the `-free` suffix is not a payload signal. `opencode-go` is deliberately
+*not* keyless: it is a paid tier, and upstream's `NOAUTH_PROVIDERS` lists only
+`opencode`.
+
+### Provider icons were glyphs, not logos
+
+The grid and the detail hero drew a Material Symbols glyph (`smart_toy`) for
+every provider. It is legible but generic: ten cards in a column showed the same
+placeholder, so the one thing an icon is for — telling rows apart at a glance —
+did not happen.
+
+Upstream ships real brand art as `public/providers/{id}.webp` (158 files, ~3KB
+each). We now embed **105** of them:
+
+- `internal/handlers/dashboard/ui/providers/` holds one file per provider,
+  named for the **registry id**. Upstream sometimes stores an id under a
+different filename (`codebuddy-intl` → `codebuddy-cn`, `vercel-ai-gateway` →
+`vercel`); the alias is used only to *find the source*, so no alias table is
+needed at request time and the lookup stays a single map.
+- `ServeProviderLogo` serves them, and the `//go:embed` uses `all:ui` so files
+  named `_foo.webp` cannot silently vanish from a build.
+- The 14 ids with no upstream asset (`baidu`, `zed`, `tencent`, …) keep the
+  glyph. That is the correct outcome, not a gap to paper over.
+- Compatible endpoints are **excluded**: their id is a generated UUID, so a logo
+  can never exist, and requesting one would 404 on every render *and* put the
+  node id in a URL — the same leak the dashboard removes everywhere else.
+
+The route is mounted **publicly**, outside the session group: an `<img>` tag
+cannot send an `Authorization` header, so a session-gated route would leave
+every tile broken on first paint. The assets are static third-party brand marks
+with no operator data in them.
+
+Two details are load-bearing:
+
+- **Only `webp` and `png` are served.** SVG can carry script, so allowing it
+  would turn a future logo drop into stored XSS from this origin.
+- **The request path is validated**, not trusted: no separator and no leading
+  dot, so `..` and nested reads never reach the embed FS. (`embed.FS` rejects `.`
+  segments on its own, which makes this defence in depth rather than the only
+  control — deleting the guard changes no response today, so it is asserted
+  directly.)
+
+**What the tests actually pin.** Reverting `all:ui` to `ui/*` and removing the
+traversal guard both left the suite green, which is a test bug rather than a
+feature that works: `ui/*` already descends into subdirectories (so the original
+comment claiming otherwise was wrong, and the directive is now documented for
+its real reason), and `embed.FS` rejects `..` by itself. The useful assertions
+are the ones that fail when the **rendering contract** breaks — a logo request
+that never happens, a glyph fallback that was deleted, a PNG list that drifts
+from the assets on disk, or a generated-node-id check that is defined but never
+called.
+
+### A provider had no way back to its own site
+
+The detail page listed a provider's connections, models and capabilities, but
+never linked to the provider. The registry had carried a `website` field all
+along and the API was already serialising it — only the UI ignored it.
+
+Worse, the one place it *was* shown was buried in the **Capabilities** tab, as
+`Website: <url>`, so reaching a provider's console meant knowing to look there.
+
+VansRouter puts the link in the **detail header**, next to the provider name
+(`providers/[id]/page.js`), and prefers the API-key page over the marketing
+site when both exist, labelling the link accordingly. We now do the same:
+
+- `providerLink(d)` renders a small pill beside the name, with
+  `target="_blank" rel="noopener noreferrer"`.
+- The buried copy in the Capabilities tab is **removed**, not duplicated.
+- The **grid card** deliberately has no link: upstream has none either, and a
+  card is a navigation target, not a launch pad.
+
+**Registry coverage went from 76/119 to 114/119.** The 38 added URLs were taken
+from the two upstream sources and cross-checked against each other. The 5 that
+still have none are correct: `edge-tts`, `google-tts` and `local-device` are
+local servers with no site, and VansRouter's own registry gives `mimo-free` and
+`mmf` no `display.website` either.
+
+**A fair-mutation lesson.** Renaming `.hero-link` to `.hero-link-REMOVED` left
+the suite green, because the test looked for the substring `.hero-link`. The
+mutation has to remove the rule outright to be meaningful — a renamed selector
+still matches a `strings.Contains` check, which is a test bug rather than a
+feature that works.
 
 ## Contributing back
 

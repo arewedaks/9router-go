@@ -579,3 +579,211 @@ func TestUIDeleteNodeWarnsAboutConnections(t *testing.T) {
 		t.Error("delete must pass cascade=1 once the operator has confirmed")
 	}
 }
+
+// TestUIAddConnectionIsAModal pins the upstream shape: a connection is added
+// through a modal opened by a button, not an always-visible inline form. OmniRoute
+// collects it in AddApiKeyModal, opened from the connections toolbar and — for a
+// compatible endpoint — from the node card's own Add button.
+func TestUIAddConnectionIsAModal(t *testing.T) {
+	body := readEmbeddedUI(t)
+
+	for _, want := range []string{
+		`id="add-conn-modal"`,
+		`id="addconn-provider"`,
+		`id="acct-secret-label"`,
+		`function openAddConnModal(`,
+		`openAddConnModal('`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("embedded UI is missing %q", want)
+		}
+	}
+	// The inline form must be gone: a second copy of the fields would leave two
+	// elements sharing one id, and getElementById would return the wrong one.
+	if strings.Contains(body, `add_link</span>Add Connection`) {
+		t.Error("the inline add-connection form should be replaced by the modal")
+	}
+}
+
+// TestUICompatibleNodeCardOwnsAddButton pins that the compatible-node card is the
+// one place a connection is added for a compatible endpoint — upstream hides the
+// toolbar Add button whenever isCompatible is set, so offering both would be
+// duplicate UI for the same action.
+func TestUICompatibleNodeCardOwnsAddButton(t *testing.T) {
+	body := readEmbeddedUI(t)
+
+	if !strings.Contains(body, `onclick="openAddConnModal('${safeId}')"`) {
+		t.Error("the node card must offer Add, addressing the node by its id")
+	}
+	// The toolbar button is suppressed for a node: showKeyForm must account for it.
+	if !strings.Contains(body, "const showKeyForm = oauthPanel === '' && !d.node;") {
+		t.Error("the toolbar Add button must be hidden when this provider is a node")
+	}
+}
+
+// TestUIAddConnectionModalFollowsAuthType pins that the credential label is
+// derived when the modal opens: a webCookie provider must ask for a Cookie, a
+// no-auth provider for an Optional Token. Hardcoding "API Key" would mislabel the
+// field for every cookie provider.
+func TestUIAddConnectionModalFollowsAuthType(t *testing.T) {
+	body := readEmbeddedUI(t)
+	if !strings.Contains(body, `const isCookie = authType === "cookie";`) {
+		t.Error("the modal must read the provider's auth type")
+	}
+	if !strings.Contains(body, `const secretLabel = isCookie ? "Cookie" : (authType === "none" ? "Optional Token" : "API Key");`) {
+		t.Error("the credential label must switch on auth type")
+	}
+	if !strings.Contains(body, `document.getElementById("acct-secret-label").textContent = secretLabel;`) {
+		t.Error("the derived label must be applied to the modal's field label")
+	}
+}
+
+// TestUINoAuthCardSaysNoKeyNeeded pins the card counter for a synthesised
+// no-auth provider. These cards own no connection row, so the usual
+// "active/total" pill would render "0/0" — which reads as a broken provider
+// rather than the keyless one it is. The card must say what is true instead.
+func TestUINoAuthCardSaysNoKeyNeeded(t *testing.T) {
+	body := readEmbeddedUI(t)
+	if !strings.Contains(body, "head.noConnection") {
+		t.Fatal("the card renderer must branch on noConnection; otherwise a keyless provider shows 0/0")
+	}
+	pillIdx := strings.Index(body, "prov-count-pill")
+	if pillIdx == -1 {
+		t.Fatal("the account-count pill disappeared from the card renderer")
+	}
+	// The noConnection branch must come before the numeric fallback and must not
+	// itself emit a numeric counter.
+	noConnIdx := strings.Index(body, "const countPill = head.noConnection")
+	if noConnIdx == -1 {
+		t.Fatal("expected the count pill to be chosen by a noConnection branch")
+	}
+	if !strings.Contains(body[noConnIdx:noConnIdx+500], "no key needed") {
+		t.Error("a no-auth card must label itself 'no key needed'")
+	}
+	// Scope to the noConnection arm: from the branch to the `: \`` that starts
+	// the numeric fallback. Without this the window would spill into the other
+	// arm and see its counter.
+	arm := body[noConnIdx:]
+	if end := strings.Index(arm, ": `"); end != -1 {
+		arm = arm[:end]
+	}
+	if strings.Contains(arm, "activeCount}/${accounts.length") {
+		t.Error("the no-auth branch must not fall through to a numeric counter")
+	}
+}
+
+// TestUIDetailHeroUsesNoConnection pins the same honesty on the provider detail
+// page: the hero counter reads "0/0 active" for a keyless provider, which is the
+// number a broken provider shows. It must branch on the payload's noConnection.
+func TestUIDetailHeroUsesNoConnection(t *testing.T) {
+	body := readEmbeddedUI(t)
+	idx := strings.Index(body, "${d.noConnection")
+	if idx == -1 {
+		t.Fatal("the detail hero must branch on d.noConnection; otherwise a keyless provider reads 0/0 active")
+	}
+	arm := body[idx:]
+	if end := strings.Index(arm, ": `"); end != -1 {
+		arm = arm[:end]
+	}
+	if !strings.Contains(arm, "no key needed") {
+		t.Error("the detail hero must label a keyless provider 'no key needed'")
+	}
+	if strings.Contains(arm, "activeCount}/${d.totalCount}") {
+		t.Error("the no-auth arm must not fall through to the numeric counter")
+	}
+}
+
+// The Proxy Routing tab is the only configurable surface a keyless provider has
+// (it owns no connection row), so it must be gated on the same noConnection flag
+// the hero uses — never shown for providers that have connections.
+func TestUIProxyTabGatedOnNoConnection(t *testing.T) {
+	body := readEmbeddedUI(t)
+	idx := strings.Index(body, "const showProxyTab")
+	if idx == -1 {
+		t.Fatal("renderProviderDetail must gate the Proxy tab on showProxyTab")
+	}
+	arm := body[idx:]
+	if end := strings.Index(arm, "\n"); end != -1 {
+		arm = arm[:end]
+	}
+	if !strings.Contains(arm, "d.noConnection") {
+		t.Errorf("the Proxy tab must be gated on d.noConnection, got: %s", arm)
+	}
+}
+
+// The Proxy tab must hide itself inside showDetailTab's panel list, or switching
+// away from it would leave the panel visible.
+func TestUIProxyPanelRegisteredInTabSwitcher(t *testing.T) {
+	body := readEmbeddedUI(t)
+	if !strings.Contains(body, `"dt-proxy"`) {
+		t.Fatal("the Proxy panel id dt-proxy must exist")
+	}
+	idx := strings.Index(body, `["dt-conn", "dt-caps", "dt-models", "dt-proxy"]`)
+	if idx == -1 {
+		t.Error("showDetailTab must include dt-proxy in the panels it hides")
+	}
+}
+
+// Rotation state must round-trip through the server: the card writes the full
+// providerStrategies map, and targetProxyPoolIds carries the narrowed set.
+func TestUIProxyCardSavesProviderStrategies(t *testing.T) {
+	body := readEmbeddedUI(t)
+	for _, want := range []string{
+		"renderNoAuthProxyCard",
+		"saveNoAuthProxyStrategy",
+		"targetProxyPoolIds",
+		"/api/dashboard/proxy-pools",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("UI must reference %q for proxy routing", want)
+		}
+	}
+}
+
+// A non-none strategy makes the single static pool selection inert, so the
+// select must be disabled to avoid implying it still applies.
+func TestUIProxyStaticPoolDisabledWhileRotating(t *testing.T) {
+	body := readEmbeddedUI(t)
+	idx := strings.Index(body, `id="proxy-pool"`)
+	if idx == -1 {
+		t.Fatal("the static pool select must have id proxy-pool")
+	}
+	arm := body[idx:]
+	if end := strings.Index(arm, ">"); end != -1 {
+		arm = arm[:end]
+	}
+	if !strings.Contains(arm, `strategy === "none"`) {
+		t.Errorf("the static pool select must be disabled while a rotation strategy is active, got: %s", arm)
+	}
+}
+
+// Changing the strategy must reveal the eligible-pool checkboxes, which only
+// exist for rotating strategies. Toggling the select alone would leave the
+// operator staring at a stale card until a manual reload.
+func TestUIProxyStrategyChangeRerenders(t *testing.T) {
+	body := readEmbeddedUI(t)
+	idx := strings.Index(body, "async function onProxyStrategyChange")
+	if idx == -1 {
+		t.Fatal("onProxyStrategyChange must exist")
+	}
+	arm := body[idx:]
+	if end := strings.Index(arm, "\n  }"); end != -1 {
+		arm = arm[:end]
+	}
+	if !strings.Contains(arm, "renderProviderDetail(lastProviderDetail)") {
+		t.Errorf("changing the strategy must re-render the detail panel, got: %s", arm)
+	}
+}
+
+// The eligible-pool list is what makes targetProxyPoolIds editable, so it must be
+// rendered whenever a rotating strategy is active.
+func TestUIProxyCardRendersTargetCheckboxes(t *testing.T) {
+	body := readEmbeddedUI(t)
+	if !strings.Contains(body, "data-pool-target") {
+		t.Fatal("the Proxy card must render per-pool target checkboxes")
+	}
+	idx := strings.Index(body, `strategy === "none" ? "" :`)
+	if idx == -1 {
+		t.Error("the target checkbox block must be gated on a rotating strategy")
+	}
+}

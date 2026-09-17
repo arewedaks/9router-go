@@ -106,6 +106,41 @@ func SchemaStatements() []string {
 			updatedAt TEXT NOT NULL,
 			PRIMARY KEY (poolId, scope)
 		)`,
+		// Usage tables. The Next.js dashboard used to be the only thing that
+		// created these; without them a Go-only install silently fails every
+		// usage write with "no such table". The column list mirrors the
+		// upstream DDL so an existing database is left untouched.
+		`CREATE TABLE IF NOT EXISTS usageHistory (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			timestamp TEXT NOT NULL,
+			provider TEXT,
+			model TEXT,
+			connectionId TEXT,
+			apiKey TEXT,
+			endpoint TEXT,
+			promptTokens INTEGER DEFAULT 0,
+			completionTokens INTEGER DEFAULT 0,
+			cost REAL DEFAULT 0,
+			status TEXT,
+			tokens TEXT,
+			meta TEXT,
+			apiKeyName TEXT
+		)`,
+		`CREATE TABLE IF NOT EXISTS usageDaily (
+			dateKey TEXT PRIMARY KEY,
+			data TEXT NOT NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS requestDetails (
+			id TEXT PRIMARY KEY,
+			timestamp TEXT NOT NULL,
+			provider TEXT,
+			model TEXT,
+			connectionId TEXT,
+			status TEXT,
+			data TEXT NOT NULL,
+			apiKey TEXT,
+			apiKeyName TEXT
+		)`,
 	}
 }
 
