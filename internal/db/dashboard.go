@@ -300,6 +300,24 @@ func (r *Repo) GetAllProviderNodes() ([]*models.ProviderNode, error) {
 	return nodes, rows.Err()
 }
 
+// CreateProviderNode inserts a provider node row. The caller owns the id, name
+// and data blob (JSON), matching how upstream stores compatible endpoints: the
+// node's prefix lives inside `data`, not in its own column. Returns an error if
+// the id already exists rather than overwriting an unrelated node.
+func (r *Repo) CreateProviderNode(n *models.ProviderNode) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+	if n.CreatedAt == "" {
+		n.CreatedAt = now
+	}
+	n.UpdatedAt = now
+
+	_, err := r.db.Exec(
+		`INSERT INTO providerNodes (id, type, name, data, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?)`,
+		n.ID, n.Type, n.Name, n.Data, n.CreatedAt, n.UpdatedAt,
+	)
+	return err
+}
+
 // UpsertCombo creates or updates a combo.
 func (r *Repo) UpsertCombo(c *models.Combo) error {
 	now := time.Now().UTC().Format(time.RFC3339)

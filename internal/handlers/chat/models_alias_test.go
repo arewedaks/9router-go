@@ -90,3 +90,48 @@ func TestHandleModelsUsesNodePrefixForCustomModels(t *testing.T) {
 		}
 	}
 }
+
+// TestHandleModelsInfoOwnsByPrefixNotNodeID pins that /v1/models/info agrees with
+// /v1/models. handleModels exports "atri/..." with owned_by "atri"; info must
+// not answer with the generated node id for the same model.
+func TestHandleModelsInfoOwnsByPrefixNotNodeID(t *testing.T) {
+	database, cleanup := setupChatTestDB(t)
+	defer cleanup()
+
+	const nodeID = "openai-compatible-chat-8db0a9e6-970e-4903-9a9f-27365f3763e2"
+	nodeBlob := `{"prefix":"atri","apiType":"chat","baseUrl":"https://api.atria-asi.ai/v1"}`
+	if _, err := database.Exec(
+		`INSERT INTO providerNodes (id, type, name, data, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?)`,
+		nodeID, "openai-compatible", "Atria AI", nodeBlob, "2026-07-18T00:00:00Z", "2026-07-18T00:00:00Z",
+	); err != nil {
+		t.Fatalf("seed providerNodes: %v", err)
+	}
+	if _, err := database.Exec(
+		`INSERT INTO providerConnections (id, provider, authType, name, priority, isActive, data, createdAt, updatedAt) VALUES ('at-1',?,'apikey','Atria',1,1,'{}',?,?)`,
+		nodeID, "2026-07-18T00:00:00Z", "2026-07-18T00:00:00Z",
+	); err != nil {
+		t.Fatalf("seed providerConnections: %v", err)
+	}
+
+	h := &ChatHandler{Repo: db.NewRepo(database)}
+	req := httptest.NewRequest("GET", "/v1/models/info?id=atri/Atria-Dawn-Preview", nil)
+	w := httptest.NewRecorder()
+	h.HandleModelsInfo(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (%s)", w.Code, w.Body.String())
+	}
+	var info struct {
+		ID      string `json:"id"`
+		OwnedBy string `json:"owned_by"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &info); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if info.OwnedBy != "atri" {
+		t.Fatalf("owned_by = %q, want atri (node id must never leak)", info.OwnedBy)
+	}
+	if strings.Contains(info.OwnedBy, "openai-compatible-chat-") {
+		t.Fatalf("owned_by leaks a generated node id: %q", info.OwnedBy)
+	}
+}

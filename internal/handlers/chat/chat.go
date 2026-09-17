@@ -488,8 +488,17 @@ func (h *ChatHandler) buildModelsList() []ModelInfoObject {
 	// 4. Custom Models
 	if h.Repo != nil {
 		prefixMap, _ := h.Repo.GetProviderNodePrefixMap()
+		// aliveAliases is the set of provider keys a request could actually
+		// reach. A custom model outside it is an orphan: its node was deleted
+		// upstream and only its customModels rows survived. Listing those floods
+		// clients with dead ids (a restored backup carried 1504 of them), so they
+		// are skipped the same way upstream only exports routes that exist.
+		aliveAliases := h.aliveAliases()
 		if customs, err := h.Repo.GetCustomModels(); err == nil {
 			for _, cm := range customs {
+				if !aliveAliases[cm.ProviderAlias] {
+					continue
+				}
 				prefix := cm.ProviderAlias
 				if mapped, ok := prefixMap[cm.ProviderAlias]; ok && mapped != "" {
 					prefix = mapped
@@ -567,6 +576,74 @@ func (h *ChatHandler) HandleModels(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// parseNodePrefix extracts the configured model prefix from a providerNode's
+// data JSON ("prefix":"atri"). Returns "" when absent or unparseable; callers
+// then fall back to the node id, matching upstream.
+func parseNodePrefix(rawData string) string {
+	if rawData == "" {
+		return ""
+	}
+	var d struct {
+		Prefix string `json:"prefix"`
+	}
+	if err := json.Unmarshal([]byte(rawData), &d); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(d.Prefix)
+}
+
+// nodePrefixByID maps every configured compatible node id to its user-chosen
+// prefix, so model ids can be exported as "atri/..." instead of the generated
+// "openai-compatible-chat-<uuid>/...". Shared by /v1/models and /v1/models/info
+// so the two cannot disagree about a model's alias.
+func (h *ChatHandler) nodePrefixByID() map[string]string {
+	out := map[string]string{}
+	nodes, err := h.Repo.GetAllProviderNodes()
+	if err != nil {
+		return out
+	}
+	for _, n := range nodes {
+		if nd := parseNodePrefix(n.Data); nd != "" {
+			out[n.ID] = nd
+		}
+	}
+	return out
+}
+
+// aliveAliases is the set of provider keys a request could actually reach:
+// known providers, known provider aliases (gh → github), configured nodes and
+// their prefixes, and any provider that has a connection. A custom model whose
+// alias is outside this set is an orphan — its node was deleted upstream while
+// only its customModels survived — and must not be advertised. Upstream behaves
+// identically: `buildConnectedProviderIds` is only called for providers present
+// in `activeConnectionByProvider`.
+//
+// Including ProviderAliasMap is load-bearing: `gh`, `oc`, `cl` and `cbai` are
+// aliases, not connections, and their models must keep being listed.
+func (h *ChatHandler) aliveAliases() map[string]bool {
+	alive := map[string]bool{}
+	for k := range providers.KnownProviders {
+		alive[k] = true
+	}
+	for k := range providers.ProviderAliasMap {
+		alive[k] = true
+	}
+	if nodes, err := h.Repo.GetAllProviderNodes(); err == nil {
+		for _, n := range nodes {
+			alive[n.ID] = true
+			if nd := parseNodePrefix(n.Data); nd != "" {
+				alive[nd] = true
+			}
+		}
+	}
+	if conns, err := h.Repo.GetAllProviderConnections(); err == nil {
+		for _, c := range conns {
+			alive[c.Provider] = true
+		}
+	}
+	return alive
+}
+
 // HandleModelsInfo returns metadata for a specific model.
 // GET /v1/models/info?id={modelId}
 func (h *ChatHandler) HandleModelsInfo(w http.ResponseWriter, r *http.Request) {
@@ -584,10 +661,16 @@ func (h *ChatHandler) HandleModelsInfo(w http.ResponseWriter, r *http.Request) {
 
 	ctxLen, maxOut := providers.GetModelTokenLimits(modelID)
 
+	// owned_by must be the short alias clients already receive from
+	// /v1/models, never a generated node key. handleModels exports
+	// "atri/Atria-Dawn-Preview" with owned_by "atri"; info must agree, so the
+	// two endpoints cannot disagree about a model's owner id.
+	owner := providers.NormalizeModelAlias(modelInfo.Provider, h.nodePrefixByID())
+
 	info := map[string]any{
 		"id":                    modelID,
 		"object":                "model",
-		"owned_by":              modelInfo.Provider,
+		"owned_by":              owner,
 		"endpoint":              "/v1/chat/completions",
 		"context_length":        ctxLen,
 		"context_window":        ctxLen,

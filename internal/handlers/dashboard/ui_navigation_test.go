@@ -360,3 +360,45 @@ func TestUINeverLabelsChipsWithGeneratedProviderKey(t *testing.T) {
 		t.Fatal("the raw provider key is still interpolated into the chip label")
 	}
 }
+
+// TestUIModelPrefixUsesNodePrefixNotGeneratedKey pins the model-list label on a
+// compatible endpoint. The router addresses a model as "<prefix>/<modelId>"
+// ("bai/claude-fable-5"), but the tab used to fall back to the raw provider key
+// when no alias was configured, so it rendered
+// "openai-compatible-chat-8e96ef73-.../claude-fable-5". currentModelAlias must
+// prefer d.prefix.
+func TestUIModelPrefixUsesNodePrefixNotGeneratedKey(t *testing.T) {
+	body := readEmbeddedUI(t)
+
+	// The assignment has to consult prefix before falling back to provider.
+	// Skip the `let currentModelAlias = null;` declaration and target the
+	// assignment inside renderProviderDetail.
+	marker := "currentModelAlias = (d.prefix"
+	alt := "currentModelAlias = (d.aliases"
+	idx := strings.Index(body, marker)
+	if idx < 0 {
+		idx = strings.Index(body, alt)
+	}
+	if idx < 0 {
+		t.Fatal("currentModelAlias assignment not found in served UI")
+	}
+	end := strings.Index(body[idx:], ";")
+	if end < 0 {
+		t.Fatal("currentModelAlias assignment is not terminated")
+	}
+	stmt := body[idx : idx+end]
+
+	if !strings.Contains(stmt, "d.prefix") {
+		t.Fatalf("currentModelAlias does not prefer d.prefix: %q", stmt)
+	}
+	// d.provider must be the last resort, not the primary source.
+	prefixAt := strings.Index(stmt, "d.prefix")
+	providerAt := strings.Index(stmt, "d.provider")
+	if providerAt >= 0 && providerAt < prefixAt {
+		t.Fatalf("currentModelAlias consults d.provider before d.prefix: %q", stmt)
+	}
+	// No bare `: d.provider` shortcut that would skip the prefix check.
+	if strings.Contains(stmt, "? d.aliases[0] : d.provider") {
+		t.Fatalf("currentModelAlias still short-circuits to d.provider: %q", stmt)
+	}
+}

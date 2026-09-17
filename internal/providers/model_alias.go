@@ -58,3 +58,46 @@ func NormalizeModelAlias(alias string, nodePrefixByID map[string]string) string 
 	}
 	return key
 }
+
+// IsGeneratedNodeID reports whether a provider key was auto-generated for a
+// compatible endpoint rather than authored by the user. Upstream builds these
+// in `src/app/api/provider-nodes/route.js`:
+//
+//	id: `${OPENAI_COMPATIBLE_PREFIX}${apiType}-${randomUUID()}`
+//
+// The suffix is always a UUID, which is what makes the key both unreadable and
+// impossible to collide with a static alias. Callers use this to decide that a
+// raw id must not be shown to a user (the node's `name`/`prefix` is the
+// user-facing identity).
+func IsGeneratedNodeID(providerID string) bool {
+	key := strings.TrimSpace(providerID)
+	switch {
+	case strings.HasPrefix(key, "openai-compatible-"):
+	case strings.HasPrefix(key, "anthropic-compatible-"):
+	case strings.HasPrefix(key, "custom-embedding-"):
+	default:
+		return false
+	}
+	// Require the trailing UUID so a hand-written id that merely shares the
+	// prefix (e.g. "openai-compatible-custom") is not misclassified. The uuid
+	// itself contains dashes, so compare only its last 36 characters rather
+	// than splitting on the final dash.
+	if len(key) < 37 || key[len(key)-37] != '-' {
+		return false
+	}
+	uuid := key[len(key)-36:]
+	for i, c := range uuid {
+		switch i {
+		case 8, 13, 18, 23:
+			if c != '-' {
+				return false
+			}
+		default:
+			isHex := (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
+			if !isHex {
+				return false
+			}
+		}
+	}
+	return true
+}

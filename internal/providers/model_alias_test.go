@@ -61,3 +61,50 @@ func TestNormalizeModelAliasRewritesGeneratedNodeID(t *testing.T) {
 		t.Fatalf("NormalizeModelAlias(blank) = %q, want empty", got)
 	}
 }
+
+// TestIsGeneratedNodeID pins the detection of auto-generated node keys. The
+// trailing uuid contains dashes, so a naive split on the last "-" never
+// matches — which is exactly the bug that let "openai-compatible-chat-<uuid>"
+// keep leaking into display fields.
+func TestIsGeneratedNodeID(t *testing.T) {
+	generated := []string{
+		"openai-compatible-chat-8db0a9e6-970e-4903-9a9f-27365f3763e2",
+		"openai-compatible-chat-8e96ef73-6f8a-4043-bcf4-42285b6de114",
+		"anthropic-compatible-0b2ee40e-a1f9-4186-9dc5-3e0884f091e9",
+		"custom-embedding-12345678-1234-1234-1234-123456789012",
+	}
+	for _, k := range generated {
+		if !IsGeneratedNodeID(k) {
+			t.Errorf("IsGeneratedNodeID(%q) = false, want true", k)
+		}
+	}
+
+	notGenerated := []string{
+		"openrouter",
+		"bai",
+		"antigravity",
+		"openai-compatible-custom",     // no uuid suffix
+		"openai-compatible-chat-nonid", // not hex
+		"openai-compatible-chat-12345678-1234-1234-1234-12345678901", // 35 chars
+		"openai", // shares a prefix but is a real provider
+	}
+	for _, k := range notGenerated {
+		if IsGeneratedNodeID(k) {
+			t.Errorf("IsGeneratedNodeID(%q) = true, want false", k)
+		}
+	}
+}
+
+// TestOutputAliasForNodePrefixDocumentsAtria is the concrete regression from the
+// bug report: the Atria node must advertise "atri/Atria-Dawn-Preview", never
+// "openai-compatible-chat-8db0a9e6-.../Atria-Dawn-Preview".
+func TestOutputAliasForNodePrefixDocumentsAtria(t *testing.T) {
+	const atria = "openai-compatible-chat-8db0a9e6-970e-4903-9a9f-27365f3763e2"
+	if got := OutputAlias(atria, "atri"); got != "atri" {
+		t.Fatalf("OutputAlias(atria) = %q, want atri", got)
+	}
+	got := OutputAlias(atria, "atri") + "/Atria-Dawn-Preview"
+	if got != "atri/Atria-Dawn-Preview" {
+		t.Fatalf("model id = %q, want atri/Atria-Dawn-Preview", got)
+	}
+}
