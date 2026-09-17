@@ -25,6 +25,9 @@ func TestSchemaStatementsCoverEveryUsedTable(t *testing.T) {
 	usedTables := []string{
 		"apiKeys", "providerConnections", "kv", "combos", "settings",
 		"providerNodes", "cachedProviderModels", "proxyPools", "proxyPoolFitness",
+		// Usage tables. The writer in internal/handlers/chat/usage.go targets
+		// these; on a Go-only install nothing else created them.
+		"usageHistory", "usageDaily", "requestDetails",
 	}
 	for _, tb := range usedTables {
 		if !strings.Contains(schema, "TABLE IF NOT EXISTS "+tb+" ") &&
@@ -43,6 +46,9 @@ func TestSchemaStatementsCoverEveryUsedTable(t *testing.T) {
 		"providerConnections":  {"priority", "isActive", "data"},
 		"proxyPools":           {"isActive", "testStatus", "data"},
 		"proxyPoolFitness":     {"poolId", "scope", "until", "reason"},
+		"usageHistory":         {"timestamp", "provider", "model", "connectionId", "apiKey", "endpoint", "promptTokens", "completionTokens", "cost", "status", "tokens", "meta"},
+		"usageDaily":           {"dateKey", "data"},
+		"requestDetails":       {"id", "timestamp", "provider", "model", "connectionId", "status", "data", "apiKey"},
 	}
 	for table, cols := range usedColumns {
 		body := tableBody(schema, table)

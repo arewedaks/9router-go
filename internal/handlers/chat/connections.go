@@ -66,16 +66,17 @@ func (h *ChatHandler) getBestConnection(provider string, connectionID string, ex
 		}
 		if len(connections) == 0 {
 			if cfg, ok := providers.KnownProviders[provider]; ok && cfg.NoAuth {
-				// Inject virtual connection for no-auth provider with optional proxy pool strategy from settings
+				// Inject a virtual connection for a no-auth provider, carrying only
+				// proxy configuration — there is no credential to store. Mirrors
+				// VansRouter src/sse/services/auth.js, which returns
+				// { id: "noauth", accessToken: "public", providerSpecificData: {...} }
+				// for FREE_PROVIDERS[provider].noAuth.
 				connData := &ConnectionData{
 					AccessToken: "public",
 				}
-				settings, err := h.Repo.GetSettings()
-				if err == nil && settings != nil && settings.ProviderStrategies != nil {
+				if settings, err := h.Repo.GetSettings(); err == nil && settings != nil {
 					if strat, ok := settings.ProviderStrategies[provider]; ok {
-						if strat.ProxyPoolID != "" && strat.ProxyPoolID != "__none__" {
-							connData.ProxyPoolID = strat.ProxyPoolID
-						}
+						connData.ProxyPoolID = h.resolveNoAuthProxyPoolID(provider, strat)
 					}
 				}
 				publicName := "Public"
@@ -140,6 +141,34 @@ func (h *ChatHandler) getBestConnection(provider string, connectionID string, ex
 	}
 
 	return conn, &connData, nil
+}
+
+// resolveNoAuthProxyPoolID decides which proxy pool a no-auth provider should
+// use for this request. With rotateStrategy "none" (or unset) the statically
+// configured pool wins. With any other strategy the pool is chosen from the
+// active pools carrying a URL, narrowed by targetProxyPoolIds — mirroring
+// VansRouter's pickProxyPoolId(poolIds, strategy, providerId, targets).
+//
+// A missing or unusable pool resolves to "", which callers treat as a direct
+// connection rather than an error.
+func (h *ChatHandler) resolveNoAuthProxyPoolID(provider string, strat db.ProviderStrategy) string {
+	if h.Repo == nil {
+		return ""
+	}
+	strategy := strings.TrimSpace(strat.RotateStrategy)
+	if strategy == "" || strategy == "none" {
+		if strat.ProxyPoolID != "" && strat.ProxyPoolID != "__none__" {
+			return strat.ProxyPoolID
+		}
+		return ""
+	}
+
+	eligible, err := h.Repo.EligibleProxyPoolIDs()
+	if err != nil {
+		log.Warn("proxy", "list proxy pools failed", "provider", provider, "error", err)
+		return ""
+	}
+	return db.PickProxyPoolID(eligible, strat.TargetProxyPoolIds, strategy, provider)
 }
 
 // GetProviderConfig returns the upstream configuration for a provider.

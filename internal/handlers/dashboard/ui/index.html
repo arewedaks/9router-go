@@ -225,6 +225,10 @@
     .prov-card-main { flex: 1; min-width: 0; }
     .prov-card-icon { width: 38px; height: 38px; border-radius: 10px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
     .prov-card-icon .msym { font-size: 21px; color: #fff; }
+    /* A real brand mark brings its own colours, so a saturated tile behind it
+       only muddies it. Keep the tint as a soft halo instead of a flat fill. */
+    .prov-card-icon.has-logo { background: rgba(255,255,255,0.06) !important; border: 1px solid var(--border); }
+    .prov-card-icon.has-logo img { width: 24px; height: 24px; object-fit: contain; }
     .prov-card-title { font-size: 0.92rem; font-weight: 600; color: #e6edf3; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .kind-chip { display: inline-flex; align-items: center; gap: 3px; background: #161b22; border: 1px solid var(--border); border-radius: 5px; padding: 2px 6px; font-size: 0.66rem; color: var(--muted); }
     .kind-chip .msym { font-size: 12px; }
@@ -239,6 +243,15 @@
     .detail-hero { display: flex; align-items: flex-start; gap: 14px; margin-bottom: 20px; }
     .detail-hero-icon { width: 52px; height: 52px; border-radius: 13px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
     .detail-hero-icon .msym { font-size: 27px; color: #fff; }
+    .detail-hero-icon.has-logo { background: rgba(255,255,255,0.06) !important; border: 1px solid var(--border); }
+    .detail-hero-icon.has-logo img { width: 30px; height: 30px; object-fit: contain; }
+    /* Provider site link in the detail header. Sits inline with the status
+       pills, so it must be compact and must not wrap mid-label. */
+    .hero-link { display: inline-flex; align-items: center; gap: 3px; font-size: 0.72rem; font-weight: 500;
+      color: var(--primary); text-decoration: none; border: 1px solid var(--border); border-radius: 999px;
+      padding: 2px 9px; white-space: nowrap; transition: border-color 0.15s, background 0.15s; }
+    .hero-link:hover { border-color: var(--primary); background: rgba(56,139,253,0.1); }
+    .hero-link .msym { font-size: 13px; }
     .detail-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 18px; overflow-x: auto; }
     .detail-tab { background: none; border: none; border-bottom: 2px solid transparent; color: var(--muted); padding: 9px 14px; font-size: 0.85rem; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
     .detail-tab:hover { color: #e6edf3; }
@@ -305,6 +318,91 @@
     .settings-msg { font-size: 0.8rem; min-height: 18px; margin-bottom: 10px; }
     .settings-msg.ok { color: #56d364; }
     .settings-msg.err { color: #f85149; }
+
+    /* ----------------------------------------------------------------
+       Usage page. Layout mirrors the upstream /dashboard/usage page:
+       a card row, a chart + recent-requests row, then a grouped table.
+       ---------------------------------------------------------------- */
+    .seg { display: inline-flex; align-items: center; gap: 2px; border: 1px solid var(--border); background: var(--bg); border-radius: var(--radius); padding: 3px; }
+    .seg-btn { background: transparent; border: none; color: var(--muted); font-size: 0.82rem; font-weight: 500; padding: 5px 14px; border-radius: 6px; cursor: pointer; transition: 0.15s; }
+    .seg-btn:hover { color: var(--text); background: var(--panel-hover); }
+    .seg-btn.active { background: var(--primary); color: #06101f; }
+    .seg-sm .seg-btn { font-size: 0.74rem; padding: 3px 10px; }
+
+    .usage-cards { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin-bottom: 20px; }
+    @media (max-width: 1024px) { .usage-cards { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+    @media (max-width: 640px) { .usage-cards { grid-template-columns: repeat(1, minmax(0, 1fr)); } }
+    .usage-card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 16px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+    .usage-card .usage-card-title { font-size: 0.76rem; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); font-weight: 600; }
+    .usage-card .usage-card-value { font-size: 1.5rem; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .usage-card .usage-card-sub { font-size: 0.66rem; color: var(--muted); }
+
+    .usage-two-col { display: grid; grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr); gap: 12px; align-items: stretch; }
+    @media (max-width: 1024px) { .usage-two-col { grid-template-columns: minmax(0, 1fr); } }
+
+    .usage-chart { position: relative; height: 220px; width: 100%; }
+    .usage-chart svg { display: block; width: 100%; height: 100%; }
+    .usage-empty { height: 100%; min-height: 180px; display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 0.85rem; }
+
+    .usage-section-label { font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); }
+    .usage-recent { max-height: 420px; overflow-y: auto; }
+    .usage-recent table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+    .usage-recent th { text-align: left; font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); padding: 6px 8px; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--panel); }
+    .usage-recent td { padding: 6px 8px; border-bottom: 1px solid var(--border); }
+    .usage-recent .usage-model { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .usage-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; }
+    .usage-dot.ok { background: #3fb950; }
+    .usage-dot.err { background: #f85149; }
+
+    .usage-select { background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius); padding: 6px 10px; font-size: 0.85rem; font-weight: 500; cursor: pointer; }
+    .usage-select:focus { outline: none; border-color: var(--primary); }
+
+    .usage-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; text-align: left; }
+    .usage-table thead { background: rgba(35,47,62,0.3); }
+    .usage-table th { padding: 10px 16px; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); font-weight: 600; white-space: nowrap; }
+    .usage-table tbody tr { border-bottom: 1px solid var(--border); }
+    .usage-table tbody tr.usage-summary { cursor: pointer; }
+    .usage-table tbody tr.usage-summary:hover { background: rgba(35,47,62,0.4); }
+    .usage-table tbody tr.usage-detail-row td { background: rgba(9,13,19,0.6); font-size: 0.8rem; }
+    .usage-table td { padding: 10px 16px; }
+    .usage-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+    .usage-chevron { display: inline-block; transition: transform 0.15s; color: var(--muted); }
+    .usage-chevron.open { transform: rotate(90deg); }
+    .usage-group-key { font-weight: 500; }
+    .usage-prov-badge { font-size: 0.72rem; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); white-space: nowrap; }
+    .usage-total-cost { color: var(--warning); font-weight: 500; }
+    .usage-total-tokens { font-weight: 500; }
+    .usage-cost-sub { color: var(--muted); font-size: 0.72rem; }
+    .usage-dash { color: var(--muted); }
+
+    .usage-filters { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+    @media (max-width: 1024px) { .usage-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+    @media (max-width: 640px) { .usage-filters { grid-template-columns: minmax(0, 1fr); } }
+    .usage-field { display: flex; flex-direction: column; gap: 5px; font-size: 0.78rem; color: var(--muted); }
+    .usage-field-spacer { visibility: hidden; }
+    .usage-field input { background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius); padding: 6px 10px; font-size: 0.85rem; }
+    .usage-field input:focus { outline: none; border-color: var(--primary); }
+
+    .usage-pagination { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; padding: 14px 16px; border-top: 1px solid var(--border); font-size: 0.82rem; color: var(--muted); }
+    .usage-page-btns { display: flex; gap: 4px; align-items: center; }
+    .usage-page-btn { background: var(--panel); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 4px 10px; font-size: 0.8rem; cursor: pointer; }
+    .usage-page-btn:hover:not(:disabled) { border-color: var(--primary); }
+    .usage-page-btn.active { background: var(--primary); color: #06101f; border-color: var(--primary); }
+    .usage-page-btn:disabled { opacity: 0.4; cursor: default; }
+
+    .usage-drawer-scrim { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.55); z-index: 400; }
+    .usage-drawer-scrim.show { display: block; }
+    .usage-drawer { position: fixed; top: 0; right: 0; height: 100vh; width: min(720px, 100vw); background: var(--panel); border-left: 1px solid var(--border); z-index: 401; transform: translateX(100%); transition: transform 0.2s; display: flex; flex-direction: column; }
+    .usage-drawer.open { transform: translateX(0); }
+    .usage-drawer-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid var(--border); }
+    .usage-drawer-body { padding: 18px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
+    .usage-kv { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; font-size: 0.84rem; }
+    .usage-kv div span { color: var(--muted); }
+    .usage-kv div strong { display: block; margin-top: 2px; font-weight: 500; word-break: break-all; }
+    .usage-pre { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.74rem; white-space: pre-wrap; word-break: break-word; max-height: 300px; overflow: auto; }
+    .usage-drawer details { border: 1px solid var(--border); border-radius: var(--radius); }
+    .usage-drawer summary { padding: 10px 12px; cursor: pointer; font-size: 0.84rem; font-weight: 500; }
+    .usage-drawer details > div { padding: 0 12px 12px; }
   </style>
 </head>
 <body>
@@ -318,6 +416,7 @@
 
   <nav class="sidebar-nav">
     <button class="nav-btn" id="nav-overview" onclick="navigateTab('overview')"><span class="nav-icon">📊</span> Overview</button>
+    <button class="nav-btn" id="nav-usage" onclick="navigateTab('usage')"><span class="nav-icon">📈</span> Usage</button>
     <button class="nav-btn" id="nav-providers" onclick="navigateTab('providers')"><span class="nav-icon">🔌</span> Providers</button>
     <button class="nav-btn" id="nav-combos" onclick="navigateTab('combos')"><span class="nav-icon">🔀</span> Combos</button>
     <button class="nav-btn" id="nav-keys" onclick="navigateTab('keys')"><span class="nav-icon">🔑</span> API Keys</button>
@@ -449,7 +548,123 @@
     </div>
   </div>
 
-  <!-- PROVIDER DETAIL SUB-PAGE (upstream /dashboard/providers/[id]) -->
+  <!-- USAGE TAB (mirrors the upstream /dashboard/usage page) -->
+  <div id="tab-usage" class="tab-pane">
+    <div style="display:flex; flex-wrap:wrap; gap:12px; align-items:center; justify-content:space-between; margin-bottom:20px;">
+      <div class="seg" id="usage-tabs">
+        <button class="seg-btn active" data-utab="overview" onclick="setUsageTab('overview')">Overview</button>
+        <button class="seg-btn" data-utab="details" onclick="setUsageTab('details')">Details</button>
+      </div>
+      <div class="seg seg-sm" id="usage-periods" style="display:none;">
+        <button class="seg-btn active" data-period="today" onclick="setUsagePeriod('today')">Today</button>
+        <button class="seg-btn" data-period="24h" onclick="setUsagePeriod('24h')">24h</button>
+        <button class="seg-btn" data-period="7d" onclick="setUsagePeriod('7d')">7D</button>
+        <button class="seg-btn" data-period="30d" onclick="setUsagePeriod('30d')">30D</button>
+        <button class="seg-btn" data-period="60d" onclick="setUsagePeriod('60d')">60D</button>
+      </div>
+    </div>
+
+    <!-- OVERVIEW SUB-TAB -->
+    <div id="usage-overview-pane">
+      <div class="usage-cards" id="usage-cards"></div>
+
+      <div class="usage-two-col">
+        <div class="card" style="display:flex; flex-direction:column; gap:12px;">
+          <div class="section-header" style="margin:0;">
+            <span class="section-title" style="font-size:1rem;">Token &amp; Cost Trend</span>
+            <div class="seg seg-sm" id="usage-chart-toggle">
+              <button class="seg-btn active" data-cmode="tokens" onclick="setUsageChartMode('tokens')">Tokens</button>
+              <button class="seg-btn" data-cmode="cost" onclick="setUsageChartMode('cost')">Cost</button>
+            </div>
+          </div>
+          <div id="usage-chart" class="usage-chart"><div class="usage-empty">Loading…</div></div>
+        </div>
+
+        <div class="card" style="display:flex; flex-direction:column; gap:10px;">
+          <span class="usage-section-label">Recent Requests</span>
+          <div id="usage-recent" class="usage-recent"></div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:20px;">
+        <div style="display:flex; flex-wrap:wrap; gap:10px; align-items:center; justify-content:space-between; margin-bottom:14px;">
+          <select id="usage-table-view" class="usage-select" onchange="setUsageTable(this.value)">
+            <option value="model">Usage by Model</option>
+            <option value="account">Usage by Account</option>
+            <option value="apiKey">Usage by API Key</option>
+            <option value="endpoint">Usage by Endpoint</option>
+          </select>
+          <div class="seg" id="usage-viewmode">
+            <button class="seg-btn active" data-vmode="costs" onclick="setUsageViewMode('costs')">Costs</button>
+            <button class="seg-btn" data-vmode="tokens" onclick="setUsageViewMode('tokens')">Tokens</button>
+          </div>
+        </div>
+        <div style="overflow-x:auto;">
+          <table class="usage-table" id="usage-table">
+            <thead id="usage-table-head"></thead>
+            <tbody id="usage-table-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- DETAILS SUB-TAB -->
+    <div id="usage-details-pane" style="display:none;">
+      <div class="card" style="margin-bottom:20px;">
+        <div class="usage-filters">
+          <label class="usage-field">
+            <span>Provider</span>
+            <select id="usage-filter-provider" class="usage-select"><option value="">All Providers</option></select>
+          </label>
+          <label class="usage-field">
+            <span>Start Date</span>
+            <input type="datetime-local" id="usage-filter-start">
+          </label>
+          <label class="usage-field">
+            <span>End Date</span>
+            <input type="datetime-local" id="usage-filter-end">
+          </label>
+          <div class="usage-field" style="justify-content:flex-end;">
+            <span class="usage-field-spacer" aria-hidden="true">Actions</span>
+            <div style="display:flex; gap:8px;">
+              <button class="btn btn-primary btn-sm" onclick="applyUsageFilters()">Search</button>
+              <button class="btn btn-sm" onclick="clearUsageFilters()">Clear</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" style="padding:0; overflow:hidden;">
+        <div style="overflow-x:auto;">
+          <table class="usage-table" style="min-width:880px;">
+            <thead>
+              <tr>
+                <th>Timestamp</th><th>Model</th><th>Provider</th>
+                <th style="text-align:right;">Input Tokens</th>
+                <th style="text-align:right;">Output Tokens</th>
+                <th>Latency</th><th style="text-align:center;">Action</th>
+              </tr>
+            </thead>
+            <tbody id="usage-details-body">
+              <tr><td colspan="7" class="usage-empty">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div id="usage-details-pagination" class="usage-pagination" style="display:none;"></div>
+      </div>
+    </div>
+
+    <!-- DETAIL DRAWER -->
+    <div class="usage-drawer-scrim" id="usage-drawer-scrim" onclick="closeUsageDrawer()"></div>
+    <aside class="usage-drawer" id="usage-drawer">
+      <div class="usage-drawer-head">
+        <strong>Request Details</strong>
+        <button class="btn btn-sm" onclick="closeUsageDrawer()">✕</button>
+      </div>
+      <div class="usage-drawer-body" id="usage-drawer-body"></div>
+    </aside>
+  </div>
+
   <div id="tab-provider-detail" class="tab-pane">
     <button class="btn btn-sm" onclick="closeProviderDetail()" style="margin-bottom:16px;">
       <span class="msym" style="font-size:15px;">arrow_back</span> Back to Providers
@@ -761,7 +976,7 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
     (function () {
       var raw = (location.hash || "").replace(/^#/, "");
       var parts = raw.split("/").filter(Boolean).map(decodeURIComponent);
-      var tabs = ["overview", "providers", "combos", "keys", "health", "settings"];
+      var tabs = ["overview", "usage", "providers", "combos", "keys", "health", "settings"];
       var pane = null, nav = null;
       if (parts[0] === "provider" && parts[1]) {
         pane = document.getElementById("tab-provider-detail");
@@ -777,7 +992,7 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
       if (nav) nav.classList.add("active");
       // Keep the top-bar title correct on the first frame as well, otherwise it
       // would read "Overview" until the bundle runs.
-      var titles = { overview: "Overview", providers: "Providers", combos: "Combos",
+      var titles = { overview: "Overview", usage: "Usage", providers: "Providers", combos: "Combos",
                      keys: "API Keys", health: "Health & Setup", settings: "Settings",
                      "provider-detail": "Provider Detail" };
       var t = document.getElementById("page-title");
@@ -983,6 +1198,36 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
   </div>
 </div>
 
+<!-- ADD CONNECTION MODAL -->
+<div class="modal-overlay" id="add-conn-modal">
+  <div class="modal-box">
+    <div class="section-header" style="margin-bottom: 16px;">
+      <h3 style="font-size: 1.1rem; color: #fff;">Add Connection</h3>
+      <button class="btn btn-sm" onclick="closeModal('add-conn-modal')">✕</button>
+    </div>
+    <input type="hidden" id="addconn-provider">
+    <div class="form-group">
+      <label>Account name / email</label>
+      <input type="text" id="acct-label" placeholder="user@example.com">
+      <p class="hint-text">A label for this account so you can tell them apart.</p>
+    </div>
+    <div class="form-group">
+      <label id="acct-secret-label">API Key</label>
+      <input type="password" id="acct-secret" placeholder="sk-...">
+      <p class="hint-text" id="acct-secret-hint">Leave blank for no-auth providers.</p>
+    </div>
+    <div class="form-group">
+      <label>Priority</label>
+      <input type="number" id="acct-priority" value="1" min="1">
+    </div>
+    <div id="add-conn-msg" style="display:none; font-size:0.75rem; margin-top:4px;"></div>
+    <div class="modal-foot" style="padding:14px 0 0; border:none; gap:8px;">
+      <button class="btn btn-primary" onclick="addConnection()" style="flex:1;">Add</button>
+      <button class="btn" onclick="closeModal('add-conn-modal')" style="flex:1;">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <!-- EDIT COMPATIBLE NODE MODAL -->
 <div class="modal-overlay" id="node-modal">
   <div class="modal-box">
@@ -1174,11 +1419,11 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
   //
   // Shape: `#overview`, `#providers`, `#combos`, `#keys`, `#health`, `#settings`,
   // or `#provider/<id>` / `#provider/<id>/<subtab>` for a provider detail page.
-  const HASH_TABS = ["overview", "providers", "combos", "keys", "health", "settings"];
+  const HASH_TABS = ["overview", "usage", "providers", "combos", "keys", "health", "settings"];
 
   // Page titles shown in the top bar, keyed by tab id.
   const TAB_TITLES = {
-    overview: "Overview", providers: "Providers", combos: "Combos",
+    overview: "Overview", usage: "Usage", providers: "Providers", combos: "Combos",
     keys: "API Keys", health: "Health & Setup", settings: "Settings",
     "provider-detail": "Provider Detail",
   };
@@ -1223,6 +1468,7 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
     if (title) title.textContent = TAB_TITLES[tabId] || "9Router";
     toggleSidebar(false); // the drawer is single-use on mobile
     if (tabId === "overview") loadDashboardStats();
+    if (tabId === "usage") loadUsage();
     if (tabId === "providers") loadProviders();
     if (tabId === "combos") loadCombos();
     if (tabId === "keys") loadKeys();
@@ -1504,6 +1750,10 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
   // (each model test re-renders it), so the open tab must live in state or every
   // test would snap the operator back to the default "Connections" tab.
   let activeDetailTab = "conn";
+  // providerStrategies mirrors settings.providerStrategies: per-provider proxy
+  // routing for no-auth providers. Kept in state so the Proxy tab can save a
+  // full-replace map without re-reading settings first.
+  let providerStrategies = {};
 
   // keepTab: passed by actions taken from inside the panel (add/import/remove
   // model, auto-disable) so a re-fetch does not kick the operator off the tab
@@ -1535,6 +1785,8 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
       }
       const d = await res.json();
       window.__agConnCount = (d.connections || []).length;
+      // no-auth providers render the Proxy tab, which needs the pool list.
+      if (d.noConnection) await loadProxyPools(false);
       renderProviderDetail(d);
     } catch (e) {
       box.innerHTML = `<div style="color:#ff7b72; padding:20px;">Error: ${escapeHtml(String(e))}</div>`;
@@ -1586,7 +1838,10 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
           </div>
         </div>
         <div style="display:flex; gap:6px;">
-          <button class="btn btn-sm btn-primary" onclick="openNodeModal('${safeId}')">
+          <button class="btn btn-sm btn-primary" onclick="openAddConnModal('${safeId}')">
+            <span class="msym" style="font-size:14px;">add</span>Add
+          </button>
+          <button class="btn btn-sm" onclick="openNodeModal('${safeId}')">
             <span class="msym" style="font-size:14px;">edit</span>Edit
           </button>
           <button class="btn btn-sm btn-danger" onclick="deleteNode('${safeId}')">
@@ -1687,6 +1942,154 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
     }
   }
 
+  // Cache the pools list so switching tabs does not re-fetch on every render.
+  let proxyPoolCache = null;
+
+  async function loadProxyPools(force) {
+    if (proxyPoolCache && !force) return proxyPoolCache;
+    try {
+      const res = await api("/api/dashboard/proxy-pools");
+      if (!res.ok) return [];
+      const data = await res.json();
+      proxyPoolCache = data.proxyPools || [];
+      return proxyPoolCache;
+    } catch (e) {
+      return [];
+    }
+  }
+
+  // The per-provider strategy lives in settings.providerStrategies, keyed by
+  // provider id — same shape VansRouter reads in src/sse/services/auth.js.
+  const PROXY_STRATEGIES = [
+    { value: "none", label: "None (direct / static)" },
+    { value: "round-robin", label: "Round-Robin (rotate active pools)" },
+    { value: "random", label: "Random (rotate active pools)" },
+    { value: "sticky", label: "Sticky (stay on one pool)" },
+  ];
+
+  function renderNoAuthProxyCard(d) {
+    const strat = (providerStrategies[d.provider] || {});
+    const strategy = strat.rotateStrategy || "none";
+    const poolId = strat.proxyPoolId || "__none__";
+    const targets = Array.isArray(strat.targetProxyPoolIds) ? strat.targetProxyPoolIds : [];
+
+    const strategyOpts = PROXY_STRATEGIES.map(o =>
+      `<option value="${o.value}" ${strategy === o.value ? "selected" : ""}>${escapeHtml(o.label)}</option>`).join("");
+
+    const poolOpts = [`<option value="__none__" ${poolId === "__none__" ? "selected" : ""}>None (direct)</option>`]
+      .concat((proxyPoolCache || []).map(p =>
+        `<option value="${escapeHtml(p.id)}" ${poolId === p.id ? "selected" : ""}>${escapeHtml(p.name || p.id)} (${escapeHtml(p.type || "http")})${p.isActive ? "" : " — inactive"}${p.hasUrl ? "" : " — no url"}</option>`))
+      .join("");
+
+    const targetsHtml = strategy === "none" ? "" : `
+      <div style="margin-top:14px;">
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:8px;">
+          <div>
+            <div style="font-size:0.82rem; color:#e6edf3;">Eligible pools</div>
+            <div style="font-size:0.7rem; color:var(--muted);">Leave all unchecked to use every active pool.</div>
+          </div>
+          <span class="prov-count-pill">${targets.length || (proxyPoolCache || []).length} / ${(proxyPoolCache || []).length}</span>
+        </div>
+        ${(proxyPoolCache || []).length === 0
+          ? `<div style="font-size:0.75rem; color:var(--muted);">No proxy pools found.</div>`
+          : (proxyPoolCache || []).map(p => `
+            <label style="display:flex; align-items:center; gap:8px; padding:5px 0; font-size:0.78rem; cursor:pointer;">
+              <input type="checkbox" data-pool-target="${escapeHtml(p.id)}" ${targets.includes(p.id) ? "checked" : ""}>
+              <span style="flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(p.name || p.id)}</span>
+              <span style="color:var(--muted); font-family:monospace; font-size:0.7rem;">${escapeHtml(p.id.substring(0, 8))}</span>
+            </label>`).join("")}
+      </div>`;
+
+    return `
+      <div class="section-card" style="margin-top:4px;">
+        <div style="display:flex; align-items:flex-start; gap:12px; margin-bottom:14px;">
+          <div style="width:38px; height:38px; border-radius:50%; background:rgba(63,185,80,0.12); color:#3fb950; display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+            <span class="msym">lan</span>
+          </div>
+          <div style="flex:1; min-width:0;">
+            <div style="font-size:0.85rem; color:#e6edf3;">Proxy Routing &amp; Strategy</div>
+            <div style="font-size:0.72rem; color:var(--muted);">This provider needs no credential, so exit routing is what you configure here.</div>
+          </div>
+        </div>
+        <div class="add-form-grid" style="grid-template-columns:repeat(auto-fit,minmax(210px,1fr));">
+          <div>
+            <label class="field-label">Proxy Strategy</label>
+            <select id="proxy-strategy" onchange="onProxyStrategyChange(this.value)">${strategyOpts}</select>
+          </div>
+          <div>
+            <label class="field-label">Static Proxy Pool</label>
+            <select id="proxy-pool" onchange="saveNoAuthProxyStrategy('${escapeHtml(d.provider)}')" ${strategy === "none" ? "" : "disabled"}>${poolOpts}</select>
+          </div>
+        </div>
+        ${targetsHtml}
+        <div id="proxy-save-msg" style="font-size:0.72rem; margin-top:10px; color:var(--muted);">
+          ${strategy === "none"
+            ? "Traffic uses the selected pool for every request."
+            : "Traffic rotates across the eligible pools; individual pool choice is bypassed."}
+        </div>
+      </div>`;
+  }
+
+  // Selecting a different strategy changes which controls apply (the target pool
+  // list only exists for rotating strategies), so the card is re-rendered rather
+  // than just toggled — otherwise the operator would have to reload to see the
+  // eligible-pool checkboxes.
+  async function onProxyStrategyChange(value) {
+    const sel = document.getElementById("proxy-pool");
+    if (sel) sel.disabled = value !== "none";
+    await saveNoAuthProxyStrategy(currentProviderId);
+    if (lastProviderDetail) renderProviderDetail(lastProviderDetail);
+  }
+
+  async function saveNoAuthProxyStrategy(providerId) {
+    if (!providerId) return;
+    const strategyEl = document.getElementById("proxy-strategy");
+    const poolEl = document.getElementById("proxy-pool");
+    const strategy = strategyEl ? strategyEl.value : "none";
+    const poolId = poolEl ? poolEl.value : "__none__";
+    const targets = Array.from(document.querySelectorAll("[data-pool-target]"))
+      .filter(cb => cb.checked)
+      .map(cb => cb.getAttribute("data-pool-target"));
+
+    // Full-replace map, matching the server contract: it drops entries that end
+    // up with no fields, so clearing everything removes the provider key.
+    const next = Object.assign({}, providerStrategies);
+    next[providerId] = { proxyPoolId: poolId, rotateStrategy: strategy, targetProxyPoolIds: targets };
+
+    const msg = document.getElementById("proxy-save-msg");
+    try {
+      const res = await api("/api/dashboard/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ providerStrategies: next }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        providerStrategies = data.providerStrategies || {};
+        if (msg) { msg.textContent = "Saved."; msg.style.color = "#3fb950"; }
+        setTimeout(() => { if (msg) { msg.style.color = "var(--muted)"; } }, 1500);
+      } else {
+        if (msg) { msg.textContent = errorMessage(data, res.status); msg.style.color = "var(--danger)"; }
+      }
+    } catch (e) {
+      if (msg) { msg.textContent = String(e.message || e); msg.style.color = "var(--danger)"; }
+    }
+  }
+
+  // Mirror of VansRouter's detail header: the provider name links straight to
+  // its own site, with an "open in new" affordance. Upstream prefers the
+  // API-key URL over the plain site when both exist, and labels the link
+  // accordingly — an operator arriving here usually wants a key, not the
+  // marketing page (see `providers/[id]/page.js`).
+  function providerLink(d) {
+    // The notice/apiKey URL is not modelled separately in Go: the registry
+    // collapses it into Website. SignupURL is the fallback when present.
+    const href = d.website || d.signupUrl || "";
+    if (!href) return "";
+    const label = d.website ? "Website" : "Sign up";
+    return `<a class="hero-link" href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer" title="${label}: ${escapeHtml(href)}"><span class="msym">open_in_new</span>${label}</a>`;
+  }
+
   function renderProviderDetail(d) {
     lastProviderDetail = d;
     // The router addresses a model as "<alias>/<modelId>", where <alias> is the
@@ -1732,7 +2135,10 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
       : (isCodebuddy ? codebuddyOAuthPanelHtml(d.provider)
       : (isGitHub ? githubOAuthPanelHtml()
       : (isCline ? clineOAuthPanelHtml(d.provider) : '')));
-    const showKeyForm = oauthPanel === '';
+    // A compatible endpoint owns its own Add button on the node card, so the
+    // toolbar must not offer a second one (upstream hides it for the same
+    // reason: ConnectionsHeaderToolbar renders Add only when !isCompatible).
+    const showKeyForm = oauthPanel === '' && !d.node;
     const connsInner = (d.connections || []).length
       ? d.connections.map(p => {
           const label = p.accountLabel || p.email || p.name || p.id.substring(0, 12);
@@ -1764,37 +2170,16 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
         }).join("")
       : `<div style="text-align:center; color:var(--muted); padding:26px; border:1px dashed var(--border); border-radius:10px;">No connections yet</div>`;
 
-    // Add-connection form. Upstream exposes an API-key field for key-based
-    // providers and a cookie field for webCookie providers.
-    const isCookie = d.authType === "cookie";
-    const secretLabel = isCookie ? "Cookie" : (d.authType === "none" ? "Optional Token" : "API Key");
-    const secretPh = isCookie
-      ? "sso=... or __Secure-next-auth.session-token=..."
-      : "sk-... (leave blank for no-auth providers)";
+    // OmniRoute collects a connection through a modal opened from this toolbar
+    // (and, for a compatible endpoint, from the node card) rather than an
+    // always-visible form. openAddConnModal re-derives the credential label from
+    // the provider's auth type, so a webCookie provider still asks for a cookie.
     const connsHtml = `
-      ${showKeyForm ? `<div class="add-form">
-        <div class="add-form-title"><span class="msym">add_link</span>Add Connection</div>
-        <div class="add-form-grid">
-          <div>
-            <label class="field-label">Account name / email</label>
-            <input type="text" id="acct-label" placeholder="user@example.com">
-          </div>
-          <div>
-            <label class="field-label">${escapeHtml(secretLabel)}</label>
-            <input type="password" id="acct-secret" placeholder="${escapeHtml(secretPh)}">
-          </div>
-          <div style="display:flex; align-items:flex-end; gap:6px;">
-            <div style="flex:1;">
-              <label class="field-label">Priority</label>
-              <input type="number" id="acct-priority" value="1" min="1">
-            </div>
-            <button class="btn btn-primary" onclick="addConnection('${d.provider}')">Add</button>
-          </div>
-        </div>
-        <div id="add-conn-msg" style="font-size:0.75rem; margin-top:8px; color:var(--muted);"></div>
-      </div>` : ''}
       ${oauthPanel}
       <div class="conn-test-bar">
+        ${showKeyForm ? `<button class="btn btn-sm btn-primary" onclick="openAddConnModal('${d.provider}')">
+          <span class="msym" style="font-size:14px;">add</span>Add Connection
+        </button>` : ''}
         <button class="btn btn-sm" onclick="testAllConnections('${d.provider}');">Test All Accounts</button>
         <span id="conn-test-progress" class="conn-test-progress"></span>
       </div>
@@ -1895,16 +2280,31 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
     // Built-in providers have no node and stay exactly as before.
     const nodeHtml = renderCompatibleNodeCard(d);
 
+    // Proxy routing is meaningful only for no-auth providers: they own no
+    // connection row, so this card is their only configurable surface. Mirrors
+    // VansRouter's providers/[id]/page.js, which renders NoAuthProxyCard in
+    // place of the Connections list for FREE_PROVIDERS[id].noAuth.
+    const showProxyTab = !!d.noConnection;
+    const proxyTabBtn = showProxyTab
+      ? `<button class="detail-tab ${activeDetailTab === 'proxy' ? 'active' : ''}" onclick="showDetailTab(this,'proxy')"><span class="msym">lan</span>Proxy Routing</button>`
+      : "";
+    const proxyPanel = showProxyTab
+      ? `<div id="dt-proxy" style="display:${activeDetailTab === 'proxy' ? 'block' : 'none'};">${renderNoAuthProxyCard(d)}</div>`
+      : "";
+
     document.getElementById("provider-detail-content").innerHTML = `
       <div class="detail-hero">
-        <div class="detail-hero-icon" style="background:${color};"><span class="msym">${escapeHtml(icon)}</span></div>
+        ${providerIconHtml(d.provider, icon, { size: 30, color: color, tileClass: "detail-hero-icon", label: d.displayName || d.provider })}
         <div style="flex:1; min-width:0;">
           <h2 class="section-title" style="margin:0;">${escapeHtml(d.displayName || d.provider)}</h2>
           <div style="display:flex; align-items:center; gap:8px; margin-top:5px; flex-wrap:wrap;">
             <span class="sub-id">${escapeHtml(d.prefix || niceProviderLabel(d.provider))}</span>
             ${getCategoryBadge(d.category, d.categoryLabel)}
-            <span class="prov-count-pill">${d.activeCount}/${d.totalCount} active</span>
+            ${d.noConnection
+              ? `<span class="prov-count-pill" title="No credential needed — this provider works without an account">no key needed</span>`
+              : `<span class="prov-count-pill">${d.activeCount}/${d.totalCount} active</span>`}
             ${aliases}
+            ${providerLink(d)}
           </div>
         </div>
         <div style="display:flex; gap:7px;">
@@ -1918,16 +2318,17 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
         <button class="detail-tab ${activeDetailTab === 'conn' ? 'active' : ''}" onclick="showDetailTab(this,'conn')"><span class="msym">cable</span>Connections (${(d.connections||[]).length})</button>
         <button class="detail-tab ${activeDetailTab === 'caps' ? 'active' : ''}" onclick="showDetailTab(this,'caps')"><span class="msym">tune</span>Capabilities</button>
         <button class="detail-tab ${activeDetailTab === 'models' ? 'active' : ''}" onclick="showDetailTab(this,'models')"><span class="msym">neurology</span>Available Models (${(d.models||[]).length})</button>
+        ${proxyTabBtn}
       </div>
       <div id="dt-conn" style="display:${activeDetailTab === 'conn' ? 'block' : 'none'};">${connsHtml}</div>
       <div id="dt-caps" style="display:${activeDetailTab === 'caps' ? 'block' : 'none'};">
         <div class="cap-grid">${capsHtml}</div>
         <div style="margin-top:16px; font-size:0.8rem; color:var(--muted);">
           ${d.description ? escapeHtml(d.description) : ''}
-          ${d.website ? `<br>Website: <a href="${escapeHtml(d.website)}" target="_blank" rel="noopener" style="color:var(--primary);">${escapeHtml(d.website)}</a>` : ''}
         </div>
       </div>
-      <div id="dt-models" style="display:${activeDetailTab === 'models' ? 'block' : 'none'};">${modelsHtml}</div>`;
+      <div id="dt-models" style="display:${activeDetailTab === 'models' ? 'block' : 'none'};">${modelsHtml}</div>
+      ${proxyPanel}`;
   }
 
   function showDetailTab(btn, which) {
@@ -1939,7 +2340,7 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
     }
     document.querySelectorAll(".detail-tab").forEach(b => b.classList.remove("active"));
     btn.classList.add("active");
-    ["dt-conn", "dt-caps", "dt-models"].forEach(id => {
+    ["dt-conn", "dt-caps", "dt-models", "dt-proxy"].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.style.display = "none";
     });
@@ -1965,6 +2366,9 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
     if (!el) return;
     el.innerText = text;
     el.className = ok ? "msg-ok" : "msg-err";
+    // An empty message should not occupy modal space; the field is shown only
+    // once there is something to say.
+    el.style.display = text ? "block" : "none";
   }
 
   // Adds a custom model to the provider (upstream "Add Custom Model").
@@ -2774,7 +3178,39 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
   // Adds a connection (account) to the provider. Uses the existing
   // POST /api/dashboard/providers endpoint, wrapping the secret into the
   // credential blob the router expects.
+  function openAddConnModal(providerId) {
+    // The credential field follows the provider's auth type: a webCookie
+    // provider wants a cookie, a no-auth provider wants an optional token.
+    const d = lastProviderDetail && lastProviderDetail.provider === providerId ? lastProviderDetail : null;
+    const authType = d ? d.authType : "";
+    const isCookie = authType === "cookie";
+    const secretLabel = isCookie ? "Cookie" : (authType === "none" ? "Optional Token" : "API Key");
+    const secretPh = isCookie
+      ? "sso=... or __Secure-next-auth.session-token=..."
+      : "sk-... (leave blank for no-auth providers)";
+    const secretHint = isCookie
+      ? "Paste the session cookie the provider's web UI uses."
+      : (authType === "none" ? "This provider does not require a credential." : "Leave blank for no-auth providers.");
+
+    document.getElementById("addconn-provider").value = providerId;
+    document.getElementById("acct-label").value = "";
+    document.getElementById("acct-secret").value = "";
+    document.getElementById("acct-priority").value = "1";
+    document.getElementById("acct-secret-label").textContent = secretLabel;
+    const secretInput = document.getElementById("acct-secret");
+    secretInput.placeholder = secretPh;
+    document.getElementById("acct-secret-hint").textContent = secretHint;
+
+    const msg = document.getElementById("add-conn-msg");
+    msg.style.display = "none";
+    msg.textContent = "";
+    document.getElementById("add-conn-modal").classList.add("active");
+  }
+
   async function addConnection(providerId) {
+    // The modal stores which provider the submit belongs to; keep the argument
+    // form working for any other caller.
+    if (!providerId) providerId = document.getElementById("addconn-provider").value;
     const labelEl = document.getElementById("acct-label");
     const secretEl = document.getElementById("acct-secret");
     const prioEl = document.getElementById("acct-priority");
@@ -2822,7 +3258,8 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
       setFormMsg("add-conn-msg", "Connection added.", true);
       if (labelEl) labelEl.value = "";
       if (secretEl) secretEl.value = "";
-      setTimeout(() => openProviderDetail(providerId), 500);
+      closeModal("add-conn-modal");
+      setTimeout(() => openProviderDetail(providerId), 350);
     } catch (e) {
       setFormMsg("add-conn-msg", String(e), false);
     }
@@ -3447,6 +3884,90 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
     custom:    { label: "Compatible Endpoints", dot: "#14b8a6", blurb: "OpenAI/Anthropic-compatible endpoints." }
   };
 
+  // Provider brand logos are embedded at /provider-logos/{id}.{webp,png}, keyed
+  // by the registry id. The files were copied under the provider id itself (the
+  // upstream alias was only used to find the source file), so no alias table is
+  // needed here — adding one would redirect to a filename that does not exist.
+  //
+  // Missing assets are remembered for the session: a provider with no logo would
+  // otherwise request the same 404 on every re-render, which is pure noise in
+  // both the browser and the server access log.
+  const LOGO_MISSING = new Set();
+
+  // Mirror of the backend's IsGeneratedNodeID: compatible endpoints are named
+  // after a generated UUID, so they can never have a brand asset. Checking the
+  // prefix plus the trailing 36-char UUID keeps a hand-written id that merely
+  // shares the prefix ("openai-compatible-mine") out of the filter.
+  function isGeneratedNodeId(providerId) {
+    const id = (providerId || "").trim();
+    const prefixed = id.startsWith("openai-compatible-") ||
+                     id.startsWith("anthropic-compatible-") ||
+                     id.startsWith("custom-embedding-");
+    if (!prefixed) return false;
+    const tail = id.slice(-36);
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(tail);
+  }
+  // The handful of assets that ship as PNG rather than WebP. Hardcoding the
+  // upstream extension table would be wrong here: we re-encode to whichever
+  // source file exists, so this must stay in sync with the directory. It is
+  // listed explicitly because the browser cannot probe two extensions without a
+  // wasted 404 on every miss.
+  const LOGO_PNG = new Set(["morph", "xquik"]);
+
+  function providerLogoId(providerId) {
+    const id = (providerId || "").trim().toLowerCase();
+    if (!id || LOGO_MISSING.has(id)) return "";
+    // Compatible endpoints are user-created nodes named after their own id,
+    // which is a generated UUID (or a `*-compatible-*` handle). They can never
+    // have a brand asset, and requesting one would both waste a 404 per render
+    // and put the generated node id in the URL, where it does not belong.
+    if (isGeneratedNodeId(id)) return "";
+    return { id, file: id };
+  }
+
+  function markLogoMissing(providerId) {
+    const id = (providerId || "").trim().toLowerCase();
+    if (id) LOGO_MISSING.add(id);
+  }
+
+  // Provider icon markup: the brand logo when we have one, else the Material
+  // glyph we shipped before. Both branches size from the same `size`, so the two
+  // stay layout-identical and swapping in a logo cannot shift the card.
+  //
+  // If the image 404s at runtime (an id the server has no asset for) the glyph
+  // is substituted in place, so a broken image never shows.
+  // Provider icon markup: the whole icon tile, so the mount point is identical
+  // whichever branch is taken. The brand logo is preferred; the Material glyph
+  // we shipped before is the fallback for the ~14 registry ids with no asset.
+  //
+  // If an image 404s at runtime the glyph is substituted in place, so a broken
+  // image never shows.
+  function providerIconHtml(providerId, glyph, opts) {
+    const o = opts || {};
+    const size = o.size || 22;
+    const tile = o.tileClass || "prov-card-icon";
+    const g = escapeHtml(glyph || "smart_toy");
+    const glyphHtml = `<span class="msym" style="font-size:${size}px;color:#fff;">${g}</span>`;
+
+    const resolved = providerLogoId(providerId);
+    if (!resolved) {
+      return `<div class="${tile}" style="background:${o.color || "#388bfd"}">${glyphHtml}</div>`;
+    }
+
+    const ext = LOGO_PNG.has(resolved.file) ? "png" : "webp";
+    const src = `/provider-logos/${encodeURIComponent(resolved.file)}.${ext}`;
+    const alt = escapeHtml(o.label || resolved.id);
+    // The fallback rides in a data attribute: this is a template literal, so an
+    // inline onerror cannot nest quotes around a second element.
+    const fb = escapeHtml(glyphHtml);
+    return `<div class="${tile} has-logo">
+              <img src="${src}" alt="${alt}" width="${size}" height="${size}"
+                   loading="lazy" decoding="async" data-fb="${fb}"
+                   style="width:${size}px;height:${size}px;object-fit:contain;"
+                   onerror="markLogoMissing('${resolved.id}');this.outerHTML=this.dataset.fb;">
+            </div>`;
+  }
+
   // Render order (top -> bottom): compatible endpoints are surfaced first so a
   // freshly added gateway is the first thing on the page.
   const CATEGORY_ORDER = ["custom", "oauth", "freeTier", "apikey", "webCookie"];
@@ -3533,15 +4054,20 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
       // Card is intentionally minimal: logo, title, connected-account count.
       // The category is conveyed by the section the card sits in, so it is not
       // repeated on the card itself.
+      //
+      // A no-auth provider (OpenCode Free, the local TTS/search servers) owns no
+      // connection row by design, so a "0/0" counter would read as broken. Say
+      // what is actually true instead.
+      const countPill = head.noConnection
+        ? `<span class="prov-count-pill" title="No credential needed — this provider works without an account">no key needed</span>`
+        : `<span class="prov-count-pill" title="${activeCount} dari ${accounts.length} akun aktif">${activeCount}/${accounts.length}</span>`;
       return `
         <div class="prov-card" onclick="openProviderDetail('${prov}')">
-          <div class="prov-card-icon" style="background:${color}">
-            <span class="msym">${escapeHtml(icon)}</span>
-          </div>
+          ${providerIconHtml(prov, icon, { size: 24, color: color, label: head.displayName || prov })}
           <div class="prov-card-main">
             <div class="prov-card-title">${escapeHtml(head.displayName || prov)}</div>
           </div>
-          <span class="prov-count-pill" title="${activeCount} dari ${accounts.length} akun aktif">${activeCount}/${accounts.length}</span>
+          ${countPill}
           ${isOpen ? `<div class="prov-expand-body" onclick="event.stopPropagation()">${accountsExpanded(prov, accounts)}</div>` : ""}
         </div>`;
     };
@@ -3910,6 +4436,7 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
       const res = await api("/api/dashboard/settings");
       if (!res.ok) return;
       const s = await res.json();
+      providerStrategies = s.providerStrategies || {};
       document.getElementById("saver-rtk").checked = !!s.rtkEnabled;
       document.getElementById("saver-caveman").checked = !!s.cavemanEnabled;
       document.getElementById("saver-caveman-level").value = s.cavemanLevel || "full";
@@ -3961,6 +4488,641 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
   document.getElementById("login-key-input").addEventListener("keydown", (e) => {
     if (e.key === "Enter") { e.preventDefault(); submitLogin(); }
   });
+
+  // ----------------------------------------------------------------
+  // Usage page
+  // ----------------------------------------------------------------
+  // Mirrors the upstream /dashboard/usage page: an Overview sub-tab with a
+  // stat-card row, a token/cost chart, a recent-requests list and a grouped
+  // usage table, plus a paginated Details sub-tab with a request drawer.
+  //
+  // State (period, sub-tab, table view, sort) is held on this object rather
+  // than in the DOM, and every render reads from it.
+  const usageState = {
+    tab: "overview",
+    period: "today",
+    chartMode: "tokens",
+    table: "model",
+    viewMode: "costs",
+    sortBy: "rawModel",
+    sortOrder: "asc",
+    expanded: new Set(),
+    stats: null,
+    chart: null,
+    detailPage: 1,
+    detailPageSize: 20,
+    detailTotal: 0,
+    detailTotalPages: 0,
+    detailFilters: { provider: "", start: "", end: "" },
+    loaded: false,
+  };
+
+  // Loading a whole period of usage is only worth doing once per visit; the
+  // flag keeps the sidebar from refetching on every tab bounce.
+  function loadUsage() {
+    if (!usageState.loaded) {
+      usageState.loaded = true;
+      syncUsageControls();
+      loadUsageOverview();
+      loadUsageFilterProviders();
+    }
+    if (usageState.tab === "details") loadUsageDetails();
+  }
+
+  function syncUsageControls() {
+    document.querySelectorAll("#usage-tabs .seg-btn").forEach(b => {
+      b.classList.toggle("active", b.dataset.utab === usageState.tab);
+    });
+    const periods = document.getElementById("usage-periods");
+    if (periods) periods.style.display = usageState.tab === "overview" ? "" : "none";
+    document.querySelectorAll("#usage-periods .seg-btn").forEach(b => {
+      b.classList.toggle("active", b.dataset.period === usageState.period);
+    });
+    document.querySelectorAll("#usage-chart-toggle .seg-btn").forEach(b => {
+      b.classList.toggle("active", b.dataset.cmode === usageState.chartMode);
+    });
+    document.querySelectorAll("#usage-viewmode .seg-btn").forEach(b => {
+      b.classList.toggle("active", b.dataset.vmode === usageState.viewMode);
+    });
+    const sel = document.getElementById("usage-table-view");
+    if (sel) sel.value = usageState.table;
+  }
+
+  function setUsageTab(tab) {
+    usageState.tab = tab;
+    document.getElementById("usage-overview-pane").style.display = tab === "overview" ? "" : "none";
+    document.getElementById("usage-details-pane").style.display = tab === "details" ? "" : "none";
+    syncUsageControls();
+    if (tab === "details") loadUsageDetails();
+  }
+
+  function setUsagePeriod(period) {
+    usageState.period = period;
+    usageState.expanded.clear();
+    syncUsageControls();
+    loadUsageOverview();
+  }
+
+  function setUsageChartMode(mode) {
+    usageState.chartMode = mode;
+    syncUsageControls();
+    renderUsageChart();
+  }
+
+  function setUsageTable(view) {
+    usageState.table = view;
+    usageState.expanded.clear();
+    renderUsageTable();
+  }
+
+  function setUsageViewMode(mode) {
+    usageState.viewMode = mode;
+    syncUsageControls();
+    renderUsageTable();
+  }
+
+  async function loadUsageOverview() {
+    const cards = document.getElementById("usage-cards");
+    if (cards && !usageState.stats) {
+      cards.innerHTML = '<div class="usage-empty" style="grid-column:1/-1;">Loading…</div>';
+    }
+    try {
+      const [statsRes, chartRes] = await Promise.all([
+        api("/api/dashboard/usage/stats?period=" + usageState.period),
+        api("/api/dashboard/usage/chart?period=" + usageState.period),
+      ]);
+      if (!statsRes.ok) throw new Error("stats " + statsRes.status);
+      if (!chartRes.ok) throw new Error("chart " + chartRes.status);
+      usageState.stats = await statsRes.json();
+      usageState.chart = await chartRes.json();
+    } catch (err) {
+      usageState.stats = null;
+      usageState.chart = null;
+      if (cards) cards.innerHTML = '<div class="usage-empty" style="grid-column:1/-1;">Failed to load usage statistics.</div>';
+      const chartEl = document.getElementById("usage-chart");
+      if (chartEl) chartEl.innerHTML = '<div class="usage-empty">Failed to load usage statistics.</div>';
+      return;
+    }
+    renderUsageCards();
+    renderUsageChart();
+    renderUsageRecent();
+    renderUsageTable();
+  }
+
+  const usageFmt = new Intl.NumberFormat();
+  function fmtNum(n) { return usageFmt.format(n || 0); }
+  function fmtCost(n) { return "$" + (n || 0).toFixed(2); }
+  function fmtCost4(n) { return "$" + (n || 0).toFixed(4); }
+  function fmtTokensShort(n) {
+    n = n || 0;
+    if (n >= 1e6) return (n / 1e6).toFixed(1) + "M";
+    if (n >= 1000) return (n / 1000).toFixed(1) + "K";
+    return String(n);
+  }
+
+  // fmtTime renders an age for the "Last Used" columns. An absent timestamp
+  // reads "Never" rather than an epoch date.
+  function fmtTime(iso) {
+    if (!iso) return "Never";
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return "Never";
+    const mins = Math.floor((Date.now() - d.getTime()) / 60000);
+    if (mins < 1) return "Just now";
+    if (mins < 60) return mins + "m ago";
+    if (mins < 1440) return Math.floor(mins / 60) + "h ago";
+    return d.toLocaleDateString();
+  }
+
+  function timeAgo(ts) {
+    const d = new Date(ts);
+    if (isNaN(d.getTime())) return "";
+    const diff = Math.floor((Date.now() - d.getTime()) / 1000);
+    if (diff < 60) return diff + "s ago";
+    if (diff < 3600) return Math.floor(diff / 60) + "m ago";
+    if (diff < 86400) return Math.floor(diff / 3600) + "h ago";
+    return Math.floor(diff / 86400) + "d ago";
+  }
+
+  function renderUsageCards() {
+    const el = document.getElementById("usage-cards");
+    if (!el) return;
+    const s = usageState.stats;
+    if (!s) { el.innerHTML = ""; return; }
+
+    const hitRate = s.totalPromptTokens > 0
+      ? ((s.totalCachedTokens / s.totalPromptTokens) * 100).toFixed(1) + "% hit rate"
+      : "0.0% hit rate";
+
+    const cards = [
+      { title: "Total Requests", value: fmtNum(s.totalRequests), color: "" },
+      { title: "Total Input Tokens", value: fmtNum(s.totalPromptTokens), color: "var(--primary)" },
+      { title: "Cached Tokens", value: fmtNum(s.totalCachedTokens), color: "#79c0ff", sub: hitRate },
+      { title: "Output Tokens", value: fmtNum(s.totalCompletionTokens), color: "#3fb950" },
+      { title: "Est. Cost", value: "~" + fmtCost(s.totalCost), color: "var(--warning)", sub: "Estimated, not actual billing" },
+    ];
+
+    el.innerHTML = cards.map(c => `
+      <div class="usage-card">
+        <span class="usage-card-title">${escapeHtml(c.title)}</span>
+        <span class="usage-card-value" style="color:${c.color || "var(--text)"};">${escapeHtml(c.value)}</span>
+        ${c.sub ? `<span class="usage-card-sub">${escapeHtml(c.sub)}</span>` : ""}
+      </div>`).join("");
+  }
+
+  // renderUsageChart draws a hand-rolled SVG area chart. There is no chart
+  // library in this bundle by design (zero dependencies, no build step).
+  function renderUsageChart() {
+    const el = document.getElementById("usage-chart");
+    if (!el) return;
+    const data = usageState.chart;
+    if (!data || !data.length) {
+      el.innerHTML = '<div class="usage-empty">No data for this period</div>';
+      return;
+    }
+
+    const isTokens = usageState.chartMode === "tokens";
+    const valueOf = d => (isTokens ? d.tokens : d.cost) || 0;
+    const hasData = data.some(d => valueOf(d) > 0);
+    if (!hasData) {
+      el.innerHTML = '<div class="usage-empty">No data for this period</div>';
+      return;
+    }
+
+    const W = 800, H = 220, padL = 52, padR = 12, padT = 12, padB = 24;
+    const plotW = W - padL - padR;
+    const plotH = H - padT - padB;
+    const max = Math.max(...data.map(valueOf), 1);
+
+    const x = i => padL + (data.length === 1 ? plotW / 2 : (i / (data.length - 1)) * plotW);
+    const y = v => padT + plotH - (v / max) * plotH;
+
+    const stroke = isTokens ? "#6366f1" : "#f59e0b";
+    const gradId = isTokens ? "gradTokens" : "gradCost";
+
+    let line = "";
+    data.forEach((d, i) => {
+      line += (i === 0 ? "M" : "L") + x(i).toFixed(1) + "," + y(valueOf(d)).toFixed(1) + " ";
+    });
+    const area = line + `L${x(data.length - 1).toFixed(1)},${(padT + plotH).toFixed(1)} L${x(0).toFixed(1)},${(padT + plotH).toFixed(1)} Z`;
+
+    // Grid lines + Y tick labels (0 / half / max).
+    let grid = "";
+    for (let g = 0; g <= 2; g++) {
+      const v = (max / 2) * g;
+      const gy = y(v);
+      grid += `<line x1="${padL}" y1="${gy.toFixed(1)}" x2="${W - padR}" y2="${gy.toFixed(1)}" stroke="currentColor" stroke-opacity="0.1" stroke-dasharray="3 3"/>`;
+      grid += `<text x="${padL - 6}" y="${(gy + 3).toFixed(1)}" font-size="10" fill="currentColor" fill-opacity="0.5" text-anchor="end">${escapeHtml(isTokens ? fmtTokensShort(v) : fmtCost4(v))}</text>`;
+    }
+
+    // Only the first and last x labels are drawn, matching the upstream
+    // interval="preserveStartEnd" behaviour, so labels never overlap.
+    let xlabels = `<text x="${x(0).toFixed(1)}" y="${H - 6}" font-size="10" fill="currentColor" fill-opacity="0.5" text-anchor="start">${escapeHtml(data[0].label)}</text>`;
+    if (data.length > 1) {
+      xlabels += `<text x="${x(data.length - 1).toFixed(1)}" y="${H - 6}" font-size="10" fill="currentColor" fill-opacity="0.5" text-anchor="end">${escapeHtml(data[data.length - 1].label)}</text>`;
+    }
+
+    const dots = data.map((d, i) =>
+      `<circle cx="${x(i).toFixed(1)}" cy="${y(valueOf(d)).toFixed(1)}" r="2.5" fill="${stroke}"><title>${escapeHtml(d.label)}: ${escapeHtml(isTokens ? fmtNum(d.tokens) + " tokens" : fmtCost4(d.cost))}</title></circle>`
+    ).join("");
+
+    el.innerHTML = `
+      <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Usage chart">
+        <defs>
+          <linearGradient id="${gradId}" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="5%" stop-color="${stroke}" stop-opacity="0.25"/>
+            <stop offset="95%" stop-color="${stroke}" stop-opacity="0"/>
+          </linearGradient>
+        </defs>
+        ${grid}
+        <path d="${area}" fill="url(#${gradId})" stroke="none"/>
+        <path d="${line}" fill="none" stroke="${stroke}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+        ${dots}
+        ${xlabels}
+      </svg>`;
+  }
+
+  function renderUsageRecent() {
+    const el = document.getElementById("usage-recent");
+    if (!el) return;
+    const s = usageState.stats;
+    const rows = (s && s.recentRequests) || [];
+    if (!rows.length) {
+      el.innerHTML = '<div class="usage-empty" style="min-height:120px;">No requests yet.</div>';
+      return;
+    }
+    el.innerHTML = `
+      <table>
+        <thead><tr><th style="width:16px;"><span class="sr-only">Status</span></th><th>Model</th><th style="text-align:right;">In / Out</th><th style="text-align:right;">When</th></tr></thead>
+        <tbody>${rows.map(r => {
+          const ok = !r.status || r.status === "ok" || r.status === "success";
+          return `<tr>
+            <td><span class="usage-dot ${ok ? "ok" : "err"}" aria-label="${ok ? "Success" : "Error"}"></span></td>
+            <td class="usage-model" title="${escapeHtml(r.model)}">${escapeHtml(r.model || "-")}</td>
+            <td style="text-align:right;white-space:nowrap;"><span style="color:var(--primary)">${fmtNum(r.promptTokens)}↑</span> <span style="color:#3fb950">${fmtNum(r.completionTokens)}↓</span></td>
+            <td style="text-align:right;color:var(--muted);white-space:nowrap;" data-ts="${escapeHtml(r.timestamp || "")}">${escapeHtml(timeAgo(r.timestamp))}</td>
+          </tr>`;
+        }).join("")}</tbody>
+      </table>`;
+  }
+
+  // The usage table groups the flat by* maps into one summary row per group
+  // key, expandable to the per-item detail rows beneath it.
+  const USAGE_TABLE_OPTIONS = {
+    model: {
+      map: "byModel", groupKey: "rawModel", firstCol: "Model",
+      empty: "No usage recorded yet.",
+      summary: ["provider", "requests", "lastUsed"],
+    },
+    account: {
+      map: "byAccount", groupKey: "accountName", firstCol: "Account",
+      empty: "No account-specific usage recorded yet.",
+      summary: ["rawModel", "provider", "requests", "lastUsed"],
+    },
+    apiKey: {
+      map: "byApiKey", groupKey: "keyName", firstCol: "API Key Name",
+      empty: "No API key usage recorded yet.",
+      summary: ["rawModel", "provider", "requests", "lastUsed"],
+    },
+    endpoint: {
+      map: "byEndpoint", groupKey: "endpoint", firstCol: "Endpoint",
+      empty: "No endpoint usage recorded yet.",
+      summary: ["rawModel", "provider", "requests", "lastUsed"],
+    },
+  };
+
+  function usageGroupKey(view, item) {
+    if (view === "model") return item.rawModel || "Unknown Model";
+    if (view === "account") return item.accountName || (item.connectionId ? "Account " + item.connectionId.slice(0, 8) + "..." : "Unknown Account");
+    if (view === "apiKey") return item.keyName || "Unknown Key";
+    return item.endpoint || "Unknown Endpoint";
+  }
+
+  function renderUsageTable() {
+    const head = document.getElementById("usage-table-head");
+    const body = document.getElementById("usage-table-body");
+    if (!head || !body) return;
+    body.onclick = onUsageTableClick;
+
+    const cfg = USAGE_TABLE_OPTIONS[usageState.table] || USAGE_TABLE_OPTIONS.endpoint;
+    const s = usageState.stats;
+    const bucketMap = (s && s[cfg.map]) || {};
+
+    // Group the flat entries.
+    const groups = new Map();
+    Object.keys(bucketMap).forEach(k => {
+      const item = bucketMap[k];
+      const gk = usageGroupKey(usageState.table, item);
+      if (!groups.has(gk)) groups.set(gk, []);
+      groups.get(gk).push(item);
+    });
+
+    const viewMode = usageState.viewMode;
+    const valueCols = viewMode === "tokens"
+      ? [{ key: "promptTokens", label: "Input Tokens" }, { key: "completionTokens", label: "Output Tokens" }, { key: "totalTokens", label: "Total Tokens" }]
+      : [{ key: "inputCost", label: "Input Cost" }, { key: "outputCost", label: "Output Cost" }, { key: "totalCost", label: "Total Cost" }];
+
+    // Header: first column + the view's own columns + the three value columns.
+    let headers = [cfg.firstCol];
+    cfg.summary.forEach(f => headers.push(f === "provider" ? "Provider" : f === "requests" ? "Requests" : f === "lastUsed" ? "Last Used" : f === "rawModel" ? "Model" : f));
+    valueCols.forEach(v => headers.push(v.label));
+
+    head.innerHTML = `<tr>${headers.map((h, i) => `<th class="${i >= headers.length - 3 ? "num" : ""}">${escapeHtml(h)}</th>`).join("")}</tr>`;
+
+    if (groups.size === 0) {
+      body.innerHTML = `<tr><td colspan="${headers.length}" class="usage-empty">${escapeHtml(cfg.empty)}</td></tr>`;
+      return;
+    }
+
+    let html = "";
+    Array.from(groups.entries()).forEach(([gk, items]) => {
+      const totals = { requests: 0, promptTokens: 0, completionTokens: 0, totalTokens: 0, cost: 0 };
+      items.forEach(it => {
+        totals.requests += it.requests || 0;
+        totals.promptTokens += it.promptTokens || 0;
+        totals.completionTokens += it.completionTokens || 0;
+        totals.cost += it.cost || 0;
+      });
+      totals.totalTokens = totals.promptTokens + totals.completionTokens;
+      // Cost columns reuse the token split proportionally, because the stored
+      // rollup only carries a single cost per bucket.
+      totals.inputCost = totals.promptTokens + totals.completionTokens > 0
+        ? totals.cost * (totals.promptTokens / (totals.promptTokens + totals.completionTokens)) : 0;
+      totals.outputCost = totals.cost - totals.inputCost;
+      totals.totalCost = totals.cost;
+
+      const open = usageState.expanded.has(gk);
+      const latest = items.reduce((acc, it) => (it.lastUsed > acc ? it.lastUsed : acc), "");
+
+      html += `<tr class="usage-summary" data-usage-group="${escapeHtml(gk)}">` +
+        `<td><span class="usage-chevron ${open ? "open" : ""}">▶</span> <span class="usage-group-key">${escapeHtml(gk)}</span></td>`;
+
+      cfg.summary.forEach(f => {
+        if (f === "rawModel") html += `<td>${escapeHtml(items[0].rawModel || "—")}</td>`;
+        else if (f === "provider") html += `<td>${items[0].provider ? `<span class="usage-prov-badge">${escapeHtml(items[0].provider)}</span>` : "—"}</td>`;
+        else if (f === "requests") html += `<td class="num">${fmtNum(totals.requests)}</td>`;
+        else if (f === "lastUsed") html += `<td class="num">${escapeHtml(fmtTime(latest))}</td>`;
+      });
+
+      valueCols.forEach(v => {
+        html += `<td class="num ${v.key === "totalCost" ? "usage-total-cost" : v.key === "totalTokens" ? "usage-total-tokens" : ""}">${escapeHtml(usageValue(totals, v.key, viewMode))}</td>`;
+      });
+      html += `</tr>`;
+
+      if (open) {
+        items.forEach(it => {
+          html += `<tr class="usage-detail-row">`;
+          if (usageState.table === "model") {
+            html += `<td>${escapeHtml(it.rawModel || "—")}</td>`;
+          } else {
+            const name = usageGroupKey(usageState.table, it);
+            html += `<td>${escapeHtml(name)}</td><td>${escapeHtml(it.rawModel || "—")}</td>`;
+          }
+          html += `<td>${it.provider ? `<span class="usage-prov-badge">${escapeHtml(it.provider)}</span>` : "—"}</td>`;
+          html += `<td class="num">${fmtNum(it.requests)}</td>`;
+          html += `<td class="num">${escapeHtml(fmtTime(it.lastUsed))}</td>`;
+          valueCols.forEach(v => {
+            html += `<td class="num ${v.key === "totalCost" ? "usage-total-cost" : ""}">${escapeHtml(usageValue(it, v.key, viewMode))}</td>`;
+          });
+          html += `</tr>`;
+        });
+      }
+    });
+    body.innerHTML = html;
+  }
+
+  // Delegated because the group key is arbitrary text: embedding it in an
+  // inline onclick would break on the first quote in a model name.
+  function onUsageTableClick(ev) {
+    const row = ev.target.closest("tr.usage-summary");
+    if (!row || !row.dataset.usageGroup) return;
+    toggleUsageGroup(row.dataset.usageGroup);
+  }
+
+  // usageValue maps a column key onto a bucket field, accounting for the two
+  // cost spellings the rollup uses.
+  function usageValue(item, key, viewMode) {
+    if (viewMode === "tokens") {
+      if (key === "totalTokens") return fmtNum(item.totalTokens != null ? item.totalTokens : (item.promptTokens + item.completionTokens));
+      return fmtNum(item[key]);
+    }
+    if (key === "inputCost") return fmtCost4(item.inputCost);
+    if (key === "outputCost") return fmtCost4(item.outputCost);
+    return fmtCost4(item.totalCost != null ? item.totalCost : item.cost);
+  }
+
+  function toggleUsageGroup(gk) {
+    if (usageState.expanded.has(gk)) usageState.expanded.delete(gk);
+    else usageState.expanded.add(gk);
+    renderUsageTable();
+  }
+
+  // ---- Details sub-tab ----
+
+  async function loadUsageFilterProviders() {
+    try {
+      const res = await api("/api/dashboard/usage/filters");
+      if (!res.ok) return;
+      const data = await res.json();
+      const sel = document.getElementById("usage-filter-provider");
+      if (!sel) return;
+      (data.providers || []).forEach(p => {
+        const opt = document.createElement("option");
+        opt.value = p.value;
+        opt.textContent = p.label;
+        sel.appendChild(opt);
+      });
+    } catch (_) { /* the dropdown simply stays at "All Providers" */ }
+  }
+
+  function applyUsageFilters() {
+    usageState.detailFilters.provider = document.getElementById("usage-filter-provider").value;
+    usageState.detailFilters.start = document.getElementById("usage-filter-start").value;
+    usageState.detailFilters.end = document.getElementById("usage-filter-end").value;
+    usageState.detailPage = 1;
+    loadUsageDetails();
+  }
+
+  function clearUsageFilters() {
+    document.getElementById("usage-filter-provider").value = "";
+    document.getElementById("usage-filter-start").value = "";
+    document.getElementById("usage-filter-end").value = "";
+    usageState.detailFilters = { provider: "", start: "", end: "" };
+    usageState.detailPage = 1;
+    loadUsageDetails();
+  }
+
+  async function loadUsageDetails() {
+    const body = document.getElementById("usage-details-body");
+    if (!body) return;
+    body.innerHTML = '<tr><td colspan="7" class="usage-empty">Loading…</td></tr>';
+
+    const params = new URLSearchParams({ page: usageState.detailPage, pageSize: usageState.detailPageSize });
+    const f = usageState.detailFilters;
+    if (f.provider) params.set("provider", f.provider);
+    if (f.start) params.set("startDate", new Date(f.start).toISOString());
+    if (f.end) params.set("endDate", new Date(f.end).toISOString());
+
+    let page;
+    try {
+      const res = await api("/api/dashboard/usage/request-details?" + params.toString());
+      if (!res.ok) throw new Error("status " + res.status);
+      page = await res.json();
+    } catch (_) {
+      body.innerHTML = '<tr><td colspan="7" class="usage-empty">Failed to load request details.</td></tr>';
+      return;
+    }
+
+    usageState.detailTotal = page.pagination.totalItems;
+    usageState.detailTotalPages = page.pagination.totalPages;
+    renderUsageDetails(page.details || []);
+    renderUsagePagination();
+  }
+
+  function renderUsageDetails(details) {
+    const body = document.getElementById("usage-details-body");
+    if (!body) return;
+    if (!details.length) {
+      body.innerHTML = '<tr><td colspan="7" class="usage-empty">No request details found</td></tr>';
+      return;
+    }
+    body.innerHTML = details.map((d, i) => {
+      const toks = d.tokens || {};
+      const input = getInputTokens(toks);
+      const output = (toks.completion_tokens || toks.output_tokens || 0);
+      const lat = d.latency || {};
+      const when = d.timestamp ? new Date(d.timestamp).toLocaleString() : "-";
+      return `<tr>
+        <td style="color:var(--muted);white-space:nowrap;">${escapeHtml(when)}</td>
+        <td class="usage-model" title="${escapeHtml(d.model || "")}">${escapeHtml(d.model || "-")}</td>
+        <td>${escapeHtml(d.provider || "-")}</td>
+        <td class="num">${fmtNum(input)}</td>
+        <td class="num">${fmtNum(output)}</td>
+        <td style="white-space:nowrap;font-size:0.78rem;color:var(--muted);">TTFT: ${fmtNum(lat.ttft)}ms<br>Total: ${fmtNum(lat.total)}ms</td>
+        <td style="text-align:center;"><button class="btn btn-sm" data-detail-index="${i}">Detail</button></td>
+      </tr>`;
+    }).join("");
+
+    // Bind the drawer buttons after the rows exist; an inline handler would
+    // need the whole detail object serialised into the attribute.
+    body.querySelectorAll("[data-detail-index]").forEach(btn => {
+      btn.addEventListener("click", () => openUsageDrawer(details[Number(btn.dataset.detailIndex)]));
+    });
+  }
+
+  // getInputTokens mirrors the upstream helper: prompt tokens plus cache when
+  // the cache count is reported separately, else the plain input count.
+  function getInputTokens(toks) {
+    toks = toks || {};
+    const cache = toks.cached_tokens || toks.cache_read_input_tokens || 0;
+    if (toks.prompt_tokens != null) return toks.prompt_tokens < cache ? toks.prompt_tokens + cache : toks.prompt_tokens;
+    return (toks.input_tokens || 0) + cache;
+  }
+
+  function renderUsagePagination() {
+    const el = document.getElementById("usage-details-pagination");
+    if (!el) return;
+    if (usageState.detailTotal === 0) { el.style.display = "none"; return; }
+    el.style.display = "";
+
+    const page = usageState.detailPage;
+    const pages = usageState.detailTotalPages || 1;
+    const size = usageState.detailPageSize;
+    const startItem = (page - 1) * size + 1;
+    const endItem = Math.min(page * size, usageState.detailTotal);
+
+    // Up to five page numbers, with first/last pinned and ellipses between.
+    const nums = [];
+    const maxShow = 5;
+    let from = Math.max(1, page - Math.floor(maxShow / 2));
+    let to = Math.min(pages, from + maxShow - 1);
+    from = Math.max(1, to - maxShow + 1);
+    if (from > 1) { nums.push(1); if (from > 2) nums.push("..."); }
+    for (let p = from; p <= to; p++) nums.push(p);
+    if (to < pages) { if (to < pages - 1) nums.push("..."); nums.push(pages); }
+
+    el.innerHTML = `
+      <span>Showing ${fmtNum(startItem)} to ${fmtNum(endItem)} of ${fmtNum(usageState.detailTotal)} results</span>
+      <span style="display:flex;gap:10px;align-items:center;">
+        <label style="display:flex;gap:6px;align-items:center;">Rows:
+          <select class="usage-select" style="padding:3px 8px;">
+            ${[10, 20, 50].map(n => `<option value="${n}" ${n === size ? "selected" : ""}>${n}</option>`).join("")}
+          </select>
+        </label>
+        <span class="usage-page-btns">
+          <button class="usage-page-btn" ${page <= 1 ? "disabled" : ""} onclick="gotoUsagePage(${page - 1})">‹</button>
+          ${nums.map(n => n === "..." ? '<span style="padding:0 4px;">…</span>' : `<button class="usage-page-btn ${n === page ? "active" : ""}" onclick="gotoUsagePage(${n})">${n}</button>`).join("")}
+          <button class="usage-page-btn" ${page >= pages ? "disabled" : ""} onclick="gotoUsagePage(${page + 1})">›</button>
+        </span>
+      </span>`;
+
+    const sizeSel = el.querySelector("select");
+    if (sizeSel) sizeSel.addEventListener("change", () => {
+      usageState.detailPageSize = Number(sizeSel.value);
+      usageState.detailPage = 1;
+      loadUsageDetails();
+    });
+  }
+
+  function gotoUsagePage(page) {
+    if (page < 1 || page > (usageState.detailTotalPages || 1)) return;
+    usageState.detailPage = page;
+    loadUsageDetails();
+  }
+
+  function openUsageDrawer(detail) {
+    const drawer = document.getElementById("usage-drawer");
+    const scrim = document.getElementById("usage-drawer-scrim");
+    const body = document.getElementById("usage-drawer-body");
+    if (!drawer || !body) return;
+
+    const toks = detail.tokens || {};
+    const lat = detail.latency || {};
+    const status = detail.status || "unknown";
+    const ok = status === "success" || status === "ok";
+
+    // The list row already carries the heavy bodies, so the fetch is only
+    // needed when the payload was trimmed for bandwidth.
+    let sections = "";
+    const section = (title, content, open) =>
+      `<details ${open ? "open" : ""}><summary>${escapeHtml(title)}</summary><div><div class="usage-pre">${escapeHtml(typeof content === "string" ? content : JSON.stringify(content, null, 2))}</div></div></details>`;
+    if (detail.request) sections += section("1. Client Request (Input)", detail.request, true);
+    if (detail.providerRequest) sections += section("2. Provider Request (Translated)", detail.providerRequest, false);
+    if (detail.providerResponse) sections += section("3. Provider Response (Raw)", detail.providerResponse, false);
+    if (detail.response) sections += section("4. Client Response (Final)", detail.response, true);
+
+    body.innerHTML = `
+      <div class="usage-kv">
+        <div><span>ID:</span><strong>${escapeHtml(detail.id || "-")}</strong></div>
+        <div><span>Timestamp:</span><strong>${escapeHtml(detail.timestamp ? new Date(detail.timestamp).toLocaleString() : "-")}</strong></div>
+        <div><span>Provider:</span><strong>${escapeHtml(detail.provider || "-")}</strong></div>
+        <div><span>Model:</span><strong>${escapeHtml(detail.model || "-")}</strong></div>
+        <div><span>API Key Name:</span><strong>${escapeHtml(detail.apiKeyName || "-")}</strong></div>
+        <div><span>API Key:</span><strong>${escapeHtml(detail.apiKeyName && detail.apiKey ? String(detail.apiKey).slice(0, 8) + "..." : "-")}</strong></div>
+        <div><span>Status:</span><strong style="color:${ok ? "#3fb950" : "#f85149"};">${escapeHtml(status)}</strong></div>
+        <div><span>Latency:</span><strong>TTFT ${fmtNum(lat.ttft)}ms / Total ${fmtNum(lat.total)}ms</strong></div>
+        <div><span>Input Tokens:</span><strong>${fmtNum(getInputTokens(toks))}</strong></div>
+        <div><span>Output Tokens:</span><strong>${fmtNum(toks.completion_tokens || 0)}</strong></div>
+      </div>
+      ${sections}`;
+
+    drawer.classList.add("open");
+    if (scrim) scrim.classList.add("show");
+  }
+
+  function closeUsageDrawer() {
+    const drawer = document.getElementById("usage-drawer");
+    const scrim = document.getElementById("usage-drawer-scrim");
+    if (drawer) drawer.classList.remove("open");
+    if (scrim) scrim.classList.remove("show");
+  }
+
+  // The "When" column ticks so the relative timestamps stay honest without
+  // another network round trip.
+  setInterval(() => {
+    document.querySelectorAll("#usage-recent [data-ts]").forEach(td => {
+      td.textContent = timeAgo(td.dataset.ts);
+    });
+  }, 1000);
 
   checkAuth();
 </script>

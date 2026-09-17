@@ -17,6 +17,7 @@ import (
 	"9router/proxy/internal/dbtest"
 	"9router/proxy/internal/handlers/shared"
 	"9router/proxy/internal/models"
+	"9router/proxy/internal/providers"
 )
 
 func setupTestDashboard(t *testing.T) (*Handler, *db.Repo, chi.Router) {
@@ -40,6 +41,10 @@ func setupTestDashboard(t *testing.T) (*Handler, *db.Repo, chi.Router) {
 	// Auth routes are mounted unprotected in production (router.go); mirror that
 	// so tests exercising /api/dashboard/auth/* see the same paths.
 	h.RegisterAuthRoutes(r)
+	// Provider logos are mounted publicly in router.go, OUTSIDE the session
+	// group, because an <img> tag cannot send an Authorization header. Mount it
+	// here too so tests exercise the real path rather than a session-gated one.
+	r.Get("/provider-logos/{file}", h.ServeProviderLogo)
 	h.RegisterRoutes(r)
 	return h, repo, r
 }
@@ -247,6 +252,10 @@ func TestDashboardProviderCategorizationAndCatalog(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &summaries); err != nil {
 		t.Fatalf("unmarshal summaries failed: %v", err)
 	}
+	// The response also carries synthesised no-auth cards (OpenCode Free, the
+	// local TTS/search servers) that own no connection row; this test is about
+	// the three seeded connections, so scope to those.
+	summaries = filterConnected(summaries)
 	if len(summaries) != 3 {
 		t.Fatalf("expected 3 summaries, got %d", len(summaries))
 	}
@@ -320,6 +329,9 @@ func TestDashboardAccountsGrouping(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &summaries); err != nil {
 		t.Fatalf("unmarshal summaries failed: %v", err)
 	}
+	// Synthesised no-auth cards ride along; this test counts the two seeded
+	// antigravity accounts (it also asserts every remaining row is antigravity).
+	summaries = filterConnected(summaries)
 	if len(summaries) != 2 {
 		t.Fatalf("expected 2 antigravity accounts, got %d", len(summaries))
 	}
@@ -635,6 +647,120 @@ func TestImportModelsUnsupportedProvider(t *testing.T) {
 	}
 }
 
+// TestKnownModelFetchers_OpenCodeTiers pins the OpenCode registry entries.
+//
+// They were missing, so the provider page answered "Provider opencode does not
+// support models listing" for a route that returns 200 — which also meant the
+// Free badge could never appear, since the badge is computed over the fetched
+// catalogue. Both tiers must stay registered.
+func TestKnownModelFetchers_OpenCodeTiers(t *testing.T) {
+	cases := map[string]string{
+		"opencode":    "https://opencode.ai/zen/v1/models",
+		"opencode-go": "https://opencode.ai/zen/go/v1/models",
+	}
+	for id, wantURL := range cases {
+		f, ok := knownModelFetchers[id]
+		if !ok {
+			t.Errorf("knownModelFetchers[%q] is missing; the provider page would report unsupported", id)
+			continue
+		}
+		if f.url != wantURL {
+			t.Errorf("knownModelFetchers[%q].url = %q, want %q", id, f.url, wantURL)
+		}
+		if !f.bearer {
+			t.Errorf("knownModelFetchers[%q] must send the key as a bearer token", id)
+		}
+		if f.headers["x-opencode-client"] == "" {
+			t.Errorf("knownModelFetchers[%q] must send x-opencode-client", id)
+		}
+	}
+}
+
+// TestImportModelsOpenCodeBadgesFreeModels drives the whole free-badge chain
+// through the import route against a stub upstream, so it needs no network:
+// a keyless OpenCode connection must produce a supported catalogue whose
+// "-free" models are flagged isFree and whose paid models are not.
+//
+// This is the end-to-end guard for the two defects that made "OpenCode Free"
+// unusable in the dashboard: the provider had no model fetcher, and the
+// provider was absent from the free-model catalogue.
+func TestImportModelsOpenCodeBadgesFreeModels(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "Bearer public" {
+			t.Errorf("upstream Authorization = %q, want the keyless \"public\" token", got)
+		}
+		if got := r.Header.Get("x-opencode-client"); got == "" {
+			t.Errorf("upstream request is missing x-opencode-client")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"data":[
+			{"id":"mimo-v2.5-free","name":"MiMo V2.5 Free"},
+			{"id":"big-pickle","name":"Big Pickle"},
+			{"id":"claude-opus-5","name":"Claude Opus 5"}
+		]}`))
+	}))
+	defer srv.Close()
+
+	old, hadOld := knownModelFetchers["opencode"]
+	knownModelFetchers["opencode"] = modelFetcher{
+		url:     srv.URL,
+		method:  http.MethodGet,
+		bearer:  true,
+		headers: map[string]string{"x-opencode-client": "desktop"},
+	}
+	defer func() {
+		if hadOld {
+			knownModelFetchers["opencode"] = old
+		} else {
+			delete(knownModelFetchers, "opencode")
+		}
+	}()
+
+	_, repo, r := setupTestDashboard(t)
+	if err := repo.UpsertProviderConnection(&models.ProviderConnection{
+		ID:       "oc-1",
+		Provider: "opencode",
+		AuthType: "none",
+		IsActive: 1,
+		Data:     `{"apiKey":"public"}`,
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	req := httptest.NewRequest("GET", "/api/dashboard/providers/oc/models", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var res ModelFetchResult
+	if err := json.Unmarshal(w.Body.Bytes(), &res); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if !res.Supported {
+		t.Fatalf("opencode must report supported=true, got error %q", res.Error)
+	}
+
+	got := map[string]bool{}
+	for _, m := range res.Models {
+		got[m.ID] = m.IsFree
+	}
+	for _, id := range []string{"mimo-v2.5-free", "big-pickle"} {
+		if _, ok := got[id]; !ok {
+			t.Errorf("model %q missing from the fetched catalogue", id)
+			continue
+		}
+		if !got[id] {
+			t.Errorf("model %q should be badged free", id)
+		}
+	}
+	if free, ok := got["claude-opus-5"]; !ok {
+		t.Error("paid model claude-opus-5 missing from the fetched catalogue")
+	} else if free {
+		t.Error("paid model claude-opus-5 was badged free")
+	}
+}
+
 // TestDoModelRequestParsesUpstream lists models from a stub server, covering
 // both the OpenAI {"data":[]} and Google {"models":[]} envelopes.
 func TestDoModelRequestParsesUpstream(t *testing.T) {
@@ -760,4 +886,476 @@ func TestAddCachedModelWithName_DoesNotClobber(t *testing.T) {
 		}
 	}
 	t.Fatal("model not found after re-import")
+}
+
+// The Proxy Routing tab reads providerStrategies from GET /settings and writes
+// the whole map back through POST /settings, so both directions must round-trip
+// — including targetProxyPoolIds, which narrows rotation.
+func TestSettingsProviderStrategiesRoundTrip(t *testing.T) {
+	_, _, r := setupTestDashboard(t)
+
+	payload := `{"providerStrategies":{"opencode":{"proxyPoolId":"pool-1","rotateStrategy":"round-robin","targetProxyPoolIds":["pool-1","pool-2"]}}}`
+	req := httptest.NewRequest("POST", "/api/dashboard/settings", bytes.NewBufferString(payload))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("update settings failed: %d: %s", w.Code, w.Body.String())
+	}
+
+	req = httptest.NewRequest("GET", "/api/dashboard/settings", nil)
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("get settings failed: %d", w.Code)
+	}
+
+	var got struct {
+		ProviderStrategies map[string]struct {
+			ProxyPoolID        string   `json:"proxyPoolId"`
+			RotateStrategy     string   `json:"rotateStrategy"`
+			TargetProxyPoolIds []string `json:"targetProxyPoolIds"`
+		} `json:"providerStrategies"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode settings: %v (body=%s)", err, w.Body.String())
+	}
+	strat, ok := got.ProviderStrategies["opencode"]
+	if !ok {
+		t.Fatalf("providerStrategies.opencode missing from response: %s", w.Body.String())
+	}
+	if strat.ProxyPoolID != "pool-1" {
+		t.Errorf("proxyPoolId: want pool-1, got %q", strat.ProxyPoolID)
+	}
+	if strat.RotateStrategy != "round-robin" {
+		t.Errorf("rotateStrategy: want round-robin, got %q", strat.RotateStrategy)
+	}
+	if len(strat.TargetProxyPoolIds) != 2 {
+		t.Errorf("targetProxyPoolIds: want 2 entries, got %v", strat.TargetProxyPoolIds)
+	}
+}
+
+// Clearing every field must remove the provider key entirely, so the settings
+// blob does not accumulate empty override objects.
+func TestSettingsProviderStrategiesPrunesEmptyEntries(t *testing.T) {
+	_, _, r := setupTestDashboard(t)
+
+	seed := `{"providerStrategies":{"opencode":{"rotateStrategy":"random"}}}`
+	req := httptest.NewRequest("POST", "/api/dashboard/settings", bytes.NewBufferString(seed))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("seed settings failed: %d: %s", w.Code, w.Body.String())
+	}
+
+	clear := `{"providerStrategies":{"opencode":{}}}`
+	req = httptest.NewRequest("POST", "/api/dashboard/settings", bytes.NewBufferString(clear))
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("clear settings failed: %d: %s", w.Code, w.Body.String())
+	}
+
+	req = httptest.NewRequest("GET", "/api/dashboard/settings", nil)
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	var got struct {
+		ProviderStrategies map[string]any `json:"providerStrategies"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode settings: %v", err)
+	}
+	if _, present := got.ProviderStrategies["opencode"]; present {
+		t.Errorf("an all-empty strategy should be pruned, got %s", w.Body.String())
+	}
+}
+
+// providerStrategies must always serialize as an object, never null, so the UI
+// can index into it without a guard.
+func TestSettingsProviderStrategiesDefaultsToObject(t *testing.T) {
+	_, _, r := setupTestDashboard(t)
+
+	req := httptest.NewRequest("GET", "/api/dashboard/settings", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("get settings failed: %d", w.Code)
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &raw); err != nil {
+		t.Fatalf("decode settings: %v", err)
+	}
+	val, ok := raw["providerStrategies"]
+	if !ok {
+		t.Fatalf("providerStrategies missing from settings payload: %s", w.Body.String())
+	}
+	if val == nil {
+		t.Errorf("providerStrategies must be an object, got null")
+	}
+	if _, isObj := val.(map[string]any); !isObj {
+		t.Errorf("providerStrategies must decode to an object, got %T", val)
+	}
+}
+
+// The proxy pools list is read-only and must never leak proxy URLs, which can
+// embed credentials.
+func TestListProxyPoolsEndpointHidesURLs(t *testing.T) {
+	_, repo, r := setupTestDashboard(t)
+
+	if _, err := repo.InsertProxyPool(db.ProxyPoolData{
+		Name:     "relay",
+		ProxyURL: "http://user:secret@relay.example.com:8080",
+		Type:     "http",
+	}); err != nil {
+		t.Fatalf("insert pool: %v", err)
+	}
+
+	req := httptest.NewRequest("GET", "/api/dashboard/proxy-pools", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("list proxy pools failed: %d: %s", w.Code, w.Body.String())
+	}
+	body := w.Body.String()
+	if strings.Contains(body, "secret") {
+		t.Errorf("proxy URL credentials leaked to the client: %s", body)
+	}
+	if !strings.Contains(body, "\"proxyPools\"") {
+		t.Errorf("expected a proxyPools key, got %s", body)
+	}
+}
+
+// Writing one provider's routing must not wipe every other provider's. The
+// settings blob is shared with the Next.js dashboard and with scripts that patch
+// a single provider, so providerStrategies merges per key rather than replacing
+// the whole map.
+func TestSettingsProviderStrategiesMergePreservesOtherProviders(t *testing.T) {
+	_, _, r := setupTestDashboard(t)
+
+	seed := `{"providerStrategies":{"antigravity":{"rotateStrategy":"round-robin"},"freebuff":{"stickyLimit":2}}}`
+	req := httptest.NewRequest("POST", "/api/dashboard/settings", bytes.NewBufferString(seed))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("seed failed: %d: %s", w.Code, w.Body.String())
+	}
+
+	// A caller that only knows about "opencode" writes just that provider.
+	patch := `{"providerStrategies":{"opencode":{"rotateStrategy":"random"}}}`
+	req = httptest.NewRequest("POST", "/api/dashboard/settings", bytes.NewBufferString(patch))
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("patch failed: %d: %s", w.Code, w.Body.String())
+	}
+
+	req = httptest.NewRequest("GET", "/api/dashboard/settings", nil)
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	var got struct {
+		ProviderStrategies map[string]struct {
+			RotateStrategy string `json:"rotateStrategy"`
+			StickyLimit    int    `json:"stickyLimit"`
+		} `json:"providerStrategies"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got.ProviderStrategies["antigravity"].RotateStrategy != "round-robin" {
+		t.Errorf("antigravity strategy was wiped by an unrelated write: %s", w.Body.String())
+	}
+	if got.ProviderStrategies["freebuff"].StickyLimit != 2 {
+		t.Errorf("freebuff strategy was wiped by an unrelated write: %s", w.Body.String())
+	}
+	if got.ProviderStrategies["opencode"].RotateStrategy != "random" {
+		t.Errorf("opencode strategy was not written: %s", w.Body.String())
+	}
+}
+
+// Clearing one provider must remove only that key, leaving the others intact.
+func TestSettingsProviderStrategiesClearTargetsOneProvider(t *testing.T) {
+	_, _, r := setupTestDashboard(t)
+
+	seed := `{"providerStrategies":{"antigravity":{"rotateStrategy":"round-robin"},"opencode":{"rotateStrategy":"random"}}}`
+	req := httptest.NewRequest("POST", "/api/dashboard/settings", bytes.NewBufferString(seed))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("seed failed: %d", w.Code)
+	}
+
+	clear := `{"providerStrategies":{"opencode":{"proxyPoolId":"__none__"}}}`
+	req = httptest.NewRequest("POST", "/api/dashboard/settings", bytes.NewBufferString(clear))
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("clear failed: %d", w.Code)
+	}
+
+	req = httptest.NewRequest("GET", "/api/dashboard/settings", nil)
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	var got struct {
+		ProviderStrategies map[string]any `json:"providerStrategies"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if _, present := got.ProviderStrategies["opencode"]; present {
+		t.Errorf("__none__ should clear only opencode, got %s", w.Body.String())
+	}
+	if _, present := got.ProviderStrategies["antigravity"]; !present {
+		t.Errorf("clearing opencode must not remove antigravity: %s", w.Body.String())
+	}
+}
+
+// The settings blob is shared with VansRouter, which stores provider strategy
+// keys this codebase does not model (stickyRoundRobinLimit, fallbackStrategy,
+// strictModelAssignment). A read/write round-trip must preserve them verbatim;
+// dropping them destroys the operator's real configuration.
+func TestSettingsProviderStrategiesPreserveForeignKeys(t *testing.T) {
+	_, _, r := setupTestDashboard(t)
+
+	// Shape taken from a real production settings row.
+	seed := `{"providerStrategies":{` +
+		`"antigravity":{"stickyRoundRobinLimit":1,"fallbackStrategy":"round-robin"},` +
+		`"clinepass":{"strictModelAssignment":false}}}`
+	req := httptest.NewRequest("POST", "/api/dashboard/settings", bytes.NewBufferString(seed))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("seed failed: %d: %s", w.Code, w.Body.String())
+	}
+
+	// A later write for an unrelated provider must not touch the foreign keys.
+	patch := `{"providerStrategies":{"opencode":{"rotateStrategy":"random"}}}`
+	req = httptest.NewRequest("POST", "/api/dashboard/settings", bytes.NewBufferString(patch))
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("patch failed: %d: %s", w.Code, w.Body.String())
+	}
+
+	req = httptest.NewRequest("GET", "/api/dashboard/settings", nil)
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	body := w.Body.String()
+
+	var got struct {
+		ProviderStrategies map[string]map[string]any `json:"providerStrategies"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	ag, ok := got.ProviderStrategies["antigravity"]
+	if !ok {
+		t.Fatalf("antigravity strategy was dropped entirely: %s", body)
+	}
+	if ag["fallbackStrategy"] != "round-robin" {
+		t.Errorf("fallbackStrategy lost: %v", ag)
+	}
+	if ag["stickyRoundRobinLimit"] != float64(1) {
+		t.Errorf("stickyRoundRobinLimit lost: %v", ag)
+	}
+	cp, ok := got.ProviderStrategies["clinepass"]
+	if !ok {
+		t.Fatalf("clinepass strategy was dropped entirely: %s", body)
+	}
+	if cp["strictModelAssignment"] != false {
+		t.Errorf("strictModelAssignment lost: %v", cp)
+	}
+	// The newly written provider must still be present.
+	if got.ProviderStrategies["opencode"]["rotateStrategy"] != "random" {
+		t.Errorf("opencode write lost: %s", body)
+	}
+}
+
+// A provider whose strategy object holds only foreign keys must not be treated
+// as an empty entry and pruned.
+func TestProviderStrategyIsEmptyCountsForeignKeys(t *testing.T) {
+	empty := db.ProviderStrategy{}
+	if !empty.IsEmpty() {
+		t.Error("a zero ProviderStrategy must be empty")
+	}
+	foreign := db.ProviderStrategy{Extra: map[string]any{"fallbackStrategy": "round-robin"}}
+	if foreign.IsEmpty() {
+		t.Error("a strategy holding only passthrough keys must not be considered empty")
+	}
+	typed := db.ProviderStrategy{RotateStrategy: "random"}
+	if typed.IsEmpty() {
+		t.Error("a strategy with rotateStrategy must not be empty")
+	}
+}
+
+// A keyless provider owns no connection row, so gating model import on "do we
+// have a connection?" made a provider the operator can chat with look broken —
+// the exact "Add a connection to enable importing models." dead end. It must
+// import using its registry default key instead.
+func TestImportModelsNoAuthProviderWithoutConnection(t *testing.T) {
+	_, repo, r := setupTestDashboard(t)
+
+	// Registry truth: opencode is the keyless provider.
+	if !providers.IsNoAuthProvider("opencode") {
+		t.Fatal("opencode must be recognised as a no-auth provider")
+	}
+	// And it genuinely has no connection in this fixture.
+	conns, err := repo.ListConnectionsByProvider("opencode")
+	if err != nil {
+		t.Fatalf("list connections: %v", err)
+	}
+	if len(conns) != 0 {
+		t.Fatalf("fixture must have zero opencode connections, got %d", len(conns))
+	}
+
+	req := httptest.NewRequest("GET", "/api/dashboard/providers/opencode/models", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	body := w.Body.String()
+	if strings.Contains(body, "Add a connection") {
+		t.Fatalf("a keyless provider must not be told to add a connection: %s", body)
+	}
+	// The upstream call may fail offline, but it must never be refused for
+	// lacking a connection — that refusal is the bug this test pins.
+	if w.Code == http.StatusBadRequest {
+		t.Fatalf("keyless import must not be refused with 400: %s", body)
+	}
+}
+
+// The gate must stay shut for providers that really do need a credential.
+func TestImportModelsCredentialProviderStillNeedsConnection(t *testing.T) {
+	_, repo, r := setupTestDashboard(t)
+
+	for _, id := range []string{"mistral", "groq", "anthropic"} {
+		if providers.IsNoAuthProvider(id) {
+			t.Fatalf("%s must not be treated as keyless", id)
+		}
+		conns, err := repo.ListConnectionsByProvider(id)
+		if err != nil {
+			t.Fatalf("list %s: %v", id, err)
+		}
+		if len(conns) != 0 {
+			continue // fixture has one; the refuse-path cannot be exercised
+		}
+
+		req := httptest.NewRequest("GET", "/api/dashboard/providers/"+id+"/models", nil)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("%s: expected 400 without a connection, got %d: %s", id, w.Code, w.Body.String())
+		}
+		if !strings.Contains(w.Body.String(), "Add a connection") {
+			t.Errorf("%s: expected the add-a-connection message, got %s", id, w.Body.String())
+		}
+	}
+}
+
+// The alias must resolve too: the UI addresses providers by either id or alias.
+func TestIsNoAuthProviderResolvesAlias(t *testing.T) {
+	if !providers.IsNoAuthProvider("opencode") {
+		t.Error("opencode (id) must be keyless")
+	}
+	if !providers.IsNoAuthProvider("oc") {
+		t.Error("oc (alias) must resolve to the keyless opencode")
+	}
+	if providers.IsNoAuthProvider("opencode-go") {
+		t.Error("opencode-go is a paid tier and must not be keyless")
+	}
+	if providers.IsNoAuthProvider("anthropic") {
+		t.Error("anthropic must not be keyless")
+	}
+}
+
+// A keyless provider's fetcher must fall back to the registry default key, or
+// the fetch fails even though the endpoint is reachable without credentials.
+func TestModelFetcherUsesDefaultAPIKeyForKeylessProvider(t *testing.T) {
+	f, ok := knownModelFetchers["opencode"]
+	if !ok {
+		t.Fatal("opencode must have a model fetcher registered")
+	}
+	if !f.bearer {
+		t.Fatal("opencode's fetcher must send a bearer token")
+	}
+	cfg, ok := providers.KnownProviders["opencode"]
+	if !ok {
+		t.Fatal("opencode must exist in KnownProviders")
+	}
+	if cfg.DefaultAPIKey == "" {
+		t.Fatal("opencode must expose a DefaultAPIKey for the keyless fallback")
+	}
+}
+
+// The keyless fetch path must actually send the registry default key. Without
+// this the /models call is refused before it ever leaves the process, so assert
+// on the Authorization header the upstream receives rather than on a status.
+func TestKeylessModelFetchSendsDefaultAPIKey(t *testing.T) {
+	var gotAuth string
+	var gotClient string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		gotAuth = req.Header.Get("Authorization")
+		gotClient = req.Header.Get("x-opencode-client")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"id":"m1","name":"M1"},{"id":"m2","name":"M2"}]}`))
+	}))
+	defer srv.Close()
+
+	// Point the registered opencode fetcher at the stub instead of the network.
+	orig, had := knownModelFetchers["opencode"]
+	f := orig
+	f.url = srv.URL
+	knownModelFetchers["opencode"] = f
+	defer func() {
+		if had {
+			knownModelFetchers["opencode"] = orig
+		} else {
+			delete(knownModelFetchers, "opencode")
+		}
+	}()
+
+	h, _, _ := setupTestDashboard(t)
+	// Empty data == no stored connection, which is the whole point.
+	res, err := h.fetchUpstreamModels("opencode", "", 10*time.Second)
+	if err != nil {
+		t.Fatalf("keyless fetch must succeed using the default key, got: %v", err)
+	}
+	if len(res.Models) != 2 {
+		t.Fatalf("expected 2 models from the stub, got %d", len(res.Models))
+	}
+	cfg := providers.KnownProviders["opencode"]
+	if gotAuth != "Bearer "+cfg.DefaultAPIKey {
+		t.Fatalf("upstream Authorization = %q, want %q", gotAuth, "Bearer "+cfg.DefaultAPIKey)
+	}
+	if gotClient != "desktop" {
+		t.Fatalf("opencode client header = %q, want %q", gotClient, "desktop")
+	}
+}
+
+// A credential provider with no stored token must NOT silently borrow someone
+// else's default key — only providers that declare one may.
+func TestModelFetchWithoutCredentialFailsForNonDefaultedProvider(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[]}`))
+	}))
+	defer srv.Close()
+
+	orig, had := knownModelFetchers["openrouter"]
+	f := orig
+	f.url = srv.URL
+	knownModelFetchers["openrouter"] = f
+	defer func() {
+		if had {
+			knownModelFetchers["openrouter"] = orig
+		} else {
+			delete(knownModelFetchers, "openrouter")
+		}
+	}()
+
+	h, _, _ := setupTestDashboard(t)
+	if _, err := h.fetchUpstreamModels("openrouter", "", 5*time.Second); err == nil {
+		t.Fatal("expected an error: openrouter declares no DefaultAPIKey")
+	}
 }

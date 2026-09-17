@@ -1,6 +1,9 @@
 package providers
 
-import "testing"
+import (
+	"slices"
+	"testing"
+)
 
 func boolPtr(b bool) *bool { return &b }
 
@@ -12,6 +15,10 @@ func TestProviderHasFreeModels_ResolvesAliases(t *testing.T) {
 		"ag":          true,
 		"gemini":      true,
 		"glm":         true,
+		// OpenCode is a keyless free tier (auth "none", default key "public"),
+		// so both its canonical id and its "oc" alias must report free.
+		"opencode": true,
+		"oc":       true,
 		// CodeBuddy has no documented free tier (absent from OmniRoute's
 		// catalog), so it must NOT report free.
 		"codebuddy-cn":   false,
@@ -23,6 +30,56 @@ func TestProviderHasFreeModels_ResolvesAliases(t *testing.T) {
 		if got := ProviderHasFreeModels(provider); got != want {
 			t.Errorf("ProviderHasFreeModels(%q) = %v, want %v", provider, got, want)
 		}
+	}
+}
+
+// TestOpenCodeFreeTier_OnlyFreeIdsBadge pins the OpenCode ("oc") free tier:
+// the provider must be known to grant free access, its "-free" models must
+// badge, and its paid catalogue must not.
+//
+// The "-free" suffix is deliberately NOT a payload signal (only OpenRouter's
+// ":free" is), so a passing badge here can only come from the shipped
+// catalogue — which is exactly the wiring that regressed for this provider.
+func TestOpenCodeFreeTier_OnlyFreeIdsBadge(t *testing.T) {
+	freeIDs := []string{
+		"big-pickle",
+		"deepseek-v4-flash-free",
+		"mimo-v2.5-free",
+		"ling-3.0-flash-fin-free",
+		"nemotron-3-ultra-free",
+		"nemotron-3.5-lightning-free",
+		"muse-spark-1.3-contributor-free",
+		"muse-spark-1.2-contributor-free",
+	}
+	for _, id := range freeIDs {
+		// Canonical id and alias must agree.
+		for _, provider := range []string{"opencode", "oc"} {
+			if !IsFreeModel(provider, FreeModelCandidate{ID: id}) {
+				t.Errorf("IsFreeModel(%q, %q) = false, want true (catalogued keyless free)", provider, id)
+			}
+			if !IsModelFreeBadge(provider, FreeModelCandidate{ID: id, DisplayName: id}) {
+				t.Errorf("IsModelFreeBadge(%q, %q) = false, want true", provider, id)
+			}
+		}
+	}
+
+	// A paid OpenCode model must not be badged, even though the provider has a
+	// documented free tier. These ids are live on the same endpoint.
+	for _, id := range []string{"claude-opus-5", "gpt-5.4", "kimi-k3", "minimax-m3"} {
+		if IsFreeModel("opencode", FreeModelCandidate{ID: id}) {
+			t.Errorf("IsFreeModel(opencode, %q) = true, want false (paid model)", id)
+		}
+		if IsModelFreeBadge("opencode", FreeModelCandidate{ID: id, DisplayName: id}) {
+			t.Errorf("IsModelFreeBadge(opencode, %q) = true, want false (paid model)", id)
+		}
+	}
+
+	// A "-free" id that is NOT catalogued stays unpaid until the catalogue
+	// learns about it: the suffix alone is not a signal. This documents the
+	// deliberate tightening and guards against someone "helpfully" teaching
+	// the payload path about "-free".
+	if IsFreeModel("opencode", FreeModelCandidate{ID: "some-future-model-free"}) {
+		t.Error("uncatalogued \"-free\" id was reported free; the dash-suffix is not a payload signal")
 	}
 }
 
@@ -114,6 +171,43 @@ func TestFreeBudget_DiscontinuedDoesNotGrantAccess(t *testing.T) {
 	for _, entry := range freeModelCatalog {
 		if entry.FreeType == regimeDiscontinued {
 			t.Errorf("catalog entry %q/%q is discontinued; it must not be shipped as free", entry.Provider, entry.ModelID)
+		}
+	}
+}
+
+// TestNoAuthProvidersRequireLLM pins the scope of the always-visible no-auth
+// list. "No auth" alone is too broad: the registry also has keyless local
+// media/utility servers (text-to-speech, search) that cannot serve a chat
+// request, so surfacing them as provider cards would be noise. Upstream splits
+// them into separate catalog files (noauth.ts vs audio.ts/search.ts) and this
+// list must match that boundary via ServiceKinds.
+func TestNoAuthProvidersRequireLLM(t *testing.T) {
+	got := map[string]bool{}
+	for _, m := range NoAuthProviders() {
+		got[m.ID] = true
+		if m.AuthType != "none" {
+			t.Errorf("%s is listed as no-auth but has authType %q", m.ID, m.AuthType)
+		}
+		if !slices.Contains(m.ServiceKinds, "llm") {
+			t.Errorf("%s is listed as no-auth but declares no llm service kind (%v)", m.ID, m.ServiceKinds)
+		}
+	}
+
+	if !got["opencode"] {
+		t.Error("opencode must be listed: keyless and serves chat")
+	}
+
+	// Keyless, but not chat: these must stay off the list.
+	for _, id := range []string{"coqui", "edge-tts", "google-tts", "local-device", "searxng", "tortoise"} {
+		if got[id] {
+			t.Errorf("%s must not be listed: it is keyless but cannot serve chat", id)
+		}
+	}
+
+	// A credentialed provider must never be listed, however it is categorised.
+	for _, m := range NoAuthProviders() {
+		if meta, ok := providerRegistry[m.ID]; ok && meta.AuthType != "none" {
+			t.Errorf("%s requires auth yet was listed", m.ID)
 		}
 	}
 }

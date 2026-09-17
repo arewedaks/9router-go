@@ -4,6 +4,8 @@ import (
 	"crypto/rand"
 	json "encoding/json/v2"
 	"fmt"
+	"math/big"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -137,6 +139,151 @@ func (r *Repo) InsertProxyPool(d ProxyPoolData) (map[string]any, error) {
 		"createdAt":    now,
 		"updatedAt":    now,
 	}, nil
+}
+
+// ProxyPoolSummary is the dashboard-facing view of a pool. It carries just
+// enough for the providerStrategies picker: id, name, type and whether the pool
+// has a usable URL. Deliberately omits credentials embedded in proxy URLs.
+type ProxyPoolSummary struct {
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	Type       string `json:"type"`
+	IsActive   bool   `json:"isActive"`
+	HasURL     bool   `json:"hasUrl"`
+	URLCount   int    `json:"urlCount"`
+	TestStatus string `json:"testStatus,omitempty"`
+}
+
+// ListProxyPools returns every pool, newest name-first, optionally restricted to
+// active pools that actually carry a URL (the eligibility rule used by proxy
+// rotation). Mirrors VansRouter's getProxyPools({ isActive }) shape.
+func (r *Repo) ListProxyPools(onlyActiveWithURL bool) ([]ProxyPoolSummary, error) {
+	rows, err := r.db.Query(`SELECT id, isActive, testStatus, data FROM proxyPools ORDER BY id`)
+	if err != nil {
+		return nil, fmt.Errorf("list proxy pools: %w", err)
+	}
+	defer rows.Close()
+
+	var out []ProxyPoolSummary
+	for rows.Next() {
+		var id, data string
+		var isActive int
+		var testStatus *string
+		if err := rows.Scan(&id, &isActive, &testStatus, &data); err != nil {
+			return nil, fmt.Errorf("scan proxy pool: %w", err)
+		}
+		var raw map[string]any
+		if err := json.Unmarshal([]byte(data), &raw); err != nil {
+			continue // Skip unparseable rows rather than failing the whole list.
+		}
+		sum := ProxyPoolSummary{
+			ID:       id,
+			Name:     handlerutil.GetString(raw, "name"),
+			Type:     handlerutil.GetString(raw, "type"),
+			IsActive: isActive == 1,
+		}
+		if testStatus != nil {
+			sum.TestStatus = *testStatus
+		}
+		if sum.Type == "" {
+			sum.Type = "http"
+		}
+		if urls, ok := raw["urls"].([]any); ok {
+			for _, u := range urls {
+				if s, ok := u.(string); ok && s != "" {
+					sum.URLCount++
+				}
+			}
+		}
+		if sum.URLCount == 0 && handlerutil.GetString(raw, "proxyUrl") != "" {
+			sum.URLCount = 1
+		}
+		sum.HasURL = sum.URLCount > 0
+		if onlyActiveWithURL && (!sum.IsActive || !sum.HasURL) {
+			continue
+		}
+		out = append(out, sum)
+	}
+	return out, rows.Err()
+}
+
+// EligibleProxyPoolIDs returns the ids of active pools that carry a URL, in a
+// stable order. This is the candidate set for dynamic rotation.
+func (r *Repo) EligibleProxyPoolIDs() ([]string, error) {
+	pools, err := r.ListProxyPools(true)
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]string, 0, len(pools))
+	for _, p := range pools {
+		ids = append(ids, p.ID)
+	}
+	return ids, nil
+}
+
+// poolCursors tracks round-robin position per (provider, strategy) key so that
+// consecutive requests rotate through the eligible set. Mirrors VansRouter's
+// module-level _poolCursors in src/lib/network/connectionProxy.js.
+var (
+	poolCursorsMu sync.Mutex
+	poolCursors   = map[string]uint64{}
+)
+
+// PickProxyPoolID chooses a pool for dynamic rotation. `eligible` is the
+// candidate set (active pools with URLs); `targets`, when non-empty, narrows it
+// to those ids. Returns "" when nothing is eligible, which callers treat as
+// "direct connection".
+//
+// Strategies mirror VansRouter: "fill-first" (and any unknown) takes the first
+// eligible pool; "round-robin" and "smart" advance a per-key cursor; "random"
+// picks uniformly. "none" is handled by callers before reaching here.
+func PickProxyPoolID(eligible, targets []string, strategy, providerID string) string {
+	candidates := filterTargetPoolIDs(eligible, targets)
+	if len(candidates) == 0 {
+		// A target list that matches nothing still falls back to the full set,
+		// so a stale subset never silently disables proxying.
+		candidates = eligible
+	}
+	if len(candidates) == 0 {
+		return ""
+	}
+
+	switch strings.ToLower(strategy) {
+	case "round-robin", "smart", "sticky":
+		key := providerID + ":" + strings.ToLower(strategy) + ":" + strings.Join(candidates, ",")
+		poolCursorsMu.Lock()
+		idx := poolCursors[key] % uint64(len(candidates))
+		poolCursors[key] = (idx + 1) % uint64(len(candidates))
+		poolCursorsMu.Unlock()
+		return candidates[idx]
+	case "random":
+		n, err := rand.Int(rand.Reader, big.NewInt(int64(len(candidates))))
+		if err != nil {
+			return candidates[0]
+		}
+		return candidates[n.Int64()]
+	default:
+		return candidates[0]
+	}
+}
+
+// filterTargetPoolIDs keeps only eligible ids present in targets. An empty
+// targets list means "no restriction".
+func filterTargetPoolIDs(eligible, targets []string) []string {
+	if len(targets) == 0 {
+		return eligible
+	}
+	allowed := make(map[string]bool, len(targets))
+	for _, t := range targets {
+		allowed[t] = true
+	}
+	out := make([]string, 0, len(eligible))
+	for _, id := range eligible {
+		if allowed[id] {
+			out = append(out, id)
+		}
+	}
+	return out
 }
 
 // randomID returns a random hex id (uuid-shaped, like the dashboard's uuidv4).

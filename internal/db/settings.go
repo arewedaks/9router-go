@@ -11,6 +11,90 @@ type ProviderStrategy struct {
 	ProxyPoolID    string `json:"proxyPoolId"`
 	RotateStrategy string `json:"rotateStrategy"` // "none", "round-robin", "random", "sticky"
 	StickyLimit    int    `json:"stickyLimit,omitempty"`
+	// TargetProxyPoolIds narrows dynamic rotation (rotateStrategy != "none") to a
+	// subset of active pools. Empty means "all active pools are eligible".
+	// Mirrors VansRouter's settings.providerStrategies[id].targetProxyPoolIds.
+	TargetProxyPoolIds []string `json:"targetProxyPoolIds,omitempty"`
+
+	// Extra holds every key of this provider's strategy object that this struct
+	// does not model, exactly as it was stored. The settings blob is shared with
+	// VansRouter, which also writes stickyRoundRobinLimit, fallbackStrategy and
+	// strictModelAssignment here. Dropping those on read would make a settings
+	// round-trip destroy the operator's real configuration, so unknown keys are
+	// carried through untouched.
+	Extra map[string]any `json:"-"`
+}
+
+// knownStrategyKeys lists the keys represented by the typed fields above. Any
+// other key found in a stored strategy object is preserved in Extra.
+var knownStrategyKeys = map[string]bool{
+	"proxyPoolId":        true,
+	"rotateStrategy":     true,
+	"stickyLimit":        true,
+	"targetProxyPoolIds": true,
+}
+
+// IsEmpty reports whether the strategy carries no configuration at all, counting
+// preserved passthrough keys. Only a truly empty object may be pruned from the
+// settings blob.
+func (p ProviderStrategy) IsEmpty() bool {
+	return p.ProxyPoolID == "" &&
+		p.RotateStrategy == "" &&
+		p.StickyLimit == 0 &&
+		len(p.TargetProxyPoolIds) == 0 &&
+		len(p.Extra) == 0
+}
+
+// UnmarshalJSON fills the typed fields and routes every other key into Extra, so
+// the request-body decode path (POST /settings) is lossless too — not just the
+// stored-row decode in GetSettings.
+func (p *ProviderStrategy) UnmarshalJSON(data []byte) error {
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	*p = ProviderStrategy{
+		ProxyPoolID:        handlerutil.GetString(raw, "proxyPoolId"),
+		RotateStrategy:     handlerutil.GetString(raw, "rotateStrategy"),
+		TargetProxyPoolIds: parseStringSlice(raw["targetProxyPoolIds"]),
+	}
+	if sl, ok := raw["stickyLimit"].(float64); ok && sl > 0 {
+		p.StickyLimit = int(sl)
+	}
+	for k, v := range raw {
+		if knownStrategyKeys[k] {
+			continue
+		}
+		if p.Extra == nil {
+			p.Extra = make(map[string]any)
+		}
+		p.Extra[k] = v
+	}
+	return nil
+}
+
+// MarshalJSON writes the typed fields followed by the preserved passthrough
+// keys, so unknown VansRouter settings survive a read/write round-trip. Typed
+// fields win on collision, which cannot normally happen because Extra only ever
+// receives keys that knownStrategyKeys does not list.
+func (p ProviderStrategy) MarshalJSON() ([]byte, error) {
+	out := make(map[string]any, len(p.Extra)+4)
+	for k, v := range p.Extra {
+		out[k] = v
+	}
+	if p.ProxyPoolID != "" {
+		out["proxyPoolId"] = p.ProxyPoolID
+	}
+	if p.RotateStrategy != "" {
+		out["rotateStrategy"] = p.RotateStrategy
+	}
+	if p.StickyLimit != 0 {
+		out["stickyLimit"] = p.StickyLimit
+	}
+	if len(p.TargetProxyPoolIds) > 0 {
+		out["targetProxyPoolIds"] = p.TargetProxyPoolIds
+	}
+	return json.Marshal(out)
 }
 
 // SettingsData represents token saver and general settings stored in the settings table.
@@ -108,11 +192,24 @@ func (r *Repo) GetSettings() (*SettingsData, error) {
 		for k, v := range ps {
 			if vm, ok := v.(map[string]any); ok {
 				strat := ProviderStrategy{
-					ProxyPoolID:    handlerutil.GetString(vm, "proxyPoolId"),
-					RotateStrategy: handlerutil.GetString(vm, "rotateStrategy"),
+					ProxyPoolID:        handlerutil.GetString(vm, "proxyPoolId"),
+					TargetProxyPoolIds: parseStringSlice(vm["targetProxyPoolIds"]),
+					RotateStrategy:     handlerutil.GetString(vm, "rotateStrategy"),
 				}
 				if sl, ok := vm["stickyLimit"].(float64); ok && sl > 0 {
 					strat.StickyLimit = int(sl)
+				}
+				// Preserve any key we do not model (stickyRoundRobinLimit,
+				// fallbackStrategy, strictModelAssignment, …) so a read/write
+				// round-trip cannot destroy it.
+				for k, kv := range vm {
+					if knownStrategyKeys[k] {
+						continue
+					}
+					if strat.Extra == nil {
+						strat.Extra = make(map[string]any)
+					}
+					strat.Extra[k] = kv
 				}
 				s.ProviderStrategies[k] = strat
 			}
@@ -120,6 +217,25 @@ func (r *Repo) GetSettings() (*SettingsData, error) {
 	}
 
 	return s, nil
+}
+
+// parseStringSlice extracts a []string from a decoded JSON value, dropping
+// empty/non-string entries. Used for providerStrategies.targetProxyPoolIds.
+func parseStringSlice(v any) []string {
+	arr, ok := v.([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]string, 0, len(arr))
+	for _, item := range arr {
+		if s, ok := item.(string); ok && s != "" {
+			out = append(out, s)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // SetPasswordHash stores (or clears, when hash is empty) the dashboard login

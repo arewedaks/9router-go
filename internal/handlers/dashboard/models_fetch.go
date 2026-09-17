@@ -119,6 +119,29 @@ var knownModelFetchers = map[string]modelFetcher{
 		url:    "http://localhost:11434/api/tags",
 		method: http.MethodGet,
 	},
+	// OpenCode Zen. Both tiers publish an OpenAI-style /models route, so they
+	// need no bespoke fetcher — only a registry entry, which they lacked: the
+	// provider page answered "does not support models listing" for a route that
+	// returns 200. The keyless free tier authenticates with the literal key
+	// "public" (KnownProviders["opencode"].DefaultAPIKey), so the bearer header
+	// is always populated; the client header matches the one the executor sends.
+	// Upstream lists 71 ids here and 38 on the Go tier (verified live).
+	"opencode": {
+		url:    "https://opencode.ai/zen/v1/models",
+		method: http.MethodGet,
+		bearer: true,
+		headers: map[string]string{
+			"x-opencode-client": "desktop",
+		},
+	},
+	"opencode-go": {
+		url:    "https://opencode.ai/zen/go/v1/models",
+		method: http.MethodGet,
+		bearer: true,
+		headers: map[string]string{
+			"x-opencode-client": "desktop",
+		},
+	},
 }
 
 // credentialFromData pulls the usable secret out of a connection's JSON blob.
@@ -232,7 +255,14 @@ func (h *Handler) fetchUpstreamModels(providerID, data string, timeout time.Dura
 		}, nil
 	}
 	if token == "" && f.authQuery == "" && f.authHeader == "" && f.bearer {
-		return nil, fmt.Errorf("no valid credential found for %s", canonical)
+		// A keyless provider carries no stored credential; its registry default
+		// key (e.g. opencode's literal "public") is the credential. Without this
+		// the fetch fails even though the endpoint is reachable anonymously.
+		if cfg, ok := providers.KnownProviders[canonical]; ok && cfg.DefaultAPIKey != "" {
+			token = cfg.DefaultAPIKey
+		} else {
+			return nil, fmt.Errorf("no valid credential found for %s", canonical)
+		}
 	}
 
 	headers := map[string]string{"Content-Type": "application/json", "Accept": "application/json"}

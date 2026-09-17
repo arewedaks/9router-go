@@ -175,6 +175,12 @@ func SetupServerRouter(r chi.Router, repo *db.Repo, ts *TokenSaverConfig) {
 	r.Get("/", dashH.ServeUI)
 	r.Get("/login", dashH.ServeUI)
 
+	// Provider brand logos used by the dashboard grid. Public on purpose: an
+	// <img> tag carries no Authorization header, and these are static images of
+	// third-party brand marks with no operator data in them. Requiring a session
+	// here would leave every provider tile with a broken image on first paint.
+	r.Get("/provider-logos/{file}", dashH.ServeProviderLogo)
+
 	// Antigravity OAuth loopback callback must be reachable WITHOUT an API key:
 	// the browser arrives here straight from Google's redirect and carries no
 	// Authorization header. It is safe to expose — it only completes a flow
