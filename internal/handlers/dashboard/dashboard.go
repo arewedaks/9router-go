@@ -460,6 +460,20 @@ func applyProviderMeta(s *ProviderSummary, m providers.ProviderMeta, ok bool) {
 	s.DeprecationNote = m.DeprecationNote
 }
 
+// nodePrefixOf extracts the configured prefix from a provider node's data blob.
+func nodePrefixOf(node *models.ProviderNode) string {
+	if node == nil || node.Data == "" {
+		return ""
+	}
+	var raw struct {
+		Prefix string `json:"prefix"`
+	}
+	if err := json.Unmarshal([]byte(node.Data), &raw); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(raw.Prefix)
+}
+
 // HandleCatalog returns known providers structured by category.
 func (h *Handler) HandleCatalog(w http.ResponseWriter, r *http.Request) {
 	catalog := providers.GetCatalogByCategory()
@@ -472,6 +486,7 @@ func (h *Handler) HandleCatalog(w http.ResponseWriter, r *http.Request) {
 type ProviderDetail struct {
 	Provider      string            `json:"provider"`
 	DisplayName   string            `json:"displayName"`
+	Prefix        string            `json:"prefix,omitempty"`
 	Category      string            `json:"category"`
 	CategoryLabel string            `json:"categoryLabel"`
 	AuthType      string            `json:"authType"`
@@ -538,8 +553,45 @@ func (h *Handler) HandleProviderDetail(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// A compatible endpoint is addressed by its generated key, which the UI
+	// sends back for writes (add/remove model). Keep Provider as that stable
+	// internal handle and show the node's name/prefix for display only, so the
+	// page reads "Atria AI" / "atri" and never a uuid.
+	//
+	// The page may also be opened by prefix ("atri") — that is what the model
+	// ids use and what a user is most likely to type or link to — so resolve the
+	// prefix back to its node id before matching connections.
+	targetID := canonical
+	if providers.IsGeneratedNodeID(canonical) {
+		detail.Provider = canonical
+		detail.DisplayName = canonical
+		if node, ok := nodeMap[canonical]; ok {
+			if node.Name != nil && *node.Name != "" {
+				detail.DisplayName = *node.Name
+			}
+			detail.Prefix = nodePrefixOf(node)
+		}
+	} else if raw != canonical && providers.IsGeneratedNodeID(raw) {
+		targetID = raw
+	} else {
+		// Look for a node whose prefix equals the requested key.
+		for id, node := range nodeMap {
+			if nodePrefixOf(node) == canonical && canonical != "" {
+				targetID = id
+				detail.Provider = id
+				detail.Prefix = canonical
+				if node.Name != nil && *node.Name != "" {
+					detail.DisplayName = *node.Name
+				} else {
+					detail.DisplayName = canonical
+				}
+				break
+			}
+		}
+	}
+
 	for _, c := range all {
-		if c.Provider != canonical && c.Provider != raw {
+		if c.Provider != targetID && c.Provider != canonical && c.Provider != raw {
 			continue
 		}
 		cat, catLabel, dispName := providers.ClassifyProvider(c.Provider)
@@ -583,6 +635,11 @@ func (h *Handler) HandleProviderDetail(w http.ResponseWriter, r *http.Request) {
 			sum.ClientProfile = string(antigravityClientProfileFromData(c.Data))
 		}
 		applyProviderMeta(&sum, m, hasMeta)
+		if providers.IsGeneratedNodeID(c.Provider) {
+			if node, ok := nodeMap[c.Provider]; ok && node.Name != nil && *node.Name != "" {
+				sum.RegistryName = *node.Name
+			}
+		}
 		detail.Connections = append(detail.Connections, sum)
 		detail.TotalCount++
 		if sum.IsEffectivelyActive {
@@ -900,6 +957,14 @@ func (h *Handler) HandleListProviders(w http.ResponseWriter, r *http.Request) {
 			HasActiveCooldown:   acct.HasActiveCooldown,
 		}
 		applyProviderMeta(&summary, meta, hasMeta)
+		// A generated node id is not a registry name. When the registry has no
+		// entry (compatible endpoints never do), show the node's own name so the
+		// card reads "Atria AI" rather than a uuid.
+		if providers.IsGeneratedNodeID(c.Provider) {
+			if node, ok := nodeMap[c.Provider]; ok && node.Name != nil && *node.Name != "" {
+				summary.RegistryName = *node.Name
+			}
+		}
 		res = append(res, summary)
 	}
 

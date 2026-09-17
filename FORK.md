@@ -840,6 +840,79 @@ Hiding orphans silently was rejected: it is client-visible behaviour and would
 paper over a data-integrity problem. The dashboard/cleanup options are tracked as
 an open decision rather than guessed at.
 
+**Decision: orphan custom models are no longer advertised (option 2).**
+
+`HandleModels` now builds an `aliveAliases` set — `KnownProviders`,
+`ProviderAliasMap`, configured node ids and their prefixes, and every provider
+with a connection — and skips any custom model whose alias is not in it. This
+mirrors upstream, which only calls `buildConnectedProviderIds` for providers in
+`activeConnectionByProvider`; a request for an orphan fails anyway with
+`no active connections for provider: <uuid>`.
+
+Including `ProviderAliasMap` is load-bearing: `gh`, `oc`, `cl` and `cbai` are
+aliases (`github`, `opencode`, `cline`, `codebuddy-intl`), not connections, and
+must keep being listed. Dropping them would have hidden working routes.
+
+Measured on the real database:
+
+| | before | after |
+|---|---|---|
+| `/v1/models` total | 2069 | **562** |
+| uuid-prefixed | 1504 | **0** |
+
+`openrouter` (433), `nvidia` (72), `gh` (31), `oc` (7), `bai` (3), `cl` (2),
+`cbai` (1) and `atri` (1) are all preserved; only the 19 orphan node ids, the
+unrecognised `agentrouter` alias and their models disappear.
+
+### Every surface, not just /v1/models
+
+The prefix fix above only covered `GET /v1/models`. The same generated key kept
+leaking from two more places:
+
+- `GET /v1/models/info` reported `owned_by: "openai-compatible-chat-<uuid>"`.
+- `GET /api/dashboard/providers` reported it as `provider` and `registryName`,
+  and the detail page showed it as the title and the `sub-id` chip.
+
+The two chat handlers now share `nodePrefixByID()`, so `/v1/models` and
+`/v1/models/info` cannot disagree about a model's owner id. The dashboard sets
+`displayName`/`registryName` to the node's `name` and exposes a new `prefix`
+field for the chip (`atri`); `provider` deliberately **stays** the generated id,
+because the UI sends it back when adding or removing models — it is the stable
+internal handle, not a label. The detail page also accepts either the id or the
+prefix in its URL, since the prefix is what model ids and links use.
+
+A subtle trap: `providers.IsGeneratedNodeID` originally split on the last `-`,
+but a uuid contains dashes, so `len(key)-dash-1` was never 36 and the helper
+returned `false` for every real node id — the display fields quietly kept the
+uuid. It now inspects the trailing 36 characters, which the tests pin.
+
+Final state on the real database for the Atria node:
+
+| surface | before | after |
+|---|---|---|
+| `/v1/models` | `<uuid>/Atria-Dawn-Preview` | `atri/Atria-Dawn-Preview` |
+| `/v1/models/info` `owned_by` | `<uuid>` | `atri` |
+| providers `registryName` | `<uuid>` | `Atria AI` |
+| detail `displayName` | `<uuid>` | `Atria AI` |
+| detail `prefix` | — | `atri` |
+
+The model list *inside* a provider page had the same bug for a different reason:
+it composes the label as `"<alias>/<modelId>"` from `currentModelAlias`, which
+used to be `d.aliases[0] || d.provider`. A compatible node has no `aliases`
+entry — it has a `prefix` — so the fallback rendered the uuid as the prefix
+(`openai-compatible-chat-8e96ef73-.../claude-fable-5`). The precedence is now
+`prefix → alias → provider`, matching `OutputAlias` on the backend:
+
+| provider page model row | before | after |
+|---|---|---|
+| BAI node | `<uuid>/claude-fable-5` | `bai/claude-fable-5` |
+| Atria node | `<uuid>/Atria-Dawn-Preview` | `atri/Atria-Dawn-Preview` |
+| alias-only (`gh`) | `gh/...` (unchanged) | `gh/...` |
+
+Note that `provider` is still the raw key in every JSON payload — it is the
+write handle (`addModel`, `removeModel`, `testModel` all post it back). Only the
+labels resolve to the prefix/name.
+
 ## Contributing back
 
 `main` mirrors upstream, so upstream-friendly changes can be cherry-picked from

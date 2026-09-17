@@ -357,14 +357,14 @@ func (h *ChatHandler) HandleModels(w http.ResponseWriter, r *http.Request) {
 	// `outputAlias = providerSpecificData.prefix || alias || providerId`; do the
 	// same so a restored backup — which may store the generated id in
 	// customModels.providerAlias — is not advertised as "<uuid>/model".
-	nodePrefixByID := make(map[string]string)
-	if nodes, err := h.Repo.GetAllProviderNodes(); err == nil {
-		for _, n := range nodes {
-			if nd := parseNodePrefix(n.Data); nd != "" {
-				nodePrefixByID[n.ID] = nd
-			}
-		}
-	}
+	nodePrefixByID := h.nodePrefixByID()
+	// aliveAliases is the set of provider keys a request could actually reach:
+	// known providers, configured nodes, and provider keys with a connection.
+	// A custom model outside this set is an orphan (the node was deleted
+	// upstream and only its customModels survived) and must not be listed.
+	// Upstream behaves the same way: `buildConnectedProviderIds` is only called
+	// for providers present in `activeConnectionByProvider`.
+	aliveAliases := h.aliveAliases()
 
 	// Include custom models with live caps (port of Next.js GET /api/models customModels merge)
 	if customs, err := h.Repo.GetCustomModels(); err == nil {
@@ -373,6 +373,13 @@ func (h *ChatHandler) HandleModels(w http.ResponseWriter, r *http.Request) {
 			seen[m.ID] = true
 		}
 		for _, cm := range customs {
+			// An orphan custom model has no node and no connection behind its
+			// alias, so no request can ever reach it. Listing it floods clients
+			// with dead ids (the restored backup carried 1504 of them). Skip it,
+			// matching upstream, which only exports routes that exist.
+			if !aliveAliases[cm.ProviderAlias] {
+				continue
+			}
 			// Export under the node's prefix when the stored alias is a generated
 			// node id; leave plain aliases ("openrouter") untouched.
 			alias := providers.NormalizeModelAlias(cm.ProviderAlias, nodePrefixByID)
@@ -428,6 +435,58 @@ func (h *ChatHandler) HandleModels(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// nodePrefixByID maps every configured compatible node id to its user-chosen
+// prefix, so model ids can be exported as "atri/..." instead of the generated
+// "openai-compatible-chat-<uuid>/...". Shared by /v1/models and /v1/models/info
+// so the two cannot disagree about a model's alias.
+func (h *ChatHandler) nodePrefixByID() map[string]string {
+	out := map[string]string{}
+	nodes, err := h.Repo.GetAllProviderNodes()
+	if err != nil {
+		return out
+	}
+	for _, n := range nodes {
+		if nd := parseNodePrefix(n.Data); nd != "" {
+			out[n.ID] = nd
+		}
+	}
+	return out
+}
+
+// aliveAliases is the set of provider keys a request could actually reach:
+// known providers, known provider aliases (gh → github), configured nodes and
+// their prefixes, and any provider that has a connection. A custom model whose
+// alias is outside this set is an orphan — its node was deleted upstream while
+// only its customModels survived — and must not be advertised. Upstream behaves
+// identically: `buildConnectedProviderIds` is only called for providers present
+// in `activeConnectionByProvider`.
+//
+// Including ProviderAliasMap is load-bearing: `gh`, `oc`, `cl` and `cbai` are
+// aliases, not connections, and their models must keep being listed.
+func (h *ChatHandler) aliveAliases() map[string]bool {
+	alive := map[string]bool{}
+	for k := range providers.KnownProviders {
+		alive[k] = true
+	}
+	for k := range providers.ProviderAliasMap {
+		alive[k] = true
+	}
+	if nodes, err := h.Repo.GetAllProviderNodes(); err == nil {
+		for _, n := range nodes {
+			alive[n.ID] = true
+			if nd := parseNodePrefix(n.Data); nd != "" {
+				alive[nd] = true
+			}
+		}
+	}
+	if conns, err := h.Repo.GetAllProviderConnections(); err == nil {
+		for _, c := range conns {
+			alive[c.Provider] = true
+		}
+	}
+	return alive
+}
+
 // HandleModelsInfo returns metadata for a specific model.
 // GET /v1/models/info?id={modelId}
 func (h *ChatHandler) HandleModelsInfo(w http.ResponseWriter, r *http.Request) {
@@ -445,10 +504,16 @@ func (h *ChatHandler) HandleModelsInfo(w http.ResponseWriter, r *http.Request) {
 
 	ctxLen, maxOut := providers.GetModelTokenLimits(modelID)
 
+	// owned_by must be the short alias clients already receive from
+	// /v1/models, never a generated node key. handleModels exports
+	// "atri/Atria-Dawn-Preview" with owned_by "atri"; info must agree, so the
+	// two endpoints cannot disagree about a model's owner id.
+	owner := providers.NormalizeModelAlias(modelInfo.Provider, h.nodePrefixByID())
+
 	info := map[string]any{
 		"id":                    modelID,
 		"object":                "model",
-		"owned_by":              modelInfo.Provider,
+		"owned_by":              owner,
 		"endpoint":              "/v1/chat/completions",
 		"context_length":        ctxLen,
 		"context_window":        ctxLen,

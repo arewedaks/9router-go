@@ -1393,7 +1393,13 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
 
   function renderProviderDetail(d) {
     lastProviderDetail = d;
-    currentModelAlias = (d.aliases && d.aliases.length) ? d.aliases[0] : d.provider;
+    // The router addresses a model as "<alias>/<modelId>", where <alias> is the
+    // node's configured prefix ("bai", "atri"). Only fall back to the raw
+    // provider key when no prefix/alias is configured — otherwise a compatible
+    // endpoint would render its generated uuid as the model prefix.
+    currentModelAlias = (d.prefix && d.prefix.trim())
+      || (d.aliases && d.aliases.length ? d.aliases[0] : null)
+      || d.provider;
     const color = d.color || "#388bfd";
     const icon = d.icon || "smart_toy";
 
@@ -1594,7 +1600,7 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
         <div style="flex:1; min-width:0;">
           <h2 class="section-title" style="margin:0;">${escapeHtml(d.displayName || d.provider)}</h2>
           <div style="display:flex; align-items:center; gap:8px; margin-top:5px; flex-wrap:wrap;">
-            <span class="sub-id">${escapeHtml(d.provider)}</span>
+            <span class="sub-id">${escapeHtml(d.prefix || niceProviderLabel(d.provider))}</span>
             ${getCategoryBadge(d.category, d.categoryLabel)}
             <span class="prov-count-pill">${d.activeCount}/${d.totalCount} active</span>
             ${aliases}
@@ -3085,10 +3091,13 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
       if (!matchCat) return false;
       if (!q) return true;
       return (
-        p.provider.toLowerCase().includes(q) ||
         (p.displayName && p.displayName.toLowerCase().includes(q)) ||
+        (p.registryName && p.registryName.toLowerCase().includes(q)) ||
         (p.name && p.name.toLowerCase().includes(q)) ||
-        (p.email && p.email.toLowerCase().includes(q))
+        (p.email && p.email.toLowerCase().includes(q)) ||
+        // The raw provider key is searched too, so a user who knows the
+        // generated id can still find its card.
+        p.provider.toLowerCase().includes(q)
       );
     });
     renderProviders(filtered);
