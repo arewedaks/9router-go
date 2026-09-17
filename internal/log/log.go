@@ -26,8 +26,8 @@ import (
 // dashboard can stream server log output. Mirrors the Next translator
 // console-logs contract (buffer + SSE with init/line/lines/clear events).
 const (
-	consoleMaxLines = 200
-	consoleBufSize  = 256
+	consoleMaxLines = 1000
+	consoleBufSize  = 1024
 )
 
 type consoleEvent struct {

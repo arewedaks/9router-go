@@ -54,7 +54,7 @@ func TestUIEndpointTabReplacesOverview(t *testing.T) {
 			t.Errorf("the standalone API Keys tab is still present: %q", gone)
 		}
 	}
-	if !strings.Contains(ui, `"endpoint", "usage", "providers", "combos", "health", "settings"`) {
+	if !strings.Contains(ui, `"endpoint", "usage", "providers", "combos", "console", "health", "settings"`) {
 		t.Error("HASH_TABS was not updated for the new tab set")
 	}
 }
@@ -143,7 +143,7 @@ func TestUIEndpointIsTheDefaultLandingTab(t *testing.T) {
 	}
 	// Both hash tables (the pre-paint inline script and the bundle) must list it,
 	// or the first frame and the bundle disagree about what is valid.
-	if n := strings.Count(ui, `"endpoint", "usage", "providers", "combos", "health", "settings"`); n != 2 {
+	if n := strings.Count(ui, `"endpoint", "usage", "providers", "combos", "console", "health", "settings"`); n != 2 {
 		t.Errorf("expected endpoint in both tab tables, found %d", n)
 	}
 	// The static title is painted before the bundle runs and must match.

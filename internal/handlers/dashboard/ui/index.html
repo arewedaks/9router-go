@@ -459,6 +459,61 @@
     .usage-drawer details { border: 1px solid var(--border); border-radius: var(--radius); }
     .usage-drawer summary { padding: 10px 12px; cursor: pointer; font-size: 0.84rem; font-weight: 500; }
     .usage-drawer details > div { padding: 0 12px 12px; }
+
+    .console-terminal {
+      background: #090d13;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 12px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 0.78rem;
+      line-height: 1.5;
+      height: calc(100vh - 220px);
+      min-height: 480px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .console-empty {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      color: var(--muted);
+      font-style: italic;
+    }
+    .console-line {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      padding: 2px 6px;
+      border-radius: 4px;
+      word-break: break-all;
+      white-space: pre-wrap;
+    }
+    .console-line:hover { background: rgba(255,255,255,0.03); }
+    .console-line.lvl-err { background: rgba(248,81,73,0.12); border-left: 3px solid #f85149; }
+    .console-line.lvl-wrn { background: rgba(210,153,34,0.1); border-left: 3px solid #d29922; }
+    .console-badge {
+      font-size: 0.65rem;
+      font-weight: 700;
+      padding: 1px 5px;
+      border-radius: 3px;
+      height: fit-content;
+      user-select: none;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+    .console-badge.lvl-err { background: #f85149; color: #fff; }
+    .console-badge.lvl-wrn { background: #d29922; color: #000; }
+    .console-badge.lvl-inf { background: #238636; color: #fff; }
+    .console-badge.lvl-dbg { background: #6e7681; color: #fff; }
+    .console-text { flex: 1; }
+    .console-line.lvl-err .console-text { color: #ff7b72; }
+    .console-line.lvl-wrn .console-text { color: #e3b341; }
+    .console-line.lvl-inf .console-text { color: #c9d1d9; }
+    .console-line.lvl-dbg .console-text { color: #8b949e; }
   </style>
 </head>
 <body>
@@ -475,6 +530,7 @@
     <button class="nav-btn" id="nav-usage" onclick="navigateTab('usage')"><span class="nav-icon">📈</span> Usage</button>
     <button class="nav-btn" id="nav-providers" onclick="navigateTab('providers')"><span class="nav-icon">🔌</span> Providers</button>
     <button class="nav-btn" id="nav-combos" onclick="navigateTab('combos')"><span class="nav-icon">🔀</span> Combos</button>
+    <button class="nav-btn" id="nav-console" onclick="navigateTab('console')"><span class="nav-icon">📟</span> Console Log</button>
     <button class="nav-btn" id="nav-health" onclick="navigateTab('health')"><span class="nav-icon">🩺</span> Health &amp; Setup</button>
 
     <div class="nav-group-label">Configuration</div>
@@ -956,6 +1012,40 @@
     </div>
   </div>
 
+  <!-- CONSOLE LOG TAB -->
+  <div id="tab-console" class="tab-pane">
+    <div class="card" style="padding: 16px;">
+      <div class="card-head" style="flex-wrap:wrap;gap:12px;margin-bottom:12px;">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <h2 style="margin:0;font-size:1.1rem;display:flex;align-items:center;gap:8px;">
+            <span>📟 Live Console Log</span>
+          </h2>
+          <span id="console-status-badge" class="badge badge-idle">● Connecting...</span>
+          <span id="console-line-count" style="font-size:0.75rem;color:var(--muted);font-variant-numeric:tabular-nums;">0 lines</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <input type="text" id="console-search" placeholder="Filter logs..." oninput="onConsoleSearchChange(this.value)" class="usage-select" style="min-width:180px;padding:4px 8px;font-size:0.8rem;" />
+          <select id="console-level-filter" onchange="onConsoleLevelChange(this.value)" class="usage-select" style="padding:4px 8px;font-size:0.8rem;">
+            <option value="ALL">All Levels</option>
+            <option value="ERROR">Errors (ERR)</option>
+            <option value="WARN">Warnings (WRN)</option>
+            <option value="INFO">Info (INF)</option>
+            <option value="DEBUG">Debug (DBG)</option>
+          </select>
+          <label style="display:flex;align-items:center;gap:4px;font-size:0.8rem;cursor:pointer;color:var(--muted);user-select:none;">
+            <input type="checkbox" id="console-autoscroll" checked onchange="onConsoleAutoScrollChange(this.checked)" />
+            Auto-scroll
+          </label>
+          <button class="btn btn-sm" onclick="copyConsoleLogs()" title="Copy filtered logs" style="padding:4px 8px;font-size:0.78rem;">📋 Copy</button>
+          <button class="btn btn-sm" onclick="clearConsoleLogs()" style="padding:4px 8px;font-size:0.78rem;">🗑️ Clear</button>
+        </div>
+      </div>
+      <div id="console-output" class="console-terminal">
+        <div class="console-empty">Waiting for log events...</div>
+      </div>
+    </div>
+  </div>
+
   <!-- HEALTH & SETUP TAB -->
   <div id="tab-health" class="tab-pane">
     <div class="section-header">
@@ -1007,7 +1097,7 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
     (function () {
       var raw = (location.hash || "").replace(/^#/, "");
       var parts = raw.split("/").filter(Boolean).map(decodeURIComponent);
-      var tabs = ["endpoint", "usage", "providers", "combos", "health", "settings"];
+      var tabs = ["endpoint", "usage", "providers", "combos", "console", "health", "settings"];
       var pane = null, nav = null;
       if (parts[0] === "provider" && parts[1]) {
         pane = document.getElementById("tab-provider-detail");
@@ -1024,7 +1114,7 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
       // Keep the top-bar title correct on the first frame as well, otherwise it
       // would read the default title until the bundle runs.
       var titles = { endpoint: "Endpoint & Key", usage: "Usage", providers: "Providers", combos: "Combos",
-                     health: "Health & Setup", settings: "Settings",
+                     console: "Console Log", health: "Health & Setup", settings: "Settings",
                      "provider-detail": "Provider Detail" };
       var t = document.getElementById("page-title");
       if (t) t.textContent = titles[pane.id.replace(/^tab-/, "")] || "Endpoint & Key";
@@ -1450,12 +1540,12 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
   //
   // Shape: `#endpoint`, `#providers`, `#combos`, `#keys`, `#health`, `#settings`,
   // or `#provider/<id>` / `#provider/<id>/<subtab>` for a provider detail page.
-  const HASH_TABS = ["endpoint", "usage", "providers", "combos", "health", "settings"];
+  const HASH_TABS = ["endpoint", "usage", "providers", "combos", "console", "health", "settings"];
 
   // Page titles shown in the top bar, keyed by tab id.
   const TAB_TITLES = {
     endpoint: "Endpoint & Key", usage: "Usage", providers: "Providers", combos: "Combos",
-    health: "Health & Setup", settings: "Settings",
+    console: "Console Log", health: "Health & Setup", settings: "Settings",
     "provider-detail": "Provider Detail",
   };
 
@@ -1503,6 +1593,8 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
     else stopUsageRefresh();
     if (tabId === "providers") loadProviders();
     if (tabId === "combos") loadCombos();
+    if (tabId === "console") startConsoleLogs();
+    else stopConsoleLogs();
     if (tabId === "settings") loadSettings();
   }
 
@@ -1516,6 +1608,187 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
     const open = typeof force === "boolean" ? force : !sb.classList.contains("open");
     sb.classList.toggle("open", open);
     if (scrim) scrim.classList.toggle("show", open);
+  }
+
+  // ----------------------------------------------------------------
+  // Live Console Log (Real-time SSE Log Monitor)
+  // ----------------------------------------------------------------
+  let consoleEventSource = null;
+  let consoleLogs = [];
+  let consoleFilterLevel = "ALL";
+  let consoleSearchQuery = "";
+  let consoleAutoScroll = true;
+  const MAX_CONSOLE_LINES = 1000;
+  const ANSI_REGEX = /\x1b\[[0-9;]*[a-zA-Z]/g;
+
+  function stripAnsi(str) {
+    return (str || "").replace(ANSI_REGEX, "");
+  }
+
+  function detectLogLevel(raw) {
+    if (!raw) return "INFO";
+    const str = String(raw);
+    if (str.startsWith("{") && str.includes('"level":')) {
+      try {
+        const obj = JSON.parse(str);
+        const l = (obj.level || "").toUpperCase();
+        if (l.includes("ERR")) return "ERROR";
+        if (l.includes("WRN") || l.includes("WARN")) return "WARN";
+        if (l.includes("DBG") || l.includes("DEBUG")) return "DEBUG";
+        return "INFO";
+      } catch (_) {}
+    }
+    const up = str.toUpperCase();
+    if (up.startsWith("ERR") || up.includes(" ERROR ") || up.includes("ERR_") || up.includes("EXCEPTION") || up.includes("FAIL")) return "ERROR";
+    if (up.startsWith("WRN") || up.includes(" WARN ") || up.includes("WARNING")) return "WARN";
+    if (up.startsWith("DBG") || up.includes(" DEBUG ")) return "DEBUG";
+    return "INFO";
+  }
+
+  function renderConsoleLine(raw) {
+    const clean = stripAnsi(raw);
+    const lvl = detectLogLevel(clean);
+    let lvlClass = "lvl-inf";
+    let badge = "INF";
+    if (lvl === "ERROR") { lvlClass = "lvl-err"; badge = "ERR"; }
+    else if (lvl === "WARN") { lvlClass = "lvl-wrn"; badge = "WRN"; }
+    else if (lvl === "DEBUG") { lvlClass = "lvl-dbg"; badge = "DBG"; }
+
+    return `<div class="console-line ${lvlClass}"><span class="console-badge ${lvlClass}">${badge}</span><span class="console-text">${escapeHtml(clean)}</span></div>`;
+  }
+
+  function getFilteredConsoleLogs() {
+    const q = consoleSearchQuery.toLowerCase();
+    return consoleLogs.filter(line => {
+      const clean = stripAnsi(line);
+      if (consoleFilterLevel !== "ALL" && detectLogLevel(clean) !== consoleFilterLevel) return false;
+      if (q && !clean.toLowerCase().includes(q)) return false;
+      return true;
+    });
+  }
+
+  function applyConsoleFilter() {
+    const container = document.getElementById("console-output");
+    const countEl = document.getElementById("console-line-count");
+    if (!container) return;
+
+    const filtered = getFilteredConsoleLogs();
+    if (countEl) countEl.textContent = `${filtered.length} / ${consoleLogs.length} lines`;
+
+    if (filtered.length === 0) {
+      container.innerHTML = `<div class="console-empty">${consoleLogs.length === 0 ? "No logs recorded yet." : "No logs match current filter."}</div>`;
+      return;
+    }
+
+    container.innerHTML = filtered.map(renderConsoleLine).join("");
+    if (consoleAutoScroll) {
+      container.scrollTop = container.scrollHeight;
+    }
+  }
+
+  function onConsoleSearchChange(val) {
+    consoleSearchQuery = val || "";
+    applyConsoleFilter();
+  }
+
+  function onConsoleLevelChange(val) {
+    consoleFilterLevel = val || "ALL";
+    applyConsoleFilter();
+  }
+
+  function onConsoleAutoScrollChange(checked) {
+    consoleAutoScroll = !!checked;
+    if (consoleAutoScroll) {
+      const el = document.getElementById("console-output");
+      if (el) el.scrollTop = el.scrollHeight;
+    }
+  }
+
+  function copyConsoleLogs() {
+    const filtered = getFilteredConsoleLogs();
+    const text = filtered.map(stripAnsi).join("\n");
+    if (!navigator.clipboard) return;
+    navigator.clipboard.writeText(text).then(() => {
+      const btn = event?.target;
+      if (btn) {
+        const orig = btn.textContent;
+        btn.textContent = "✅ Copied!";
+        setTimeout(() => { btn.textContent = orig; }, 1500);
+      }
+    }).catch(() => {});
+  }
+
+  async function clearConsoleLogs() {
+    try {
+      await fetch("/api/translator/console-logs", { method: "DELETE" });
+      consoleLogs = [];
+      applyConsoleFilter();
+    } catch (_) {}
+  }
+
+  function startConsoleLogs() {
+    if (consoleEventSource) return;
+    const statusBadge = document.getElementById("console-status-badge");
+    if (statusBadge) {
+      statusBadge.textContent = "● Connecting...";
+      statusBadge.className = "badge badge-idle";
+    }
+
+    // Initial log buffer fetch
+    fetch("/api/translator/console-logs")
+      .then(r => r.json())
+      .then(data => {
+        if (data.success && Array.isArray(data.logs)) {
+          consoleLogs = data.logs.slice(-MAX_CONSOLE_LINES);
+          applyConsoleFilter();
+        }
+      })
+      .catch(() => {});
+
+    // SSE Stream
+    try {
+      consoleEventSource = new EventSource("/api/translator/console-logs/stream");
+      consoleEventSource.onopen = () => {
+        if (statusBadge) {
+          statusBadge.textContent = "● Live Connected";
+          statusBadge.className = "badge badge-ok";
+        }
+      };
+      consoleEventSource.onmessage = (e) => {
+        try {
+          const msg = JSON.parse(e.data);
+          if (msg.type === "init" && Array.isArray(msg.logs)) {
+            consoleLogs = msg.logs.slice(-MAX_CONSOLE_LINES);
+            applyConsoleFilter();
+          } else if (msg.type === "line" && msg.line) {
+            consoleLogs.push(msg.line);
+            if (consoleLogs.length > MAX_CONSOLE_LINES) consoleLogs = consoleLogs.slice(-MAX_CONSOLE_LINES);
+            applyConsoleFilter();
+          } else if (msg.type === "clear") {
+            consoleLogs = [];
+            applyConsoleFilter();
+          }
+        } catch (_) {}
+      };
+      consoleEventSource.onerror = () => {
+        if (statusBadge) {
+          statusBadge.textContent = "● Disconnected";
+          statusBadge.className = "badge badge-err";
+        }
+      };
+    } catch (_) {}
+  }
+
+  function stopConsoleLogs() {
+    if (consoleEventSource) {
+      consoleEventSource.close();
+      consoleEventSource = null;
+    }
+    const statusBadge = document.getElementById("console-status-badge");
+    if (statusBadge) {
+      statusBadge.textContent = "● Paused";
+      statusBadge.className = "badge badge-idle";
+    }
   }
 
   // ----------------------------------------------------------------

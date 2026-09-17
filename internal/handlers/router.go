@@ -132,8 +132,11 @@ func SetupRoutes(r interface {
 
 	// Live Console Logs Domain (dashboard "Monitor Console Log")
 	r.Get("/translator/console-logs", HandleConsoleLogsGet)
+	r.Get("/api/translator/console-logs", HandleConsoleLogsGet)
 	r.Delete("/translator/console-logs", HandleConsoleLogsDelete)
+	r.Delete("/api/translator/console-logs", HandleConsoleLogsDelete)
 	r.Get("/translator/console-logs/stream", HandleConsoleLogsStream)
+	r.Get("/api/translator/console-logs/stream", HandleConsoleLogsStream)
 
 	// Usage Real-time SSE Stream & Stats Domain (dashboard topology animation + recent requests)
 	r.Get("/usage/stream", HandleUsageStream(repo))
