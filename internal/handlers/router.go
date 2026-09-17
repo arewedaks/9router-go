@@ -220,7 +220,7 @@ func SetupServerRouter(r chi.Router, repo *db.Repo, ts *TokenSaverConfig) {
 		// only the cookie. The engine routes in this group are unaffected — they
 		// keep working with an API key exactly as before.
 		r.Use(middleware.RequireApiKeyWithSession(repo, dashH.VerifySession,
-			"/api/oauth/", "/api/dashboard/"))
+			"/api/oauth/", "/api/dashboard/", "/api/translator/", "/translator/", "/usage/", "/api/usage/"))
 
 		// Health reset endpoint — dashboard calls this via headroom proxy
 		r.Post("/admin/health/reset", func(w http.ResponseWriter, r *http.Request) {
