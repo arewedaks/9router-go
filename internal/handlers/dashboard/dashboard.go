@@ -1032,6 +1032,10 @@ func (h *Handler) HandleAddModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Re-adding a previously removed model must clear the hidden marker, or the
+	// operator could never bring a model back.
+	_ = h.repo.UnhideModel(providerKeyCandidates(canonical, raw), payload.ModelID)
+
 	handlerutil.WriteJSON(w, http.StatusOK, map[string]any{
 		"ok":       true,
 		"provider": canonical,
@@ -1061,7 +1065,42 @@ func (h *Handler) HandleRemoveModel(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// A cache-only delete is not enough: the engine rebuilds /v1/models from
+	// the static registry, customModels and enabledModels, so the removed model
+	// would reappear. Record an explicit hidden marker so the model list honours
+	// the removal regardless of where the id came from.
+	if err := h.repo.HideModel(keys, modelID); err != nil {
+		handlerutil.WriteJSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
 	handlerutil.WriteJSON(w, http.StatusOK, map[string]any{"ok": true, "removed": removed})
+}
+
+// providerKeyCandidates returns the canonical id, the raw request key, and all
+// registered aliases for a provider, deduplicated. Every candidate is stored so
+// a later lookup by any spelling of the provider matches.
+func providerKeyCandidates(canonical, raw string) []string {
+	keys := []string{canonical, raw}
+	keys = append(keys, providers.AliasesFor(canonical)...)
+	if raw != canonical {
+		keys = append(keys, providers.AliasesFor(raw)...)
+	}
+	return dedupeNonEmpty(keys)
+}
+
+// dedupeNonEmpty drops empty strings and duplicates, preserving order.
+func dedupeNonEmpty(in []string) []string {
+	seen := make(map[string]bool, len(in))
+	out := make([]string, 0, len(in))
+	for _, s := range in {
+		if s == "" || seen[s] {
+			continue
+		}
+		seen[s] = true
+		out = append(out, s)
+	}
+	return out
 }
 
 // firstNonEmpty returns the first non-blank string.

@@ -327,6 +327,35 @@ func (h *ChatHandler) buildModelsList() []ModelInfoObject {
 		}
 	}
 
+	// hiddenModels holds every (providerKey|modelID) an operator removed from a
+	// provider page. A removal must survive here, not just in the model cache,
+	// because the list below is built from the static registry, customModels and
+	// enabledModels as well. The table is tiny (operator removals only), so one
+	// full load avoids a query per provider spelling.
+	hiddenModels := map[string]bool{}
+	if h.Repo != nil {
+		if set, err := h.Repo.GetAllHiddenModels(); err == nil {
+			hiddenModels = set
+		}
+	}
+	// isHidden reports whether (provider, modelID) was explicitly removed. It
+	// tests every provider spelling the caller passes so alias-vs-canonical
+	// mismatches cannot leak the model back into the list.
+	isHidden := func(providerKeys []string, modelID string) bool {
+		if len(hiddenModels) == 0 {
+			return false
+		}
+		for _, k := range providerKeys {
+			if k == "" {
+				continue
+			}
+			if hiddenModels[k+"|"+modelID] {
+				return true
+			}
+		}
+		return false
+	}
+
 	if len(activeConnections) > 0 {
 		activeProviders := make(map[string]*models.ProviderConnection)
 		for _, conn := range activeConnections {
@@ -372,6 +401,10 @@ func (h *ChatHandler) buildModelsList() []ModelInfoObject {
 				}
 			}
 			for _, mID := range modelList {
+				// Honour an explicit operator removal before doing any work.
+				if isHidden([]string{provID, outputAlias}, mID) {
+					continue
+				}
 				fullID := outputAlias + "/" + mID
 				if seen[fullID] {
 					continue
@@ -406,6 +439,9 @@ func (h *ChatHandler) buildModelsList() []ModelInfoObject {
 				continue
 			}
 			for _, mID := range models {
+				if isHidden([]string{alias, providers.ResolveAlias(alias)}, mID) {
+					continue
+				}
 				fullID := alias + "/" + mID
 				if seen[fullID] {
 					continue
@@ -505,6 +541,10 @@ func (h *ChatHandler) buildModelsList() []ModelInfoObject {
 				}
 				// Skip custom models belonging to explicitly deactivated provider connections
 				if disabledProviders[cm.ProviderAlias] || disabledProviders[prefix] {
+					continue
+				}
+				// Skip models an operator explicitly removed from the provider page.
+				if isHidden([]string{cm.ProviderAlias, prefix}, cm.ID) {
 					continue
 				}
 				fullModel := prefix + "/" + cm.ID

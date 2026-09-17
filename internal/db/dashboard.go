@@ -281,6 +281,121 @@ func (r *Repo) RemoveCachedModel(providerKey, modelID string) error {
 	return nil
 }
 
+// hiddenModelsScope is the kv scope holding (providerKey|modelID) entries for
+// models an operator explicitly removed from a provider's page. The model
+// cache alone is not enough to hide a model from /v1/models: the engine builds
+// that list from the static registry, customModels, and enabledModels too, so
+// a cache-only delete let removed models reappear.
+const hiddenModelsScope = "hiddenModels"
+
+// HideModel records that (providerKey, modelID) must not be advertised by
+// /v1/models. Candidates cover the canonical id, the raw request key, and every
+// registered alias so a later lookup by any spelling matches.
+func (r *Repo) HideModel(providerKeys []string, modelID string) error {
+	modelID = strings.TrimSpace(modelID)
+	if modelID == "" {
+		return fmt.Errorf("model ID is required")
+	}
+	for _, k := range dedupeStrings(providerKeys) {
+		if k == "" {
+			continue
+		}
+		if _, err := r.db.Exec(
+			`INSERT INTO kv (scope, key, value) VALUES (?, ?, '1')
+			 ON CONFLICT(scope, key) DO NOTHING`,
+			hiddenModelsScope, k+"|"+modelID,
+		); err != nil {
+			return fmt.Errorf("hide model: %w", err)
+		}
+	}
+	return nil
+}
+
+// UnhideModel clears a previous HideModel for the given provider keys.
+func (r *Repo) UnhideModel(providerKeys []string, modelID string) error {
+	modelID = strings.TrimSpace(modelID)
+	if modelID == "" {
+		return fmt.Errorf("model ID is required")
+	}
+	for _, k := range dedupeStrings(providerKeys) {
+		if k == "" {
+			continue
+		}
+		if _, err := r.db.Exec(
+			"DELETE FROM kv WHERE scope = ? AND key = ?",
+			hiddenModelsScope, k+"|"+modelID,
+		); err != nil {
+			return fmt.Errorf("unhide model: %w", err)
+		}
+	}
+	return nil
+}
+
+// GetAllHiddenModels returns every hidden marker as a set keyed by
+// "providerKey|modelID". The table only ever holds models an operator removed
+// by hand, so it stays tiny and one full scan beats a query per provider key
+// (which would otherwise fan out to hundreds of queries for unknown node ids).
+func (r *Repo) GetAllHiddenModels() (map[string]bool, error) {
+	out := map[string]bool{}
+	rows, err := r.db.Query(
+		"SELECT key FROM kv WHERE scope = ?", hiddenModelsScope,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query hidden models: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var key string
+		if err := rows.Scan(&key); err != nil {
+			return nil, fmt.Errorf("scan hidden model: %w", err)
+		}
+		out[key] = true
+	}
+	return out, rows.Err()
+}
+
+// GetHiddenModels returns the set of hidden models keyed by
+// "providerKey|modelID" restricted to the provider keys supplied. Prefer
+// GetAllHiddenModels for whole-list filtering.
+func (r *Repo) GetHiddenModels(providerKeys []string) (map[string]bool, error) {
+	out := map[string]bool{}
+	keys := dedupeStrings(providerKeys)
+	if len(keys) == 0 {
+		return out, nil
+	}
+	all, err := r.GetAllHiddenModels()
+	if err != nil {
+		return nil, err
+	}
+	prefixes := make([]string, 0, len(keys))
+	for _, k := range keys {
+		prefixes = append(prefixes, k+"|")
+	}
+	for key := range all {
+		for _, p := range prefixes {
+			if strings.HasPrefix(key, p) {
+				out[key] = true
+				break
+			}
+		}
+	}
+	return out, nil
+}
+
+// dedupeStrings removes empty and duplicate entries while preserving order.
+func dedupeStrings(in []string) []string {
+	seen := make(map[string]bool, len(in))
+	out := make([]string, 0, len(in))
+	for _, s := range in {
+		if s == "" || seen[s] {
+			continue
+		}
+		seen[s] = true
+		out = append(out, s)
+	}
+	return out
+}
+
 // GetAllProviderNodes retrieves all configured provider nodes for name resolution.
 func (r *Repo) GetAllProviderNodes() ([]*models.ProviderNode, error) {
 	rows, err := r.db.Query("SELECT id, type, name, data, createdAt, updatedAt FROM providerNodes")
