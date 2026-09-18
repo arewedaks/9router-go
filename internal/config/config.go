@@ -60,6 +60,30 @@ type Config struct {
 	PonytailEnabled bool
 }
 
+// defaultDatabasePath returns the canonical database location for a data dir.
+// This is the path the Node.js dashboard uses, so an existing installation is
+// picked up without any flag or environment variable.
+func defaultDatabasePath(dataDir string) string {
+	return filepath.Join(dataDir, "db", "data.sqlite")
+}
+
+// findDatabaseInDir looks for a database file inside dir, accepting the layouts
+// that different 9Router generations have used. It prefers DATA_DIR/db/data.sqlite
+// (the current layout) and reports whether anything was found.
+func findDatabaseInDir(dir string) (string, bool) {
+	candidates := []string{
+		filepath.Join(dir, "db", "data.sqlite"), // current layout
+		filepath.Join(dir, "data.sqlite"),       // flat layout
+		filepath.Join(dir, "9router.db"),        // legacy name
+	}
+	for _, candidate := range candidates {
+		if fi, err := os.Stat(candidate); err == nil && !fi.IsDir() {
+			return candidate, true
+		}
+	}
+	return "", false
+}
+
 // ResolveDataDir returns the base data directory: DATA_DIR env, else the
 // platform default (~/.9router, or %APPDATA%/9router on Windows).
 func ResolveDataDir() string {
@@ -98,17 +122,30 @@ func LoadConfig() *Config {
 	// Database file: DB_PATH overrides default DATA_DIR/db/data.sqlite
 	dbPath := os.Getenv("DB_PATH")
 	if dbPath == "" {
-		dbPath = filepath.Join(dataDir, "db", "data.sqlite")
+		dbPath = defaultDatabasePath(dataDir)
 	} else if fi, err := os.Stat(dbPath); err == nil && fi.IsDir() {
-		if _, err := os.Stat(filepath.Join(dbPath, "db", "data.sqlite")); err == nil {
-			dbPath = filepath.Join(dbPath, "db", "data.sqlite")
-		} else if _, err := os.Stat(filepath.Join(dbPath, "data.sqlite")); err == nil {
-			dbPath = filepath.Join(dbPath, "data.sqlite")
-		} else if _, err := os.Stat(filepath.Join(dbPath, "9router.db")); err == nil {
-			dbPath = filepath.Join(dbPath, "9router.db")
+		// DB_PATH pointed at a directory — find the database inside it.
+		if found, ok := findDatabaseInDir(dbPath); ok {
+			dbPath = found
 		} else {
-			dbPath = filepath.Join(dbPath, "db", "data.sqlite")
+			// Nothing to load. Creating a fresh database here would start the
+			// proxy with zero providers and no explanation, which looks exactly
+			// like "my database disappeared". Name the path we searched so the
+			// operator can see which directory was wrong.
+			log.Warn("config", "no database found in DB_PATH directory; a new empty database will be created",
+				"dir", dbPath, "expected", filepath.Join(dbPath, "data.sqlite"))
+			dbPath = filepath.Join(dbPath, "data.sqlite")
 		}
+	}
+
+	// A missing database file is not an error at startup — the proxy creates
+	// the schema on first use — but it is almost never what the operator meant.
+	// Warn loudly so "the dashboard is empty" is traceable to a wrong path
+	// rather than mistaken for data loss.
+	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
+		log.Warn("config", "database not found; a new empty database will be created",
+			"path", dbPath,
+			"hint", "set --db-path or DB_PATH to an existing database file")
 	}
 
 	// INITIAL_PASSWORD has no hardcoded default — an empty value forces the

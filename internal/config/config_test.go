@@ -139,3 +139,111 @@ func TestLoadConfigInvalidPort(t *testing.T) {
 		t.Errorf("expected fallback port 20128 for negative port, got %d", cfg2.Port)
 	}
 }
+
+// TestDBPathDefaultFollowsDataDir pins the contract the dashboard relies on:
+// with no DB_PATH set, the database resolves to DATA_DIR/db/data.sqlite — the
+// same file the Node.js dashboard writes. A regression here makes an existing
+// installation start with an empty database and look like data loss.
+func TestDBPathDefaultFollowsDataDir(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("DATA_DIR", dir)
+	t.Setenv("DB_PATH", "")
+
+	cfg := LoadConfig()
+	want := filepath.Join(dir, "db", "data.sqlite")
+	if cfg.DatabasePath != want {
+		t.Fatalf("DatabasePath = %q, want %q", cfg.DatabasePath, want)
+	}
+}
+
+// TestDBPathDirectoryWithCurrentLayout checks that pointing DB_PATH at a data
+// directory finds the database under db/ rather than creating a new one.
+func TestDBPathDirectoryWithCurrentLayout(t *testing.T) {
+	dir := t.TempDir()
+	nested := filepath.Join(dir, "db")
+	if err := os.MkdirAll(nested, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	existing := filepath.Join(nested, "data.sqlite")
+	if err := os.WriteFile(existing, []byte{0}, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("DB_PATH", dir)
+	cfg := LoadConfig()
+
+	if cfg.DatabasePath != existing {
+		t.Fatalf("DatabasePath = %q, want %q", cfg.DatabasePath, existing)
+	}
+}
+
+// TestDBPathDirectoryWithFlatLayout covers the older flat layout where the
+// database sits directly in the directory.
+func TestDBPathDirectoryWithFlatLayout(t *testing.T) {
+	dir := t.TempDir()
+	existing := filepath.Join(dir, "data.sqlite")
+	if err := os.WriteFile(existing, []byte{0}, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("DB_PATH", dir)
+	cfg := LoadConfig()
+
+	if cfg.DatabasePath != existing {
+		t.Fatalf("DatabasePath = %q, want %q", cfg.DatabasePath, existing)
+	}
+}
+
+// TestDBPathDirectoryWithoutDatabase ensures a directory holding no database
+// still yields a usable path, with the file created on first use.
+func TestDBPathDirectoryWithoutDatabase(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("DB_PATH", dir)
+
+	cfg := LoadConfig()
+	want := filepath.Join(dir, "data.sqlite")
+	if cfg.DatabasePath != want {
+		t.Fatalf("DatabasePath = %q, want %q", cfg.DatabasePath, want)
+	}
+}
+
+// TestFindDatabaseInDirPrefersCurrentLayout guards the search order. An
+// installation can hold both layouts; the current one must win so an upgrade
+// does not silently fall back to a stale file.
+func TestFindDatabaseInDirPrefersCurrentLayout(t *testing.T) {
+	dir := t.TempDir()
+
+	flat := filepath.Join(dir, "data.sqlite")
+	if err := os.WriteFile(flat, []byte{0}, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	nested := filepath.Join(dir, "db")
+	if err := os.MkdirAll(nested, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	current := filepath.Join(nested, "data.sqlite")
+	if err := os.WriteFile(current, []byte{0}, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	got, ok := findDatabaseInDir(dir)
+	if !ok {
+		t.Fatal("expected to find a database")
+	}
+	if got != current {
+		t.Fatalf("findDatabaseInDir = %q, want the current layout %q", got, current)
+	}
+}
+
+// TestFindDatabaseInDirIgnoresDirectories makes sure a directory named like a
+// database file is not mistaken for one.
+func TestFindDatabaseInDirIgnoresDirectories(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "data.sqlite"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	if got, ok := findDatabaseInDir(dir); ok {
+		t.Fatalf("findDatabaseInDir = %q, want no match", got)
+	}
+}
