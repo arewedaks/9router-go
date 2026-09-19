@@ -1,5 +1,5 @@
 {
-  "latestVersion": "1.8.19",
+  "latestVersion": "1.8.20",
   "downloadUrl": "https://github.com/arewedaks/9router-go/releases/latest",
-  "releaseNotes": "- List only models the operator actually imported (a6a05d1)\n- Show the running version in the sidebar and browser tab (7fda539)\n- chore(release): version.json -> v1.8.18 (f54f6f2)\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
+  "releaseNotes": "- Fill the provider Models tab from both import stores (5b92545)\n- chore(release): version.json -> v1.8.19 (2425ebe)\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
 }
