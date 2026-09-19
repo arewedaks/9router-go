@@ -246,6 +246,14 @@ func CheckUpdate(ctx context.Context) (*UpdateInfo, error) {
 	// 1. Try manifest URL first
 	info, err := checkManifest(ctx, updateURL)
 	if err == nil && info != nil {
+		// A manifest can only carry one URL, and that URL is usually the release
+		// page rather than a per-platform binary. Downloading it would fetch HTML,
+		// so when it is not a direct asset, ask the Releases API for the real one.
+		if info.HasUpdate && !looksLikeDirectAsset(info.DownloadURL) {
+			if resolved := resolveReleaseAsset(ctx, info.DownloadURL); resolved != "" {
+				info.DownloadURL = resolved
+			}
+		}
 		if tErr := verifyTrustedSource(info.DownloadURL); tErr != nil && info.HasUpdate {
 			log.Warn("updater", "refusing update from untrusted manifest",
 				"url", info.DownloadURL, "error", tErr)
@@ -368,6 +376,52 @@ func checkManifest(ctx context.Context, url string) (*UpdateInfo, error) {
 	}, nil
 }
 
+// looksLikeDirectAsset reports whether a URL points at a file we can download
+// rather than at a human-facing release page.
+func looksLikeDirectAsset(rawURL string) bool {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return false
+	}
+	// github.com/<owner>/<repo>/releases/download/<tag>/<file> is a real asset.
+	return strings.Contains(u.Path, "/releases/download/")
+}
+
+// resolveReleaseAsset turns a release page URL into the download URL of the
+// asset built for this platform. It returns "" when the page is not a GitHub
+// release or has no matching asset, in which case the caller keeps the original
+// URL (and the trusted-source guard still applies to it).
+func resolveReleaseAsset(ctx context.Context, releaseURL string) string {
+	u, err := url.Parse(releaseURL)
+	if err != nil || u.Host != "github.com" {
+		return ""
+	}
+	// /<owner>/<repo>/releases/tag/<tag>
+	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+	if len(parts) < 3 || parts[2] != "releases" {
+		return ""
+	}
+	repo := parts[0] + "/" + parts[1]
+	if !repoIsTrusted(repo) {
+		return ""
+	}
+
+	tag := "latest"
+	apiURL := fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", repo)
+	if len(parts) >= 5 && parts[3] == "tag" {
+		tag = parts[4]
+		apiURL = fmt.Sprintf("https://api.github.com/repos/%s/releases/tags/%s", repo, url.PathEscape(tag))
+	}
+	log.Debug("updater", "resolving release asset", "repo", repo, "tag", tag)
+
+	info, err := checkGitHubReleases(ctx, apiURL)
+	if err != nil || info == nil {
+		log.Warn("updater", "could not resolve release asset", "repo", repo, "error", err)
+		return ""
+	}
+	return info.DownloadURL
+}
+
 func checkGitHubReleases(ctx context.Context, apiURL string) (*UpdateInfo, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
 	if err != nil {
@@ -445,6 +499,12 @@ func matchReleaseAsset(assets []struct {
 
 	for _, asset := range assets {
 		name := strings.ToLower(asset.Name)
+		// A checksum file has the same os/arch in its name, so it must be
+		// rejected first: downloading it as the binary would replace the proxy
+		// with a hash string.
+		if isChecksumAsset(name) {
+			continue
+		}
 		// Check OS match
 		if !strings.Contains(name, osKey) {
 			continue
@@ -457,14 +517,24 @@ func matchReleaseAsset(assets []struct {
 		}
 	}
 
-	// Fallback to first non-checksum asset
+	// Fallback to first asset that is not a checksum sidecar.
 	for _, asset := range assets {
-		name := strings.ToLower(asset.Name)
-		if !strings.HasSuffix(name, ".sha256") && !strings.HasSuffix(name, ".md5") && !strings.HasSuffix(name, ".txt") {
+		if !isChecksumAsset(strings.ToLower(asset.Name)) {
 			return asset.BrowserDownloadURL
 		}
 	}
 	return ""
+}
+
+// isChecksumAsset reports whether an asset name is a sidecar checksum rather
+// than a runnable binary.
+func isChecksumAsset(lowerName string) bool {
+	for _, suffix := range []string{".sha256", ".sha512", ".sha1", ".md5", ".txt"} {
+		if strings.HasSuffix(lowerName, suffix) {
+			return true
+		}
+	}
+	return false
 }
 
 // PerformSelfUpdate downloads, decompresses (tar.gz/zip if needed), verifies, and safely replaces the active binary.
@@ -841,8 +911,9 @@ func runCheckCycle(ctx context.Context) {
 // down and let it do its work.
 func RestartSelf() {
 	if supervisorManaged() {
-		// INVOCATION_ID is set by systemd for every unit start. Under any such
-		// supervisor, exiting with a success status is enough.
+		// Under a supervisor, exiting is enough: it will start the binary we
+		// just swapped in. RestartSelf never spawns a replacement in this case
+		// because the port would still be held by this process.
 		log.Info("updater", "supervisor detected; exiting so it can restart the updated binary")
 		if signalSelfShutdown() {
 			time.AfterFunc(5*time.Second, func() { os.Exit(1) })
@@ -857,30 +928,86 @@ func RestartSelf() {
 
 // supervisorManaged reports whether something else is responsible for keeping
 // this process running.
+//
+// Only a real supervisor counts, because a false positive is unrecoverable:
+// RestartSelf would exit without a replacement and the proxy would stay down.
+// systemd's INVOCATION_ID/JOURNAL_STREAM are inherited by every descendant of a
+// unit, so running this binary from a shell that systemd itself started (a
+// terminal scope, a desktop session, a CI step) sets them without anyone
+// watching us. Those variables must therefore be corroborated by our cgroup:
+// only a .service cgroup means a unit actually owns this process.
 func supervisorManaged() bool {
-	for _, key := range []string{"INVOCATION_ID", "JOURNAL_STREAM", "CONTAINER", "KUBERNETES_SERVICE_HOST"} {
-		if os.Getenv(key) != "" {
-			return true
-		}
+	if os.Getenv("CONTAINER") != "" || os.Getenv("KUBERNETES_SERVICE_HOST") != "" {
+		return true
 	}
 	// Docker writes /.dockerenv; the file is the only signal for images that
 	// clear the CONTAINER env var.
 	if _, err := os.Stat("/.dockerenv"); err == nil {
 		return true
 	}
+	if os.Getenv("INVOCATION_ID") == "" && os.Getenv("JOURNAL_STREAM") == "" {
+		return false
+	}
+	return systemdOwnsThisProcess()
+}
+
+// systemdOwnsThisProcess reports whether this process runs inside a systemd
+// service unit (as opposed to a user session scope, which also exports
+// INVOCATION_ID to everything it starts).
+func systemdOwnsThisProcess() bool {
+	data, err := os.ReadFile("/proc/self/cgroup")
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		// cgroup v1 puts the path after the last colon; v2 uses "0::<path>".
+		idx := strings.LastIndex(line, ":")
+		if idx < 0 {
+			continue
+		}
+		if strings.HasSuffix(strings.TrimSpace(line[idx+1:]), ".service") {
+			return true
+		}
+	}
 	return false
 }
 
-func spawnAndExit() {
-	execPath, err := os.Executable()
-	if err != nil {
-		log.Error("updater", "locate binary for restart failed", "error", err)
-		return
+// executableForRestart returns the path of the binary that should be started to
+// take over from this process, or "" when it cannot be determined.
+//
+// os.Executable is the natural source, but it reads /proc/self/exe, which still
+// points at the <binary>.old inode that a self-update has already renamed and
+// removed. EvalSymlinks then fails with ENOENT even though the freshly written
+// binary sits exactly where the updater put it, and the restart is skipped — the
+// proxy stays down after every update that is not supervised. The path we were
+// launched with (os.Args[0]) survives that rename, so it is the fallback.
+func executableForRestart() string {
+	// Prefer the path we were launched with. After a swap it is the only name
+	// that still refers to the new binary, while os.Executable may resolve to the
+	// deleted <binary>.old inode.
+	if len(os.Args) > 0 && os.Args[0] != "" {
+		if abs, err := filepath.Abs(os.Args[0]); err == nil {
+			if _, statErr := os.Stat(abs); statErr == nil {
+				return abs
+			}
+		}
 	}
 
-	execPath, err = filepath.EvalSymlinks(execPath)
-	if err != nil {
-		log.Error("updater", "resolve symlink for restart failed", "error", err)
+	if path, err := os.Executable(); err == nil {
+		if resolved, rErr := filepath.EvalSymlinks(path); rErr == nil {
+			if _, statErr := os.Stat(resolved); statErr == nil {
+				return resolved
+			}
+		}
+	}
+
+	log.Error("updater", "cannot locate the updated binary to restart")
+	return ""
+}
+
+func spawnAndExit() {
+	execPath := executableForRestart()
+	if execPath == "" {
 		return
 	}
 

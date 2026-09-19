@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -366,11 +367,42 @@ func TestCheckUpdateRefusesUntrustedUpdateRepo(t *testing.T) {
 // supervises us. Under systemd the unit is restarted on exit, so an extra child
 // would race the supervisor's own restart for the listening port.
 
+// TestSupervisorManagedDetectsSystemd covers the real systemd case: the unit
+// owns us, so /proc/self/cgroup ends in .service.
 func TestSupervisorManagedDetectsSystemd(t *testing.T) {
+	if _, err := os.Stat("/proc/self/cgroup"); err != nil {
+		t.Skip("no /proc/self/cgroup on this platform")
+	}
 	t.Setenv("INVOCATION_ID", "abc123")
+	if !systemdOwnsThisProcess() {
+		t.Skip("this test process does not run inside a .service cgroup")
+	}
 	if !supervisorManaged() {
-		t.Error("systemd's INVOCATION_ID was not recognised, so the updater would " +
-			"spawn a second process and fight systemd for the port")
+		t.Error("a process in a .service cgroup was not recognised as systemd-managed, " +
+			"so the updater would spawn a second process and fight systemd for the port")
+	}
+}
+
+// TestInheritedSystemdEnvIsNotEnough is the regression for the failure mode seen
+// in practice: launching the binary from a shell that systemd started (a
+// terminal scope, desktop session, CI step) inherits INVOCATION_ID and
+// JOURNAL_STREAM even though no unit supervises the proxy. Treating that as a
+// supervisor makes the update exit without a replacement and the proxy never
+// comes back, so the cgroup must be a .service.
+func TestInheritedSystemdEnvIsNotEnough(t *testing.T) {
+	t.Setenv("INVOCATION_ID", "c9c91a1a127544078eb26f50956dab51")
+	t.Setenv("JOURNAL_STREAM", "10:39070")
+	t.Setenv("CONTAINER", "")
+	t.Setenv("KUBERNETES_SERVICE_HOST", "")
+	if _, err := os.Stat("/.dockerenv"); err == nil {
+		t.Skip("inside a container; the container signals decide the result here")
+	}
+	if systemdOwnsThisProcess() {
+		t.Skip("this test process really is in a .service cgroup")
+	}
+	if supervisorManaged() {
+		t.Error("inherited systemd env with a non-.service cgroup was reported as " +
+			"supervised, so an update would exit and leave the proxy down")
 	}
 }
 
@@ -468,5 +500,97 @@ func TestUpdateURLPointsAtTheDefaultBranchNotMain(t *testing.T) {
 	}
 	if !strings.HasPrefix(DefaultUpdateURL, "https://raw.githubusercontent.com/arewedaks/9router-go/") {
 		t.Errorf("DefaultUpdateURL %q does not point at this fork", DefaultUpdateURL)
+	}
+}
+
+// --- release page vs direct asset ------------------------------------------
+//
+// version.json carries a single URL, and the release workflow writes the
+// human-facing release page there. Fetching that URL returns HTML, so the
+// updater must detect it and resolve the real per-platform asset first; this is
+// what keeps a published release from replacing the binary with a web page.
+
+func TestLooksLikeDirectAsset(t *testing.T) {
+	direct := []string{
+		"https://github.com/arewedaks/9router-go/releases/download/v1.8.18/9router-go-linux-amd64",
+		"https://github.com/arewedaks/9router-go/releases/download/v1.0.0/x.sha256",
+	}
+	for _, u := range direct {
+		if !looksLikeDirectAsset(u) {
+			t.Errorf("%s should be treated as a direct asset", u)
+		}
+	}
+
+	pages := []string{
+		"https://github.com/arewedaks/9router-go/releases/latest",
+		"https://github.com/arewedaks/9router-go/releases/tag/v1.8.18",
+		"https://raw.githubusercontent.com/arewedaks/9router-go/feat/go-dashboard/version.json",
+	}
+	for _, u := range pages {
+		if looksLikeDirectAsset(u) {
+			t.Errorf("%s is not a downloadable asset but was treated as one", u)
+		}
+	}
+}
+
+func TestResolveReleaseAssetPicksPlatformBinary(t *testing.T) {
+	// The asset matcher must return the runnable binary and never a checksum
+	// sidecar, even when the checksum appears first in the asset list — its name
+	// also contains the os and arch, so a naive match would pick it.
+	assets := []struct {
+		Name               string `json:"name"`
+		BrowserDownloadURL string `json:"browser_download_url"`
+	}{
+		{Name: "9router-go-linux-amd64.sha256", BrowserDownloadURL: "https://example.test/linux-amd64.sha256"},
+		{Name: "9router-go-linux-amd64", BrowserDownloadURL: "https://example.test/linux-amd64"},
+	}
+	got := matchReleaseAsset(assets, "linux", "amd64")
+	if got != "https://example.test/linux-amd64" {
+		t.Errorf("matchReleaseAsset picked %q, want the platform binary", got)
+	}
+
+	// A release page for somebody else's repo must never be resolved.
+	if out := resolveReleaseAsset(context.Background(), "https://github.com/attacker/9router-go/releases/latest"); out != "" {
+		t.Errorf("resolved an asset for an untrusted repo: %q", out)
+	}
+	// Non-GitHub hosts are not release pages we understand.
+	if out := resolveReleaseAsset(context.Background(), "https://example.com/releases/latest"); out != "" {
+		t.Errorf("resolved an asset from a non-GitHub host: %q", out)
+	}
+}
+
+// --- restart after a swap --------------------------------------------------
+//
+// performSelfUpdateTo renames the running binary to <path>.old and deletes it.
+// /proc/self/exe then points at that deleted inode, so EvalSymlinks fails with
+// ENOENT and, before this was handled, executableForRestart returned "" and the
+// proxy was never restarted: the update appeared to succeed while the service
+// stayed down. os.Args[0] still names the live binary and must be used.
+
+func TestExecutableForRestartSurvivesSwappedAwayInode(t *testing.T) {
+	dir := t.TempDir()
+	live := filepath.Join(dir, "9router-go")
+	if err := os.WriteFile(live, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	origArgs := os.Args
+	defer func() { os.Args = origArgs }()
+
+	// After a swap, the path we were launched with is the only name that still
+	// refers to the new binary; the primary source (os.Executable, i.e.
+	// /proc/self/exe) points at the deleted <binary>.old inode, which
+	// EvalSymlinks cannot resolve. That path must win.
+	os.Args = []string{live}
+	if got := executableForRestart(); got != live {
+		t.Errorf("executableForRestart() = %q, want the launched binary %q", got, live)
+	}
+
+	// A relative os.Args[0] must come back absolute so the spawned process does
+	// not depend on the working directory.
+	t.Chdir(dir)
+	os.Args = []string{"./9router-go"}
+	if got := executableForRestart(); got != live {
+		t.Errorf("executableForRestart() = %q, want the absolute path %q", got, live)
 	}
 }

@@ -70,13 +70,16 @@ jobs:
           if [ -n "$PREV_TAG" ]; then
             NOTES=$(git log --pretty=format:'- %s (%h)' --no-merges "${PREV_TAG}..${RANGE_END}")
           else
-            NOTES=$(git log --pretty=format:'- %s (%h)' --no-merges -n 30 "$RANGE_END")
+            # No earlier tag to diff against. On this fork the tags describe an
+            # imported upstream history, so a full log would dump dozens of
+            # unrelated commits into the release notes. Keep the newest few.
+            NOTES=$(git log --pretty=format:'- %s (%h)' --no-merges -n 10 "$RANGE_END")
           fi
 
           # A first release from a fresh branch produces an empty range; fall back
           # to recent history rather than publishing a release with no notes.
           if [ -z "$NOTES" ]; then
-            NOTES=$(git log --pretty=format:'- %s (%h)' --no-merges -n 30 "$RANGE_END")
+            NOTES=$(git log --pretty=format:'- %s (%h)' --no-merges -n 10 "$RANGE_END")
           fi
           if [ -z "$NOTES" ]; then
             NOTES="No changes recorded for this release."
