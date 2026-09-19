@@ -39,10 +39,12 @@ func TestHandleModelsListsKeylessProviderModels(t *testing.T) {
 	}
 }
 
-// With an empty cache the registry is the only source, so a fresh install still
-// advertises a callable OpenCode model. The cache deliberately replaces rather
-// than merges the registry branch, matching every connected provider.
-func TestHandleModelsKeylessFallsBackToRegistry(t *testing.T) {
+// With an empty cache nothing is advertised. The registry used to be the
+// fallback here, but it is a hardcoded table that knows nothing about the
+// account: it listed 794 models across 12 connections, most of which answered
+// model_not_supported. A keyless provider now advertises only what was
+// imported, exactly like a connected one.
+func TestHandleModelsKeylessProviderWithoutImportAdvertisesNothing(t *testing.T) {
 	database, cleanup := setupChatTestDB(t)
 	defer cleanup()
 
@@ -62,8 +64,8 @@ func TestHandleModelsKeylessFallsBackToRegistry(t *testing.T) {
 
 	ids := decodeModelIDs(t, h)
 	for _, m := range registry {
-		if _, ok := ids["oc/"+m]; !ok {
-			t.Errorf("registry model oc/%s is not advertised: %v", m, keysOf(ids))
+		if _, ok := ids["oc/"+m]; ok {
+			t.Errorf("unimported keyless provider advertised registry model oc/%s", m)
 		}
 	}
 }

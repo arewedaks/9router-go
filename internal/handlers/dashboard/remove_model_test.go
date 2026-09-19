@@ -18,8 +18,8 @@ import (
 func TestRemoveModelHidesFromV1Models(t *testing.T) {
 	_, repo, r := setupTestDashboard(t)
 
-	// A provider connection whose models come from the static registry (no
-	// enabledModels), matching real connection rows seeded by the UI.
+	// A provider connection with an imported catalogue: provider models are only
+	// advertised once imported, so the baseline has to seed the cache.
 	connData := `{"apiKey":"sk-test"}`
 	if _, err := repo.DB().Exec(
 		`INSERT INTO providerConnections (id, provider, authType, name, priority, isActive, data, createdAt, updatedAt)
@@ -27,6 +27,11 @@ func TestRemoveModelHidesFromV1Models(t *testing.T) {
 		connData, "2026-07-18T00:00:00Z", "2026-07-18T00:00:00Z",
 	); err != nil {
 		t.Fatalf("seed connection: %v", err)
+	}
+	for _, m := range []string{"deepseek-chat", "deepseek-reasoner"} {
+		if err := repo.AddCachedModelWithName("deepseek", m, "llm", "imported", ""); err != nil {
+			t.Fatalf("seed cached model %s: %v", m, err)
+		}
 	}
 
 	chatH := &chat.ChatHandler{Repo: repo}

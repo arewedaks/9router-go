@@ -7,10 +7,13 @@ import (
 )
 
 // TestHandleModelsHidesRemovedModel pins the fix for the "Remove model" button:
-// a model removed from a provider page must disappear from /v1/models even when
-// its id comes from the static registry (i.e. not from the model cache). Before
+// a model removed from a provider page must disappear from /v1/models. Before
 // the fix, RemoveModel only deleted a cachedProviderModels row that the engine
 // never reads, so the model kept being advertised.
+//
+// The baseline is an imported model rather than a registry one: the registry
+// fallback is gone (see TestUnimportedProviderDoesNotAdvertiseRegistryModels),
+// so an imported id is what the operator can actually see and remove.
 func TestHandleModelsHidesRemovedModel(t *testing.T) {
 	database, cleanup := setupChatTestDB(t)
 	defer cleanup()
@@ -18,8 +21,20 @@ func TestHandleModelsHidesRemovedModel(t *testing.T) {
 	repo := db.NewRepo(database)
 	h := &ChatHandler{Repo: repo}
 
-	// deepseek is seeded as an active connection with no enabledModels, so its
-	// models come from the static registry. Confirm the baseline first.
+	if _, err := database.Exec(
+		`INSERT INTO providerConnections (id, provider, authType, name, priority, isActive, data, createdAt, updatedAt)
+		 VALUES ('ds-conn', 'deepseek', 'apikey', 'DS', 0, 1, '{"apiKey":"k"}', '2026-07-18T00:00:00Z', '2026-07-18T00:00:00Z')`); err != nil {
+		t.Fatalf("seed connection: %v", err)
+	}
+	if err := repo.AddCachedModelWithName("ds", "deepseek-chat", "llm", "imported", ""); err != nil {
+		t.Fatalf("seed cached model: %v", err)
+	}
+	// A sibling, so the "only the removed model disappears" assertion below
+	// has something to compare against.
+	if err := repo.AddCachedModelWithName("ds", "deepseek-reasoner", "llm", "imported", ""); err != nil {
+		t.Fatalf("seed cached model 2: %v", err)
+	}
+
 	before := decodeModelIDs(t, h)
 	if _, ok := before["ds/deepseek-chat"]; !ok {
 		t.Fatalf("baseline: ds/deepseek-chat missing before removal: %v", before)

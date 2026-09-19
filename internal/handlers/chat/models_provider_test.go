@@ -28,6 +28,14 @@ func TestHandleModels_ActiveCodexConnection(t *testing.T) {
 	}
 
 	repo := db.NewRepo(database)
+	// Codex exposes no live catalogue, so the operator's imported ids are the
+	// only source. The registry fallback that used to feed this list was
+	// removed: it advertised models the account could not call.
+	for _, m := range []string{"gpt-6-astra", "gpt-5.6-sol"} {
+		if err := repo.AddCachedModelWithName("cx", m, "llm", "imported", ""); err != nil {
+			t.Fatalf("seed cached model %s: %v", m, err)
+		}
+	}
 	handler := NewChatHandler(repo)
 
 	req := httptest.NewRequest("GET", "/v1/models", nil)
@@ -86,7 +94,9 @@ func TestHandleModels_ActiveCodexConnection(t *testing.T) {
 	}
 }
 
-func TestHandleModels_FallbackStaticRegistryWhenNoConnections(t *testing.T) {
+// With no connections at all the registry-driven fallback must not run either:
+// advertising models nobody imported is exactly the failure this guards against.
+func TestHandleModels_NoConnectionsAdvertisesNoRegistryModels(t *testing.T) {
 	database, cleanup := setupChatTestDB(t)
 	defer cleanup()
 
@@ -107,9 +117,8 @@ func TestHandleModels_FallbackStaticRegistryWhenNoConnections(t *testing.T) {
 	}
 
 	body := w.Body.String()
-	// Fallback should include models from static registry
-	if !strings.Contains(body, `"id":"cx/gpt-6-astra"`) {
-		t.Errorf("expected cx/gpt-6-astra in static fallback list, got: %s", body)
+	if strings.Contains(body, `"cx/gpt-6-astra"`) {
+		t.Errorf("registry model cx/gpt-6-astra leaked into an empty install: %s", body)
 	}
 }
 
@@ -125,6 +134,11 @@ func TestHandleModelLookup_CodexModel(t *testing.T) {
 	}
 
 	repo := db.NewRepo(database)
+	// The lookup resolves against the advertised list, so the model has to be
+	// imported for the id to exist.
+	if err := repo.AddCachedModelWithName("cx", "gpt-6-astra", "llm", "imported", ""); err != nil {
+		t.Fatalf("seed cached model: %v", err)
+	}
 	handler := NewChatHandler(repo)
 
 	req := httptest.NewRequest("GET", "/v1/models/cx/gpt-6-astra", nil)

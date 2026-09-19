@@ -403,11 +403,14 @@ func (h *ChatHandler) buildModelsList() []ModelInfoObject {
 			if len(modelList) == 0 {
 				modelList = h.cachedModelIDs(provID, outputAlias)
 			}
-			if len(modelList) == 0 && !strings.HasPrefix(provID, "openai-compatible-") && !strings.HasPrefix(provID, "anthropic-compatible-") {
-				modelList = providers.GetProviderModels(outputAlias)
-				if len(modelList) == 0 {
-					modelList = providers.GetProviderModels(provID)
-				}
+			// No registry fallback at all. Listing a model promises it can be
+			// called, and the static registry is a hardcoded table that knows
+			// nothing about this account: a live install with 12 connections
+			// advertised 794 models, and most of the extras answered
+			// model_not_supported (github/gpt-5.2 among them). A provider
+			// contributes only what the operator actually imported or enabled.
+			if len(modelList) == 0 {
+				modelList = h.cachedModelIDs(provID, outputAlias)
 			}
 			for _, mID := range modelList {
 				// Honour an explicit operator removal before doing any work.
@@ -473,12 +476,8 @@ func (h *ChatHandler) buildModelsList() []ModelInfoObject {
 			}
 
 			modelList := h.cachedModelIDs(provID, outputAlias)
-			if len(modelList) == 0 {
-				modelList = providers.GetProviderModels(outputAlias)
-			}
-			if len(modelList) == 0 {
-				modelList = providers.GetProviderModels(provID)
-			}
+			// Same rule as the connected-provider branch: no registry fallback, so
+			// a keyless provider advertises only what was actually imported.
 			for _, mID := range modelList {
 				if isHidden([]string{provID, outputAlias, canonical}, mID) {
 					continue
@@ -510,38 +509,11 @@ func (h *ChatHandler) buildModelsList() []ModelInfoObject {
 			}
 		}
 	} else if h.Repo == nil || len(activeConnections) == 0 {
-		// Fallback when DB has no connections or repo is nil: list static models
-		for alias, models := range providers.ProviderModels {
-			if canon := providers.ResolveAlias(alias); canon != alias && providers.GetProviderAlias(canon) != alias {
-				continue
-			}
-			for _, mID := range models {
-				if isHidden([]string{alias, providers.ResolveAlias(alias)}, mID) {
-					continue
-				}
-				fullID := alias + "/" + mID
-				if seen[fullID] {
-					continue
-				}
-				seen[fullID] = true
-
-				ctxLen, maxOut := providers.GetModelTokenLimits(mID)
-				caps := providers.GetCapabilitiesDetailForModel(alias, mID)
-				if caps.ContextWindows > 0 && ctxLen == 0 {
-					ctxLen = caps.ContextWindows
-				}
-				data = append(data, ModelInfoObject{
-					ID:                  fullID,
-					Object:              "model",
-					Created:             now,
-					OwnedBy:             alias,
-					Capabilities:        &caps,
-					ContextLength:       ctxLen,
-					ContextWindow:       ctxLen,
-					MaxCompletionTokens: maxOut,
-				})
-			}
-		}
+		// No connections: list nothing. This branch used to dump the entire
+		// static registry (every provider in ProviderModels), which is how an
+		// install with zero imports still advertised hundreds of ids the
+		// operator never configured. Combos and aliases are added above and
+		// remain visible; provider models require a connection plus an import.
 	}
 
 	// 2. Model Aliases
