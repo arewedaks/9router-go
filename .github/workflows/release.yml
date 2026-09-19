@@ -175,7 +175,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Write version.json
+      - name: Write version.json and commit
         # This is what the running dashboard polls. Without it the update check
         # keeps seeing the previous version and the button never appears.
         #
@@ -183,7 +183,17 @@ jobs:
         # single asset: it must not name a platform. The updater replaces it with
         # the matching asset from the GitHub Releases API, which is the only
         # place that knows the current OS/arch.
+        #
+        # The branch is checked out first: this job starts on the tag, and the
+        # tag's version.json differs, so checking out the branch afterwards would
+        # refuse to overwrite the file we just wrote.
         run: |
+          BRANCH="${{ steps.target.outputs.branch }}"
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin "$BRANCH"
+          git checkout -B "$BRANCH" "origin/$BRANCH"
+
           python3 - <<'PY'
           import json, os
 
@@ -199,16 +209,7 @@ jobs:
               json.dump(manifest, f, indent=2)
               f.write("\n")
           PY
-        env:
-          VERSION: ${{ steps.ver.outputs.version }}
 
-      - name: Commit if changed
-        run: |
-          BRANCH="${{ steps.target.outputs.branch }}"
-          git config user.name  "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git fetch origin "$BRANCH"
-          git checkout -B "$BRANCH" "origin/$BRANCH"
           if git diff --quiet version.json; then
             echo "version.json already current; nothing to commit"
             exit 0
@@ -216,3 +217,5 @@ jobs:
           git add version.json
           git commit -m "chore(release): version.json -> ${GITHUB_REF_NAME}"
           git push origin "HEAD:$BRANCH"
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
