@@ -2,6 +2,8 @@ package db
 
 import (
 	json "encoding/json/v2"
+	"os"
+	"strings"
 
 	"9router/proxy/internal/handlerutil"
 )
@@ -119,6 +121,21 @@ type SettingsData struct {
 	// resolves to the "ide" default so an untouched install behaves as before.
 	AntigravityClientProfile string `json:"antigravityClientProfile,omitempty"`
 
+	// TrustProxy makes the login limiter read X-Forwarded-For instead of the
+	// socket peer. Required behind Cloudflare Tunnel or any reverse proxy, where
+	// every request arrives from 127.0.0.1 and would otherwise share one lockout
+	// bucket, so five bad guesses from anyone lock out everyone.
+	//
+	// Only safe when the origin cannot be reached directly: if the port is
+	// exposed, a client can forge the header to dodge the limiter. That is why
+	// the UI pairs it with the HOST bind address rather than trusting it alone.
+	TrustProxy *bool `json:"trustProxy,omitempty"`
+
+	// AuthCookieSecure forces the session cookie's Secure flag. A reverse proxy
+	// terminates TLS, so the origin sees plain HTTP and cannot infer it from the
+	// request; without this the cookie would be sendable over an unencrypted hop.
+	AuthCookieSecure *bool `json:"authCookieSecure,omitempty"`
+
 	// PasswordHash is the bcrypt hash of the dashboard login password. Empty
 	// means no password has been set yet, in which case login falls back to
 	// InitialPassword (the "123456" default, VansRouter-compatible). It is never
@@ -197,6 +214,12 @@ func (r *Repo) GetSettings() (*SettingsData, error) {
 	}
 	if v, ok := raw["requireLogin"].(bool); ok {
 		s.RequireLogin = &v
+	}
+	if v, ok := raw["trustProxy"].(bool); ok {
+		s.TrustProxy = &v
+	}
+	if v, ok := raw["authCookieSecure"].(bool); ok {
+		s.AuthCookieSecure = &v
 	}
 	if ps, ok := raw["providerStrategies"].(map[string]any); ok {
 		s.ProviderStrategies = make(map[string]ProviderStrategy)
@@ -282,6 +305,19 @@ func (r *Repo) SetAntigravityClientProfile(profile string) error {
 	return r.saveSettings(s)
 }
 
+// SetProxyAwareness stores the reverse-proxy flags. Both are pointers so an
+// absent value keeps meaning "use the environment default" rather than "false",
+// which lets an env-only install carry on working unchanged.
+func (r *Repo) SetProxyAwareness(trustProxy, cookieSecure *bool) error {
+	s, err := r.GetSettings()
+	if err != nil {
+		s = DefaultSettings()
+	}
+	s.TrustProxy = trustProxy
+	s.AuthCookieSecure = cookieSecure
+	return r.saveSettings(s)
+}
+
 // saveSettings persists the whole settings blob for row id = 1.
 func (r *Repo) saveSettings(s *SettingsData) error {
 	b, err := json.Marshal(s)
@@ -323,4 +359,25 @@ func (r *Repo) SetProviderStrategy(provider string, strat ProviderStrategy) erro
 	}
 	_, err = r.db.Exec(`INSERT INTO settings (id, data) VALUES (1, ?) ON CONFLICT(id) DO UPDATE SET data = excluded.data`, string(b))
 	return err
+}
+
+// ListenHost and ListenPort report the address the process was started with.
+//
+// They live here rather than in the config package so the dashboard can show
+// them without importing config (which would create a cycle: config already
+// imports db). The values are fixed at startup — the listening socket cannot be
+// rebound at runtime — so the UI presents them as diagnostics, and tells the
+// operator to restart rather than pretending a change took effect.
+func ListenHost() string {
+	if h := strings.TrimSpace(os.Getenv("HOST")); h != "" {
+		return h
+	}
+	return "0.0.0.0"
+}
+
+func ListenPort() string {
+	if p := strings.TrimSpace(os.Getenv("PORT")); p != "" {
+		return p
+	}
+	return "20128"
 }

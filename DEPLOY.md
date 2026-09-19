@@ -12,7 +12,7 @@
 | Hal | Kenyataan di kode |
 |---|---|
 | Port default | **20128** (`internal/config/config.go`) |
-| Bind address | Server listen di `:PORT` = **0.0.0.0** (semua interface). **Tidak ada flag bind-address.** |
+| Bind address | Server listen di `$HOST:$PORT`. `HOST` kosong → **0.0.0.0** (semua interface). Set `HOST=127.0.0.1` bila di belakang reverse proxy / Cloudflare Tunnel. |
 | Data dir default | `$DATA_DIR`, jika kosong → `~/.9router` |
 | DB default | `$DB_PATH`, jika kosong → `$DATA_DIR/db/data.sqlite` |
 | `JWT_SECRET` | Jika tak di-set, di-generate acak & disimpan ke `$DATA_DIR/jwt-secret` (0600). **Persisten antar restart.** |
@@ -25,6 +25,59 @@
 > ⚠️ **KRITIS:** Tanpa `INITIAL_PASSWORD`, dashboard bisa dibuka dengan `123456`,
 > dan server listen di `0.0.0.0`. Kombinasi ini = **dashboard terbuka untuk
 > siapa saja di internet**. Wajib set password + firewall/reverse proxy.
+
+## Deploy di belakang Cloudflare (Tunnel atau proxy)
+
+Server **tidak punya TLS sendiri** — ia hanya berbicara HTTP. Cloudflare
+menyediakan HTTPS-nya. Tiga hal yang wajib benar, karena semuanya adalah
+konsekuensi dari "proxy itu berasal dari localhost":
+
+| Env | Nilai | Alasan |
+|---|---|---|
+| `HOST` | `127.0.0.1` | `cloudflared`/nginx berjalan di host yang sama dan menghubungi origin dari `127.0.0.1`. Tanpa ini, port Anda **juga terbuka langsung dari internet**, sehingga penyerang bisa melewati Cloudflare sepenuhnya. |
+| `TRUST_PROXY` | `true` | Tanpa ini, semua request terlihat berasal dari satu IP proxy, sehingga 5 kali salah password dari siapa pun = **lockout global** untuk semua pengguna. Header yang dipercaya: `X-Forwarded-For` (Cloudflare Tunnel mengisinya). **Bisa juga di-set dari UI** (Settings → Cloudflare → *Trust proxy headers*), dan setting di UI menang atas env. |
+| `AUTH_COOKIE_SECURE` | `true` | Cookie sesi diberi flag `Secure` sehingga tidak dikirim lewat HTTP polos. **Bisa juga di-set dari UI** (Settings → Cloudflare → *Secure session cookie*). |
+
+> 💡 **Tidak perlu edit env.** Dua baris terakhir di tabel di atas punya
+> tombol di **Settings → 🌐 Cloudflare / Reverse Proxy**: *Enable Cloudflare
+> mode* menyalakan keduanya sekaligus dan langsung berlaku tanpa restart.
+> Hanya `HOST` yang tetap butuh restart, karena socket listen tidak bisa di-bind
+> ulang saat berjalan — UI menampilkan nilai aktifnya dan memperingatkan bila
+> masih `0.0.0.0`. Tombol **Copy config** menyalin file `cloudflared` siap pakai.
+
+> 🔒 **Wajib baca — endpoint reset password.**
+> `POST /api/dashboard/auth/reset-password` **memerlukan password saat ini**.
+> Sebelumnya endpoint ini hanya dijaga oleh cek "request dari localhost".
+> Guard itu **tidak berguna di belakang proxy**: karena `cloudflared` memanggil
+> origin dari `127.0.0.1`, setiap request dari internet terlihat "lokal", dan
+> siapa pun yang tahu domain Anda bisa mengosongkan password lalu login dengan
+> default `123456` — **takeover penuh tanpa kredensial**. Jangan pernah turunkan
+> kembali versi yang memakai guard berbasis IP.
+
+Contoh `cloudflared`:
+
+```yaml
+# ~/.cloudflared/config.yml
+tunnel: <TUNNEL-ID>
+credentials-file: /root/.cloudflared/<TUNNEL-ID>.json
+ingress:
+  - hostname: router.example.com
+    service: http://127.0.0.1:20127
+  - service: http_status:404
+```
+
+Jalankan server dengan:
+
+```bash
+HOST=127.0.0.1 \
+TRUST_PROXY=true \
+AUTH_COOKIE_SECURE=true \
+INITIAL_PASSWORD='<password-panjang>' \
+  ./9router-go --port 20127 --db-path /var/lib/9router/data.sqlite
+```
+
+Di Cloudflare dashboard, set **SSL/TLS → Overview → Full** (bukan Flexible),
+sehingga Cloudflare↔origin tetap di jaringan privat/loopback.
 
 ---
 

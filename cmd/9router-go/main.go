@@ -235,8 +235,8 @@ func runServer(cCtx *cli.Context) error {
 
 	handlers.SetupServerRouter(r, repo, ts)
 
-	addr := fmt.Sprintf(":%d", cfg.Port)
-	log.Printf("9Router Go Proxy (%s) starting on port %d", updater.CurrentVersion, cfg.Port)
+	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
+	log.Printf("9Router Go Proxy (%s) starting on %s", updater.CurrentVersion, addr)
 
 	signals := make(chan os.Signal, 2)
 	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)

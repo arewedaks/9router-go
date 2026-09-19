@@ -943,6 +943,85 @@
       </div>
     </div>
 
+    <!-- CLOUDFLARE / REVERSE PROXY -->
+    <h3 class="settings-group-title">🌐 Cloudflare / Reverse Proxy</h3>
+    <p style="font-size: 0.85rem; color: var(--muted); margin: -6px 0 14px;">
+      This router speaks plain HTTP and has no TLS of its own, so it is meant to
+      sit behind Cloudflare Tunnel or another reverse proxy that terminates
+      HTTPS. The two switches below fix the problems that setup creates. Use
+      <strong>Copy config</strong> to get a ready-to-paste cloudflared file.
+    </p>
+
+    <div class="grid">
+      <div class="card">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+          <h3 style="margin:0; font-size:1rem; color: #fff;">🔀 Trust proxy headers</h3>
+          <label class="switch">
+            <input type="checkbox" id="set-trust-proxy">
+            <span class="slider"></span>
+          </label>
+        </div>
+        <p style="font-size: 0.85rem; color: var(--muted); margin-bottom: 12px;">
+          Reads <code>X-Forwarded-For</code> to identify the real client. Without
+          it every visitor looks like the proxy's own IP, so five wrong passwords
+          from <em>anyone</em> lock out <em>everyone</em>.
+        </p>
+        <div class="settings-warn" id="set-trust-proxy-warn">
+          ⚠️ Only turn this on once the port is NOT reachable directly from the
+          internet. A direct client could forge the header to dodge the login
+          limiter.
+        </div>
+      </div>
+
+      <div class="card">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+          <h3 style="margin:0; font-size:1rem; color: #fff;">🔒 Secure session cookie</h3>
+          <label class="switch">
+            <input type="checkbox" id="set-cookie-secure">
+            <span class="slider"></span>
+          </label>
+        </div>
+        <p style="font-size: 0.85rem; color: var(--muted); margin-bottom: 12px;">
+          Adds the <code>Secure</code> flag to the login cookie so browsers never
+          send it over an unencrypted hop. Turn on when the public URL is HTTPS.
+        </p>
+        <div class="settings-warn">
+          ⚠️ If the site is HTTPS but the origin sees plain HTTP, the cookie would
+          otherwise be sendable in the clear. Leave off only while testing over
+          plain HTTP on localhost.
+        </div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top: 14px;">
+      <h3 style="margin:0 0 4px; font-size:1rem; color:#fff;">📡 Active listen address</h3>
+      <p style="font-size:0.85rem; color:var(--muted); margin-bottom:12px;">
+        Fixed when the process starts — changing it needs a restart with
+        <code>HOST=127.0.0.1</code>, because the listening socket cannot be
+        rebound while running.
+      </p>
+      <div class="grid">
+        <div>
+          <div style="font-size:0.78rem; color:var(--muted); margin-bottom:2px;">HOST</div>
+          <code id="set-listen-host" style="color:#fff;">—</code>
+        </div>
+        <div>
+          <div style="font-size:0.78rem; color:var(--muted); margin-bottom:2px;">PORT</div>
+          <code id="set-listen-port" style="color:#fff;">—</code>
+        </div>
+      </div>
+      <div class="settings-warn" id="set-bind-warn" style="margin-top:12px; display:none;">
+        ⚠️ Listening on <strong>0.0.0.0</strong> means the port is reachable
+        directly, bypassing Cloudflare. Restart with <code>HOST=127.0.0.1</code>
+        so only the tunnel can reach it.
+      </div>
+      <div style="display:flex; gap:8px; margin-top:14px; flex-wrap:wrap;">
+        <button class="btn" onclick="applyCloudflarePreset()">⚡ Enable Cloudflare mode</button>
+        <button class="btn" onclick="showCloudflaredConfig()">📋 Copy config</button>
+      </div>
+      <div id="cf-msg" class="settings-msg"></div>
+    </div>
+
     <!-- BACKUP -->
     <h3 class="settings-group-title">💾 Backup & Restore</h3>
     <p style="font-size: 0.85rem; color: var(--muted); margin: -6px 0 14px;">
@@ -1927,15 +2006,23 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
     }
   }
 
-  // Resetting drops the stored password back to the built-in default, so it is
-  // deliberately noisy: a confirm() plus a sign-out, because the session that
-  // authorised the change is about to be the wrong credential.
+  // Resetting drops the stored password back to the built-in default. The
+  // current password is required: without it, anyone who can reach the origin
+  // (including through a reverse proxy or Cloudflare Tunnel, where every
+  // request looks like it came from localhost) could clear the password and
+  // sign in with the default.
   async function resetPasswordConfirm() {
+    const current = prompt("Enter the current dashboard password to confirm the reset.");
+    if (current === null) return;
     if (!confirm("Reset the dashboard password to the default?\n\nAnyone who can reach this machine will be able to sign in with the default password. You will be signed out.")) return;
     const btn = document.getElementById("pw-reset-btn");
     btn.disabled = true;
     try {
-      const res = await fetch("/api/dashboard/auth/reset-password", { method: "POST" });
+      const res = await fetch("/api/dashboard/auth/reset-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ currentPassword: current }),
+      });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) return setMsg("pw-reset-msg", errorMessage(data, res.status), false);
       setMsg("pw-reset-msg", "✅ Password reset. Signing out…", true);
@@ -5091,8 +5178,99 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
       document.getElementById("saver-ponytail").checked = !!s.ponytailEnabled;
       document.getElementById("saver-ponytail-level").value = s.ponytailLevel || "full";
       document.getElementById("saver-guard").checked = !!s.injectionGuardEnabled;
+      applyProxySettingsToUI(s);
     } catch(e) {
       console.error(e);
+    }
+  }
+
+  // Reflects the reverse-proxy settings and the active listen address. Kept
+  // separate from loadSettings so the Cloudflare card can refresh on its own
+  // after a save without re-reading the token-saver switches.
+  function applyProxySettingsToUI(s) {
+    const tp = document.getElementById("set-trust-proxy");
+    const cs = document.getElementById("set-cookie-secure");
+    if (tp) tp.checked = !!s.trustProxy;
+    if (cs) cs.checked = !!s.authCookieSecure;
+
+    const hostEl = document.getElementById("set-listen-host");
+    const portEl = document.getElementById("set-listen-port");
+    const host = s.listenHost || "0.0.0.0";
+    if (hostEl) hostEl.textContent = host;
+    if (portEl) portEl.textContent = s.listenPort || "—";
+
+    // Only warn when the two facts combine badly: a publicly reachable port AND
+    // proxy header trust, or a publicly reachable port at all.
+    const exposed = host === "0.0.0.0" || host === "::" || host === "";
+    const warn = document.getElementById("set-bind-warn");
+    if (warn) warn.style.display = exposed ? "block" : "none";
+    const tpWarn = document.getElementById("set-trust-proxy-warn");
+    if (tpWarn) tpWarn.style.display = (exposed && tp && tp.checked) ? "block" : "none";
+  }
+
+  async function saveProxySettings() {
+    const payload = {
+      trustProxy: document.getElementById("set-trust-proxy").checked,
+      authCookieSecure: document.getElementById("set-cookie-secure").checked,
+    };
+    try {
+      const res = await api("/api/dashboard/settings", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const fresh = await api("/api/dashboard/settings");
+      if (fresh.ok) applyProxySettingsToUI(await fresh.json());
+      setMsg("cf-msg", "✅ Saved. Changes apply immediately — no restart needed.", true);
+    } catch (e) {
+      setMsg("cf-msg", "Failed to save: " + e.message, false);
+    }
+  }
+
+  // One click for the common case: turn on both proxy switches, then warn about
+  // the part that genuinely needs a restart. Deliberately does NOT claim the
+  // bind address changed, because it cannot change at runtime.
+  async function applyCloudflarePreset() {
+    const tp = document.getElementById("set-trust-proxy");
+    const cs = document.getElementById("set-cookie-secure");
+    if (tp) tp.checked = true;
+    if (cs) cs.checked = true;
+    await saveProxySettings();
+    const host = (document.getElementById("set-listen-host") || {}).textContent || "";
+    if (host === "0.0.0.0" || host === "::") {
+      setMsg("cf-msg", "✅ Proxy switches saved (applied immediately).\n\n⚠️ Still one manual step: HOST is " + host +
+        ", so the port is reachable directly from the internet and Cloudflare can be bypassed. " +
+        "Restart the process with HOST=127.0.0.1. The two switches above are already stored, " +
+        "so they do not need to be passed as environment variables.", false);
+    }
+  }
+
+  async function showCloudflaredConfig() {
+    const port = (document.getElementById("set-listen-port") || {}).textContent || "20128";
+    const base = window.location.origin;
+    const text =
+      "# ~/.cloudflared/config.yml\n" +
+      "tunnel: <TUNNEL-ID>\n" +
+      "credentials-file: /root/.cloudflared/<TUNNEL-ID>.json\n" +
+      "ingress:\n" +
+      "  - hostname: router.example.com\n" +
+      "    service: http://127.0.0.1:" + port + "\n" +
+      "  - service: http_status:404\n" +
+      "\n" +
+      "# Then run the router itself with:\n" +
+      "HOST=127.0.0.1 \\\n" +
+      "TRUST_PROXY=true \\\n" +
+      "AUTH_COOKIE_SECURE=true \\\n" +
+      "INITIAL_PASSWORD='<strong-password>' \\\n" +
+      "  ./9router-go --port " + port + " --db-path /var/lib/9router/data.sqlite\n" +
+      "\n" +
+      "# Cloudflare dashboard: SSL/TLS -> Overview -> Full (never Flexible).\n" +
+      "# Dashboard currently served from: " + base + "\n";
+    try {
+      await navigator.clipboard.writeText(text);
+      setMsg("cf-msg", "✅ cloudflared config copied to the clipboard. Dashboard origin: " + base, true);
+    } catch (e) {
+      window.prompt("Copy this cloudflared config:", text);
     }
   }
 
@@ -5103,7 +5281,11 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
       cavemanLevel: document.getElementById("saver-caveman-level").value,
       ponytailEnabled: document.getElementById("saver-ponytail").checked,
       ponytailLevel: document.getElementById("saver-ponytail-level").value,
-      injectionGuardEnabled: document.getElementById("saver-guard").checked
+      injectionGuardEnabled: document.getElementById("saver-guard").checked,
+      // Included so the single header Save button never silently drops the
+      // Cloudflare card, which is part of the same settings blob.
+      trustProxy: document.getElementById("set-trust-proxy").checked,
+      authCookieSecure: document.getElementById("set-cookie-secure").checked
     };
     try {
       const res = await api("/api/dashboard/settings", {

@@ -1580,6 +1580,16 @@ func (h *Handler) HandleGetSettings(w http.ResponseWriter, r *http.Request) {
 		// providerStrategies drives proxy routing for no-auth/free providers.
 		// Normalized to an object so the UI never has to null-check.
 		"providerStrategies": providerStrategiesOrEmpty(s.ProviderStrategies),
+		// Reverse-proxy awareness. These are editable from the UI and take effect
+		// immediately. The bind address is included for diagnostics only: it is
+		// fixed at process start and cannot be changed from here.
+		"trustProxy":            h.effectiveTrustProxy(s),
+		"authCookieSecure":      h.effectiveCookieSecure(s),
+		"proxyEnvTrustProxy":    strings.EqualFold(os.Getenv("TRUST_PROXY"), "true"),
+		"proxyEnvCookieSecure":  strings.EqualFold(os.Getenv("AUTH_COOKIE_SECURE"), "true"),
+		"listenHost":            db.ListenHost(),
+		"listenPort":            db.ListenPort(),
+		"behindProxySuggested":  db.ListenHost() == "127.0.0.1" || db.ListenHost() == "localhost",
 	}
 
 	handlerutil.WriteJSON(w, http.StatusOK, resp)
@@ -1602,6 +1612,24 @@ func (h *Handler) HandleListProxyPools(w http.ResponseWriter, r *http.Request) {
 
 // providerStrategiesOrEmpty returns a non-nil map so the JSON payload always
 // carries "providerStrategies": {} rather than null.
+// effectiveTrustProxy resolves the proxy flag the way the auth handler does:
+// the stored setting wins, otherwise the environment variable decides.
+func (h *Handler) effectiveTrustProxy(s *db.SettingsData) bool {
+	if s != nil && s.TrustProxy != nil {
+		return *s.TrustProxy
+	}
+	return strings.EqualFold(os.Getenv("TRUST_PROXY"), "true")
+}
+
+// effectiveCookieSecure resolves the Secure-cookie flag, falling back to the
+// environment variable when the UI has never set it.
+func (h *Handler) effectiveCookieSecure(s *db.SettingsData) bool {
+	if s != nil && s.AuthCookieSecure != nil {
+		return *s.AuthCookieSecure
+	}
+	return strings.EqualFold(os.Getenv("AUTH_COOKIE_SECURE"), "true")
+}
+
 func providerStrategiesOrEmpty(m map[string]db.ProviderStrategy) map[string]db.ProviderStrategy {
 	if m == nil {
 		return map[string]db.ProviderStrategy{}
@@ -1627,6 +1655,9 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		// AntigravityClientProfile is the provider-wide client identity. Accepted
 		// here as well so the settings form can save everything in one request.
 		AntigravityClientProfile *string `json:"antigravityClientProfile"`
+		// Reverse-proxy awareness, editable from the UI settings page.
+		TrustProxy       *bool `json:"trustProxy"`
+		AuthCookieSecure *bool `json:"authCookieSecure"`
 		// providerStrategies is a full-replace map keyed by provider id, matching
 		// VansRouter's PATCH /api/settings behavior. An entry with no fields left
 		// set is dropped so the settings blob stays clean.
@@ -1677,6 +1708,12 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.AntigravityClientProfile = string(providers.NormalizeAntigravityClientProfile(*req.AntigravityClientProfile))
+	}
+	if req.TrustProxy != nil {
+		s.TrustProxy = req.TrustProxy
+	}
+	if req.AuthCookieSecure != nil {
+		s.AuthCookieSecure = req.AuthCookieSecure
 	}
 	if req.ProviderStrategies != nil {
 		// providerStrategies arrives as the operator's complete view of the map,

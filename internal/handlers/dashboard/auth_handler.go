@@ -2,7 +2,6 @@ package dashboard
 
 import (
 	"io"
-	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -63,7 +62,7 @@ func (h *Handler) HandleAuthStatus(w http.ResponseWriter, r *http.Request) {
 // HandleAuthLogin verifies the submitted password and, on success, sets the
 // session cookie. Failures are rate limited per IP with escalating lockouts.
 func (h *Handler) HandleAuthLogin(w http.ResponseWriter, r *http.Request) {
-	ip := clientIP(r, strings.EqualFold(os.Getenv("TRUST_PROXY"), "true"))
+	ip := clientIP(r, h.trustProxy())
 	if locked, retryAfter := h.auth.limiter.checkLock(ip); locked {
 		seconds := int(retryAfter.Seconds()) + 1
 		w.Header().Set("Retry-After", itoa(seconds))
@@ -125,7 +124,7 @@ func (h *Handler) HandleAuthLogin(w http.ResponseWriter, r *http.Request) {
 		Path:     "/",
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
-		Secure:   shouldUseSecureCookie(r),
+		Secure:   shouldUseSecureCookie(r, h.cookieSecureOverride()),
 		MaxAge:   int(authSessionTTL.Seconds()),
 	})
 	handlerutil.WriteJSON(w, http.StatusOK, map[string]any{"success": true})
@@ -139,7 +138,7 @@ func (h *Handler) HandleAuthLogout(w http.ResponseWriter, r *http.Request) {
 		Path:     "/",
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
-		Secure:   shouldUseSecureCookie(r),
+		Secure:   shouldUseSecureCookie(r, h.cookieSecureOverride()),
 		MaxAge:   -1,
 	})
 	handlerutil.WriteJSON(w, http.StatusOK, map[string]any{"success": true})
@@ -194,10 +193,34 @@ func (h *Handler) HandleAuthChangePassword(w http.ResponseWriter, r *http.Reques
 }
 
 // HandleAuthResetPassword restores the default password by clearing the stored
-// hash. Local-only, matching the reference's guard.
+// hash. Requires the current password.
+//
+// Security note: this used to be guarded by isLocalRequest. That guard is
+// worthless behind a reverse proxy or Cloudflare Tunnel, because cloudflared
+// runs on the same host and dials the origin from 127.0.0.1 — so every request
+// from the public internet looked "local" and anyone who knew the domain could
+// clear the password and log in with the default. Requiring the current
+// password closes that without removing the feature.
 func (h *Handler) HandleAuthResetPassword(w http.ResponseWriter, r *http.Request) {
-	if !isLocalRequest(r) {
-		handlerutil.WriteJSONError(w, http.StatusForbidden, "Local only")
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<16))
+	if err != nil {
+		handlerutil.WriteJSONError(w, http.StatusBadRequest, "Failed to read body")
+		return
+	}
+	var req struct {
+		CurrentPassword string `json:"currentPassword"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		handlerutil.WriteJSONError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	settings, _ := h.repo.GetSettings()
+	storedHash := ""
+	if settings != nil {
+		storedHash = settings.PasswordHash
+	}
+	if !VerifyPassword(h.auth.hasher, storedHash, req.CurrentPassword) {
+		handlerutil.WriteJSONError(w, http.StatusUnauthorized, "Invalid current password")
 		return
 	}
 	if err := h.repo.SetPasswordHash(""); err != nil {
@@ -225,27 +248,34 @@ func (h *Handler) isAuthenticated(r *http.Request) bool {
 
 // shouldUseSecureCookie marks the cookie Secure when the request arrived over
 // HTTPS (directly or via a trusted proxy), or when forced by env.
-func shouldUseSecureCookie(r *http.Request) bool {
+func shouldUseSecureCookie(r *http.Request, override *bool) bool {
+	if override != nil {
+		return *override
+	}
 	if strings.EqualFold(os.Getenv("AUTH_COOKIE_SECURE"), "true") {
 		return true
 	}
 	return strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
 }
 
-// isLocalRequest reports whether the request originated from the local machine.
-func isLocalRequest(r *http.Request) bool {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil || host == "" {
-		host = r.RemoteAddr
+// trustProxy reports whether X-Forwarded-For may be believed.
+//
+// The stored setting wins so the dashboard can flip it without a restart; an
+// absent setting falls back to the TRUST_PROXY env var, so an install that only
+// ever used environment variables keeps its behaviour.
+func (h *Handler) trustProxy() bool {
+	if s, err := h.repo.GetSettings(); err == nil && s != nil && s.TrustProxy != nil {
+		return *s.TrustProxy
 	}
-	switch host {
-	case "127.0.0.1", "::1", "localhost":
-		return true
+	return strings.EqualFold(os.Getenv("TRUST_PROXY"), "true")
+}
+
+// cookieSecureOverride is the stored Secure-cookie flag, or nil when unset.
+func (h *Handler) cookieSecureOverride() *bool {
+	if s, err := h.repo.GetSettings(); err == nil && s != nil && s.AuthCookieSecure != nil {
+		return s.AuthCookieSecure
 	}
-	if strings.HasPrefix(host, "::ffff:127.") {
-		return true
-	}
-	return false
+	return nil
 }
 
 // itoa is a tiny int→string helper to avoid importing strconv at every call site.

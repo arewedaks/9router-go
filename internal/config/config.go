@@ -50,6 +50,7 @@ func loadDotenv(path string) {
 // Config holds the proxy gateway configuration.
 type Config struct {
 	Port            int
+	Host            string
 	DatabasePath    string
 	JWTSecret       string
 	InitialPassword string
@@ -166,8 +167,15 @@ func LoadConfig() *Config {
 	cavemanEnabled := os.Getenv("CAVEMAN_ENABLED") == "true"
 	ponytailEnabled := os.Getenv("PONYTAIL_ENABLED") == "true"
 
+	// HOST bounds the listen address. Default is all interfaces, which is what a
+	// bare-metal install wants. Behind Cloudflare Tunnel or any reverse proxy the
+	// origin should bind 127.0.0.1 so the untrusted public internet cannot reach
+	// the port directly and forge X-Forwarded-For to escape the login limiter.
+	host := strings.TrimSpace(os.Getenv("HOST"))
+
 	return &Config{
 		Port:            port,
+		Host:            host,
 		DatabasePath:    dbPath,
 		JWTSecret:       loadJWTSecret(dataDir),
 		InitialPassword: initialPassword,

@@ -256,3 +256,124 @@ func TestLoginDisabledSkipsSessionRequirement(t *testing.T) {
 }
 
 func boolPtr(b bool) *bool { return &b }
+
+// The reset endpoint must not be reachable with nothing but a local-looking
+// request. Behind Cloudflare Tunnel (or any reverse proxy on the same host)
+// every public request arrives from 127.0.0.1, so an unconditional local guard
+// let anyone who knew the domain clear the password and sign in with the
+// default. It now requires the current password.
+func TestAuthResetPasswordRequiresCurrentPassword(t *testing.T) {
+	_, repo, r := setupTestDashboard(t)
+
+	// A fresh test DB has no hash, so install one: the point is that an
+	// unauthenticated request cannot clear a hash that is set.
+	const initial = "$2b$10$abcdefghijklmnopqrstuv"
+	if err := repo.SetPasswordHash(initial); err != nil {
+		t.Fatalf("SetPasswordHash: %v", err)
+	}
+
+	// No body at all — the shape an attacker sends.
+	w := postJSON(t, r, "/api/dashboard/auth/reset-password", `{}`)
+	if w.Code == http.StatusOK {
+		t.Fatal("reset-password succeeded without the current password: anyone behind a proxy can take over the dashboard")
+	}
+
+	settings, err := repo.GetSettings()
+	if err != nil {
+		t.Fatalf("GetSettings: %v", err)
+	}
+	if settings.PasswordHash != initial {
+		t.Fatal("the stored password hash was cleared by an unauthenticated request")
+	}
+
+	wrong := postJSON(t, r, "/api/dashboard/auth/reset-password", `{"currentPassword":"not-the-password"}`)
+	if wrong.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401 for a wrong current password", wrong.Code)
+	}
+	settings, _ = repo.GetSettings()
+	if settings.PasswordHash != initial {
+		t.Fatal("a wrong current password still reset the hash")
+	}
+}
+
+// The reverse-proxy switches must be reachable from the dashboard, not only
+// from the environment: the whole point is to configure Cloudflare without
+// editing a unit file. Exercised through the real routes.
+func TestProxySettingsRoundTripThroughHTTP(t *testing.T) {
+	_, _, r := setupTestDashboard(t)
+
+	// Default: off, so the assertions below prove the POST changed something.
+	var before map[string]any
+	{
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, httptest.NewRequest("GET", "/api/dashboard/settings", nil))
+		if err := json.Unmarshal(w.Body.Bytes(), &before); err != nil {
+			t.Fatalf("GET /settings is not JSON: %v (%s)", err, w.Body.String())
+		}
+	}
+	if before["trustProxy"] != false || before["authCookieSecure"] != false {
+		t.Fatalf("proxy switches default to on (%v/%v); the test cannot prove a change",
+			before["trustProxy"], before["authCookieSecure"])
+	}
+	if _, ok := before["listenHost"]; !ok {
+		t.Fatal("GET /settings does not report listenHost, so the UI cannot show the bind address")
+	}
+
+	w := postJSON(t, r, "/api/dashboard/settings", `{"trustProxy":true,"authCookieSecure":true}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("POST /settings = %d: %s", w.Code, w.Body.String())
+	}
+
+	var after map[string]any
+	{
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, httptest.NewRequest("GET", "/api/dashboard/settings", nil))
+		if err := json.Unmarshal(w.Body.Bytes(), &after); err != nil {
+			t.Fatalf("GET /settings after save is not JSON: %v", err)
+		}
+	}
+	if after["trustProxy"] != true {
+		t.Error("trustProxy did not persist; the Cloudflare toggle would silently do nothing")
+	}
+	if after["authCookieSecure"] != true {
+		t.Error("authCookieSecure did not persist")
+	}
+}
+
+// A Secure cookie must actually be emitted by the login route once the setting
+// is on. Asserting the helper alone would pass even if the handler kept passing
+// the old environment-derived value.
+func TestLoginCookieIsSecureWhenSettingEnabled(t *testing.T) {
+	_, _, r := setupTestDashboard(t)
+
+	login := postJSON(t, r, "/api/dashboard/auth/login", `{"password":"123456"}`)
+	if login.Code != http.StatusOK {
+		t.Fatalf("login failed: %d", login.Code)
+	}
+	for _, c := range login.Result().Cookies() {
+		if c.Name == authCookieName && c.Secure {
+			t.Fatal("login cookie is already Secure by default; the setting is not what enabled it")
+		}
+	}
+
+	if w := postJSON(t, r, "/api/dashboard/settings", `{"authCookieSecure":true}`); w.Code != http.StatusOK {
+		t.Fatalf("enabling the setting failed: %d", w.Code)
+	}
+
+	login = postJSON(t, r, "/api/dashboard/auth/login", `{"password":"123456"}`)
+	if login.Code != http.StatusOK {
+		t.Fatalf("login after enabling failed: %d", login.Code)
+	}
+	found := false
+	for _, c := range login.Result().Cookies() {
+		if c.Name == authCookieName {
+			found = true
+			if !c.Secure {
+				t.Fatal("the login cookie is not Secure even though authCookieSecure is on")
+			}
+		}
+	}
+	if !found {
+		t.Fatal("no session cookie in the login response")
+	}
+}
