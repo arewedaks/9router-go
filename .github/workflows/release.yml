@@ -165,13 +165,15 @@ jobs:
             echo "could not read the release body after 5 attempts" >&2
             exit 1
           fi
-          python3 - "$BODY" <<'PY' > /tmp/notes.txt
-          import json, sys
-          print(json.dumps(sys.argv[1])[1:-1])
-          PY
-          echo "notes<<EOF" >> "$GITHUB_OUTPUT"
-          cat /tmp/notes.txt >> "$GITHUB_OUTPUT"
-          echo "EOF" >> "$GITHUB_OUTPUT"
+          # Store the body verbatim. Wrapping it in JSON quotes would turn real
+          # newlines into literal \n in the manifest, and the dashboard shows the
+          # notes as plain text, so the escapes would be visible to the user.
+          printf '%s\n' "$BODY" > /tmp/notes.txt
+          {
+            echo "notes<<NOTES_EOF"
+            cat /tmp/notes.txt
+            echo "NOTES_EOF"
+          } >> "$GITHUB_OUTPUT"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
