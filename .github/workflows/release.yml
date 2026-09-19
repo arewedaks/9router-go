@@ -66,13 +66,24 @@ jobs:
           esac
 
           # Previous release tag, ignoring the one being built right now.
+          #
+          # A tag is only a useful starting point when it is an ancestor of what
+          # we are building. This fork carries upstream's tags (v1.8.13…v1.8.17)
+          # on a history it has since diverged from, so diffing against one of
+          # them would list every commit since upstream, not since our last
+          # release. Fall back to the newest commits in that case.
           PREV_TAG=$(git tag --list 'v*' --sort=-version:refname | grep -vx "$TAG" | head -1)
-          if [ -n "$PREV_TAG" ]; then
+          if [ -n "$PREV_TAG" ] && git merge-base --is-ancestor "$PREV_TAG" "$RANGE_END"; then
             NOTES=$(git log --pretty=format:'- %s (%h)' --no-merges "${PREV_TAG}..${RANGE_END}")
+            TOTAL=$(printf '%s\n' "$NOTES" | grep -c . || true)
+            # A first release from a long-lived branch can carry dozens of commits;
+            # the dashboard shows these inline, so trim to the newest entries and
+            # say how many were dropped instead of dumping the whole log.
+            if [ "$TOTAL" -gt 15 ]; then
+              NOTES=$( { printf '%s\n' "$NOTES" | head -15; printf -- '- …and %d more commits since %s.\n' "$((TOTAL - 15))" "$PREV_TAG"; } )
+            fi
           else
-            # No earlier tag to diff against. On this fork the tags describe an
-            # imported upstream history, so a full log would dump dozens of
-            # unrelated commits into the release notes. Keep the newest few.
+            echo "no usable previous tag (got '${PREV_TAG:-none}'); using recent commits" >&2
             NOTES=$(git log --pretty=format:'- %s (%h)' --no-merges -n 10 "$RANGE_END")
           fi
 
