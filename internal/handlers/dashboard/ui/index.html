@@ -41,6 +41,9 @@
       position: sticky; top: 0; height: 100vh;
     }
     .sidebar-brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 1.05rem; color: #fff; padding: 6px 10px 18px; }
+    /* Rendered from the update check, so it shows the running build and not
+       whatever the page was built with. Hidden until that fetch answers. */
+    .brand-version { font-size: 0.7rem; font-weight: 600; color: var(--muted); letter-spacing: 0.3px; }
     /* Update pill — hidden unless the background check found a newer release.
        It sits directly under the brand so it is the first thing seen on open,
        and it is a button rather than a nav item because it is an action. */
@@ -597,6 +600,7 @@
   <div class="sidebar-brand">
     <span>⚡ 9Router</span>
     <span class="badge badge-go">Go</span>
+    <span class="brand-version" id="brand-version" hidden></span>
   </div>
 
   <button id="nav-update" class="update-pill" onclick="promptUpdate()" hidden
@@ -3843,7 +3847,19 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
       const st = await res.json();
       updateState = st;
       renderUpdateButton();
+      renderVersion(st);
     } catch (_) { /* a failed check must never break the dashboard */ }
+  }
+
+  // The running build, shown in the sidebar and the browser tab. Both come from
+  // the server rather than a hardcoded string so an update is visible without a
+  // rebuild of this page.
+  function renderVersion(st) {
+    const v = st && st.currentVersion;
+    if (!v) return;
+    const el = document.getElementById("brand-version");
+    if (el) { el.textContent = "v" + v; el.hidden = false; }
+    document.title = "9Router v" + v + " • AI Gateway";
   }
 
   function startUpdatePolling() {
@@ -3943,6 +3959,9 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
       const res = await fetch("/api/dashboard/auth/status");
       if (res.ok) {
         const st = await res.json();
+        // Available before sign-in, so the version shows on the login screen as
+        // well as in the signed-in dashboard.
+        renderVersion(st);
         if (st.requireLogin === false) {
           document.getElementById("login-modal").classList.remove("active");
           restoreFromHash();

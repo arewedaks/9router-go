@@ -10,6 +10,7 @@ import (
 	json "encoding/json/v2"
 
 	"9router/proxy/internal/handlerutil"
+	"9router/proxy/internal/updater"
 )
 
 // Handler fields added for dashboard auth (see auth_limiter.go / auth_session.go).
@@ -56,6 +57,13 @@ func (h *Handler) HandleAuthStatus(w http.ResponseWriter, r *http.Request) {
 	handlerutil.WriteJSON(w, http.StatusOK, map[string]any{
 		"requireLogin": requireLogin,
 		"hasPassword":  hasPassword,
+		// Reported here because this route is reachable before sign-in, so the
+		// page can show which build is running on the login screen too. The
+		// version is not sensitive: it is the release anyone can see on GitHub.
+		//
+		// Spelled currentVersion to match /api/dashboard/update/status: the UI
+		// feeds both payloads to the same renderer.
+		"currentVersion": updater.CurrentVersion,
 	})
 }
 
