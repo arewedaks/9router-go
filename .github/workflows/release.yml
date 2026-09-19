@@ -33,6 +33,18 @@ jobs:
         run: |
           # The tag is the single source of truth for a release; the VERSION file
           # is only a local convenience and must not override it.
+          #
+          # workflow_dispatch can be started from a branch, where GITHUB_REF_NAME
+          # is a branch name — publishing that as a version would produce
+          # nonsense tags and assets. Fail loudly instead.
+          case "${GITHUB_REF_NAME}" in
+            v*) ;;
+            *)
+              echo "::error::Release must run on a version tag (got '${GITHUB_REF_NAME}'). "\
+                   "Push a tag, or dispatch this workflow with --ref <tag>." >&2
+              exit 1
+              ;;
+          esac
           VERSION="${GITHUB_REF_NAME#v}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Releasing $VERSION"
@@ -45,22 +57,33 @@ jobs:
       - name: Generate changelog
         id: changelog
         run: |
+          # GITHUB_REF_NAME is a tag on a tag push but a branch name on
+          # workflow_dispatch, so it cannot be assumed to be a tag.
           TAG="${GITHUB_REF_NAME}"
-          NOTES=""
-          if [ -f CHANGELOG.md ]; then
-            NOTES=$(awk "/## \\[$TAG\\]/{flag=1; next} /## \\[v/{flag=0} flag" CHANGELOG.md)
+          case "$TAG" in
+            v*) RANGE_END="$TAG" ;;
+            *)  RANGE_END="HEAD" ;;
+          esac
+
+          # Previous release tag, ignoring the one being built right now.
+          PREV_TAG=$(git tag --list 'v*' --sort=-version:refname | grep -vx "$TAG" | head -1)
+          if [ -n "$PREV_TAG" ]; then
+            NOTES=$(git log --pretty=format:'- %s (%h)' --no-merges "${PREV_TAG}..${RANGE_END}")
+          else
+            NOTES=$(git log --pretty=format:'- %s (%h)' --no-merges -n 30 "$RANGE_END")
+          fi
+
+          # A first release from a fresh branch produces an empty range; fall back
+          # to recent history rather than publishing a release with no notes.
+          if [ -z "$NOTES" ]; then
+            NOTES=$(git log --pretty=format:'- %s (%h)' --no-merges -n 30 "$RANGE_END")
           fi
           if [ -z "$NOTES" ]; then
-            PREV_TAG=$(git tag --sort=-version:refname | grep '^v' | head -2 | tail -1)
-            if [ -z "$PREV_TAG" ] || [ "$PREV_TAG" = "${GITHUB_REF_NAME}" ]; then
-              NOTES=$(git log --pretty=format:"- %s (%h)" --no-merges)
-            else
-              NOTES=$(git log --pretty=format:"- %s (%h)" --no-merges ${PREV_TAG}..${GITHUB_REF_NAME})
-            fi
+            NOTES="No changes recorded for this release."
           fi
+
           {
-            echo "$NOTES"
-            echo ""
+            printf '%s\n\n' "$NOTES"
             echo "---"
             echo "Update from the dashboard (sidebar button) or run \`9router-go --update\`."
           } > /tmp/changelog.md
@@ -122,7 +145,6 @@ jobs:
       - name: Resolve version from tag
         id: ver
         run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
-
       - name: Fetch release notes
         id: notes
         run: |
