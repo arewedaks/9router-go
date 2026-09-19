@@ -154,21 +154,91 @@ func TestSessionPathAllowed(t *testing.T) {
 	if !sessionPathAllowed("/v1/models", nil) {
 		t.Error("empty allow-list should permit every path")
 	}
-	allowed := []string{"/api/oauth/", "/api/dashboard/", "/api/translator/", "/translator/", "/usage/", "/api/usage/"}
+	allowed := []string{"/api/oauth/", "/api/dashboard/", "/api/translator/", "/translator/", "/usage/", "/api/usage/", "/v1/models", "/models"}
 	cases := map[string]bool{
-		"/api/oauth/cline/authorize":     true,
-		"/api/oauth/github/exchange":     true,
-		"/api/dashboard/providers":       true,
-		"/api/translator/console-logs":   true,
+		"/api/oauth/cline/authorize":      true,
+		"/api/oauth/github/exchange":      true,
+		"/api/dashboard/providers":        true,
+		"/api/translator/console-logs":    true,
 		"/translator/console-logs/stream": true,
-		"/api/usage/stats":               true,
-		"/v1/models":                     false,
-		"/chat/completions":              false,
-		"/api/oauth":                     false, // no trailing slash: not a prefix match
+		"/api/usage/stats":                true,
+		// The dashboard's model pickers read the catalog through the session
+		// cookie; without this they got 401 and rendered an empty list.
+		"/v1/models":   true,
+		"/v1/models/*": true, // prefix match covers the lookup sub-route
+		// RequestLogger strips a leading "/v1" before the auth middleware runs,
+		// so the stripped spelling is the one that actually has to match.
+		"/models":           true,
+		"/chat/completions": false,
+		"/api/oauth":        false, // no trailing slash: not a prefix match
 	}
 	for path, want := range cases {
 		if got := sessionPathAllowed(path, allowed); got != want {
 			t.Errorf("sessionPathAllowed(%q) = %v, want %v", path, got, want)
 		}
+	}
+}
+
+// TestRequestLoggerStripsV1Prefix documents the path rewrite that made the
+// session allow-list miss the model catalog: by the time the auth middleware
+// runs, "/v1/models" has already become "/models". Any session path for a /v1
+// route must therefore be listed in its stripped form too.
+func TestRequestLoggerStripsV1Prefix(t *testing.T) {
+	var seen string
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = r.URL.Path
+		w.WriteHeader(http.StatusOK)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	rec := httptest.NewRecorder()
+	RequestLogger(inner).ServeHTTP(rec, req)
+
+	if seen != "/models" {
+		t.Fatalf("path seen by inner handler = %q, want %q", seen, "/models")
+	}
+}
+
+// TestRequireApiKeyWithSessionAcceptsCookieForModelCatalog pins the reported
+// regression: the combo "Add Model" picker fetches /v1/models with only the
+// dashboard session cookie, so that route must accept it or the picker shows
+// an empty list even though the server can list 600+ models.
+func TestRequireApiKeyWithSessionAcceptsCookieForModelCatalog(t *testing.T) {
+	database, cleanup := setupTestDB(t)
+	defer cleanup()
+	repo := db.NewRepo(database)
+
+	valid := func(token string) bool { return token == "good-token" }
+	// "/models" is the spelling the middleware actually observes, because
+	// RequestLogger strips the /v1 prefix first.
+	mw := RequireApiKeyWithSession(repo, valid, "/api/dashboard/", "/v1/models", "/models")
+
+	req := httptest.NewRequest(http.MethodGet, "/models", nil)
+	req.AddCookie(&http.Cookie{Name: "auth_token", Value: "good-token"})
+	rec := httptest.NewRecorder()
+	mw(okMarkerHandler()).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 for a valid session cookie on /models", rec.Code)
+	}
+
+	// A bad cookie must still be rejected: the route is browser-facing, not public.
+	req = httptest.NewRequest(http.MethodGet, "/models", nil)
+	req.AddCookie(&http.Cookie{Name: "auth_token", Value: "forged"})
+	rec = httptest.NewRecorder()
+	mw(okMarkerHandler()).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401 for a forged cookie", rec.Code)
+	}
+
+	// A chat route must stay API-key only even with a good cookie.
+	req = httptest.NewRequest(http.MethodPost, "/chat/completions", nil)
+	req.AddCookie(&http.Cookie{Name: "auth_token", Value: "good-token"})
+	rec = httptest.NewRecorder()
+	mw(okMarkerHandler()).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401 for a cookie on a chat route", rec.Code)
 	}
 }

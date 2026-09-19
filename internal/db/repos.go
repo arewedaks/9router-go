@@ -315,9 +315,9 @@ func parseJSONString(raw string) string {
 func (r *Repo) GetComboByName(name string) (*models.Combo, error) {
 	var combo models.Combo
 	err := r.db.QueryRow(
-		"SELECT id, name, kind, models, createdAt, updatedAt FROM combos WHERE name = ? LIMIT 1",
+		"SELECT id, name, kind, models, COALESCE(strategy, ''), createdAt, updatedAt FROM combos WHERE name = ? LIMIT 1",
 		name,
-	).Scan(&combo.ID, &combo.Name, &combo.Kind, &combo.Models, &combo.CreatedAt, &combo.UpdatedAt)
+	).Scan(&combo.ID, &combo.Name, &combo.Kind, &combo.Models, &combo.Strategy, &combo.CreatedAt, &combo.UpdatedAt)
 
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -325,12 +325,8 @@ func (r *Repo) GetComboByName(name string) (*models.Combo, error) {
 	if err != nil {
 		return nil, err
 	}
-	combo.Strategy = "fallback" // default
-
-	// strategy column may exist in newer DBs
-	var strat string
-	if err := r.db.QueryRow("SELECT strategy FROM combos WHERE id = ?", combo.ID).Scan(&strat); err == nil && strat != "" {
-		combo.Strategy = strat
+	if combo.Strategy == "" {
+		combo.Strategy = "fallback" // pre-strategy rows
 	}
 
 	return &combo, nil
@@ -340,15 +336,18 @@ func (r *Repo) GetComboByName(name string) (*models.Combo, error) {
 func (r *Repo) GetComboById(id string) (*models.Combo, error) {
 	var combo models.Combo
 	err := r.db.QueryRow(
-		"SELECT id, name, kind, models, createdAt, updatedAt FROM combos WHERE id = ? LIMIT 1",
+		"SELECT id, name, kind, models, COALESCE(strategy, ''), createdAt, updatedAt FROM combos WHERE id = ? LIMIT 1",
 		id,
-	).Scan(&combo.ID, &combo.Name, &combo.Kind, &combo.Models, &combo.CreatedAt, &combo.UpdatedAt)
+	).Scan(&combo.ID, &combo.Name, &combo.Kind, &combo.Models, &combo.Strategy, &combo.CreatedAt, &combo.UpdatedAt)
 
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
+	}
+	if combo.Strategy == "" {
+		combo.Strategy = "fallback" // pre-strategy rows
 	}
 	return &combo, nil
 }
@@ -411,7 +410,7 @@ func (r *Repo) GetCustomModels() ([]*CustomModel, error) {
 
 // GetCombos retrieves all combos from the database.
 func (r *Repo) GetCombos() ([]*models.Combo, error) {
-	rows, err := r.db.Query("SELECT id, name, kind, models, createdAt, updatedAt FROM combos ORDER BY createdAt ASC")
+	rows, err := r.db.Query("SELECT id, name, kind, models, COALESCE(strategy, ''), createdAt, updatedAt FROM combos ORDER BY createdAt ASC")
 	if err != nil {
 		return nil, err
 	}
@@ -420,7 +419,7 @@ func (r *Repo) GetCombos() ([]*models.Combo, error) {
 	var combos []*models.Combo
 	for rows.Next() {
 		var combo models.Combo
-		err := rows.Scan(&combo.ID, &combo.Name, &combo.Kind, &combo.Models, &combo.CreatedAt, &combo.UpdatedAt)
+		err := rows.Scan(&combo.ID, &combo.Name, &combo.Kind, &combo.Models, &combo.Strategy, &combo.CreatedAt, &combo.UpdatedAt)
 		if err != nil {
 			return nil, err
 		}

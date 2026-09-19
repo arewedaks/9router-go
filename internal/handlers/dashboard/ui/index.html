@@ -203,6 +203,21 @@
     .row-paused { opacity: 0.55; }
     .key-paused { margin: 2px 0 0; font-size: 0.72rem; color: #d29922; }
     .tag { display: inline-block; background: var(--primary-dim); color: var(--primary); border: 1px solid #1f3554; border-radius: 4px; padding: 2px 6px; font-size: 0.75rem; margin: 2px; }
+    /* Combo editor: ordered model list with reorder / remove controls. */
+    .combo-model-list { display: flex; flex-direction: column; gap: 6px; margin: 4px 0; }
+    .combo-model-row { display: flex; align-items: center; gap: 6px; background: var(--panel-hover); border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; }
+    .combo-model-idx { flex: 0 0 16px; color: var(--muted); font-size: 0.75rem; text-align: right; }
+    /* min-width:0 is what lets a flex child shrink below its content width;
+       without it a long model ID forces the row (and the modal) wider. */
+    .combo-model-name { flex: 1 1 auto; min-width: 0; font-family: monospace; font-size: 0.8rem; color: #79c0ff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .combo-model-row .btn { flex: 0 0 auto; padding: 1px 7px; line-height: 1.4; }
+    .combo-model-row .btn[disabled] { opacity: 0.3; cursor: default; }
+    .combo-picker-list { max-height: 340px; overflow-y: auto; border: 1px solid var(--border); border-radius: 6px; }
+    .combo-picker-row { display: flex; align-items: center; gap: 8px; padding: 7px 10px; cursor: pointer; border-bottom: 1px solid var(--border); }
+    .combo-picker-row:last-child { border-bottom: none; }
+    .combo-picker-row:hover { background: var(--panel-hover); }
+    /* The combo table's model chips must wrap instead of overflowing the cell. */
+    .combo-model-cell { display: flex; flex-wrap: wrap; gap: 4px; max-height: 96px; overflow-y: auto; }
     .sub-id { font-size: 0.75rem; color: var(--muted); font-family: monospace; display: block; margin-top: 2px; }
 
     /* ============================================================
@@ -1407,29 +1422,60 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
 
 <!-- ADD/EDIT COMBO MODAL -->
 <div class="modal-overlay" id="combo-modal">
-  <div class="modal-box">
+  <div class="modal-box" style="max-width: 620px;">
     <div class="section-header" style="margin-bottom: 16px;">
-      <h3 style="font-size: 1.1rem; color: #fff;">Create Model Combo Alias</h3>
+      <h3 style="font-size: 1.1rem; color: #fff;" id="combo-modal-title">Create Model Combo Alias</h3>
       <button class="btn btn-sm" onclick="closeModal('combo-modal')">✕</button>
     </div>
     <div class="form-group">
       <label>Combo Alias Name (Client requested model name)</label>
-      <input type="text" id="c-name" placeholder="e.g. claude-auto or smart-code">
+      <input type="text" id="c-name" placeholder="e.g. claude-auto or smart-code"
+             oninput="document.getElementById('c-name-err').style.display='none'">
+      <p class="hint-text" id="c-name-err" style="display:none; color:#ef4444;">
+        Only letters, numbers, <code>-</code>, <code>_</code> and <code>.</code> are allowed.
+      </p>
     </div>
     <div class="form-group">
-      <label>Target Waterfall Models (Comma separated in order)</label>
-      <textarea id="c-models" rows="3" placeholder="ag/gemini-3.8-flash-high, nv/meta/llama-3.3-70b-instruct, or/anthropic/claude-3.7-sonnet"></textarea>
+      <label>Target Models (Waterfall Priority)</label>
+      <div id="c-model-list" class="combo-model-list"></div>
+      <button class="btn btn-sm" type="button" style="margin-top: 8px;"
+              onclick="openComboModelPicker()">+ Add Model</button>
     </div>
     <div class="form-group">
       <label>Fallback Strategy</label>
-      <select id="c-strategy">
+      <select id="c-strategy" onchange="onComboStrategyChange()">
         <option value="fallback">Fallback (Failover to next model on 429/5xx)</option>
         <option value="round-robin">Round Robin (Load balance across list)</option>
+        <option value="capacity">Capacity (>200K context only, then priority)</option>
+        <option value="fusion">Fusion (Query all, judge synthesizes one answer)</option>
       </select>
+      <p class="hint-text" id="c-fusion-hint" style="display:none;">
+        The first model in the list acts as the judge that synthesizes the panel answers.
+      </p>
     </div>
     <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px;">
       <button class="btn" onclick="closeModal('combo-modal')">Cancel</button>
       <button class="btn btn-primary" onclick="saveCombo()">Save Combo</button>
+    </div>
+  </div>
+</div>
+
+<!-- COMBO MODEL PICKER MODAL -->
+<div class="modal-overlay" id="combo-model-picker">
+  <div class="modal-box" style="max-width: 560px;">
+    <div class="section-header" style="margin-bottom: 16px;">
+      <h3 style="font-size: 1.1rem; color: #fff;">Add Model to Combo</h3>
+      <button class="btn btn-sm" onclick="closeModal('combo-model-picker')">✕</button>
+    </div>
+    <div class="form-group">
+      <input type="text" id="c-picker-search" placeholder="Filter models…"
+             oninput="renderComboPicker()"
+             onkeydown="if(event.key==='Enter'){event.preventDefault();commitComboPickerSearch();}"
+             autocomplete="off">
+    </div>
+    <div id="c-picker-list" class="combo-picker-list"></div>
+    <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px;">
+      <button class="btn" onclick="closeModal('combo-model-picker')">Done</button>
     </div>
   </div>
 </div>
@@ -1460,6 +1506,9 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
   let authHasPassword = false;
   let lockCountdownTimer = null;
   let allProviders = [];
+  // Last fetched combos, so the Edit button can hydrate the modal without a
+  // second round trip.
+  let lastCombos = [];
   let currentCategory = "all";
 
   function api(url, opts = {}) {
@@ -4620,6 +4669,7 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
       const res = await api("/api/dashboard/combos");
       if (!res.ok) return;
       const combos = await res.json();
+      lastCombos = combos;
       const tbody = document.getElementById("combos-table-body");
       if (!combos.length) {
         tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--muted); padding: 24px;">No combos configured.</td></tr>`;
@@ -4629,13 +4679,13 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
         <tr>
           <td><strong style="color: #79c0ff; font-family: monospace;">${escapeHtml(c.name)}</strong></td>
           <td>
-            <div style="display: flex; flex-wrap: wrap; gap: 4px;">
-              ${(c.models || []).map((m, idx) => `<span class="tag">#${idx+1} ${escapeHtml(m)}</span>`).join("")}
+            <div class="combo-model-cell">
+              ${(c.models || []).map(m => `<span class="tag" title="${escapeAttr(m)}">${escapeHtml(m)}</span>`).join("")}
             </div>
           </td>
-          <td><span class="badge badge-dim">${escapeHtml(c.strategy || 'fallback')}</span></td>
-          <td style="color:var(--muted); font-size: 0.8rem;">${c.createdAt ? c.createdAt.substring(0, 10) : '-'}</td>
-          <td style="text-align: right;">
+          <td><span class="badge badge-dim">${escapeHtml(c.strategy || 'fallback')}</span></td>          <td style="color:var(--muted); font-size: 0.8rem;">${c.createdAt ? c.createdAt.substring(0, 10) : '-'}</td>
+          <td style="text-align: right; white-space: nowrap;">
+            <button class="btn btn-sm" onclick="editCombo('${c.id}')">Edit</button>
             <button class="btn btn-sm btn-danger" onclick="deleteCombo('${c.id}')">Delete</button>
           </td>
         </tr>
@@ -4645,27 +4695,215 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
     }
   }
 
+  // ---- Combo editor -------------------------------------------------------
+  // Combo names become client-facing model IDs (VansRouter parity), so keep
+  // them path-safe rather than letting any string through to the router.
+  const COMBO_NAME_RE = /^[a-zA-Z0-9_.\-]+$/;
+  // Mirrors the server's Strategy whitelist in dashboard.go.
+  const COMBO_STRATEGIES = new Set(["fallback", "round-robin", "capacity", "fusion"]);
+
+  // Working copy for the open modal: ["provider/model", ...] in priority order.
+  let comboModels = [];
+  let editingComboId = null;
+
   function openAddComboModal() {
+    editingComboId = null;
+    comboModels = [];
+    document.getElementById("combo-modal-title").textContent = "Create Model Combo Alias";
     document.getElementById("c-name").value = "";
-    document.getElementById("c-models").value = "";
+    document.getElementById("c-name").disabled = false;
+    document.getElementById("c-strategy").value = "fallback";
+    document.getElementById("c-name-err").style.display = "none";
+    renderComboModels();
+    onComboStrategyChange();
     document.getElementById("combo-modal").classList.add("active");
+  }
+
+  function editCombo(id) {
+    const c = lastCombos.find(x => x.id === id);
+    if (!c) return;
+    editingComboId = id;
+    comboModels = (c.models || []).slice();
+    document.getElementById("combo-modal-title").textContent = "Edit Model Combo Alias";
+    document.getElementById("c-name").value = c.name || "";
+    // Renaming is allowed (the server keys updates by id), but the name still
+    // has to satisfy COMBO_NAME_RE, so keep the input editable.
+    document.getElementById("c-name").disabled = false;
+    document.getElementById("c-strategy").value = COMBO_STRATEGIES.has(c.strategy) ? c.strategy : "fallback";
+    document.getElementById("c-name-err").style.display = "none";
+    renderComboModels();
+    onComboStrategyChange();
+    document.getElementById("combo-modal").classList.add("active");
+  }
+
+  function onComboStrategyChange() {
+    const s = document.getElementById("c-strategy").value;
+    document.getElementById("c-fusion-hint").style.display = s === "fusion" ? "block" : "none";
+  }
+
+  function renderComboModels() {
+    const box = document.getElementById("c-model-list");
+    if (!comboModels.length) {
+      box.innerHTML = `<p style="color: var(--muted); font-size: 0.85rem; margin: 4px 0;">No models yet. Add at least one.</p>`;
+      return;
+    }
+    box.innerHTML = comboModels.map((m, i) => `
+      <div class="combo-model-row">
+        <span class="combo-model-idx">${i + 1}</span>
+        <span class="combo-model-name" title="${escapeHtml(m)}">${escapeHtml(m)}</span>
+        <button class="btn btn-sm" title="Move up" ${i === 0 ? "disabled" : ""}
+                onclick="moveComboModel(${i}, -1)">↑</button>
+        <button class="btn btn-sm" title="Move down" ${i === comboModels.length - 1 ? "disabled" : ""}
+                onclick="moveComboModel(${i}, 1)">↓</button>
+        <button class="btn btn-sm btn-danger" title="Remove"
+                onclick="removeComboModel(${i})">✕</button>
+      </div>
+    `).join("");
+  }
+
+  function moveComboModel(i, delta) {
+    const j = i + delta;
+    if (j < 0 || j >= comboModels.length) return;
+    [comboModels[i], comboModels[j]] = [comboModels[j], comboModels[i]];
+    renderComboModels();
+  }
+
+  function removeComboModel(i) {
+    comboModels.splice(i, 1);
+    renderComboModels();
+  }
+
+  // Every model ID the router can actually resolve, straight from /v1/models.
+  // That endpoint is the authority (it is what clients call), it needs one
+  // request instead of one per provider, and its IDs are exactly what a combo
+  // has to reference. Cached because the catalog is large and rarely changes.
+  let comboModelCatalog = null;
+  let comboModelCatalogError = "";
+
+  async function allComboModelIds(force) {
+    if (comboModelCatalog && !force) return comboModelCatalog;
+    try {
+      // The dashboard session cookie authenticates this route (it is listed in
+      // the server's sessionPaths); the legacy API key is still sent when the
+      // operator logged in that way instead.
+      const headers = {};
+      if (authKey) headers["Authorization"] = "Bearer " + authKey;
+      const url = authKey ? "/v1/models?key=" + encodeURIComponent(authKey) : "/v1/models";
+      const res = await fetch(url, { headers });
+      if (!res.ok) {
+        comboModelCatalogError = res.status === 401
+          ? "Not signed in. Sign in to the dashboard to load the model list."
+          : "Could not load models (HTTP " + res.status + ").";
+        comboModelCatalog = [];
+        return comboModelCatalog;
+      }
+      const data = await res.json();
+      comboModelCatalogError = "";
+      comboModelCatalog = (data.data || []).map(m => m.id).filter(Boolean).sort((a, b) => a.localeCompare(b));
+    } catch (e) {
+      console.error("combo model catalog failed:", e);
+      comboModelCatalogError = "Could not load models: " + e.message;
+      comboModelCatalog = [];
+    }
+    return comboModelCatalog;
+  }
+
+  async function openComboModelPicker() {
+    document.getElementById("c-picker-search").value = "";
+    document.getElementById("c-picker-list").innerHTML = `<p style="color: var(--muted); font-size: 0.85rem; padding: 12px 0;">Loading models…</p>`;
+    document.getElementById("combo-model-picker").classList.add("active");
+    await allComboModelIds();
+    renderComboPicker();
+    document.getElementById("c-picker-search").focus();
+  }
+
+  function renderComboPicker() {
+    const raw = document.getElementById("c-picker-search").value.trim();
+    const q = raw.toLowerCase();
+    const box = document.getElementById("c-picker-list");
+    const chosen = new Set(comboModels);
+    const ids = (comboModelCatalog || []).filter(id => !q || id.toLowerCase().includes(q));
+
+    // Free-tier and custom IDs appear and disappear faster than any cached
+    // catalog, so always offer exactly what was typed when it is not listed.
+    const exact = raw && !ids.includes(raw);
+    const addRow = exact
+      ? `<div class="combo-picker-row" onclick="toggleComboModel('${escapeAttr(raw)}')">
+           <span class="msym" style="font-size:16px; color:var(--primary);">add</span>
+           <span style="font-family: monospace; font-size: 0.82rem;">Use “${escapeHtml(raw)}”</span>
+         </div>`
+      : "";
+
+    if (!ids.length && !exact) {
+      // A failed load must not look like an empty catalogue: the operator needs
+      // to know whether to retry rather than assume no models exist.
+      if (comboModelCatalogError) {
+        box.innerHTML = `<div style="padding: 12px 0;">
+            <p style="color:#ef4444; font-size:0.85rem; margin:0 0 8px;">${escapeHtml(comboModelCatalogError)}</p>
+            <button class="btn btn-sm" onclick="retryComboModelCatalog()">Retry</button>
+          </div>`;
+        return;
+      }
+      box.innerHTML = `<p style="color: var(--muted); font-size: 0.85rem; padding: 12px 0;">No models found.</p>`;
+      return;
+    }
+    // Capped: the catalog runs to hundreds of entries and rendering all of
+    // them makes the modal sluggish. Narrow with the filter to reach the rest.
+    const CAP = 300;
+    const shown = ids.slice(0, CAP);
+    box.innerHTML = addRow + shown.map(id => `
+      <div class="combo-picker-row" onclick="toggleComboModel('${escapeAttr(id)}')">
+        <span class="msym" style="font-size:16px; color:${chosen.has(id) ? "var(--primary)" : "var(--muted)"};">
+          ${chosen.has(id) ? "check_box" : "check_box_outline_blank"}
+        </span>
+        <span style="font-family: monospace; font-size: 0.82rem;">${escapeHtml(id)}</span>
+      </div>
+    `).join("") + (ids.length > CAP
+      ? `<p style="color: var(--muted); font-size: 0.75rem; padding: 8px 0;">Showing first ${CAP} of ${ids.length}. Refine the filter to see more.</p>`
+      : "");
+  }
+
+  function toggleComboModel(id) {
+    const i = comboModels.indexOf(id);
+    if (i >= 0) comboModels.splice(i, 1); else comboModels.push(id);
+    renderComboPicker();
+    renderComboModels();
+  }
+
+  // Enter on a typed model that is not (yet) in the catalog adds it verbatim.
+  function commitComboPickerSearch() {
+    const raw = document.getElementById("c-picker-search").value.trim();
+    if (!raw) return;
+    const ids = comboModelCatalog || [];
+    if (!ids.includes(raw)) toggleComboModel(raw);
+  }
+
+  // Retry drops the cache so a transient failure is recoverable without a reload.
+  async function retryComboModelCatalog() {
+    comboModelCatalog = null;
+    document.getElementById("c-picker-list").innerHTML = `<p style="color: var(--muted); font-size: 0.85rem; padding: 12px 0;">Loading models…</p>`;
+    await allComboModelIds(true);
+    renderComboPicker();
   }
 
   async function saveCombo() {
     const name = document.getElementById("c-name").value.trim();
-    const rawModels = document.getElementById("c-models").value;
     const strategy = document.getElementById("c-strategy").value;
-    const models = rawModels.split(",").map(m => m.trim()).filter(Boolean);
 
-    if (!name || !models.length) {
-      alert("Name and at least one target model required.");
+    if (!name) { alert("Combo name is required."); return; }
+    if (!COMBO_NAME_RE.test(name)) {
+      document.getElementById("c-name-err").style.display = "block";
       return;
     }
+    if (!comboModels.length) { alert("Add at least one target model."); return; }
+
+    const payload = { name, models: comboModels, strategy };
+    if (editingComboId) payload.id = editingComboId;
 
     try {
       const res = await api("/api/dashboard/combos", {
         method: "POST",
-        body: JSON.stringify({ name, models, strategy })
+        body: JSON.stringify(payload)
       });
       if (!res.ok) throw new Error(await res.text());
       closeModal("combo-modal");
@@ -4837,6 +5075,12 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
   function escapeHtml(str) {
     if (!str) return "";
     return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+
+  // Same as escapeHtml plus single quotes, for values interpolated into
+  // single-quoted inline handlers (model IDs reach onclick=... in the picker).
+  function escapeAttr(str) {
+    return escapeHtml(str).replace(/'/g, "&#39;");
   }
 
   // Enter submits the visible form, so a password manager or keyboard-only user

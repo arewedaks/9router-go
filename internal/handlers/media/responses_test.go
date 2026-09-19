@@ -68,6 +68,7 @@ func setupResponsesTestDB(t *testing.T) (*sql.DB, func()) {
 			name TEXT UNIQUE NOT NULL,
 			kind TEXT,
 			models TEXT NOT NULL,
+			strategy TEXT,
 			createdAt TEXT NOT NULL,
 			updatedAt TEXT NOT NULL
 		)`,

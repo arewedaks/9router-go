@@ -49,7 +49,7 @@ PRAGMA busy_timeout = 5000;
 		`CREATE TABLE proxyPools (id TEXT PRIMARY KEY, isActive INTEGER DEFAULT 1, testStatus TEXT, data TEXT NOT NULL, createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL)`,
 		`CREATE TABLE proxyPoolFitness (poolId TEXT NOT NULL, scope TEXT NOT NULL, until INTEGER NOT NULL, reason TEXT, createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL, PRIMARY KEY (poolId, scope))`,
 		`CREATE TABLE apiKeys (id TEXT PRIMARY KEY, key TEXT UNIQUE NOT NULL, name TEXT, machineId TEXT, isActive INTEGER DEFAULT 1, createdAt TEXT NOT NULL, allowedProviders TEXT, allowedCombos TEXT, allowedKinds TEXT)`,
-		`CREATE TABLE combos (id TEXT PRIMARY KEY, name TEXT UNIQUE NOT NULL, kind TEXT, models TEXT NOT NULL, createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL, context_length INTEGER)`,
+		`CREATE TABLE combos (id TEXT PRIMARY KEY, name TEXT UNIQUE NOT NULL, kind TEXT, models TEXT NOT NULL, strategy TEXT, createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL, context_length INTEGER)`,
 		`CREATE TABLE kv (scope TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY (scope, key))`,
 		// Not part of a backup; must survive an import.
 		`CREATE TABLE usageHistory (id INTEGER PRIMARY KEY, provider TEXT)`,

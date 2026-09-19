@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -1338,6 +1339,19 @@ func (h *Handler) HandleDeleteProvider(w http.ResponseWriter, r *http.Request) {
 	handlerutil.WriteJSON(w, http.StatusOK, map[string]any{"deleted": true, "id": id})
 }
 
+// comboNameRe mirrors VansRouter's VALID_NAME_REGEX: combo names double as
+// model IDs, so keep them path-safe.
+var comboNameRe = regexp.MustCompile(`^[a-zA-Z0-9_.\-]+$`)
+
+// comboStrategies is the set ApplyComboStrategy implements; anything else
+// silently behaves like "fallback", which is worse than rejecting it.
+var comboStrategies = map[string]bool{
+	"fallback":    true,
+	"round-robin": true,
+	"capacity":    true,
+	"fusion":      true,
+}
+
 // ComboPayload represents combo create/update request.
 type ComboPayload struct {
 	ID       string   `json:"id"`
@@ -1360,6 +1374,7 @@ func (h *Handler) HandleListCombos(w http.ResponseWriter, r *http.Request) {
 		Name      string   `json:"name"`
 		Kind      *string  `json:"kind,omitempty"`
 		Models    []string `json:"models"`
+		Strategy  string   `json:"strategy"`
 		CreatedAt string   `json:"createdAt"`
 		UpdatedAt string   `json:"updatedAt"`
 	}
@@ -1368,11 +1383,16 @@ func (h *Handler) HandleListCombos(w http.ResponseWriter, r *http.Request) {
 	for _, c := range combos {
 		var modelList []string
 		_ = json.Unmarshal([]byte(c.Models), &modelList)
+		strategy := c.Strategy
+		if strategy == "" {
+			strategy = "fallback"
+		}
 		resp = append(resp, ComboResponse{
 			ID:        c.ID,
 			Name:      c.Name,
 			Kind:      c.Kind,
 			Models:    modelList,
+			Strategy:  strategy,
 			CreatedAt: c.CreatedAt,
 			UpdatedAt: c.UpdatedAt,
 		})
@@ -1398,9 +1418,30 @@ func (h *Handler) HandleUpsertCombo(w http.ResponseWriter, r *http.Request) {
 		handlerutil.WriteJSONError(w, http.StatusBadRequest, "Combo name is required")
 		return
 	}
+	// VansRouter parity: names become client-facing model IDs, so they must
+	// stay URL/path safe. Anything else breaks routing for callers that
+	// percent-encode or glob the model name.
+	if !comboNameRe.MatchString(payload.Name) {
+		handlerutil.WriteJSONError(w, http.StatusBadRequest, "Name can only contain letters, numbers, -, _ and .")
+		return
+	}
+	if payload.Strategy == "" {
+		payload.Strategy = "fallback"
+	}
+	if !comboStrategies[payload.Strategy] {
+		handlerutil.WriteJSONError(w, http.StatusBadRequest, "Unknown strategy: "+payload.Strategy)
+		return
+	}
 
 	id := payload.ID
 	if id == "" {
+		if existing, err := h.repo.GetComboByName(payload.Name); err != nil {
+			handlerutil.WriteJSONError(w, http.StatusInternalServerError, err.Error())
+			return
+		} else if existing != nil {
+			handlerutil.WriteJSONError(w, http.StatusBadRequest, "Combo name already exists")
+			return
+		}
 		id = uuid.New().String()
 	}
 

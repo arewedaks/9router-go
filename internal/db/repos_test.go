@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"9router/proxy/internal/handlerutil"
+	"9router/proxy/internal/models"
 )
 
 func setupTestDB(t *testing.T) (*sql.DB, func()) {
@@ -55,6 +56,7 @@ func setupTestDB(t *testing.T) (*sql.DB, func()) {
 			name TEXT UNIQUE NOT NULL,
 			kind TEXT,
 			models TEXT NOT NULL,
+			strategy TEXT,
 			createdAt TEXT NOT NULL,
 			updatedAt TEXT NOT NULL
 		);`,
@@ -302,6 +304,64 @@ func TestCombos(t *testing.T) {
 	}
 	if len(combos) != 2 {
 		t.Errorf("expected 2 combos, got %d", len(combos))
+	}
+}
+
+// The dashboard could set a combo strategy but never read it back: UpsertCombo
+// dropped the column and GetCombos never selected it, so every combo silently
+// reverted to "fallback" after a restart. Guard both halves of that round trip.
+func TestComboStrategyRoundTrip(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	repo := NewRepo(db)
+	if err := repo.UpsertCombo(&models.Combo{
+		ID: "cx", Name: "combo-x", Models: `["ag/gemini-3.8-flash-high"]`, Strategy: "fusion",
+	}); err != nil {
+		t.Fatalf("UpsertCombo failed: %v", err)
+	}
+
+	got, err := repo.GetComboByName("combo-x")
+	if err != nil {
+		t.Fatalf("GetComboByName failed: %v", err)
+	}
+	if got == nil || got.Strategy != "fusion" {
+		t.Fatalf("GetComboByName lost strategy: %+v", got)
+	}
+
+	all, err := repo.GetCombos()
+	if err != nil {
+		t.Fatalf("GetCombos failed: %v", err)
+	}
+	if len(all) != 1 || all[0].Strategy != "fusion" {
+		t.Fatalf("GetCombos lost strategy: %+v", all)
+	}
+
+	// Legacy rows written before the column existed must still read back as
+	// the documented default rather than an empty string.
+	if _, err := db.Exec(`INSERT INTO combos (id, name, kind, models, createdAt, updatedAt)
+		VALUES ('c-old', 'combo-old', NULL, '[]', '2026-07-18T00:00:00Z', '2026-07-18T00:00:00Z')`); err != nil {
+		t.Fatalf("seed legacy combo: %v", err)
+	}
+	old, err := repo.GetComboByName("combo-old")
+	if err != nil {
+		t.Fatalf("GetComboByName(legacy) failed: %v", err)
+	}
+	if old == nil || old.Strategy != "fallback" {
+		t.Fatalf("legacy combo should default to fallback: %+v", old)
+	}
+}
+
+// EnsureSchema must stay idempotent: it runs on every startup, so the
+// ALTER TABLE backfill has to tolerate a database that already has the column.
+func TestEnsureSchemaBackfillIdempotent(t *testing.T) {
+	d, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	// OpenDatabase already ran the full schema once; run it again to prove the
+	// duplicate-column path is swallowed.
+	if err := EnsureSchema(d); err != nil {
+		t.Fatalf("second EnsureSchema failed: %v", err)
 	}
 }
 

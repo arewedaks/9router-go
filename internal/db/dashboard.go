@@ -488,15 +488,16 @@ func (r *Repo) UpsertCombo(c *models.Combo) error {
 	}
 	c.UpdatedAt = now
 
-	query := `INSERT INTO combos (id, name, kind, models, createdAt, updatedAt)
-		VALUES (?, ?, ?, ?, ?, ?)
+	query := `INSERT INTO combos (id, name, kind, models, strategy, createdAt, updatedAt)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			name = excluded.name,
 			kind = excluded.kind,
 			models = excluded.models,
+			strategy = excluded.strategy,
 			updatedAt = excluded.updatedAt`
 
-	_, err := r.db.Exec(query, c.ID, c.Name, c.Kind, c.Models, c.CreatedAt, c.UpdatedAt)
+	_, err := r.db.Exec(query, c.ID, c.Name, c.Kind, c.Models, c.Strategy, c.CreatedAt, c.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("upsert combo: %w", err)
 	}

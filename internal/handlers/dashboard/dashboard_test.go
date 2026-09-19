@@ -194,6 +194,54 @@ func TestDashboardCombosAndSettings(t *testing.T) {
 	}
 }
 
+func TestDashboardComboStrategyAndValidation(t *testing.T) {
+	_, _, r := setupTestDashboard(t)
+
+	post := func(payload string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest("POST", "/api/dashboard/combos", bytes.NewBufferString(payload))
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		return w
+	}
+
+	// A non-fallback strategy has to survive the write/read cycle: the list
+	// endpoint used to omit it entirely, which made the dashboard show
+	// "fallback" for every combo no matter what was saved.
+	if w := post(`{"name":"combo-fusion","models":["a/b"],"strategy":"fusion"}`); w.Code != http.StatusOK {
+		t.Fatalf("create failed: %d: %s", w.Code, w.Body.String())
+	}
+
+	req := httptest.NewRequest("GET", "/api/dashboard/combos", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("list failed: %d", w.Code)
+	}
+	var list []map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &list); err != nil {
+		t.Fatalf("unmarshal list: %v", err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("expected 1 combo, got %d: %s", len(list), w.Body.String())
+	}
+	if list[0]["strategy"] != "fusion" {
+		t.Fatalf("list dropped strategy: %v", list[0])
+	}
+
+	// Names become client-facing model IDs, so reject path-unsafe ones.
+	if w := post(`{"name":"bad name!","models":["a/b"]}`); w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for invalid name, got %d", w.Code)
+	}
+	// An unknown strategy would silently behave like fallback.
+	if w := post(`{"name":"combo-bad","models":["a/b"],"strategy":"nonsense"}`); w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for unknown strategy, got %d", w.Code)
+	}
+	// Duplicate names collide on the UNIQUE constraint; catch it up front.
+	if w := post(`{"name":"combo-fusion","models":["c/d"]}`); w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for duplicate name, got %d", w.Code)
+	}
+}
+
 func TestDashboardProviderCategorizationAndCatalog(t *testing.T) {
 	_, repo, r := setupTestDashboard(t)
 

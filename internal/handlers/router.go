@@ -220,7 +220,14 @@ func SetupServerRouter(r chi.Router, repo *db.Repo, ts *TokenSaverConfig) {
 		// only the cookie. The engine routes in this group are unaffected — they
 		// keep working with an API key exactly as before.
 		r.Use(middleware.RequireApiKeyWithSession(repo, dashH.VerifySession,
-			"/api/oauth/", "/api/dashboard/", "/api/translator/", "/translator/", "/usage/", "/api/usage/"))
+			"/api/oauth/", "/api/dashboard/", "/api/translator/", "/translator/", "/usage/", "/api/usage/",
+			// The dashboard's model pickers read the catalog to build combo and
+			// provider model lists. A password-logged-in browser holds only the
+			// httpOnly session cookie, so without these the picker calls the
+			// catalog route, gets 401, and renders an empty list. Both spellings
+			// are listed because RequestLogger strips a leading "/v1" before this
+			// middleware ever sees the path. The route is read-only.
+			"/v1/models", "/models"))
 
 		// Health reset endpoint — dashboard calls this via headroom proxy
 		r.Post("/admin/health/reset", func(w http.ResponseWriter, r *http.Request) {

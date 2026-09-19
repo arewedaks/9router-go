@@ -3,6 +3,7 @@ package db
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 )
 
 // EnsureSchema creates the tables 9Router needs if they are not present yet.
@@ -22,7 +23,23 @@ func EnsureSchema(database *sql.DB) error {
 			return fmt.Errorf("ensure schema: %w", err)
 		}
 	}
+	// Columns added after a table shipped elsewhere. SQLite has no
+	// ADD COLUMN IF NOT EXISTS, so a duplicate-column error on an already
+	// migrated database is the expected, harmless case.
+	for _, col := range extraColumns {
+		if _, err := database.Exec(col); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
+			return fmt.Errorf("ensure schema: %w", err)
+		}
+	}
 	return nil
+}
+
+// extraColumns backfills columns that exist in SchemaStatements' canonical
+// tables but were missing from databases created by earlier versions.
+var extraColumns = []string{
+	// Combo routing strategy (fallback / round-robin / capacity / fusion).
+	// Without this the dashboard could set it but never read it back.
+	`ALTER TABLE combos ADD COLUMN strategy TEXT`,
 }
 
 // SchemaStatements returns the canonical CREATE TABLE statements. It is exported
@@ -64,6 +81,7 @@ func SchemaStatements() []string {
 			name TEXT UNIQUE NOT NULL,
 			kind TEXT,
 			models TEXT NOT NULL,
+			strategy TEXT,
 			createdAt TEXT NOT NULL,
 			updatedAt TEXT NOT NULL,
 			context_length INTEGER
