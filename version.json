@@ -1,5 +1,5 @@
 {
-  "latestVersion": "1.8.18",
+  "latestVersion": "1.8.19",
   "downloadUrl": "https://github.com/arewedaks/9router-go/releases/latest",
-  "releaseNotes": "- Cap release notes and stop diffing against upstream tags (0fa3957)\n- chore(release): version.json -> v1.8.18 (a399409)\n- Keep release notes as real newlines in the manifest (bdb38f8)\n- chore(release): version.json -> v1.8.18-test.3 (9d0a39e)\n- Fix the manifest job refusing to check out the release branch (e418b48)\n- chore(release): version.json -> v1.8.18-test.2 (138ba3e)\n- Make the update button actually replace and restart the binary (9568c02)\n- chore(release): version.json -> v1.8.18-test.1 (0ded85a)\n- Fix release changelog step failing on every run (5615f6a)\n- Add an in-dashboard update button (e19ade6)\n- Point self-update at this fork's own releases (e2df826)\n- Add Cloudflare/reverse-proxy support with UI controls (73d8978)\n- Move Antigravity client profile to a provider-wide setting (7a73eb6)\n- List cached provider models and fix Cloudflare account-scoped URL (70bc38f)\n- Add combo strategy persistence and fix model catalog session auth (5859ae7)\n- \u2026and 64 more commits since v1.8.13.\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
+  "releaseNotes": "- List only models the operator actually imported (a6a05d1)\n- Show the running version in the sidebar and browser tab (7fda539)\n- chore(release): version.json -> v1.8.18 (f54f6f2)\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
 }
