@@ -181,6 +181,12 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 		dr.Get("/settings", h.HandleGetSettings)
 		dr.Post("/settings", h.HandleUpdateSettings)
 
+		// Self-update. status/check read the release source; apply replaces the
+		// running binary and restarts, so it re-checks the dashboard password.
+		dr.Get("/update/status", h.HandleUpdateStatus)
+		dr.Get("/update/check", h.HandleUpdateCheck)
+		dr.Post("/update/apply", h.HandleUpdateApply)
+
 		// Proxy pools. Read-only here: the provider-strategies picker needs to
 		// list pools by id + name, and backup preview already counts them. Pool
 		// creation stays in the deploy/import paths, so there is no POST.

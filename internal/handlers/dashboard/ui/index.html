@@ -41,6 +41,32 @@
       position: sticky; top: 0; height: 100vh;
     }
     .sidebar-brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 1.05rem; color: #fff; padding: 6px 10px 18px; }
+    /* Update pill — hidden unless the background check found a newer release.
+       It sits directly under the brand so it is the first thing seen on open,
+       and it is a button rather than a nav item because it is an action. */
+    .update-pill {
+      display: flex; align-items: center; gap: 8px; width: 100%; margin: 0 0 12px;
+      padding: 8px 10px; border-radius: var(--radius); cursor: pointer;
+      background: var(--primary-dim); border: 1px solid var(--primary); color: #fff;
+      font-weight: 600; font-size: 0.82rem; text-align: left; transition: 0.15s;
+    }
+    .update-pill[hidden] { display: none; }
+    .update-pill:hover { background: var(--primary); color: #06121f; }
+    .update-pill.is-busy { cursor: progress; opacity: 0.8; }
+    .update-dot {
+      width: 8px; height: 8px; border-radius: 50%; flex: 0 0 8px;
+      background: #3fb950; animation: update-pulse 1.8s ease-in-out infinite;
+    }
+    @keyframes update-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+    /* A release that was refused because it came from another repository is a
+       warning, not an available update: colour it so it is not mistaken for one. */
+    .update-pill.is-untrusted { background: rgba(210,153,34,0.12); border-color: #d29922; color: #d29922; }
+    .update-pill.is-untrusted .update-dot { background: #d29922; animation: none; }
+    .update-notes {
+      max-height: 220px; overflow-y: auto; white-space: pre-wrap; word-break: break-word;
+      background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius);
+      padding: 10px 12px; font-size: 0.82rem; line-height: 1.5; color: var(--muted); margin: 10px 0;
+    }
     .sidebar-nav { display: flex; flex-direction: column; gap: 2px; flex: 1; overflow-y: auto; }
     /* A faint label between groups — the list is short enough that headings
        would add noise, so only the gap plus label for the last group. */
@@ -572,6 +598,12 @@
     <span>⚡ 9Router</span>
     <span class="badge badge-go">Go</span>
   </div>
+
+  <button id="nav-update" class="update-pill" onclick="promptUpdate()" hidden
+          title="A newer version of 9router-go is available">
+    <span class="update-dot"></span>
+    <span id="nav-update-label">Update available</span>
+  </button>
 
   <nav class="sidebar-nav">
     <button class="nav-btn" id="nav-endpoint" onclick="navigateTab('endpoint')"><span class="nav-icon">🔌</span> Endpoint &amp; Key</button>
@@ -1249,6 +1281,24 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
   </script>
 
 <!-- LOGIN MODAL -->
+<div class="modal-overlay" id="update-modal">
+  <div class="modal-box" style="max-width: 520px;">
+    <h2 style="font-size: 1.15rem; margin-bottom: 4px;" id="update-modal-title">Update available</h2>
+    <p style="font-size: 0.85rem; color: var(--muted); margin-bottom: 10px;" id="update-modal-versions"></p>
+    <div class="update-notes" id="update-modal-notes"></div>
+    <div id="update-modal-warn" style="font-size: 0.8rem; color: #d29922; margin-bottom: 14px;"></div>
+    <div class="form-group" id="update-pw-group">
+      <label>Confirm your dashboard password</label>
+      <input type="password" id="update-pw" placeholder="Password" autocomplete="current-password">
+    </div>
+    <div id="update-modal-msg" style="font-size: 0.82rem; margin-bottom: 14px;"></div>
+    <div style="display: flex; gap: 10px; justify-content: flex-end;">
+      <button class="btn" id="update-cancel" onclick="closeModal('update-modal')">Cancel</button>
+      <button class="btn btn-primary" id="update-confirm" onclick="runUpdate()">Update now</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="login-modal">
   <div class="modal-box" style="max-width: 420px; text-align: center;">
     <div style="font-size: 2.2rem; margin-bottom: 12px;">⚡</div>
@@ -3746,6 +3796,148 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
     }
   }
 
+  // ----------------------------------------------------------------
+  // Self-update
+  //
+  // The sidebar button appears only when the server's background check has
+  // found a newer release. The check itself is cheap (the server caches it) but
+  // it is still a network round trip, so it runs on load, when the tab regains
+  // focus, and on a slow interval — never on a timer short enough to poll the
+  // releases API constantly.
+  // ----------------------------------------------------------------
+  const UPDATE_POLL_MS = 30 * 60 * 1000;
+  let updateState = null;
+  let updatePoll = null;
+
+  function renderUpdateButton() {
+    const btn = document.getElementById("nav-update");
+    const label = document.getElementById("nav-update-label");
+    if (!btn || !label) return;
+
+    const st = updateState;
+    if (!st) { btn.hidden = true; return; }
+
+    // A refused release is surfaced, not hidden: silently showing "up to date"
+    // when the server actually rejected an update would be a lie.
+    if (st.untrustedSource) {
+      btn.hidden = false;
+      btn.classList.add("is-untrusted");
+      label.textContent = "Update refused";
+      btn.title = st.untrustedSource;
+      return;
+    }
+    btn.classList.remove("is-untrusted");
+
+    if (!st.hasUpdate) { btn.hidden = true; btn.title = ""; return; }
+
+    btn.hidden = false;
+    label.textContent = "v" + (st.latestVersion || "?") + " available";
+    btn.title = "Update to " + (st.latestVersion || "?") + " — click for details";
+  }
+
+  async function checkForUpdate() {
+    try {
+      // The list endpoint is served from the server's cache, so this is cheap.
+      const res = await fetch("/api/dashboard/update/status", { headers: authKey ? { Authorization: "Bearer " + authKey } : {} });
+      if (!res.ok) return; // not signed in yet, or the route is absent on an older build
+      const st = await res.json();
+      updateState = st;
+      renderUpdateButton();
+    } catch (_) { /* a failed check must never break the dashboard */ }
+  }
+
+  function startUpdatePolling() {
+    if (updatePoll) return;
+    checkForUpdate();
+    updatePoll = setInterval(checkForUpdate, UPDATE_POLL_MS);
+  }
+
+  async function promptUpdate() {
+    if (updateState && updateState.untrustedSource) {
+      setMsg("update-modal-msg", "Refused: " + updateState.untrustedSource, false);
+      document.getElementById("update-modal-title").textContent = "Update refused";
+      document.getElementById("update-modal-versions").textContent =
+        "The advertised download does not come from a trusted repository, so it was not installed.";
+      document.getElementById("update-modal-notes").textContent = "";
+      document.getElementById("update-modal-warn").textContent = "";
+      document.getElementById("update-pw-group").style.display = "none";
+      document.getElementById("update-confirm").style.display = "none";
+      document.getElementById("update-modal").classList.add("active");
+      return;
+    }
+
+    // Re-check before showing details: the cached state may be half an hour old.
+    try {
+      const res = await fetch("/api/dashboard/update/check", { headers: authKey ? { Authorization: "Bearer " + authKey } : {} });
+      if (res.ok) { updateState = await res.json(); renderUpdateButton(); }
+    } catch (_) { /* fall back to the cached state below */ }
+
+    const st = updateState || {};
+    document.getElementById("update-modal-title").textContent = "Update to " + (st.latestVersion || "?");
+    document.getElementById("update-modal-versions").textContent =
+      "Current " + (st.currentVersion || "?") + " → " + (st.latestVersion || "?");
+    document.getElementById("update-modal-notes").textContent = st.releaseNotes || "(no release notes)";
+    setMsg("update-modal-msg", "", true);
+    document.getElementById("update-modal-warn").textContent =
+      "The server restarts to apply the update. Requests in flight will be dropped.";
+    document.getElementById("update-pw-group").style.display = "";
+    document.getElementById("update-pw").value = "";
+    document.getElementById("update-confirm").style.display = "";
+    document.getElementById("update-confirm").disabled = false;
+    document.getElementById("update-confirm").textContent = "Update now";
+    document.getElementById("update-modal").classList.add("active");
+  }
+
+  async function runUpdate() {
+    const btn = document.getElementById("update-confirm");
+    const pill = document.getElementById("nav-update");
+    const pw = (document.getElementById("update-pw") || {}).value || "";
+    if (!pw) {
+      setMsg("update-modal-msg", "Enter your dashboard password to confirm.", false);
+      return;
+    }
+    btn.disabled = true;
+    btn.textContent = "Updating…";
+    if (pill) pill.classList.add("is-busy");
+    setMsg("update-modal-msg", "Downloading and verifying the new binary…", true);
+
+    try {
+      const res = await api("/api/dashboard/update/apply", {
+        method: "POST",
+        headers: { "x-9r-password": pw },
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const m = res.status === 401 ? "That password is not correct." : errorMessage(body, "update failed");
+        setMsg("update-modal-msg", m, false);
+        btn.disabled = false;
+        btn.textContent = "Update now";
+        if (pill) pill.classList.remove("is-busy");
+        return;
+      }
+    } catch (e) {
+      // The process may die mid-response as it restarts, which is expected.
+    }
+
+    setMsg("update-modal-msg", "Update installed. Waiting for the server to come back…", true);
+    await waitForServerThenReload();
+  }
+
+  // The server replaces its own binary and restarts, so the only reliable
+  // completion signal is the health endpoint answering again.
+  async function waitForServerThenReload() {
+    const deadline = Date.now() + 90000;
+    await new Promise(r => setTimeout(r, 1500)); // let the old process die first
+    while (Date.now() < deadline) {
+      try {
+        const res = await fetch("/health", { cache: "no-store" });
+        if (res.ok) { location.reload(); return; }
+      } catch (_) { /* still restarting */ }
+      await new Promise(r => setTimeout(r, 1000));
+    }
+    setMsg("update-modal-msg", "Server did not come back within 90s. Reload the page manually to check.", false);
+  }
+
   async function checkAuth() {
     try {
       const res = await fetch("/api/dashboard/auth/status");
@@ -3754,6 +3946,7 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
         if (st.requireLogin === false) {
           document.getElementById("login-modal").classList.remove("active");
           restoreFromHash();
+          startUpdatePolling();
           return;
         }
         authHasPassword = !!st.hasPassword;
@@ -3770,6 +3963,7 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
         if (s.authenticated) {
           document.getElementById("login-modal").classList.remove("active");
           restoreFromHash();
+          startUpdatePolling();
           return;
         }
       }
@@ -3786,6 +3980,7 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
         if (res.ok) {
           document.getElementById("login-modal").classList.remove("active");
           restoreFromHash();
+          startUpdatePolling();
           return;
         }
       } catch (e) { /* ignore, show login */ }
@@ -3859,6 +4054,7 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
         document.getElementById("login-reset-hint").style.display = "none";
         document.getElementById("login-modal").classList.remove("active");
         restoreFromHash();
+        startUpdatePolling();
         return;
       }
       setLoginError(errorMessage(data, res.status));
@@ -3906,6 +4102,7 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
         localStorage.setItem("nine_api_key", key);
         document.getElementById("login-modal").classList.remove("active");
         restoreFromHash();
+        startUpdatePolling();
       } else {
         setLoginError("Invalid or inactive API key");
       }
@@ -6465,7 +6662,12 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
   // Coming back to a tab should not wait out the interval: the operator
   // returned precisely because they want current numbers.
   document.addEventListener("visibilitychange", () => {
-    if (!document.hidden && usageTabVisible()) refreshUsage(true);
+    if (!document.hidden) {
+      if (usageTabVisible()) refreshUsage(true);
+      // Returning to the tab is the moment an update is most likely to have
+      // been published while the operator was away.
+      if (updatePoll) checkForUpdate();
+    }
   });
   window.addEventListener("focus", () => {
     if (usageTabVisible()) refreshUsage(true);

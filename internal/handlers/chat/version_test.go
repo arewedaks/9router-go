@@ -83,7 +83,7 @@ func TestHandleCheckUpdate_Mock(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		manifest := map[string]any{
 			"latestVersion": "9.9.9",
-			"downloadUrl":   "https://example.com/download",
+			"downloadUrl":   "https://github.com/arewedaks/9router-go/releases/download/v9.9.9/9router-go-linux-amd64",
 			"releaseNotes":  "Test release notes",
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -115,7 +115,7 @@ func TestHandleTriggerUpdate_UpToDate(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		manifest := map[string]any{
 			"latestVersion": updater.CurrentVersion,
-			"downloadUrl":   "https://example.com/download",
+			"downloadUrl":   "https://github.com/arewedaks/9router-go/releases/download/v9.9.9/9router-go-linux-amd64",
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.MarshalWrite(w, manifest)
