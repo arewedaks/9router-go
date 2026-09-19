@@ -3,6 +3,7 @@ package db
 import (
 	json "encoding/json/v2"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -197,6 +198,110 @@ func (r *Repo) ListCachedModels(keys ...string) ([]CachedModel, error) {
 			return nil, fmt.Errorf("scan cached model: %w", err)
 		}
 		m.DisplayName = decodeModelCacheName(m.Capabilities)
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}
+
+// ListCachedModelsForDashboard returns the imported models for one provider,
+// merging both stores an import can land in.
+//
+// AddCachedModel writes cachedProviderModels, but a database restored from the
+// Next.js build carries its catalogue in kv scope customModels under
+// "<provider>|<model>|<kind>". Only the first was read by the provider detail
+// page, so a provider whose 72 models lived in customModels rendered an empty
+// Models tab while /v1/models — which reads customModels — listed all 72.
+//
+// The merge lives here rather than in ListCachedModels because that one is also
+// used by /v1/models, where widening the result would list the same model twice
+// under a provider's canonical id and its alias.
+func (r *Repo) ListCachedModelsForDashboard(keys ...string) ([]CachedModel, error) {
+	out, err := r.ListCachedModels(keys...)
+	if err != nil {
+		return nil, err
+	}
+	seen := make(map[string]bool, len(out))
+	for _, m := range out {
+		seen[m.ModelID] = true
+	}
+
+	custom, err := r.customModelsFor(keys)
+	if err != nil {
+		return nil, err
+	}
+	for _, m := range custom {
+		if seen[m.ModelID] {
+			continue
+		}
+		seen[m.ModelID] = true
+		out = append(out, m)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ModelID < out[j].ModelID })
+	return out, nil
+}
+
+// customModelsFor returns the kv scope customModels rows belonging to any of
+// the given provider keys, in the same shape as cachedProviderModels. The scope
+// stores every provider's models in one table, so the provider prefix is part of
+// the key and has to be matched here rather than with an IN clause.
+func (r *Repo) customModelsFor(keys []string) ([]CachedModel, error) {
+	if len(keys) == 0 {
+		return nil, nil
+	}
+	prefixes := make([]string, 0, len(keys))
+	for _, k := range keys {
+		if k != "" {
+			prefixes = append(prefixes, k+"|")
+		}
+	}
+	if len(prefixes) == 0 {
+		return nil, nil
+	}
+
+	q := "SELECT key, COALESCE(value,'') FROM kv WHERE scope = 'customModels'"
+	rows, err := r.db.Query(q)
+	if err != nil {
+		return nil, fmt.Errorf("query custom models: %w", err)
+	}
+	defer rows.Close()
+
+	var out []CachedModel
+	for rows.Next() {
+		var key, raw string
+		if err := rows.Scan(&key, &raw); err != nil {
+			return nil, fmt.Errorf("scan custom model: %w", err)
+		}
+		matched := false
+		for _, p := range prefixes {
+			if strings.HasPrefix(key, p) {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			continue
+		}
+
+		parts := strings.Split(key, "|")
+		if len(parts) < 2 || parts[1] == "" {
+			continue
+		}
+		m := CachedModel{ModelID: parts[1], Kind: "llm", OwnedBy: parts[0]}
+		if len(parts) >= 3 && parts[2] != "" {
+			m.Kind = parts[2]
+		}
+		if raw != "" {
+			var cm CustomModel
+			if err := json.Unmarshal([]byte(raw), &cm); err == nil {
+				if cm.ID != "" {
+					m.ModelID = cm.ID
+				}
+				if cm.Type != "" {
+					m.Kind = cm.Type
+				}
+				m.DisplayName = cm.Name
+			}
+		}
 		out = append(out, m)
 	}
 	return out, rows.Err()

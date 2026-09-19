@@ -839,7 +839,7 @@ func (h *Handler) HandleProviderDetail(w http.ResponseWriter, r *http.Request) {
 	if raw != canonical {
 		keys = append(keys, providers.AliasesFor(raw)...)
 	}
-	models, err := h.repo.ListCachedModels(keys...)
+	models, err := h.repo.ListCachedModelsForDashboard(keys...)
 	if err == nil && len(models) > 0 {
 		// Free-ness is a property of the (provider, model) pair, so it is
 		// computed here rather than in the Repo: see providers.IsModelFreeBadge.
