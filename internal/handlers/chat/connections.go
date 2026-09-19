@@ -191,6 +191,13 @@ func (h *ChatHandler) getProviderConfig(provider string, connData *ConnectionDat
 				AuthScheme: constants.AuthSchemeBearer,
 			}
 		}
+	} else if baseURL := providers.AccountScopedBaseURL(provider, connData.ProviderSpecificData); baseURL != "" {
+		// Cloudflare Workers AI puts the account id in the URL path, so its base
+		// URL is per-connection and cannot live in the static registry. Without
+		// this the request went to /accounts//ai/v1/chat/completions and 404ed.
+		cloned := providers.KnownProviders[provider]
+		cloned.BaseURL = baseURL
+		baseCfg = &cloned
 	} else if cfg, ok := providers.KnownProviders[provider]; ok {
 		// Clone config so per-request headers don't mutate global registry
 		cloned := cfg

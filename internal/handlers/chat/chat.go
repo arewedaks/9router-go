@@ -394,6 +394,15 @@ func (h *ChatHandler) buildModelsList() []ModelInfoObject {
 			if len(modelList) == 0 {
 				modelList = connData.EnabledModels
 			}
+			// Models imported through the dashboard ("Import from /models") land in
+			// cachedProviderModels and used to be invisible here: the list fell
+			// back to the static registry, so a provider whose live catalogue is
+			// richer than the registry — Cloudflare Workers AI, 65 against 24 —
+			// advertised only the registry subset even after a successful import.
+			// Prefer the cache when it has rows for this provider.
+			if len(modelList) == 0 {
+				modelList = h.cachedModelIDs(provID, outputAlias)
+			}
 			if len(modelList) == 0 && !strings.HasPrefix(provID, "openai-compatible-") && !strings.HasPrefix(provID, "anthropic-compatible-") {
 				modelList = providers.GetProviderModels(outputAlias)
 				if len(modelList) == 0 {
@@ -663,6 +672,43 @@ func (h *ChatHandler) nodePrefixByID() map[string]string {
 //
 // Including ProviderAliasMap is load-bearing: `gh`, `oc`, `cl` and `cbai` are
 // aliases, not connections, and their models must keep being listed.
+// cachedModelIDs returns the model ids imported for a provider, looked up under
+// both the canonical id and its alias because the dashboard keys the cache by
+// whichever spelling the import used (Cloudflare's live list is stored as "cf"
+// while the connection's provider id is "cloudflare-ai").
+//
+// Returns nil when the cache is empty, so callers keep their registry fallback.
+func (h *ChatHandler) cachedModelIDs(provID, outputAlias string) []string {
+	if h.Repo == nil {
+		return nil
+	}
+	keys := []string{provID}
+	if outputAlias != "" && outputAlias != provID {
+		keys = append(keys, outputAlias)
+	}
+	if canon := providers.ResolveAlias(provID); canon != "" && canon != provID {
+		keys = append(keys, canon)
+	}
+	if canon := providers.ResolveAlias(outputAlias); canon != "" && canon != outputAlias {
+		keys = append(keys, canon)
+	}
+
+	cached, err := h.Repo.ListCachedModels(keys...)
+	if err != nil || len(cached) == 0 {
+		return nil
+	}
+	ids := make([]string, 0, len(cached))
+	seen := make(map[string]bool, len(cached))
+	for _, m := range cached {
+		if m.ModelID == "" || seen[m.ModelID] {
+			continue
+		}
+		seen[m.ModelID] = true
+		ids = append(ids, m.ModelID)
+	}
+	return ids
+}
+
 func (h *ChatHandler) aliveAliases() map[string]bool {
 	alive := map[string]bool{}
 	for k := range providers.KnownProviders {

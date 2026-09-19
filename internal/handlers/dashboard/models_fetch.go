@@ -220,6 +220,14 @@ func (h *Handler) fetchUpstreamModels(providerID, data string, timeout time.Dura
 		return h.fetchClineModels(providerID, data, timeout)
 	}
 
+	// Cloudflare Workers AI has no /models route: its catalogue lives at
+	// /accounts/{accountId}/ai/models/search, which needs the account id in the
+	// path and paginates. The registry branch below cannot express either, and
+	// VansRouter's derived URL answers 405. See cloudflare_catalog.go.
+	if isCloudflareProvider(canonical) || isCloudflareProvider(providerID) {
+		return h.fetchCloudflareModels(providerID, data, timeout)
+	}
+
 	client := &http.Client{Timeout: timeout}
 
 	// Branch 1 & 2: user-defined compatible endpoints need a base URL.

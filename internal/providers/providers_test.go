@@ -18,8 +18,13 @@ func TestKnownProviders_HasExpectedEntries(t *testing.T) {
 			t.Errorf("expected KnownProviders to contain %q", p)
 			continue
 		}
-		if cfg.BaseURL == "" {
+		// Cloudflare's URL carries the account id, so it is built per connection
+		// by AccountScopedBaseURL and the registry entry is deliberately blank.
+		if cfg.BaseURL == "" && !accountScopedProviders[p] {
 			t.Errorf("provider %q missing BaseURL", p)
+		}
+		if accountScopedProviders[p] && cfg.BaseURL != "" {
+			t.Errorf("provider %q is account-scoped; its registry BaseURL must stay empty", p)
 		}
 		if cfg.AuthHeader == "" {
 			t.Errorf("provider %q missing AuthHeader", p)
@@ -159,4 +164,3 @@ func TestNewProvidersRegistry_v059(t *testing.T) {
 		t.Errorf("expected grok-4.6 to have reasoning and search, got %+v", grokCaps)
 	}
 }
-

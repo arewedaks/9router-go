@@ -2,7 +2,8 @@ package providers
 
 import (
 	"net/http"
-	"os"
+	"net/url"
+	"strings"
 )
 
 // ProviderConfig describes how to reach an upstream provider.
@@ -145,7 +146,11 @@ var KnownProviders = map[string]ProviderConfig{
 		AuthScheme: "bearer",
 	},
 	"cloudflare-ai": {
-		BaseURL:    "https://api.cloudflare.com/client/v4/accounts/" + os.Getenv("CLOUDFLARE_ACCOUNT_ID") + "/ai/v1/chat/completions",
+		// Workers AI needs the account id in the path, so the real URL is built
+		// per connection by providers.AccountScopedBaseURL; this placeholder only
+		// keeps auth metadata in one place. It must not look usable, or a missing
+		// account id would silently send requests to a bogus host.
+		BaseURL:    "",
 		AuthHeader: "Authorization",
 		AuthScheme: "bearer",
 	},
@@ -356,7 +361,7 @@ var KnownProviders = map[string]ProviderConfig{
 		StaticHeaders: map[string]string{
 			"User-Agent":             "commandcode/0.25.7 (cli)",
 			"x-command-code-version": "0.25.7",
-			"x-cli-environment":     "cli",
+			"x-cli-environment":      "cli",
 		},
 	},
 	"ollama-local": {
@@ -379,13 +384,13 @@ var KnownProviders = map[string]ProviderConfig{
 		AuthHeader: "x-api-key",
 		AuthScheme: "raw",
 		StaticHeaders: map[string]string{
-			"anthropic-version":                        "2023-06-01",
-			"Anthropic-Beta":                           "claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,prompt-caching-scope-2026-01-05,advanced-tool-use-2025-11-20,effort-2025-11-24,structured-outputs-2025-12-15,fast-mode-2026-02-01,redact-thinking-2026-02-12,token-efficient-tools-2026-03-28",
+			"anthropic-version":                         "2023-06-01",
+			"Anthropic-Beta":                            "claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,prompt-caching-scope-2026-01-05,advanced-tool-use-2025-11-20,effort-2025-11-24,structured-outputs-2025-12-15,fast-mode-2026-02-01,redact-thinking-2026-02-12,token-efficient-tools-2026-03-28",
 			"Anthropic-Dangerous-Direct-Browser-Access": "true",
-			"User-Agent":                               "claude-cli/2.1.258 (external, sdk-cli)",
-			"X-App":                                    "cli",
-			"X-Stainless-Helper-Method":                "stream",
-			"X-Stainless-Retry-Count":                  "0",
+			"User-Agent":                                "claude-cli/2.1.258 (external, sdk-cli)",
+			"X-App":                                     "cli",
+			"X-Stainless-Helper-Method":                 "stream",
+			"X-Stainless-Retry-Count":                   "0",
 		},
 	},
 	"codex": {
@@ -404,54 +409,54 @@ var KnownProviders = map[string]ProviderConfig{
 	},
 	"kiro": {
 		BaseURL:    "https://q.us-east-1.amazonaws.com/generateAssistantResponse",
-			AuthHeader: "Authorization",
-			AuthScheme: "bearer",
-		},
-		"elevenlabs": {
-			BaseURL:    "https://api.elevenlabs.io",
-			AuthHeader: "xi-api-key",
-			AuthScheme: "raw",
-			TTSURL:     "https://api.elevenlabs.io/v1/text-to-speech",
-			VoicesURL:  "https://api.elevenlabs.io/v1/voices",
-		},
-		"deepgram": {
-			BaseURL:    "https://api.deepgram.com",
-			AuthHeader: "token",
-			AuthScheme: "raw",
-			STTURL:     "https://api.deepgram.com/v1/listen",
-		},
-		"assemblyai": {
-			BaseURL:    "https://api.assemblyai.com",
-			AuthHeader: "Authorization",
-			AuthScheme: "raw",
-			STTURL:     "https://api.assemblyai.com/v2/transcript",
-		},
-		"stability-ai": {
-			BaseURL:    "https://api.stability.ai",
-			AuthHeader: "Authorization",
-			AuthScheme: "bearer",
-			ImageURL:   "https://api.stability.ai/v2beta/stable-image/generate",
-		},
-		"black-forest-labs": {
-			BaseURL:    "https://api.bfl.ai",
-			AuthHeader: "Authorization",
-			AuthScheme: "bearer",
-			ImageURL:   "https://api.bfl.ai/v1",
-		},
-		"fal-ai": {
-			BaseURL:    "https://queue.fal.run",
-			AuthHeader: "Authorization",
-			AuthScheme: "bearer",
-			ImageURL:   "https://queue.fal.run",
-		},
-		"recraft": {
-			BaseURL:       "https://external.api.recraft.ai",
-			AuthHeader:    "Authorization",
-			AuthScheme:    "bearer",
-			DefaultAPIKey: "public",
-			ImageURL:      "https://external.api.recraft.ai/v1/images/generations",
-		},
-		"azure": {
+		AuthHeader: "Authorization",
+		AuthScheme: "bearer",
+	},
+	"elevenlabs": {
+		BaseURL:    "https://api.elevenlabs.io",
+		AuthHeader: "xi-api-key",
+		AuthScheme: "raw",
+		TTSURL:     "https://api.elevenlabs.io/v1/text-to-speech",
+		VoicesURL:  "https://api.elevenlabs.io/v1/voices",
+	},
+	"deepgram": {
+		BaseURL:    "https://api.deepgram.com",
+		AuthHeader: "token",
+		AuthScheme: "raw",
+		STTURL:     "https://api.deepgram.com/v1/listen",
+	},
+	"assemblyai": {
+		BaseURL:    "https://api.assemblyai.com",
+		AuthHeader: "Authorization",
+		AuthScheme: "raw",
+		STTURL:     "https://api.assemblyai.com/v2/transcript",
+	},
+	"stability-ai": {
+		BaseURL:    "https://api.stability.ai",
+		AuthHeader: "Authorization",
+		AuthScheme: "bearer",
+		ImageURL:   "https://api.stability.ai/v2beta/stable-image/generate",
+	},
+	"black-forest-labs": {
+		BaseURL:    "https://api.bfl.ai",
+		AuthHeader: "Authorization",
+		AuthScheme: "bearer",
+		ImageURL:   "https://api.bfl.ai/v1",
+	},
+	"fal-ai": {
+		BaseURL:    "https://queue.fal.run",
+		AuthHeader: "Authorization",
+		AuthScheme: "bearer",
+		ImageURL:   "https://queue.fal.run",
+	},
+	"recraft": {
+		BaseURL:       "https://external.api.recraft.ai",
+		AuthHeader:    "Authorization",
+		AuthScheme:    "bearer",
+		DefaultAPIKey: "public",
+		ImageURL:      "https://external.api.recraft.ai/v1/images/generations",
+	},
+	"azure": {
 		BaseURL:    "",
 		AuthHeader: "api-key",
 		AuthScheme: "raw",
@@ -598,42 +603,42 @@ var KnownProviders = map[string]ProviderConfig{
 		AuthHeader: "Authorization",
 		AuthScheme: "bearer",
 	},
-	
+
 	"sdwebui": {
-		BaseURL:    "http://localhost:7860/sdapi/v1/txt2img",
-		NoAuth:     true,
-		ImageURL:   "http://localhost:7860/sdapi/v1/txt2img",
+		BaseURL:  "http://localhost:7860/sdapi/v1/txt2img",
+		NoAuth:   true,
+		ImageURL: "http://localhost:7860/sdapi/v1/txt2img",
 	},
 	"searxng": {
-		BaseURL:    "http://localhost:4000/search",
-		NoAuth:     true,
+		BaseURL: "http://localhost:4000/search",
+		NoAuth:  true,
 	},
 	"comfyui": {
-		BaseURL:    "http://localhost:8188",
-		NoAuth:     true,
-		ImageURL:   "http://localhost:8188",
+		BaseURL:  "http://localhost:8188",
+		NoAuth:   true,
+		ImageURL: "http://localhost:8188",
 	},
 	"tortoise": {
-		BaseURL:    "http://localhost:5000/api/tts",
-		NoAuth:     true,
-		TTSURL:     "http://localhost:5000/api/tts",
+		BaseURL: "http://localhost:5000/api/tts",
+		NoAuth:  true,
+		TTSURL:  "http://localhost:5000/api/tts",
 	},
 	"coqui": {
-		BaseURL:    "http://localhost:5002/api/tts",
-		NoAuth:     true,
-		TTSURL:     "http://localhost:5002/api/tts",
+		BaseURL: "http://localhost:5002/api/tts",
+		NoAuth:  true,
+		TTSURL:  "http://localhost:5002/api/tts",
 	},
 	"edge-tts": {
-		BaseURL:    "",
-		NoAuth:     true,
+		BaseURL: "",
+		NoAuth:  true,
 	},
 	"google-tts": {
-		BaseURL:    "",
-		NoAuth:     true,
+		BaseURL: "",
+		NoAuth:  true,
 	},
 	"local-device": {
-		BaseURL:    "",
-		NoAuth:     true,
+		BaseURL: "",
+		NoAuth:  true,
 	},
 	"topaz": {
 		BaseURL:    "https://api.topaz.sh",
@@ -762,4 +767,38 @@ var RetryableStatusCodes = map[int]bool{
 	http.StatusBadGateway:         true, // 502
 	http.StatusServiceUnavailable: true, // 503
 	http.StatusGatewayTimeout:     true, // 504
+}
+
+// accountScopedProviders are providers whose upstream URL contains a value that
+// only exists on the connection, not in the static registry.
+var accountScopedProviders = map[string]bool{
+	"cloudflare-ai": true,
+}
+
+// AccountScopedBaseURL builds a provider's base URL from connection-scoped
+// data, returning "" when the provider does not need one or the data is
+// missing. extraJSON is the connection's providerSpecificData as decoded
+// key/value pairs.
+//
+// Cloudflare Workers AI is the reason this exists: its chat endpoint is
+// /accounts/{accountId}/ai/v1/chat/completions, so the account id is part of the
+// path. The registry used to build that URL from the CLOUDFLARE_ACCOUNT_ID
+// environment variable, which is empty in a normal install — the request then
+// went to /accounts//ai/... and 404ed even though the operator had already
+// stored the account id on the connection.
+func AccountScopedBaseURL(provider string, specific map[string]any) string {
+	if !accountScopedProviders[provider] || specific == nil {
+		return ""
+	}
+	accountID := ""
+	for _, k := range []string{"accountId", "account_id", "accountID"} {
+		if v, ok := specific[k].(string); ok && strings.TrimSpace(v) != "" {
+			accountID = strings.TrimSpace(v)
+			break
+		}
+	}
+	if accountID == "" {
+		return ""
+	}
+	return "https://api.cloudflare.com/client/v4/accounts/" + url.PathEscape(accountID) + "/ai/v1/chat/completions"
 }
