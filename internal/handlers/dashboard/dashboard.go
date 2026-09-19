@@ -156,8 +156,10 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 		dr.Post("/providers/{id}/toggle", h.HandleToggleProvider)
 		dr.Delete("/providers/{id}", h.HandleDeleteProvider)
 
-		// Antigravity client profile (ide|cli) per connection.
-		dr.Post("/connections/{id}/client-profile", h.HandleSetClientProfile)
+		// Antigravity presents one client identity ("ide" or "cli") for the whole
+		// provider. It is a setting, not a per-account property: the identity says
+		// which official client we imitate, which is the same for every account.
+		dr.Post("/settings/antigravity-profile", h.HandleSetAntigravityClientProfile)
 
 		// Connection test (per-account) — mirrors upstream
 		// POST /api/providers/[id]/test and POST /api/providers/test-batch.
@@ -429,9 +431,10 @@ type ProviderSummary struct {
 	IsEffectivelyActive bool   `json:"isEffectivelyActive"`
 	HasActiveCooldown   bool   `json:"hasActiveCooldown,omitempty"`
 
-	// ClientProfile is the selected Antigravity client identity ("ide" or
-	// "cli") for Antigravity connections; empty for other providers.
-	ClientProfile string `json:"clientProfile,omitempty"`
+	// ClientProfile is no longer reported per connection: the Antigravity client
+	// identity is a provider-wide setting (see
+	// HandleSetAntigravityClientProfile), so a per-account value would be a second
+	// source of truth the router does not consult.
 
 	// NoConnection marks a card synthesised for a registry provider that needs no
 	// credential (see providers.NoAuthProviders) and therefore has no connection
@@ -808,9 +811,6 @@ func (h *Handler) HandleProviderDetail(w http.ResponseWriter, r *http.Request) {
 			EffectiveStatus:     providers.EffectiveStatusWithError(c.IsActive, acct.TestStatus, acct.HasActiveCooldown, acct.LastError),
 			IsEffectivelyActive: providers.IsEffectivelyActiveWithError(c.IsActive, acct.TestStatus, acct.HasActiveCooldown, acct.LastError),
 			HasActiveCooldown:   acct.HasActiveCooldown,
-		}
-		if isAntigravityProvider(c.Provider) {
-			sum.ClientProfile = string(antigravityClientProfileFromData(c.Data))
 		}
 		applyProviderMeta(&sum, m, hasMeta)
 		if providers.IsGeneratedNodeID(c.Provider) {
@@ -1574,6 +1574,9 @@ func (h *Handler) HandleGetSettings(w http.ResponseWriter, r *http.Request) {
 		"ponytailLevel":         h.tokenSaver.PonytailLevel(),
 		"injectionGuardEnabled": h.tokenSaver.InjectionGuardEnabled(),
 		"autoUpdate":            s.AutoUpdate,
+		// The provider-wide Antigravity client identity. Normalized to a concrete
+		// value so the UI dropdown always has a valid selection to render.
+		"antigravityClientProfile": string(providers.NormalizeAntigravityClientProfile(s.AntigravityClientProfile)),
 		// providerStrategies drives proxy routing for no-auth/free providers.
 		// Normalized to an object so the UI never has to null-check.
 		"providerStrategies": providerStrategiesOrEmpty(s.ProviderStrategies),
@@ -1621,6 +1624,9 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		PonytailLevel         *string `json:"ponytailLevel"`
 		InjectionGuardEnabled *bool   `json:"injectionGuardEnabled"`
 		AutoUpdate            *bool   `json:"autoUpdate"`
+		// AntigravityClientProfile is the provider-wide client identity. Accepted
+		// here as well so the settings form can save everything in one request.
+		AntigravityClientProfile *string `json:"antigravityClientProfile"`
 		// providerStrategies is a full-replace map keyed by provider id, matching
 		// VansRouter's PATCH /api/settings behavior. An entry with no fields left
 		// set is dropped so the settings blob stays clean.
@@ -1664,6 +1670,13 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.AutoUpdate != nil {
 		s.AutoUpdate = *req.AutoUpdate
+	}
+	if req.AntigravityClientProfile != nil {
+		if !providers.IsAntigravityClientProfile(*req.AntigravityClientProfile) {
+			handlerutil.WriteJSONError(w, http.StatusBadRequest, `antigravityClientProfile must be "ide" or "cli"`)
+			return
+		}
+		s.AntigravityClientProfile = string(providers.NormalizeAntigravityClientProfile(*req.AntigravityClientProfile))
 	}
 	if req.ProviderStrategies != nil {
 		// providerStrategies arrives as the operator's complete view of the map,

@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"9router/proxy/internal/providers"
 )
 
 // Antigravity (Google Cloud Code "cloudcode-pa") does not expose a plain
@@ -42,8 +44,7 @@ var antigravityDiscoveryHosts = []string{
 
 // antigravityUserAgent is the default IDE User-Agent used only as a last-resort
 // fallback. The canonical builder lives in the providers package
-// (AntigravityUserAgent), which knows about the ide|cli client profiles; prefer
-// antigravityUserAgentForData so a connection's chosen profile is honoured.
+// (AntigravityUserAgent), which knows about the ide|cli client profiles.
 const antigravityUserAgent = "antigravity/ide/2.11.0 darwin/arm64"
 
 // antigravityNonChatModelIDs are catalogue entries that are not user-callable
@@ -258,9 +259,15 @@ func (h *Handler) fetchAntigravityModels(providerID, data string, timeout time.D
 	client := &http.Client{Timeout: timeout}
 	var lastErr string
 
-	// Discovery must present the same client identity the connection will later
-	// use for chat, so a CLI-profile connection discovers its catalogue as the CLI.
-	userAgent := antigravityUserAgentForData(data)
+	// Discovery must present the same client identity chat will later use, so the
+	// catalogue matches what the router can actually call. The profile is the
+	// provider-wide setting; reading it from the connection would let a stale
+	// per-account value disagree with routing.
+	userAgent := antigravityUserAgent
+	if settings, err := h.repo.GetSettings(); err == nil && settings != nil {
+		userAgent = providers.AntigravityUserAgent(
+			providers.NormalizeAntigravityClientProfile(settings.AntigravityClientProfile))
+	}
 
 	for _, host := range antigravityDiscoveryHosts {
 		for _, path := range antigravityDiscoveryPaths {

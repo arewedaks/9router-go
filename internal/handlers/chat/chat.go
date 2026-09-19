@@ -441,6 +441,74 @@ func (h *ChatHandler) buildModelsList() []ModelInfoObject {
 				})
 			}
 		}
+	}
+
+	// 1b. Keyless providers. A provider that authenticates with no user-supplied
+	// credential owns no connection row, so the loop above never visits it and its
+	// models were invisible in /v1/models — oc/* returned zero entries while the
+	// very same model answered a chat request with HTTP 200, because the routing
+	// alias lookup is independent of connections. NoAuthProviders() is the
+	// registry's own list of keyless chat providers; reusing it keeps this list and
+	// the providers grid from drifting apart.
+	if h.Repo != nil && len(activeConnections) > 0 {
+		connected := make(map[string]bool, len(activeConnections))
+		for _, c := range activeConnections {
+			connected[c.Provider] = true
+			if a := providers.GetProviderAlias(c.Provider); a != "" {
+				connected[a] = true
+			}
+		}
+		for _, meta := range providers.NoAuthProviders() {
+			provID := meta.ID
+			canonical := providers.ResolveAlias(provID)
+			if connected[provID] || connected[canonical] || connected[providers.GetProviderAlias(canonical)] {
+				continue // already listed through its connection above
+			}
+			if disabledProviders[provID] || disabledProviders[canonical] {
+				continue // the operator switched this provider off
+			}
+			outputAlias := providers.GetProviderAlias(provID)
+			if outputAlias == "" {
+				outputAlias = provID
+			}
+
+			modelList := h.cachedModelIDs(provID, outputAlias)
+			if len(modelList) == 0 {
+				modelList = providers.GetProviderModels(outputAlias)
+			}
+			if len(modelList) == 0 {
+				modelList = providers.GetProviderModels(provID)
+			}
+			for _, mID := range modelList {
+				if isHidden([]string{provID, outputAlias, canonical}, mID) {
+					continue
+				}
+				fullID := outputAlias + "/" + mID
+				if seen[fullID] {
+					continue
+				}
+				seen[fullID] = true
+
+				ctxLen, maxOut := providers.GetModelTokenLimits(mID)
+				if ctxLen == 0 && maxOut == 0 {
+					ctxLen, maxOut = providers.GetModelTokenLimits(fullID)
+				}
+				caps := providers.GetCapabilitiesDetailForModel(provID, mID)
+				if caps.ContextWindows > 0 && ctxLen == 0 {
+					ctxLen = caps.ContextWindows
+				}
+				data = append(data, ModelInfoObject{
+					ID:                  fullID,
+					Object:              "model",
+					Created:             now,
+					OwnedBy:             outputAlias,
+					Capabilities:        &caps,
+					ContextLength:       ctxLen,
+					ContextWindow:       ctxLen,
+					MaxCompletionTokens: maxOut,
+				})
+			}
+		}
 	} else if h.Repo == nil || len(activeConnections) == 0 {
 		// Fallback when DB has no connections or repo is nil: list static models
 		for alias, models := range providers.ProviderModels {

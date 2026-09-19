@@ -6,8 +6,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"9router/proxy/internal/providers"
 )
 
 // liveFixture is a trimmed copy of a real /v1internal:fetchAvailableModels
@@ -177,7 +175,7 @@ func TestFetchAntigravityModels_LiveHTTP(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	h := &Handler{}
+	h, _ := newProfileTestHandler(t)
 	// Point the discovery hosts at the stub for the duration of the test.
 	origHosts := antigravityDiscoveryHosts
 	antigravityDiscoveryHosts = []string{srv.URL}
@@ -206,8 +204,8 @@ func TestFetchAntigravityModels_LiveHTTP(t *testing.T) {
 }
 
 // TestFetchAntigravityModels_CLIProfileUsesCLIUserAgent verifies discovery
-// honours the connection's selected client profile so a CLI connection presents
-// the CLI fingerprint upstream.
+// honours the provider-wide client profile, so a catalogue is fetched with the
+// same fingerprint chat will use.
 func TestFetchAntigravityModels_CLIProfileUsesCLIUserAgent(t *testing.T) {
 	var gotUA string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -220,8 +218,12 @@ func TestFetchAntigravityModels_CLIProfileUsesCLIUserAgent(t *testing.T) {
 	antigravityDiscoveryHosts = []string{srv.URL}
 	defer func() { antigravityDiscoveryHosts = origHosts }()
 
-	h := &Handler{}
-	data := `{"accessToken":"ya29.test-token","providerSpecificData":{"clientProfile":"cli"}}`
+	h, _ := newProfileTestHandler(t)
+	if err := h.repo.SetAntigravityClientProfile("cli"); err != nil {
+		t.Fatalf("set profile: %v", err)
+	}
+
+	data := `{"accessToken":"ya29.test-token"}`
 	if _, err := h.fetchAntigravityModels("antigravity", data, 5*time.Second); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -233,35 +235,10 @@ func TestFetchAntigravityModels_CLIProfileUsesCLIUserAgent(t *testing.T) {
 	}
 }
 
-// TestAntigravityUserAgentForData_DashboardHelper covers the dashboard-local
-// helper directly, including malformed input falling back to the IDE default.
-func TestAntigravityUserAgentForData_DashboardHelper(t *testing.T) {
-	if got := antigravityUserAgentForData(""); !strings.Contains(got, "antigravity/ide/") {
-		t.Errorf("empty data should fall back to IDE, got %q", got)
-	}
-	if got := antigravityUserAgentForData("not json"); !strings.Contains(got, "antigravity/ide/") {
-		t.Errorf("malformed data should fall back to IDE, got %q", got)
-	}
-	if got := antigravityUserAgentForData(`{"clientProfile":"cli"}`); !strings.Contains(got, "antigravity/cli/") {
-		t.Errorf("top-level cli should yield CLI UA, got %q", got)
-	}
-}
-
-// TestAntigravityClientProfileFromData_DashboardHelper covers the dashboard
-// profile extractor.
-func TestAntigravityClientProfileFromData_DashboardHelper(t *testing.T) {
-	if got := antigravityClientProfileFromData(""); got != providers.AntigravityProfileIDE {
-		t.Errorf("empty -> %q, want ide", got)
-	}
-	if got := antigravityClientProfileFromData(`{"providerSpecificData":{"clientProfile":"cli"}}`); got != providers.AntigravityProfileCLI {
-		t.Errorf("nested cli -> %q, want cli", got)
-	}
-}
-
 // TestFetchAntigravityModels_NoTokenFallsBack verifies a missing token yields
 // the local catalogue with a warning instead of an error.
 func TestFetchAntigravityModels_NoTokenFallsBack(t *testing.T) {
-	h := &Handler{}
+	h, _ := newProfileTestHandler(t)
 	res, err := h.fetchAntigravityModels("antigravity", `{}`, 2*time.Second)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -291,7 +268,7 @@ func TestFetchAntigravityModels_HostFallback(t *testing.T) {
 	antigravityDiscoveryHosts = []string{bad.URL, good.URL}
 	defer func() { antigravityDiscoveryHosts = origHosts }()
 
-	h := &Handler{}
+	h, _ := newProfileTestHandler(t)
 	res, err := h.fetchAntigravityModels("antigravity", `{"accessToken":"t"}`, 5*time.Second)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -313,7 +290,7 @@ func TestFetchAntigravityModels_AllHostsDownFallsBack(t *testing.T) {
 	antigravityDiscoveryHosts = []string{bad.URL}
 	defer func() { antigravityDiscoveryHosts = origHosts }()
 
-	h := &Handler{}
+	h, _ := newProfileTestHandler(t)
 	res, err := h.fetchAntigravityModels("antigravity", `{"accessToken":"t"}`, 3*time.Second)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

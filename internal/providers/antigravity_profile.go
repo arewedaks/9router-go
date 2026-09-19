@@ -13,8 +13,10 @@ import (
 //   - "ide" — the Antigravity IDE desktop app (default, historical behaviour).
 //   - "cli" — the standalone Antigravity CLI (`agy`).
 //
-// Mirrors OmniRoute's antigravityClientProfile handling so operators can pick
-// the identity that matches the credentials they imported.
+// The profile is a provider-wide setting (SettingsData.AntigravityClientProfile):
+// it names the client we imitate, which is the same for every account on the
+// provider. It deliberately does not live on the connection, so accounts cannot
+// drift onto different identities.
 type AntigravityClientProfile string
 
 const (
@@ -23,9 +25,6 @@ const (
 	// AntigravityProfileCLI is the standalone Antigravity CLI fingerprint.
 	AntigravityProfileCLI AntigravityClientProfile = "cli"
 )
-
-// ClientProfileKey is the connection-data key holding the selected profile.
-const ClientProfileKey = "clientProfile"
 
 // Version constants. The IDE version matches the value this fork already sent
 // before profiles existed, so the default behaviour is byte-for-byte unchanged.
@@ -59,24 +58,6 @@ func NormalizeAntigravityClientProfile(value any) AntigravityClientProfile {
 	}
 }
 
-// ClientProfileFromData reads the profile out of a parsed connection-data map.
-// It accepts the providerSpecificData wrapper used by OmniRoute and 9router as
-// well as a top-level clientProfile key for flat connection blobs.
-func ClientProfileFromData(data map[string]any) AntigravityClientProfile {
-	if data == nil {
-		return AntigravityProfileIDE
-	}
-	if psd, ok := data["providerSpecificData"].(map[string]any); ok {
-		if v, present := psd[ClientProfileKey]; present {
-			return NormalizeAntigravityClientProfile(v)
-		}
-	}
-	if v, present := data[ClientProfileKey]; present {
-		return NormalizeAntigravityClientProfile(v)
-	}
-	return AntigravityProfileIDE
-}
-
 // IsAntigravityClientProfile reports whether v is an accepted profile value
 // (including legacy aliases) after normalization. Used to validate API input.
 func IsAntigravityClientProfile(v any) bool {
@@ -104,10 +85,4 @@ func AntigravityUserAgent(profile AntigravityClientProfile) string {
 			"; auth_method=consumer)"
 	}
 	return "antigravity/ide/" + antigravityIDEVersion + " " + antigravityOS + "/" + antigravityCPU
-}
-
-// AntigravityUserAgentForData is a convenience wrapper that resolves the
-// profile from a connection-data map before building the header value.
-func AntigravityUserAgentForData(data map[string]any) string {
-	return AntigravityUserAgent(ClientProfileFromData(data))
 }

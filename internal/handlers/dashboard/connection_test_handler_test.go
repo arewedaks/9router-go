@@ -190,21 +190,23 @@ func antigravitySSEHandler(t *testing.T, status int, body string) *httptest.Serv
 // probeAntigravityAgainst runs probeAntigravityConnection against a fake host
 // by invoking the host-parameterised core directly, so the global provider
 // registry is never mutated.
+//
+// The User-Agent is no longer derived from the connection: the client profile is
+// a provider-wide setting, so the probe resolves it the same way production does.
 func probeAntigravityAgainst(t *testing.T, srv *httptest.Server, raw map[string]any) connectionTestResult {
 	t.Helper()
-	h := &Handler{}
+	h, _ := newProfileTestHandler(t)
 	accessToken := connString(raw, "accessToken", "access_token", "apiKey")
 	if accessToken == "" || antigravityTokenExpired(raw) {
 		// Preserve the caller's intended short-circuit path.
 		return h.probeAntigravityConnection(context.Background(), raw, connectionTestResult{})
 	}
-	profileData, _ := raw["providerSpecificData"].(map[string]any)
 	return h.probeAntigravityAgainstHosts(
 		context.Background(),
 		[]string{srv.URL},
 		raw,
 		accessToken,
-		providers.AntigravityUserAgentForData(profileData),
+		antigravityProbeUserAgent(t, h),
 		buildAntigravityProbeBody(antigravityProbeModel()),
 		connectionTestResult{},
 	)
@@ -497,4 +499,16 @@ func TestRefreshExpiredTokenForTest_IgnoresNonOAuth(t *testing.T) {
 	if refresh.changed || refresh.performed || refresh.accessToken != "" {
 		t.Fatalf("api-key connection must be untouched, got %+v", refresh)
 	}
+}
+
+// antigravityProbeUserAgent resolves the User-Agent the production probe would
+// send, i.e. the one derived from the provider-wide client profile setting.
+func antigravityProbeUserAgent(t *testing.T, h *Handler) string {
+	t.Helper()
+	settings, err := h.repo.GetSettings()
+	if err != nil {
+		t.Fatalf("GetSettings: %v", err)
+	}
+	return providers.AntigravityUserAgent(
+		providers.NormalizeAntigravityClientProfile(settings.AntigravityClientProfile))
 }

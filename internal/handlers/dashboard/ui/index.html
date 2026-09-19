@@ -106,6 +106,9 @@
     .profile-select { appearance: none; -webkit-appearance: none; background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 5px; padding: 1px 13px 1px 5px; font-size: 0.66rem; line-height: 1.5; cursor: pointer; width: 42px; flex: 0 0 42px; text-align: center; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5'%3E%3Cpath d='M0 0l4 5 4-5z' fill='%238b949e'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 4px center; transition: border-color 0.15s; }
     .profile-select:hover { border-color: var(--primary); }
     .profile-select:focus { outline: none; border-color: var(--primary); }
+    /* The Antigravity profile sits beside the provider title, not inside an
+       account row, so it carries its own sizing. */
+    .profile-select-global { font-size: 0.72rem; padding: 2px 20px 2px 8px; width: auto; flex: 0 0 auto; background-position: right 6px center; }
 
     /* --- Connection test (per-account) --- */
     /* The status chip doubles as the test verdict. Fixed min-width keeps every
@@ -395,8 +398,32 @@
     .usage-topology svg.grabbing { cursor: grabbing; }
     .topo-edge { stroke-linecap: round; fill: none; }
     .topo-edge.topo-active { stroke-dasharray: 8 6; animation: topo-dash 0.22s linear infinite; }
-    .topo-edge.topo-last { stroke-dasharray: 4 5; opacity: 0.7; }
+    .topo-edge.topo-last {
+      stroke-dasharray: 4 5;
+      opacity: 0.7;
+      /* Keeps a slow trickle running on the most recently used spoke, so an
+         idle graph still reads as a live system rather than a frozen one. */
+      animation: topo-dash 1.4s linear infinite;
+    }
     @keyframes topo-dash { to { stroke-dashoffset: -36; } }
+
+    /* Kame-style electric beam on an active spoke, mirroring VansRouter's
+       topology edges: three stacked strokes (wide cyan halo, green plasma,
+       hot white core) over one shared turbulence filter, plus orbs and
+       sparks travelling the path. */
+    .topo-halo { animation: topo-flicker 0.18s steps(2) infinite; }
+    @keyframes topo-flicker {
+      0%, 100% { opacity: 0.85; }
+      40% { opacity: 1; }
+      55% { opacity: 0.55; }
+      70% { opacity: 1; }
+    }
+    .topo-plasma {
+      stroke-dasharray: 14 10;
+      animation: topo-dash 0.18s linear infinite, topo-flicker 0.22s steps(3) infinite;
+    }
+    .topo-core { stroke-dasharray: 8 6; animation: topo-dash 0.22s linear infinite; }
+    .topo-spark { filter: drop-shadow(0 0 3px #e0f2fe); }
     .topo-node-box { transition: filter 0.3s, stroke 0.3s; }
     .topo-node-box.is-active { animation: topo-node-glow 0.75s ease-in-out infinite; }
     @keyframes topo-node-glow {
@@ -409,6 +436,12 @@
       50% { filter: drop-shadow(0 0 22px #facc15); }
     }
     .topo-particle { filter: drop-shadow(0 0 4px #22d3ee); }
+    /* Router label flickers while traffic is in flight. */
+    .topo-router-label.is-powering { animation: topo-router-label-flicker 0.7s ease-in-out infinite; }
+    @keyframes topo-router-label-flicker {
+      0%, 100% { text-shadow: 0 0 6px #fde047, 0 0 12px #22d3ee; }
+      50% { text-shadow: 0 0 10px #fff, 0 0 18px #facc15; }
+    }
     .topo-zoom-btns { position: absolute; left: 10px; bottom: 10px; display: flex; flex-direction: column; gap: 2px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--panel); }
     .topo-zoom-btns button { background: var(--panel); border: none; color: var(--text); width: 30px; height: 26px; font-size: 0.9rem; cursor: pointer; }
     .topo-zoom-btns button:hover { background: var(--panel-hover); }
@@ -2150,6 +2183,13 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
       window.__agConnCount = (d.connections || []).length;
       // no-auth providers render the Proxy tab, which needs the pool list.
       if (d.noConnection) await loadProxyPools(false);
+      // The Antigravity client profile is a provider-wide setting the hero
+      // dropdown must show. Load it once here, before the single render: doing
+      // it inside renderProviderDetail would re-render from render, replacing
+      // the <select> on every pass so clicks never land on a stable element.
+      if (d.provider === "antigravity" || d.provider === "agy") {
+        await loadAntigravityProfile();
+      }
       renderProviderDetail(d);
     } catch (e) {
       box.innerHTML = `<div style="color:#ff7b72; padding:20px;">Error: ${escapeHtml(String(e))}</div>`;
@@ -2507,20 +2547,10 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
           const label = p.accountLabel || p.email || p.name || p.id.substring(0, 12);
           const dot = acctDotClass(p);
           const connStatus = effectiveStatusOf(p);
-          // Antigravity connections share one backend but two official client
-          // identities; surface a profile switch so operators can match the
-          // credentials they imported (IDE app vs standalone CLI).
-          const profileSel = isAntigravity
-            ? `<select class="profile-select" title="Antigravity client profile" onchange="setClientProfile('${p.id}', this.value, this);">
-                 <option value="ide" ${(p.clientProfile || 'ide') === 'ide' ? 'selected' : ''}>IDE</option>
-                 <option value="cli" ${p.clientProfile === 'cli' ? 'selected' : ''}>CLI</option>
-               </select>`
-            : '';
           return `<div class="model-row" id="conn-row-${p.id}">
             <span class="acct-dot ${dot}"></span>
             <span class="mid" title="${escapeHtml(label)}">${escapeHtml(label)}</span>
             <span class="conn-actions">
-              ${profileSel}
               <span class="mkind conn-status ${connStatusClass(p)}" id="conn-status-${p.id}" title="status: ${escapeHtml(connStatus)}">${escapeHtml(connStatus)}</span>
               <button class="btn btn-sm conn-test-btn" id="conn-test-${p.id}" onclick="testConnection('${p.id}');" title="Test this account against the upstream provider">Test</button>
               <label class="switch" style="transform:scale(0.8);">
@@ -2659,7 +2689,13 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
       <div class="detail-hero">
         ${providerIconHtml(d.provider, icon, { size: 30, color: color, tileClass: "detail-hero-icon", label: d.displayName || d.provider })}
         <div style="flex:1; min-width:0;">
-          <h2 class="section-title" style="margin:0;">${escapeHtml(d.displayName || d.provider)}</h2>
+          <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+            <h2 class="section-title" style="margin:0;">${escapeHtml(d.displayName || d.provider)}</h2>
+            ${isAntigravity ? `<select class="profile-select profile-select-global" title="Antigravity client profile — applies to every account" onchange="setAntigravityProfile(this.value, this);">
+              <option value="ide" ${antigravityProfileValue() === 'ide' ? 'selected' : ''}>IDE</option>
+              <option value="cli" ${antigravityProfileValue() === 'cli' ? 'selected' : ''}>CLI</option>
+            </select>` : ''}
+          </div>
           <div style="display:flex; align-items:center; gap:8px; margin-top:5px; flex-wrap:wrap;">
             <span class="sub-id">${escapeHtml(d.prefix || niceProviderLabel(d.provider))}</span>
             ${getCategoryBadge(d.category, d.categoryLabel)}
@@ -3060,13 +3096,6 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
         </div>
         <div class="add-form-grid oauth-grid">
           <div>
-            <label class="field-label">Client profile</label>
-            <select id="oauth-profile">
-              <option value="ide">IDE (Antigravity app)</option>
-              <option value="cli">CLI (antigravity command)</option>
-            </select>
-          </div>
-          <div>
             <label class="field-label">Account name (optional)</label>
             <input type="text" id="oauth-name" placeholder="auto-filled from Google">
           </div>
@@ -3089,7 +3118,9 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
   let antigravityOAuthCtx = null;
 
   async function startAntigravityOAuth(providerId) {
-    const profile = document.getElementById("oauth-profile").value;
+    // The client profile is provider-wide, so a new account inherits whatever the
+    // header dropdown is set to rather than asking again here.
+    const profile = antigravityProfileValue();
     const msg = document.getElementById("oauth-msg");
     msg.style.color = "var(--muted)";
     msg.textContent = "Requesting authorization URL…";
@@ -4503,9 +4534,6 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
     } catch(e) { alert(e.message); }
   }
 
-  // setClientProfile switches an Antigravity connection between the IDE and CLI
-  // client identities. The server persists it under
-  // providerSpecificData.clientProfile.
   // ---- Connection test (per-account) -----------------------------------
   // Probes the upstream provider with THIS connection's own credentials.
   // Server side refreshes an expired OAuth token first (through the
@@ -4584,10 +4612,31 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
     }
   }
 
-  async function setClientProfile(id, profile, el) {
-    const prev = el ? el.dataset.prev : undefined;
+  // antigravityProfile is the provider-wide Antigravity client identity, cached
+  // from settings so the provider hero can render its dropdown without a fetch
+  // on every panel repaint. renderProviderDetail runs on each refresh, so an
+  // async read there would flash an empty select.
+  let antigravityProfile = "ide";
+
+  function antigravityProfileValue() {
+    return antigravityProfile === "cli" ? "cli" : "ide";
+  }
+
+  async function loadAntigravityProfile() {
     try {
-      const res = await api(`/api/dashboard/connections/${id}/client-profile`, {
+      const res = await api("/api/dashboard/settings");
+      if (!res.ok) return;
+      const s = await res.json();
+      antigravityProfile = s.antigravityClientProfile === "cli" ? "cli" : "ide";
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  async function setAntigravityProfile(profile, el) {
+    const prev = antigravityProfile;
+    try {
+      const res = await api("/api/dashboard/settings/antigravity-profile", {
         method: "POST",
         body: JSON.stringify({ profile: profile })
       });
@@ -4595,9 +4644,11 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
         const j = await res.json().catch(() => ({}));
         throw new Error(j.error || ("HTTP " + res.status));
       }
-      if (el) el.dataset.prev = profile;
+      const j = await res.json();
+      antigravityProfile = j.profile === "cli" ? "cli" : "ide";
     } catch(e) {
-      if (el && prev) el.value = prev;
+      antigravityProfile = prev;
+      if (el) el.value = prev;
       alert("Failed to set client profile: " + e.message);
     }
   }
@@ -5119,6 +5170,12 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
     detailFilters: { provider: "", start: "", end: "" },
     loaded: false,
     topologyMode: "all",
+    // Live in-flight state from /api/usage/stats (the tracker), separate from
+    // the historical aggregates. Drives the active spoke and its beam.
+    liveTracker: null,
+    // Providers seen in the tracker recently, so a spoke can stay lit for a
+    // moment after a request finishes instead of snapping back to idle.
+    recentlyActive: new Map(),
     providers: null,
     topoView: { x: 0, y: 0, k: 1 },
     // Auto-refresh bookkeeping. The timer is a single interval owned by this
@@ -5135,6 +5192,8 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
   // (indexed aggregates), so a short period keeps the page feeling live
   // without hammering the database.
   const USAGE_REFRESH_MS = 5000;
+  // Fast poll for the in-flight tracker that drives the topology beam.
+  const USAGE_LIVE_MS = 1000;
 
   // Loading a whole period of usage is only worth doing once per visit; the
   // flag keeps the sidebar from refetching on every tab bounce. The live
@@ -5218,15 +5277,23 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
     const hadStats = !!usageState.stats;
     let nextStats = null;
     let nextChart = null;
+    // The in-flight tracker is a separate endpoint from the aggregate stats:
+    // /api/dashboard/usage/stats is built from recorded history, so its
+    // activeRequests is always empty. /api/usage/stats reads the live tracker,
+    // which is what actually knows which provider a request is on right now.
+    let nextLive = null;
     try {
-      const [statsRes, chartRes] = await Promise.all([
+      const [statsRes, chartRes, liveRes] = await Promise.all([
         api("/api/dashboard/usage/stats?period=" + usageState.period),
         api("/api/dashboard/usage/chart?period=" + usageState.period),
+        api("/api/usage/stats"),
       ]);
       if (!statsRes.ok) throw new Error("stats " + statsRes.status);
       if (!chartRes.ok) throw new Error("chart " + chartRes.status);
       nextStats = await statsRes.json();
       nextChart = await chartRes.json();
+      // A tracker failure is not fatal: the topology just has no live spoke.
+      if (liveRes.ok) nextLive = await liveRes.json();
     } catch (err) {
       // A failed auto-refresh must not destroy the last good snapshot: a
       // dropped packet is not a reason to blank the page. Only the very first
@@ -5241,6 +5308,7 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
     }
     usageState.stats = nextStats;
     usageState.chart = nextChart;
+    usageState.liveTracker = nextLive;
     // Record the fetch time here too, not only in refreshUsage: the very first
     // load goes through this function directly, and the indicator should read
     // "Updated just now" from the start rather than stay blank until the first
@@ -5530,7 +5598,26 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
     const rx = Math.max(TOPO_BASE_RX, minRx);
     const ry = Math.max(TOPO_BASE_RY, rx * 0.55);
 
-    const activeSet = new Set(((usageState.stats.activeRequests) || []).map(r => String(r.provider || "").toLowerCase()).filter(Boolean));
+    // Active providers come from the live tracker, not the historical
+    // aggregates: /api/dashboard/usage/stats reports only finished requests, so
+    // reading activeRequests from it left every spoke permanently idle and the
+    // beam never rendered. Fall back to the aggregate field when the tracker is
+    // unavailable, so a tracker failure degrades instead of blanking the graph.
+    const tracker = usageState.liveTracker;
+    const rawActive = ((tracker && tracker.activeRequests) || (usageState.stats.activeRequests) || [])
+      .map(r => String(r.provider || "").toLowerCase()).filter(Boolean);
+
+    // Keep a spoke lit briefly after its request finishes. A request that takes
+    // 200ms would otherwise be invisible on a 5s poll, and the operator would
+    // never see the animation at all.
+    const now = Date.now();
+    rawActive.forEach(p => usageState.recentlyActive.set(p, now));
+    const LINGER_MS = 6000;
+    for (const [p, ts] of usageState.recentlyActive) {
+      if (now - ts > LINGER_MS) usageState.recentlyActive.delete(p);
+    }
+
+    const activeSet = new Set(usageState.recentlyActive.keys());
     const recent = (usageState.stats.recentRequests || [])[0];
     const lastProvider = recent && !activeSet.has(String(recent.provider || "").toLowerCase())
       ? String(recent.provider || "").toLowerCase() : "";
@@ -5562,14 +5649,36 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
       const cls = isActive ? "topo-edge topo-active" : isLast ? "topo-edge topo-last" : "topo-edge";
       const stroke = isActive ? "#22d3ee" : isLast ? "#f59e0b" : "rgba(139,148,158,0.35)";
       const width = isActive ? 3.5 : isLast ? 2 : 1;
-      edges += `<path class="${cls}" d="${d}" stroke="${stroke}" stroke-width="${width}"/>`;
 
-      // Energy orbs travelling along an active spoke.
+      if (isActive) {
+        // Kame-style electric beam: three stacked strokes over one shared
+        // turbulence filter, so the beam ripples instead of just dashing.
+        // Mirrors VansRouter's TopologyEdge (halo 10px cyan, plasma 5px green,
+        // hot white core 2.2px). The filter is declared once outside the loop.
+        const fid = `topo-fx-${i}`;
+        edges += `<g class="topo-beam">`;
+        edges += `<path class="topo-halo" d="${d}" fill="none" stroke="#22d3ee" stroke-width="10" stroke-opacity="0.35" stroke-linecap="round" filter="url(#${fid})"/>`;
+        edges += `<path class="topo-plasma" d="${d}" fill="none" stroke="#4ade80" stroke-width="5" stroke-opacity="0.85" stroke-linecap="round" filter="url(#${fid})"/>`;
+        edges += `<path class="topo-core" d="${d}" fill="none" stroke="#f8fafc" stroke-width="2.2" stroke-linecap="round"/>`;
+        edges += `</g>`;
+      } else {
+        edges += `<path class="${cls}" d="${d}" stroke="${stroke}" stroke-width="${width}"/>`;
+      }
+
+      // Energy orbs + short-lived sparks, both travelling the same path.
       if (isActive) {
         for (let k = 0; k < 6; k++) {
           const r = k % 2 === 0 ? 4 : 2.5;
           const fill = k % 3 === 0 ? "#fde047" : k % 3 === 1 ? "#67e8f9" : "#fff";
-          edges += `<circle class="topo-particle" r="${r}" fill="${fill}"><animateMotion dur="${(0.4 + k * 0.08).toFixed(2)}s" repeatCount="indefinite" path="${d}" begin="${(k * 0.09).toFixed(2)}s"/></circle>`;
+          edges += `<circle class="topo-particle" r="${r}" fill="${fill}" opacity="0.95"><animateMotion dur="${(0.4 + k * 0.08).toFixed(2)}s" repeatCount="indefinite" path="${d}" begin="${(k * 0.09).toFixed(2)}s"/></circle>`;
+        }
+        // Sparks blink in and out as they run the wire, which reads as current
+        // rather than as another set of steady orbs.
+        for (let k = 0; k < 5; k++) {
+          edges += `<circle class="topo-spark" r="1.8" fill="#e0f2fe" opacity="0">`
+            + `<animate attributeName="opacity" values="0;1;0;0;1;0" dur="${(0.35 + (k % 3) * 0.1).toFixed(2)}s" begin="${(k * 0.07).toFixed(2)}s" repeatCount="indefinite"/>`
+            + `<animateMotion dur="${(0.28 + k * 0.05).toFixed(2)}s" repeatCount="indefinite" path="${d}" begin="${(k * 0.11).toFixed(2)}s"/>`
+            + `</circle>`;
         }
       }
 
@@ -5601,15 +5710,30 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
     const powering = activeSet.size > 0;
     nodes += `<g class="topo-node">`;
     nodes += `<rect class="topo-router-box ${powering ? "powering" : ""}" x="${(cx - rw / 2).toFixed(1)}" y="${(cy - rh / 2).toFixed(1)}" width="${rw}" height="${rh}" rx="12" fill="var(--primary-dim)" stroke="${powering ? "#fde047" : "var(--primary)"}" stroke-width="2"/>`;
-    nodes += `<text x="${(cx - 18).toFixed(1)}" y="${(cy + 5).toFixed(1)}" font-size="14" font-weight="700" fill="${powering ? "#fde047" : "var(--primary)"}" text-anchor="middle">9Router</text>`;
+    nodes += `<text class="topo-router-label${powering ? " is-powering" : ""}" x="${(cx - 18).toFixed(1)}" y="${(cy + 5).toFixed(1)}" font-size="14" font-weight="700" fill="${powering ? "#fde047" : "var(--primary)"}" text-anchor="middle">9Router</text>`;
     if (powering) {
       nodes += `<rect x="${(cx + 30).toFixed(1)}" y="${(cy - 9).toFixed(1)}" width="30" height="18" rx="9" fill="#fde047"/>`;
       nodes += `<text x="${(cx + 45).toFixed(1)}" y="${(cy + 4).toFixed(1)}" font-size="11" font-weight="700" fill="#06101f" text-anchor="middle">${activeSet.size}</text>`;
     }
     nodes += `<title>9Router</title></g>`;
 
+    // One shared turbulence filter for every active beam. Declaring it per
+    // edge would multiply the number of animated filters (each of which forces
+    // its own filter region to be recomputed) by the active-provider count.
+    // The baseFrequency animation is what makes the beam ripple.
+    const beamFilters = providers.map((_, i) => {
+      const id = `topo-fx-${i}`;
+      return `<filter id="${id}" x="-40%" y="-40%" width="180%" height="180%">`
+        + `<feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed="2" result="noise">`
+        + `<animate attributeName="baseFrequency" values="0.8;1.4;0.8" dur="0.25s" repeatCount="indefinite"/>`
+        + `</feTurbulence>`
+        + `<feDisplacementMap in="SourceGraphic" in2="noise" scale="3.5" xChannelSelector="R" yChannelSelector="G"/>`
+        + `</filter>`;
+    }).join("");
+
     el.innerHTML = `
       <svg viewBox="0 0 ${Math.round(vbW)} ${Math.round(vbH)}" role="img" aria-label="Provider topology">
+        <defs>${beamFilters}</defs>
         <g id="topo-viewport" transform="translate(${usageState.topoView.x},${usageState.topoView.y}) scale(${usageState.topoView.k})">
           <g id="topo-edges">${edges}</g>
           <g id="topo-nodes">${nodes}</g>
@@ -6123,6 +6247,11 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
   function startUsageRefresh() {
     stopUsageRefresh();
     usageRefreshTimer = setInterval(() => { refreshUsage(false); }, USAGE_REFRESH_MS);
+    // The tracker is polled much faster than the aggregates. It is a tiny
+    // endpoint (in-flight counts only, no history scan), and a request often
+    // lasts well under the 5s aggregate period — with the slow poll the beam
+    // would miss most traffic entirely.
+    usageLiveTimer = setInterval(() => { refreshUsageLive(); }, USAGE_LIVE_MS);
   }
 
   function stopUsageRefresh() {
@@ -6130,9 +6259,26 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
       clearInterval(usageRefreshTimer);
       usageRefreshTimer = null;
     }
+    if (usageLiveTimer !== null) {
+      clearInterval(usageLiveTimer);
+      usageLiveTimer = null;
+    }
   }
 
   let usageRefreshTimer = null;
+  let usageLiveTimer = null;
+
+  // refreshUsageLive polls the in-flight tracker and repaints only the topology.
+  // It never touches the aggregates, so a slow stats query cannot delay it.
+  async function refreshUsageLive() {
+    if (document.hidden || !usageTabVisible()) return;
+    try {
+      const res = await api("/api/usage/stats");
+      if (!res.ok) return;
+      usageState.liveTracker = await res.json();
+      renderUsageTopology();
+    } catch (_) { /* a dropped poll is not worth surfacing */ }
+  }
 
   // Coming back to a tab should not wait out the interval: the operator
   // returned precisely because they want current numbers.

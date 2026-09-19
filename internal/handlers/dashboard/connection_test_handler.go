@@ -324,10 +324,14 @@ func (h *Handler) probeAntigravityConnection(ctx context.Context, raw map[string
 
 	body := buildAntigravityProbeBody(antigravityProbeModel())
 
-	// The UA must match the connection's own client profile, otherwise a CLI
-	// connection would be probed with an IDE fingerprint (and vice versa).
-	profileData, _ := raw["providerSpecificData"].(map[string]any)
-	userAgent := providers.AntigravityUserAgentForData(profileData)
+	// The client profile is provider-wide, so a probe uses the same identity the
+	// router would. Reading it per connection here would make Test report on a
+	// fingerprint that no request ever uses.
+	profile := providers.AntigravityProfileIDE
+	if settings, err := h.repo.GetSettings(); err == nil && settings != nil {
+		profile = providers.NormalizeAntigravityClientProfile(settings.AntigravityClientProfile)
+	}
+	userAgent := providers.AntigravityUserAgent(profile)
 
 	// Prefer the connection's own configured host, then fall back to the known
 	// runtime hosts so a connection pinned to an unreachable host still gets a

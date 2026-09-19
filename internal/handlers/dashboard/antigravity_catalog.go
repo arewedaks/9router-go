@@ -1,7 +1,6 @@
 package dashboard
 
 import (
-	json "encoding/json/v2"
 	"strings"
 
 	"9router/proxy/internal/providers"
@@ -71,31 +70,4 @@ func isAntigravityProvider(providerID string) bool {
 	default:
 		return false
 	}
-}
-
-// antigravityUserAgentForData resolves the User-Agent a connection should
-// present, based on its stored client profile (ide|cli). Falls back to the IDE
-// identity when the profile is absent or the data cannot be parsed.
-func antigravityUserAgentForData(data string) string {
-	if strings.TrimSpace(data) == "" {
-		return antigravityUserAgent
-	}
-	var parsed map[string]any
-	if err := json.Unmarshal([]byte(data), &parsed); err != nil {
-		return antigravityUserAgent
-	}
-	return providers.AntigravityUserAgentForData(parsed)
-}
-
-// antigravityClientProfileFromData extracts the normalized client profile from
-// a connection data blob (defaults to "ide").
-func antigravityClientProfileFromData(data string) providers.AntigravityClientProfile {
-	if strings.TrimSpace(data) == "" {
-		return providers.AntigravityProfileIDE
-	}
-	var parsed map[string]any
-	if err := json.Unmarshal([]byte(data), &parsed); err != nil {
-		return providers.AntigravityProfileIDE
-	}
-	return providers.ClientProfileFromData(parsed)
 }

@@ -229,10 +229,16 @@ func (h *ChatHandler) getProviderConfig(provider string, connData *ConnectionDat
 	}
 
 	// Antigravity engines share one backend but two official client identities
-	// (IDE vs CLI). Resolve the connection's selected profile into a User-Agent
-	// header so every downstream caller (chat, quota, search) presents the same
-	// identity without each one re-reading connection data.
-	if provider == "antigravity" && connData != nil {
+	// (IDE vs CLI). The profile is a provider-wide setting: it says which official
+	// client we imitate, which has nothing to do with the individual account, so
+	// it is read once from settings rather than per connection. Resolving it into
+	// a User-Agent here keeps every downstream caller (chat, quota, search)
+	// presenting the same identity.
+	if provider == "antigravity" {
+		profile := providers.AntigravityProfileIDE
+		if settings, err := h.Repo.GetSettings(); err == nil && settings != nil {
+			profile = providers.NormalizeAntigravityClientProfile(settings.AntigravityClientProfile)
+		}
 		cloned := *baseCfg
 		if cloned.StaticHeaders == nil {
 			cloned.StaticHeaders = map[string]string{}
@@ -243,7 +249,7 @@ func (h *ChatHandler) getProviderConfig(provider string, connData *ConnectionDat
 			}
 			cloned.StaticHeaders = hdrs
 		}
-		cloned.StaticHeaders["User-Agent"] = providers.AntigravityUserAgentForData(connData.ProviderSpecificData)
+		cloned.StaticHeaders["User-Agent"] = providers.AntigravityUserAgent(profile)
 		baseCfg = &cloned
 	}
 

@@ -111,6 +111,14 @@ type SettingsData struct {
 	AutoUpdate         bool                        `json:"autoUpdate"`
 	ProviderStrategies map[string]ProviderStrategy `json:"providerStrategies,omitempty"`
 
+	// AntigravityClientProfile is the single, provider-wide client identity
+	// ("ide" or "cli") presented to Google's Code Assist backend. It replaced a
+	// per-connection setting: the profile describes which official client the
+	// operator is emulating, not which account is in use, so storing it once
+	// avoids six accounts drifting apart. Empty means "not chosen yet", which
+	// resolves to the "ide" default so an untouched install behaves as before.
+	AntigravityClientProfile string `json:"antigravityClientProfile,omitempty"`
+
 	// PasswordHash is the bcrypt hash of the dashboard login password. Empty
 	// means no password has been set yet, in which case login falls back to
 	// InitialPassword (the "123456" default, VansRouter-compatible). It is never
@@ -183,6 +191,9 @@ func (r *Repo) GetSettings() (*SettingsData, error) {
 	}
 	if v := handlerutil.GetString(raw, "password"); v != "" {
 		s.PasswordHash = v
+	}
+	if v := handlerutil.GetString(raw, "antigravityClientProfile"); v != "" {
+		s.AntigravityClientProfile = v
 	}
 	if v, ok := raw["requireLogin"].(bool); ok {
 		s.RequireLogin = &v
@@ -257,6 +268,17 @@ func (r *Repo) SetRequireLogin(require *bool) error {
 		s = DefaultSettings()
 	}
 	s.RequireLogin = require
+	return r.saveSettings(s)
+}
+
+// SetAntigravityClientProfile stores the provider-wide Antigravity client
+// identity. An empty value clears the override so the default ("ide") applies.
+func (r *Repo) SetAntigravityClientProfile(profile string) error {
+	s, err := r.GetSettings()
+	if err != nil {
+		s = DefaultSettings()
+	}
+	s.AntigravityClientProfile = profile
 	return r.saveSettings(s)
 }
 

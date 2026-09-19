@@ -4,29 +4,25 @@ import (
 	json "encoding/json/v2"
 	"io"
 	"net/http"
-	"strings"
-
-	"github.com/go-chi/chi/v5"
 
 	"9router/proxy/internal/handlerutil"
 	"9router/proxy/internal/providers"
 )
 
-// HandleSetClientProfile updates the Antigravity client profile (ide|cli) for a
-// single connection. The profile is stored inside the connection's data blob
-// under providerSpecificData.clientProfile, mirroring OmniRoute so a connection
-// imported from either dashboard keeps working.
+// HandleSetAntigravityClientProfile sets the Antigravity client profile
+// ("ide" or "cli") for the whole provider.
 //
-// POST /api/dashboard/connections/{id}/client-profile
+// The profile selects which official client identity 9router presents to
+// Google's Code Assist backend. It describes the client being emulated, not the
+// account sending the request, so it is stored once in the settings row rather
+// than on every connection. It previously lived per connection, which let six
+// accounts drift apart and made "which profile is actually in use?" unanswerable
+// without inspecting each one.
+//
+// POST /api/dashboard/settings/antigravity-profile
 //
 //	{"profile":"ide"|"cli"}
-func (h *Handler) HandleSetClientProfile(w http.ResponseWriter, r *http.Request) {
-	id := strings.TrimSpace(chi.URLParam(r, "id"))
-	if id == "" {
-		handlerutil.WriteJSONError(w, http.StatusBadRequest, "connection id is required")
-		return
-	}
-
+func (h *Handler) HandleSetAntigravityClientProfile(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(io.LimitReader(r.Body, 64*1024))
 	if err != nil {
 		handlerutil.WriteJSONError(w, http.StatusBadRequest, "Failed to read body")
@@ -45,48 +41,13 @@ func (h *Handler) HandleSetClientProfile(w http.ResponseWriter, r *http.Request)
 	}
 	profile := providers.NormalizeAntigravityClientProfile(payload.Profile)
 
-	conn, err := h.repo.GetProviderConnectionByID(id)
-	if err != nil {
-		handlerutil.WriteJSONError(w, http.StatusInternalServerError, "Failed to load connection: "+err.Error())
-		return
-	}
-	if conn == nil {
-		handlerutil.WriteJSONError(w, http.StatusNotFound, "Connection not found")
-		return
-	}
-	if !isAntigravityProvider(conn.Provider) {
-		handlerutil.WriteJSONError(w, http.StatusBadRequest, "Connection is not an Antigravity provider")
-		return
-	}
-
-	data := map[string]any{}
-	if strings.TrimSpace(conn.Data) != "" {
-		if err := json.Unmarshal([]byte(conn.Data), &data); err != nil {
-			handlerutil.WriteJSONError(w, http.StatusInternalServerError, "Stored connection data is not valid JSON: "+err.Error())
-			return
-		}
-	}
-	psd, _ := data["providerSpecificData"].(map[string]any)
-	if psd == nil {
-		psd = map[string]any{}
-	}
-	psd[providers.ClientProfileKey] = string(profile)
-	data["providerSpecificData"] = psd
-
-	encoded, err := json.Marshal(data)
-	if err != nil {
-		handlerutil.WriteJSONError(w, http.StatusInternalServerError, "Failed to encode connection data: "+err.Error())
-		return
-	}
-	conn.Data = string(encoded)
-	if err := h.repo.UpsertProviderConnection(conn); err != nil {
-		handlerutil.WriteJSONError(w, http.StatusInternalServerError, "Failed to save connection: "+err.Error())
+	if err := h.repo.SetAntigravityClientProfile(string(profile)); err != nil {
+		handlerutil.WriteJSONError(w, http.StatusInternalServerError, "Failed to save settings: "+err.Error())
 		return
 	}
 
 	handlerutil.WriteJSON(w, http.StatusOK, map[string]any{
 		"ok":      true,
-		"id":      conn.ID,
 		"profile": string(profile),
 	})
 }
