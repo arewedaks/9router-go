@@ -1,5 +1,8 @@
 name: Release
 
+# Publishing a release is a deliberate act: push a version tag and the workflow
+# builds every platform, publishes the assets, and then writes the tag back into
+# version.json so the dashboard's update check sees the new version.
 on:
   push:
     tags:
@@ -8,10 +11,6 @@ on:
 
 permissions:
   contents: write
-  packages: write
-
-env:
-  REGISTRY_IMAGE: luqmenul/9router-go
 
 jobs:
   binaries:
@@ -19,6 +18,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Need the branch, not just the tag, to commit version.json back.
+          fetch-depth: 0
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -26,30 +28,54 @@ jobs:
           go-version: "1.27"
           cache: true
 
+      - name: Resolve version from tag
+        id: ver
+        run: |
+          # The tag is the single source of truth for a release; the VERSION file
+          # is only a local convenience and must not override it.
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Releasing $VERSION"
+
       - name: Build all platforms
-        run: make cross
+        # VERSION= also feeds -ldflags, so `9router-go --version` reports the
+        # released number instead of the stale default baked into the source.
+        run: make cross VERSION=${{ steps.ver.outputs.version }}
 
       - name: Generate changelog
         id: changelog
         run: |
           TAG="${GITHUB_REF_NAME}"
-          # Try to extract section for this version tag from CHANGELOG.md
+          NOTES=""
           if [ -f CHANGELOG.md ]; then
             NOTES=$(awk "/## \\[$TAG\\]/{flag=1; next} /## \\[v/{flag=0} flag" CHANGELOG.md)
           fi
-          if [ -n "$NOTES" ]; then
-            echo "$NOTES" > /tmp/changelog.md
-          else
-            # Fallback to git log
+          if [ -z "$NOTES" ]; then
             PREV_TAG=$(git tag --sort=-version:refname | grep '^v' | head -2 | tail -1)
             if [ -z "$PREV_TAG" ] || [ "$PREV_TAG" = "${GITHUB_REF_NAME}" ]; then
-              LOG=$(git log --pretty=format:"- %s (%h)" --no-merges)
+              NOTES=$(git log --pretty=format:"- %s (%h)" --no-merges)
             else
-              LOG=$(git log --pretty=format:"- %s (%h)" --no-merges ${PREV_TAG}..${GITHUB_REF_NAME})
+              NOTES=$(git log --pretty=format:"- %s (%h)" --no-merges ${PREV_TAG}..${GITHUB_REF_NAME})
             fi
-            echo "$LOG" > /tmp/changelog.md
           fi
+          {
+            echo "$NOTES"
+            echo ""
+            echo "---"
+            echo "Update from the dashboard (sidebar button) or run \`9router-go --update\`."
+          } > /tmp/changelog.md
           cat /tmp/changelog.md
+
+      - name: Checksum assets
+        # The updater verifies SHA256 when a manifest supplies one, so publish
+        # them next to the binaries rather than leaving the check unused.
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          for f in 9router-go-*; do
+            case "$f" in *.sha256) continue ;; esac
+            sha256sum "$f" > "$f.sha256"
+          done
+          ls -lh 9router-go-*
 
       - name: Upload binaries to release
         uses: softprops/action-gh-release@v2
@@ -60,47 +86,108 @@ jobs:
             9router-go-darwin-amd64
             9router-go-darwin-arm64
             9router-go-windows-amd64.exe
+            9router-go-linux-amd64.sha256
+            9router-go-linux-arm64.sha256
+            9router-go-darwin-amd64.sha256
+            9router-go-darwin-arm64.sha256
+            9router-go-windows-amd64.exe.sha256
           body_path: /tmp/changelog.md
           generate_release_notes: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  docker:
-    name: Build and push Docker image
+  manifest:
+    name: Publish version.json
+    needs: binaries
     runs-on: ubuntu-latest
-    environment: prod
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v4
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          # A tag push gives us the repo, not a branch. The "Resolve branch" step
+          # below works out which branch carries this tag and version.json is
+          # committed there; checking out the tag itself is enough to read the
+          # release body.
+          fetch-depth: 0
 
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@v6
-        with:
-          images: ${{ env.REGISTRY_IMAGE }}
-          tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable={{is_default_branch}}
+      - name: Resolve branch to publish on
+        id: target
+        run: |
+          # Always publish on the default branch: that is the single branch the
+          # updater polls (DefaultUpdateBranch), so writing anywhere else would
+          # leave the manifest unread and the update button permanently hidden.
+          BRANCH="${{ github.event.repository.default_branch }}"
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+          echo "Publishing version.json on $BRANCH"
 
-      - name: Build and push
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+      - name: Resolve version from tag
+        id: ver
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch release notes
+        id: notes
+        run: |
+          # The release is created by the binaries job moments earlier; the API can
+          # briefly 404 while it propagates, so retry rather than failing a release
+          # that was actually published fine.
+          for attempt in 1 2 3 4 5; do
+            if BODY=$(gh release view "${GITHUB_REF_NAME}" --json body -q .body 2>/dev/null); then
+              break
+            fi
+            echo "release not visible yet (attempt $attempt); retrying in 10s"
+            sleep 10
+          done
+          if [ -z "${BODY+x}" ]; then
+            echo "could not read the release body after 5 attempts" >&2
+            exit 1
+          fi
+          python3 - "$BODY" <<'PY' > /tmp/notes.txt
+          import json, sys
+          print(json.dumps(sys.argv[1])[1:-1])
+          PY
+          echo "notes<<EOF" >> "$GITHUB_OUTPUT"
+          cat /tmp/notes.txt >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Write version.json
+        # This is what the running dashboard polls. Without it the update check
+        # keeps seeing the previous version and the button never appears.
+        #
+        # downloadUrl deliberately points at the releases page and not at a
+        # single asset: it must not name a platform. The updater replaces it with
+        # the matching asset from the GitHub Releases API, which is the only
+        # place that knows the current OS/arch.
+        run: |
+          python3 - <<'PY'
+          import json, os
+
+          version = os.environ["VERSION"]
+          notes = open("/tmp/notes.txt").read().strip()
+
+          manifest = {
+              "latestVersion": version,
+              "downloadUrl": "https://github.com/arewedaks/9router-go/releases/latest",
+              "releaseNotes": notes,
+          }
+          with open("version.json", "w") as f:
+              json.dump(manifest, f, indent=2)
+              f.write("\n")
+          PY
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+
+      - name: Commit if changed
+        run: |
+          BRANCH="${{ steps.target.outputs.branch }}"
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin "$BRANCH"
+          git checkout -B "$BRANCH" "origin/$BRANCH"
+          if git diff --quiet version.json; then
+            echo "version.json already current; nothing to commit"
+            exit 0
+          fi
+          git add version.json
+          git commit -m "chore(release): version.json -> ${GITHUB_REF_NAME}"
+          git push origin "HEAD:$BRANCH"

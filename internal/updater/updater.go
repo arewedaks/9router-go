@@ -10,9 +10,12 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	json "encoding/json/v2"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -30,11 +33,30 @@ import (
 // Default fallback is read from version.json at init if not overridden.
 var CurrentVersion = "1.8.17"
 
+// DefaultUpdateBranch is the branch whose version.json the updater polls.
+//
+// This must be the repository's *default* branch, which in this fork is
+// feat/go-dashboard — main lags far behind it. Pointing at main makes the
+// updater read a stale version.json, conclude the running build is newer, and
+// never show the update button: a silent failure with no error to debug.
+const DefaultUpdateBranch = "feat/go-dashboard"
+
 // DefaultUpdateURL is the primary remote version manifest URL.
-var DefaultUpdateURL = "https://raw.githubusercontent.com/luqman-v1/9router-go/main/version.json"
+//
+// It must point at the fork this dashboard was built from: the updater replaces
+// the running binary, so reading another project's manifest would silently
+// downgrade a customised build to the upstream release. Override with UPDATE_URL.
+var DefaultUpdateURL = "https://raw.githubusercontent.com/arewedaks/9router-go/" + DefaultUpdateBranch + "/version.json"
 
 // DefaultGitHubRepo is the repository for GitHub Releases API fallback.
-var DefaultGitHubRepo = "luqman-v1/9router-go"
+// Override with UPDATE_REPO.
+var DefaultGitHubRepo = "arewedaks/9router-go"
+
+// TrustedUpdateOwners are the GitHub owners whose release assets may be
+// installed. A manifest or release pointing anywhere else is refused: the
+// dashboard runs with the operator's credentials and must never be talked into
+// replacing its own binary by a third party.
+var TrustedUpdateOwners = []string{"arewedaks"}
 
 // DefaultCheckInterval is the periodic background update check interval (6 hours).
 const DefaultCheckInterval = 6 * time.Hour
@@ -49,6 +71,62 @@ var (
 	updateProgressMu  sync.Mutex
 )
 
+// ErrUntrustedUpdateSource is returned when a manifest or release points at a
+// repository outside TrustedUpdateOwners.
+var ErrUntrustedUpdateSource = fmt.Errorf("update source is not a trusted repository")
+
+// verifyTrustedSource rejects a download URL that does not belong to one of
+// TrustedUpdateOwners. The check is deliberately on the URL host and path, not
+// on the manifest's own version fields, because the manifest is fetched over
+// the network and is therefore attacker-controlled if DNS or TLS is subverted.
+func verifyTrustedSource(downloadURL string) error {
+	if downloadURL == "" {
+		return nil // nothing to install yet; CheckUpdate reports HasUpdate separately
+	}
+	u, err := url.Parse(downloadURL)
+	if err != nil {
+		return fmt.Errorf("%w: unparsable download URL %q", ErrUntrustedUpdateSource, downloadURL)
+	}
+	if !strings.EqualFold(u.Scheme, "https") {
+		return fmt.Errorf("%w: download URL must be https, got %q", ErrUntrustedUpdateSource, u.Scheme)
+	}
+
+	host := strings.ToLower(u.Hostname())
+	path := strings.ToLower(u.EscapedPath())
+
+	// Only GitHub download hosts are acceptable. Release assets are served from
+	// objects.githubusercontent.com, whose path has no owner segment; ownership
+	// for those is established by the Releases API call in checkGitHubReleases.
+	switch host {
+	case "objects.githubusercontent.com", "codeload.github.com":
+		return nil
+	case "github.com", "raw.githubusercontent.com":
+	default:
+		return fmt.Errorf("%w: host %q is not a GitHub download host", ErrUntrustedUpdateSource, host)
+	}
+
+	for _, owner := range TrustedUpdateOwners {
+		if strings.Contains(path, "/"+strings.ToLower(owner)+"/") {
+			return nil
+		}
+	}
+	return fmt.Errorf("%w: %q does not belong to any of %v", ErrUntrustedUpdateSource, downloadURL, TrustedUpdateOwners)
+}
+
+// repoIsTrusted reports whether an "owner/name" slug belongs to a trusted owner.
+func repoIsTrusted(slug string) bool {
+	parts := strings.SplitN(strings.TrimSpace(slug), "/", 2)
+	if len(parts) != 2 {
+		return false
+	}
+	for _, owner := range TrustedUpdateOwners {
+		if strings.EqualFold(parts[0], owner) {
+			return true
+		}
+	}
+	return false
+}
+
 // UpdateInfo holds detailed version and asset information.
 type UpdateInfo struct {
 	CurrentVersion string `json:"currentVersion"`
@@ -62,6 +140,10 @@ type UpdateInfo struct {
 	CheckedAt      string `json:"checkedAt"`
 	SHA256         string `json:"sha256,omitempty"`
 	Source         string `json:"source,omitempty"` // "manifest" or "github_releases"
+	// UntrustedSource is set when an update was advertised but refused because
+	// the download URL pointed outside the trusted repositories. The dashboard
+	// shows it so the refusal is visible rather than looking like "up to date".
+	UntrustedSource string `json:"untrustedSource,omitempty"`
 }
 
 // UpdaterStatus represents the live background auto-update engine status.
@@ -74,6 +156,17 @@ type UpdaterStatus struct {
 	LastCheckTime     string      `json:"lastCheckTime,omitempty"`
 	CheckInterval     string      `json:"checkInterval"`
 	CachedInfo        *UpdateInfo `json:"cachedInfo,omitempty"`
+}
+
+// SetCachedInfoForTest replaces the cached result of the last version check.
+// Test-only seam: it lets a handler test present a check outcome (including a
+// refused one) without reaching the network or waiting for the background
+// interval to fire.
+func SetCachedInfoForTest(info *UpdateInfo) {
+	cacheMu.Lock()
+	cachedInfo = info
+	lastCheckTime = time.Now()
+	cacheMu.Unlock()
 }
 
 // SetAutoUpdate sets the auto-update flag in memory.
@@ -153,6 +246,13 @@ func CheckUpdate(ctx context.Context) (*UpdateInfo, error) {
 	// 1. Try manifest URL first
 	info, err := checkManifest(ctx, updateURL)
 	if err == nil && info != nil {
+		if tErr := verifyTrustedSource(info.DownloadURL); tErr != nil && info.HasUpdate {
+			log.Warn("updater", "refusing update from untrusted manifest",
+				"url", info.DownloadURL, "error", tErr)
+			info.HasUpdate = false
+			info.DownloadURL = ""
+			info.UntrustedSource = tErr.Error()
+		}
 		cacheMu.Lock()
 		cachedInfo = info
 		lastCheckTime = time.Now()
@@ -165,11 +265,23 @@ func CheckUpdate(ctx context.Context) (*UpdateInfo, error) {
 	if repo == "" {
 		repo = DefaultGitHubRepo
 	}
+	// The API response's asset URLs carry no owner, so ownership can only be
+	// established here. Reject an override pointing at somebody else's repo.
+	if !repoIsTrusted(repo) {
+		return nil, fmt.Errorf("%w: UPDATE_REPO %q is not a trusted repository", ErrUntrustedUpdateSource, repo)
+	}
 	ghURL := fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", repo)
 	log.Debug("updater", "checking github releases fallback", "repo", repo)
 
 	ghInfo, ghErr := checkGitHubReleases(ctx, ghURL)
 	if ghErr == nil && ghInfo != nil {
+		if tErr := verifyTrustedSource(ghInfo.DownloadURL); tErr != nil && ghInfo.HasUpdate {
+			log.Warn("updater", "refusing update from untrusted release",
+				"url", ghInfo.DownloadURL, "error", tErr)
+			ghInfo.HasUpdate = false
+			ghInfo.DownloadURL = ""
+			ghInfo.UntrustedSource = tErr.Error()
+		}
 		cacheMu.Lock()
 		cachedInfo = ghInfo
 		lastCheckTime = time.Now()
@@ -359,8 +471,31 @@ func matchReleaseAsset(assets []struct {
 // When expectedSHA256 is non-empty, the downloaded asset (after archive extraction) is verified against it before
 // the binary is written to disk; a mismatch aborts the update and keeps the running binary intact.
 func PerformSelfUpdate(downloadURL, expectedSHA256 string) error {
+	execPath, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("locate executable path: %w", err)
+	}
+	execPath, err = filepath.EvalSymlinks(execPath)
+	if err != nil {
+		return fmt.Errorf("resolve symlink path: %w", err)
+	}
+	return performSelfUpdateTo(downloadURL, expectedSHA256, execPath)
+}
+
+// performSelfUpdateTo installs the update over the given path.
+//
+// Split from PerformSelfUpdate so the download/verify/swap path can be tested
+// against a temporary file: the alternative is a test that overwrites the
+// running test binary, which would corrupt the run it is meant to check.
+func performSelfUpdateTo(downloadURL, expectedSHA256, execPath string) error {
 	if downloadURL == "" {
 		return fmt.Errorf("missing download URL for platform %s_%s", runtime.GOOS, runtime.GOARCH)
+	}
+
+	// Last line of defence: even a handler-level mistake must not let an
+	// untrusted URL overwrite the running binary.
+	if err := verifyTrustedSource(downloadURL); err != nil {
+		return err
 	}
 
 	updateProgressMu.Lock()
@@ -376,15 +511,6 @@ func PerformSelfUpdate(downloadURL, expectedSHA256 string) error {
 		updateInProgress = false
 		updateProgressMu.Unlock()
 	}()
-
-	execPath, err := os.Executable()
-	if err != nil {
-		return fmt.Errorf("locate executable path: %w", err)
-	}
-	execPath, err = filepath.EvalSymlinks(execPath)
-	if err != nil {
-		return fmt.Errorf("resolve symlink path: %w", err)
-	}
 
 	log.Info("updater", "downloading update asset", "url", downloadURL, "target", execPath)
 
@@ -423,7 +549,18 @@ func PerformSelfUpdate(downloadURL, expectedSHA256 string) error {
 	dir := filepath.Dir(execPath)
 	tmpFile, err := os.CreateTemp(dir, ".9router-go-update-*.tmp")
 	if err != nil {
-		return fmt.Errorf("create temp file: %w", err)
+		// The most common cause by far is a hardened unit that mounts the install
+		// directory read-only (systemd ProtectSystem=strict) or a binary owned by
+		// another user. The raw error does not say which, and the fix is a config
+		// change the operator has to make, so name it here.
+		if errors.Is(err, fs.ErrPermission) || strings.Contains(err.Error(), "read-only") {
+			return fmt.Errorf("cannot write to %s: %w\n"+
+				"the install directory is not writable by this process. "+
+				"If running under systemd, add ReadWritePaths=%s to the unit; "+
+				"otherwise run the update with the same user that owns the binary",
+				dir, err, dir)
+		}
+		return fmt.Errorf("create temp file in %s: %w", dir, err)
 	}
 	tmpPath := tmpFile.Name()
 	defer os.Remove(tmpPath)
@@ -695,8 +832,46 @@ func runCheckCycle(ctx context.Context) {
 	}
 }
 
-// RestartSelf safely spawns a fresh process of the updated executable and exits current instance.
+// RestartSelf brings the updated executable into service.
+//
+// Under a supervisor (systemd, Docker with a restart policy, a process manager)
+// respawning is the supervisor's job. Spawning a child ourselves would leave two
+// processes racing for the same listening port, because the supervisor restarts
+// us the moment we exit — so when a supervisor is detected we only ask to shut
+// down and let it do its work.
 func RestartSelf() {
+	if supervisorManaged() {
+		// INVOCATION_ID is set by systemd for every unit start. Under any such
+		// supervisor, exiting with a success status is enough.
+		log.Info("updater", "supervisor detected; exiting so it can restart the updated binary")
+		if signalSelfShutdown() {
+			time.AfterFunc(5*time.Second, func() { os.Exit(1) })
+			select {}
+		}
+		os.Exit(0)
+		return
+	}
+
+	spawnAndExit()
+}
+
+// supervisorManaged reports whether something else is responsible for keeping
+// this process running.
+func supervisorManaged() bool {
+	for _, key := range []string{"INVOCATION_ID", "JOURNAL_STREAM", "CONTAINER", "KUBERNETES_SERVICE_HOST"} {
+		if os.Getenv(key) != "" {
+			return true
+		}
+	}
+	// Docker writes /.dockerenv; the file is the only signal for images that
+	// clear the CONTAINER env var.
+	if _, err := os.Stat("/.dockerenv"); err == nil {
+		return true
+	}
+	return false
+}
+
+func spawnAndExit() {
 	execPath, err := os.Executable()
 	if err != nil {
 		log.Error("updater", "locate binary for restart failed", "error", err)

@@ -1,5 +1,5 @@
 {
   "latestVersion": "1.8.17",
-  "downloadUrl": "https://github.com/luqman-v1/9router-go/releases/latest",
+  "downloadUrl": "https://github.com/arewedaks/9router-go/releases/latest",
   "releaseNotes": "v1.8.17: Support Claude OAuth subscription connections end-to-end (PR #13 by @rezhajulio), rename free-tier tool quartet for Antigravity (PR #12 by @yxxrn), add CommandCode CLI User-Agent & schema wrapping (PR #14, fixes #9 reported by @jhonoryza), and support DefaultAPIKey fallback + string input on /v1/responses (PR #15, fixes #10 reported by @pankaj-raikar)."
 }
