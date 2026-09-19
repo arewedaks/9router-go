@@ -3034,7 +3034,9 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
         if (!data.ok) { modelTestError[modelId] = errorMessage(data, res.status) || "failed"; failCount++; }
         else okCount++;
         if (!data.ok && autoDisable) {
-          // Auto-disable: remove the model from the provider cache.
+          // Auto-disable: drop the model from the provider's advertised list.
+          // The rows are re-fetched at the end of the run, so the removed model
+          // disappears instead of lingering until the next manual reload.
           await api(`/api/dashboard/providers/${encodeURIComponent(providerId)}/models?modelId=${encodeURIComponent(modelId)}`, { method: "DELETE" });
         }
       } catch (e) {
@@ -3067,7 +3069,9 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
       activeTestController = null;
       renderProviderDetailRefresh();
       if (autoDisable && failCount > 0) {
-        // Several models were removed server-side; refresh the list.
+        // Several models were removed server-side, so re-fetch rather than
+        // re-render: lastProviderDetail still holds the pre-run list and would
+        // paint the disabled models back onto the page.
         // keepTab: stay on Models so the operator sees the updated rows.
         setTimeout(() => openProviderDetail(providerId, true), 800);
       }

@@ -294,7 +294,11 @@ func (h *Handler) HandleTestProviderModels(w http.ResponseWriter, r *http.Reques
 		keys := []string{canonical, raw, alias}
 		keys = append(keys, providers.AliasesFor(canonical)...)
 		keys = append(keys, providers.AliasesFor(raw)...)
-		cached, err := h.repo.ListCachedModels(dedupeStrings(keys)...)
+		// ListCachedModelsForDashboard, not ListCachedModels: a database restored
+		// from the Next.js build keeps its catalogue in kv scope customModels, so
+		// the narrow query returned nothing here and "Test All Models" silently
+		// tested zero models — nothing was disabled even with auto-disable ticked.
+		cached, err := h.repo.ListCachedModelsForDashboard(dedupeStrings(keys)...)
 		if err == nil {
 			for _, m := range cached {
 				// Only LLM-kind models are supported by the built-in test path.
@@ -385,9 +389,16 @@ func (h *Handler) maybeAutoDisable(fullModel string, ok, autoDisable bool) {
 	}
 	canonical := providers.ResolveAlias(alias)
 	keys := append([]string{alias, canonical}, providers.AliasesFor(canonical)...)
-	for _, k := range dedupeStrings(keys) {
+	keys = dedupeStrings(keys)
+	for _, k := range keys {
 		_ = h.repo.RemoveCachedModel(k, modelID)
 	}
+	// Removing from cachedProviderModels is not enough. A database restored from
+	// the Next.js build keeps its catalogue in kv scope customModels, and
+	// /v1/models reads that scope, so the failed model kept being advertised.
+	// HandleRemoveModel records the same marker for the button path; without it
+	// here, auto-disable appeared to do nothing.
+	_ = h.repo.HideModel(keys, modelID)
 }
 
 // modelTestResultFor rebuilds a result echoing the exact model string that was
