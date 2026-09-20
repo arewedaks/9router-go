@@ -210,7 +210,7 @@ func (h *MediaHandler) handleXquikSearch(w http.ResponseWriter, r *http.Request,
 		})
 	}
 
-	h.Repo.UpdateConnectionLastUsed(conn.ID)
+	h.Repo.UpdateConnectionLastUsed(conn.ID, false)
 
 	var nextCursor any
 	if xqResp.NextCursor != "" {

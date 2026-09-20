@@ -65,11 +65,18 @@ func (h *ChatHandler) handleAccountFallback(
 		return fmt.Errorf("no active connections for provider: %s", provider)
 	}
 
-	// Apply provider connection routing strategy (round-robin, sticky, random) if configured
+	// Apply the provider's account routing strategy. Two settings feed this:
+	// fallbackStrategy spreads requests across the provider's own ACCOUNTS (the
+	// Round Robin toggle on the provider page), rotateStrategy across PROXY
+	// POOLS. Either one being on is a reason to reorder, and they are
+	// independent — checking only rotateStrategy is why the toggle did nothing.
 	if len(allConns) > 1 && h.Repo != nil {
 		if settings, sErr := h.Repo.GetSettings(); sErr == nil && settings != nil && settings.ProviderStrategies != nil {
-			if strat, ok := settings.ProviderStrategies[provider]; ok && strat.RotateStrategy != "" && strat.RotateStrategy != "none" {
-				allConns = h.applyConnectionStrategy(provider, allConns, strat)
+			if strat, ok := settings.ProviderStrategies[provider]; ok {
+				poolRotation := strat.RotateStrategy != "" && strat.RotateStrategy != "none"
+				if poolRotation || strat.WantsAccountRoundRobin() {
+					allConns = h.applyConnectionStrategy(provider, allConns, strat)
+				}
 			}
 		}
 	}

@@ -12,7 +12,8 @@ import (
 
 // GetAllProviderConnections retrieves all provider connections ordered by priority and update time.
 func (r *Repo) GetAllProviderConnections() ([]*models.ProviderConnection, error) {
-	query := `SELECT id, provider, authType, name, email, priority, isActive, data, createdAt, updatedAt
+	query := `SELECT id, provider, authType, name, email, priority, isActive, data, createdAt, updatedAt,
+		COALESCE(lastUsedAt, ''), COALESCE(consecutiveUseCount, 0)
 		FROM providerConnections
 		ORDER BY CASE WHEN priority IS NULL THEN 999999 ELSE priority END ASC, updatedAt DESC`
 
@@ -28,6 +29,7 @@ func (r *Repo) GetAllProviderConnections() ([]*models.ProviderConnection, error)
 		err := rows.Scan(
 			&conn.ID, &conn.Provider, &conn.AuthType, &conn.Name, &conn.Email,
 			&conn.Priority, &conn.IsActive, &conn.Data, &conn.CreatedAt, &conn.UpdatedAt,
+			&conn.LastUsedAt, &conn.ConsecutiveUseCount,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("scan provider connection: %w", err)

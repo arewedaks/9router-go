@@ -59,15 +59,27 @@ func (r *Repo) InsertRequestDetail(id, provider, model, connectionID, status str
 	return nil
 }
 
-// UpdateConnectionLastUsed updates the lastUsedAt timestamp and increments
-// consecutiveUseCount for the given provider connection.
-func (r *Repo) UpdateConnectionLastUsed(connectionID string) error {
-	now := time.Now().UTC().Format(time.RFC3339)
-	_, err := r.db.Exec(
-		`UPDATE providerConnections SET lastUsedAt = ?, consecutiveUseCount = COALESCE(consecutiveUseCount, 0) + 1 WHERE id = ?`,
-		now, connectionID,
-	)
-	if err != nil {
+// UpdateConnectionLastUsed records that a connection served a request: it stamps
+// lastUsedAt and advances the run counter that account round-robin reads.
+//
+// resetRun is set on a handover, where the newly chosen account begins its own
+// run and its counter must go back to 1 rather than accumulate what the previous
+// holder had.
+//
+// The timestamp keeps sub-second precision. Second-resolution values collided
+// when several accounts were used inside the same second, which made "most
+// recently used" ambiguous and sent round-robin back to the same account.
+func (r *Repo) UpdateConnectionLastUsed(connectionID string, resetRun bool) error {
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	query := `UPDATE providerConnections
+		SET lastUsedAt = ?, consecutiveUseCount = COALESCE(consecutiveUseCount, 0) + 1
+		WHERE id = ?`
+	if resetRun {
+		query = `UPDATE providerConnections
+			SET lastUsedAt = ?, consecutiveUseCount = 1
+			WHERE id = ?`
+	}
+	if _, err := r.db.Exec(query, now, connectionID); err != nil {
 		return fmt.Errorf("update connection last used %s: %w", connectionID, err)
 	}
 	return nil

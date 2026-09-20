@@ -18,22 +18,34 @@ type ProviderStrategy struct {
 	// Mirrors VansRouter's settings.providerStrategies[id].targetProxyPoolIds.
 	TargetProxyPoolIds []string `json:"targetProxyPoolIds,omitempty"`
 
+	// FallbackStrategy rotates between a provider's own ACCOUNTS, not its proxy
+	// pools: "fill-first" (default) always uses the highest-priority connection,
+	// "round-robin" spreads requests so no single account carries the load.
+	// VansRouter stores this under the same name and reads it in
+	// src/sse/services/auth.js.
+	FallbackStrategy string `json:"fallbackStrategy,omitempty"`
+	// StickyRoundRobinLimit is how many consecutive requests one account serves
+	// before rotation moves on. VansRouter defaults it to 3; 1 rotates every
+	// request. Only read when FallbackStrategy is "round-robin".
+	StickyRoundRobinLimit int `json:"stickyRoundRobinLimit,omitempty"`
+
 	// Extra holds every key of this provider's strategy object that this struct
 	// does not model, exactly as it was stored. The settings blob is shared with
-	// VansRouter, which also writes stickyRoundRobinLimit, fallbackStrategy and
-	// strictModelAssignment here. Dropping those on read would make a settings
-	// round-trip destroy the operator's real configuration, so unknown keys are
-	// carried through untouched.
+	// VansRouter, which also writes strictModelAssignment here. Dropping those on
+	// read would make a settings round-trip destroy the operator's real
+	// configuration, so unknown keys are carried through untouched.
 	Extra map[string]any `json:"-"`
 }
 
 // knownStrategyKeys lists the keys represented by the typed fields above. Any
 // other key found in a stored strategy object is preserved in Extra.
 var knownStrategyKeys = map[string]bool{
-	"proxyPoolId":        true,
-	"rotateStrategy":     true,
-	"stickyLimit":        true,
-	"targetProxyPoolIds": true,
+	"proxyPoolId":           true,
+	"rotateStrategy":        true,
+	"stickyLimit":           true,
+	"targetProxyPoolIds":    true,
+	"fallbackStrategy":      true,
+	"stickyRoundRobinLimit": true,
 }
 
 // IsEmpty reports whether the strategy carries no configuration at all, counting
@@ -44,8 +56,32 @@ func (p ProviderStrategy) IsEmpty() bool {
 		p.RotateStrategy == "" &&
 		p.StickyLimit == 0 &&
 		len(p.TargetProxyPoolIds) == 0 &&
+		p.FallbackStrategy == "" &&
+		p.StickyRoundRobinLimit == 0 &&
 		len(p.Extra) == 0
 }
+
+// WantsAccountRoundRobin reports whether this provider should spread requests
+// across its accounts. "fill-first", "none" and "" all mean no rotation, which
+// is the historical behaviour.
+func (p ProviderStrategy) WantsAccountRoundRobin() bool {
+	return strings.EqualFold(strings.TrimSpace(p.FallbackStrategy), "round-robin")
+}
+
+// AccountStickyLimit returns how many consecutive requests one account serves
+// before the rotation advances. Defaults to 3 to match VansRouter, whose UI
+// seeds the field with 3 when the toggle is switched on.
+func (p ProviderStrategy) AccountStickyLimit() int {
+	if p.StickyRoundRobinLimit > 0 {
+		return p.StickyRoundRobinLimit
+	}
+	return defaultAccountStickyLimit
+}
+
+// defaultAccountStickyLimit mirrors VansRouter's 3. A value of 1 would rotate on
+// every request, which is worse for prompt caching: each account keeps its own
+// cache, so hopping every request discards it.
+const defaultAccountStickyLimit = 3
 
 // UnmarshalJSON fills the typed fields and routes every other key into Extra, so
 // the request-body decode path (POST /settings) is lossless too — not just the
@@ -59,9 +95,13 @@ func (p *ProviderStrategy) UnmarshalJSON(data []byte) error {
 		ProxyPoolID:        handlerutil.GetString(raw, "proxyPoolId"),
 		RotateStrategy:     handlerutil.GetString(raw, "rotateStrategy"),
 		TargetProxyPoolIds: parseStringSlice(raw["targetProxyPoolIds"]),
+		FallbackStrategy:   handlerutil.GetString(raw, "fallbackStrategy"),
 	}
 	if sl, ok := raw["stickyLimit"].(float64); ok && sl > 0 {
 		p.StickyLimit = int(sl)
+	}
+	if sr, ok := raw["stickyRoundRobinLimit"].(float64); ok && sr > 0 {
+		p.StickyRoundRobinLimit = int(sr)
 	}
 	for k, v := range raw {
 		if knownStrategyKeys[k] {
@@ -80,7 +120,7 @@ func (p *ProviderStrategy) UnmarshalJSON(data []byte) error {
 // fields win on collision, which cannot normally happen because Extra only ever
 // receives keys that knownStrategyKeys does not list.
 func (p ProviderStrategy) MarshalJSON() ([]byte, error) {
-	out := make(map[string]any, len(p.Extra)+4)
+	out := make(map[string]any, len(p.Extra)+6)
 	for k, v := range p.Extra {
 		out[k] = v
 	}
@@ -95,6 +135,12 @@ func (p ProviderStrategy) MarshalJSON() ([]byte, error) {
 	}
 	if len(p.TargetProxyPoolIds) > 0 {
 		out["targetProxyPoolIds"] = p.TargetProxyPoolIds
+	}
+	if p.FallbackStrategy != "" {
+		out["fallbackStrategy"] = p.FallbackStrategy
+	}
+	if p.StickyRoundRobinLimit != 0 {
+		out["stickyRoundRobinLimit"] = p.StickyRoundRobinLimit
 	}
 	return json.Marshal(out)
 }
@@ -229,13 +275,16 @@ func (r *Repo) GetSettings() (*SettingsData, error) {
 					ProxyPoolID:        handlerutil.GetString(vm, "proxyPoolId"),
 					TargetProxyPoolIds: parseStringSlice(vm["targetProxyPoolIds"]),
 					RotateStrategy:     handlerutil.GetString(vm, "rotateStrategy"),
+					FallbackStrategy:   handlerutil.GetString(vm, "fallbackStrategy"),
 				}
 				if sl, ok := vm["stickyLimit"].(float64); ok && sl > 0 {
 					strat.StickyLimit = int(sl)
 				}
-				// Preserve any key we do not model (stickyRoundRobinLimit,
-				// fallbackStrategy, strictModelAssignment, …) so a read/write
-				// round-trip cannot destroy it.
+				if sr, ok := vm["stickyRoundRobinLimit"].(float64); ok && sr > 0 {
+					strat.StickyRoundRobinLimit = int(sr)
+				}
+				// Preserve any key we do not model (strictModelAssignment, …) so a
+				// read/write round-trip cannot destroy it.
 				for k, kv := range vm {
 					if knownStrategyKeys[k] {
 						continue

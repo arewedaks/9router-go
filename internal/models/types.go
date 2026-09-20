@@ -24,6 +24,12 @@ type ProviderConnection struct {
 	Data      string  `json:"data"`     // JSON string representing additional provider config
 	CreatedAt string  `json:"createdAt"`
 	UpdatedAt string  `json:"updatedAt"`
+	// LastUsedAt and ConsecutiveUseCount drive account round-robin: the least
+	// recently used connection is picked next, and one account serves
+	// StickyRoundRobinLimit requests before the rotation advances. Persisted so
+	// the rotation stays fair across restarts.
+	LastUsedAt          string `json:"lastUsedAt,omitempty"`
+	ConsecutiveUseCount int    `json:"consecutiveUseCount,omitempty"`
 }
 
 // ProviderNode represents a deployment node / executor config.

@@ -129,7 +129,7 @@ func (h *ChatHandler) forwardMultimodal(w http.ResponseWriter, r *http.Request, 
 	io.Copy(w, resp.Body)
 
 	if resp.StatusCode == http.StatusOK {
-		h.Repo.UpdateConnectionLastUsed(ctx.conn.ID)
+		h.Repo.UpdateConnectionLastUsed(ctx.conn.ID, false)
 	}
 }
 
@@ -217,7 +217,7 @@ func (h *ChatHandler) HandleAudioTranscriptions(w http.ResponseWriter, r *http.R
 	io.Copy(w, resp.Body)
 
 	if resp.StatusCode == http.StatusOK {
-		h.Repo.UpdateConnectionLastUsed(ctx.conn.ID)
+		h.Repo.UpdateConnectionLastUsed(ctx.conn.ID, false)
 	}
 }
 
@@ -338,6 +338,6 @@ func (h *ChatHandler) HandleVideoGet(w http.ResponseWriter, r *http.Request) {
 	io.Copy(w, resp.Body)
 
 	if resp.StatusCode == http.StatusOK {
-		h.Repo.UpdateConnectionLastUsed(conn.ID)
+		h.Repo.UpdateConnectionLastUsed(conn.ID, false)
 	}
 }

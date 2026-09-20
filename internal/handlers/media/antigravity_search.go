@@ -366,7 +366,7 @@ func (h *MediaHandler) handleAntigravitySearch(w http.ResponseWriter, r *http.Re
 		tokens = agResp.UsageMetadata.TotalTokenCount
 	}
 
-	h.Repo.UpdateConnectionLastUsed(conn.ID)
+	h.Repo.UpdateConnectionLastUsed(conn.ID, false)
 	log.Info("request", "POST /v1/search", "provider", "antigravity", "model", model, "query", query, "results", len(results), "conn", conn.ID[:min(8, len(conn.ID))], "tokens", tokens)
 	log.Info("usage", "logged", "provider", "antigravity", "model", model, "query", query, "results", len(results), "tokens", tokens)
 

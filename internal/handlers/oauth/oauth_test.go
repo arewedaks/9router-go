@@ -34,7 +34,9 @@ func setupOAuthTestDB(t *testing.T) (*sql.DB, func()) {
 		isActive INTEGER DEFAULT 1,
 		data TEXT NOT NULL,
 		createdAt TEXT,
-		updatedAt TEXT
+		updatedAt TEXT,
+		lastUsedAt TEXT,
+		consecutiveUseCount INTEGER DEFAULT 0
 	);`
 	if _, err := database.Exec(schema); err != nil {
 		database.Close()

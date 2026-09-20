@@ -29,7 +29,8 @@ func newDuplicateTestRepo(t *testing.T) *db.Repo {
 	if _, err := database.Exec(`CREATE TABLE providerConnections (
 		id TEXT PRIMARY KEY, provider TEXT NOT NULL, authType TEXT,
 		name TEXT, email TEXT, priority INTEGER, isActive INTEGER DEFAULT 1,
-		data TEXT, createdAt TEXT, updatedAt TEXT)`); err != nil {
+		data TEXT, createdAt TEXT, updatedAt TEXT,
+		lastUsedAt TEXT, consecutiveUseCount INTEGER DEFAULT 0)`); err != nil {
 		t.Fatalf("schema: %v", err)
 	}
 	return db.NewRepo(database)

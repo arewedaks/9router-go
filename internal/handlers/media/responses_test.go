@@ -52,10 +52,10 @@ func setupResponsesTestDB(t *testing.T) (*sql.DB, func()) {
 			priority INTEGER,
 			isActive INTEGER DEFAULT 1,
 			data TEXT NOT NULL,
-			lastUsedAt TEXT,
-			consecutiveUseCount INTEGER DEFAULT 0,
 			createdAt TEXT NOT NULL,
-			updatedAt TEXT NOT NULL
+			updatedAt TEXT NOT NULL,
+			lastUsedAt TEXT,
+			consecutiveUseCount INTEGER DEFAULT 0
 		)`,
 		`CREATE TABLE kv (
 			scope TEXT NOT NULL,

@@ -2495,6 +2495,70 @@
     }
   }
 
+  // Account round-robin: spread a provider's requests across its own
+  // connections so no single account carries the load. Separate from the proxy
+  // pool rotation below, which balances egress IPs rather than accounts.
+  //
+  // Mirrors VansRouter's provider page, which shows the toggle next to the
+  // Connections heading and seeds Sticky with 3 when it is switched on. Three
+  // is the default there because rotating on every request discards each
+  // account's prompt cache.
+  function accountRoundRobinControls(d) {
+    const strat = (providerStrategies[d.provider] || {});
+    const on = (strat.fallbackStrategy || "") === "round-robin";
+    const sticky = strat.stickyRoundRobinLimit || 3;
+    const count = (d.connections || []).length;
+    const note = count < 2
+      ? `<span style="font-size:0.72rem; color:var(--muted);">needs 2+ accounts</span>`
+      : `<span style="font-size:0.72rem; color:var(--muted);">spreads load across ${count} accounts</span>`;
+    return `
+      <div style="display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin-top:12px; padding:10px 12px; background:var(--panel-2,#15181d); border:1px solid var(--border); border-radius:8px;">
+        <span style="font-size:0.82rem; color:#e6edf3;">Round Robin</span>
+        <label class="switch" style="margin:0;">
+          <input type="checkbox" ${on ? "checked" : ""} onchange="setAccountRoundRobin('${escapeHtml(d.provider)}', this.checked);">
+          <span class="slider"></span>
+        </label>
+        ${on ? `<span style="font-size:0.78rem; color:var(--muted);">Sticky:</span>
+          <input type="number" min="1" value="${sticky}" onchange="setAccountStickyLimit('${escapeHtml(d.provider)}', this.value);"
+            style="width:64px; padding:3px 6px; font-size:0.78rem; background:var(--bg); color:#e6edf3; border:1px solid var(--border); border-radius:6px;">
+          <span style="font-size:0.72rem; color:var(--muted);">requests per account before switching</span>` : note}
+      </div>`;
+  }
+
+  // Persist one account-rotation setting for a provider, leaving every other
+  // strategy key (proxy pool, passthrough VansRouter keys) untouched.
+  async function saveAccountStrategy(provider, patch) {
+    const next = Object.assign({}, providerStrategies);
+    next[provider] = Object.assign({}, next[provider] || {}, patch);
+    try {
+      const res = await api("/api/dashboard/settings", {
+        method: "POST",
+        body: JSON.stringify({ providerStrategies: next }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { setFormMsg("cf-msg", errorMessage(data, res.status), false); return; }
+      providerStrategies = data.providerStrategies || next;
+      renderProviderDetailRefresh();
+    } catch (e) {
+      setFormMsg("cf-msg", String(e), false);
+    }
+  }
+
+  function setAccountRoundRobin(provider, enabled) {
+    // Seed the limit on first enable so the input renders with a value, exactly
+    // as VansRouter does. Turning it off clears the strategy rather than
+    // leaving "fill-first" written, so the stored blob stays tidy.
+    const patch = enabled
+      ? { fallbackStrategy: "round-robin", stickyRoundRobinLimit: (providerStrategies[provider] || {}).stickyRoundRobinLimit || 3 }
+      : { fallbackStrategy: "fill-first" };
+    saveAccountStrategy(provider, patch);
+  }
+
+  function setAccountStickyLimit(provider, value) {
+    const n = parseInt(value, 10);
+    saveAccountStrategy(provider, { stickyRoundRobinLimit: n > 0 ? n : 3 });
+  }
+
   // The per-provider strategy lives in settings.providerStrategies, keyed by
   // provider id — same shape VansRouter reads in src/sse/services/auth.js.
   const PROXY_STRATEGIES = [
@@ -2710,6 +2774,7 @@
         <button class="btn btn-sm" onclick="testAllConnections('${d.provider}');">Test All Accounts</button>
         <span id="conn-test-progress" class="conn-test-progress"></span>
       </div>
+      ${accountRoundRobinControls(d)}
       <div style="margin-top:6px;">${connsInner}</div>`;
 
     // Models tab — includes the "Add Custom Model" form plus per-model and

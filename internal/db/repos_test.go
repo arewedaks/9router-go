@@ -930,7 +930,7 @@ func TestUpdateConnectionLastUsed(t *testing.T) {
 		t.Fatalf("failed to seed providerConnection: %v", err)
 	}
 
-	err = repo.UpdateConnectionLastUsed("conn-upd-1")
+	err = repo.UpdateConnectionLastUsed("conn-upd-1", false)
 	if err != nil {
 		t.Fatalf("UpdateConnectionLastUsed failed: %v", err)
 	}
@@ -962,9 +962,9 @@ func TestUpdateConnectionLastUsed_Increment(t *testing.T) {
 		t.Fatalf("failed to seed providerConnection: %v", err)
 	}
 
-	repo.UpdateConnectionLastUsed("conn-upd-2")
-	repo.UpdateConnectionLastUsed("conn-upd-2")
-	repo.UpdateConnectionLastUsed("conn-upd-2")
+	repo.UpdateConnectionLastUsed("conn-upd-2", false)
+	repo.UpdateConnectionLastUsed("conn-upd-2", false)
+	repo.UpdateConnectionLastUsed("conn-upd-2", false)
 
 	var consecutiveUseCount int
 	err = db.QueryRow(`SELECT consecutiveUseCount FROM providerConnections WHERE id = ?`, "conn-upd-2").Scan(&consecutiveUseCount)
@@ -983,7 +983,7 @@ func TestUpdateConnectionLastUsed_NonExistent(t *testing.T) {
 	repo := NewRepo(db)
 
 	// Update on non-existent ID should not error (UPDATE with no match is no-op)
-	err := repo.UpdateConnectionLastUsed("no-such-connection")
+	err := repo.UpdateConnectionLastUsed("no-such-connection", false)
 	if err != nil {
 		t.Errorf("expected no error for non-existent connection, got %v", err)
 	}

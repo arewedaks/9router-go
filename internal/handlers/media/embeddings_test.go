@@ -58,7 +58,9 @@ func setupEmbeddingsTestDB(t *testing.T) (*sql.DB, func()) {
 			isActive INTEGER DEFAULT 1,
 			data TEXT NOT NULL,
 			createdAt TEXT NOT NULL,
-			updatedAt TEXT NOT NULL
+			updatedAt TEXT NOT NULL,
+			lastUsedAt TEXT,
+			consecutiveUseCount INTEGER DEFAULT 0
 		)`,
 		`CREATE TABLE kv (
 			scope TEXT NOT NULL,

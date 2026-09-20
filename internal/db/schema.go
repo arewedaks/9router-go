@@ -40,6 +40,13 @@ var extraColumns = []string{
 	// Combo routing strategy (fallback / round-robin / capacity / fusion).
 	// Without this the dashboard could set it but never read it back.
 	`ALTER TABLE combos ADD COLUMN strategy TEXT`,
+	// Account rotation state, read by round-robin to pick the least recently
+	// used connection. UpdateConnectionLastUsed already wrote these two, but no
+	// schema ever created them, so every write failed with "no such column" and
+	// rotation had nothing to sort by — it fell back to rotating in memory,
+	// which resets on every restart.
+	`ALTER TABLE providerConnections ADD COLUMN lastUsedAt TEXT`,
+	`ALTER TABLE providerConnections ADD COLUMN consecutiveUseCount INTEGER DEFAULT 0`,
 }
 
 // SchemaStatements returns the canonical CREATE TABLE statements. It is exported
@@ -68,7 +75,9 @@ func SchemaStatements() []string {
 			isActive INTEGER DEFAULT 1,
 			data TEXT NOT NULL,
 			createdAt TEXT NOT NULL,
-			updatedAt TEXT NOT NULL
+			updatedAt TEXT NOT NULL,
+			lastUsedAt TEXT,
+			consecutiveUseCount INTEGER DEFAULT 0
 		)`,
 		`CREATE TABLE IF NOT EXISTS kv (
 			scope TEXT NOT NULL,

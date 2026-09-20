@@ -111,7 +111,7 @@ func (h *MediaHandler) HandleEmbeddings(w http.ResponseWriter, r *http.Request) 
 	io.Copy(w, resp.Body)
 
 	if resp.StatusCode == http.StatusOK {
-		h.Repo.UpdateConnectionLastUsed(conn.ID)
+		h.Repo.UpdateConnectionLastUsed(conn.ID, false)
 		latencyMs := time.Since(start).Milliseconds()
 		logInfo := &shared.UsageLogInfo{
 			Provider:     modelInfo.Provider,
@@ -554,7 +554,7 @@ func (h *MediaHandler) forwardMediaRequest(w http.ResponseWriter, r *http.Reques
 			}
 			w.WriteHeader(resp.StatusCode)
 			io.Copy(w, resp.Body)
-			h.Repo.UpdateConnectionLastUsed(conn.ID)
+			h.Repo.UpdateConnectionLastUsed(conn.ID, false)
 			return
 		}
 		handlerutil.WriteJSONError(w, http.StatusBadGateway, fmt.Sprintf("all combo models failed: %s", lastErr))
@@ -655,7 +655,7 @@ func (h *MediaHandler) forwardMediaRequest(w http.ResponseWriter, r *http.Reques
 			return
 		}
 		if conn != nil {
-			h.Repo.UpdateConnectionLastUsed(conn.ID)
+			h.Repo.UpdateConnectionLastUsed(conn.ID, false)
 		}
 			return
 		}
@@ -741,7 +741,7 @@ func (h *MediaHandler) forwardMediaRequest(w http.ResponseWriter, r *http.Reques
 	io.Copy(w, resp.Body)
 
 	if resp.StatusCode == http.StatusOK && conn != nil {
-		h.Repo.UpdateConnectionLastUsed(conn.ID)
+		h.Repo.UpdateConnectionLastUsed(conn.ID, false)
 		latencyMs := time.Since(start).Milliseconds()
 		logInfo := &shared.UsageLogInfo{
 			Provider:     modelInfo.Provider,

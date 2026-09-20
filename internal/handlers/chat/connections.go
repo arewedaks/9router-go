@@ -13,8 +13,10 @@ import (
 	"math/rand/v2"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"sync"
+	"time"
 )
 
 // CredentialFallbacks maps search/tool providers to the primary chat provider whose API key can be reused.
@@ -91,11 +93,18 @@ func (h *ChatHandler) getBestConnection(provider string, connectionID string, ex
 			return nil, nil, fmt.Errorf("no active connections for provider: %s", provider)
 		}
 
-		// Apply provider connection routing strategy (round-robin, sticky, random) if configured
+		// Apply the provider's account routing strategy. Two settings feed this:
+		// fallbackStrategy spreads requests across the provider's own ACCOUNTS
+		// (the Round Robin toggle on the provider page), while rotateStrategy
+		// spreads them across PROXY POOLS. They are independent, and either one
+		// being on is a reason to reorder.
 		if len(connections) > 1 && h.Repo != nil {
 			if settings, sErr := h.Repo.GetSettings(); sErr == nil && settings != nil && settings.ProviderStrategies != nil {
-				if strat, ok := settings.ProviderStrategies[provider]; ok && strat.RotateStrategy != "" && strat.RotateStrategy != "none" {
-					connections = h.applyConnectionStrategy(provider, connections, strat)
+				if strat, ok := settings.ProviderStrategies[provider]; ok {
+					poolRotation := strat.RotateStrategy != "" && strat.RotateStrategy != "none"
+					if poolRotation || strat.WantsAccountRoundRobin() {
+						connections = h.applyConnectionStrategy(provider, connections, strat)
+					}
 				}
 			}
 		}
@@ -420,17 +429,25 @@ func (h *ChatHandler) applyConnectionStrategy(provider string, conns []*models.P
 		return conns
 	}
 
+	// Account rotation is a separate switch from proxy-pool rotation. When the
+	// operator turns on Round Robin for a provider but leaves rotateStrategy at
+	// its default, the pool setting must not decide how accounts rotate —
+	// "sticky" for pools would otherwise pin every request to the same account.
 	strategy := strings.ToLower(strings.TrimSpace(strat.RotateStrategy))
+	stickyLimit := strat.StickyLimit
+	if strat.WantsAccountRoundRobin() {
+		strategy = "round-robin"
+		stickyLimit = strat.AccountStickyLimit()
+	}
+
 	switch strategy {
 	case "round-robin", "roundrobin":
-		stickyLimit := 1
-		if strat.StickyLimit > 0 {
-			stickyLimit = strat.StickyLimit
+		if stickyLimit <= 0 {
+			stickyLimit = 1
 		}
 		return h.rotateConnectionsSticky(provider, conns, stickyLimit)
 
 	case "sticky":
-		stickyLimit := strat.StickyLimit
 		if stickyLimit <= 0 {
 			stickyLimit = 1
 		}
@@ -450,7 +467,99 @@ func (h *ChatHandler) applyConnectionStrategy(provider string, conns []*models.P
 	}
 }
 
+// rotateConnectionsSticky orders conns so the account that should serve next is
+// first. The choice follows VansRouter's auth.js: sort by lastUsedAt, stay on
+// the most recent account while it has served fewer than stickyLimit requests,
+// otherwise hand over to the least recently used one.
+//
+// The state lives in the providerConnections row, not in memory, so a restart
+// does not reset the rotation to the highest-priority account and starve the
+// rest. lastUsedAt is written here rather than by the caller so the ordering and
+// the bookkeeping cannot disagree.
 func (h *ChatHandler) rotateConnectionsSticky(provider string, conns []*models.ProviderConnection, stickyLimit int) []*models.ProviderConnection {
+	if len(conns) <= 1 {
+		return conns
+	}
+	if stickyLimit <= 0 {
+		stickyLimit = 1
+	}
+
+	// Without a Repo there is nowhere to persist lastUsedAt — the nop handler and
+	// some tests run this way — so fall back to rotating by index in memory.
+	// That order resets on restart, which is why it is not the default path.
+	if h.Repo == nil {
+		return h.rotateConnectionsInMemory(provider, conns, stickyLimit)
+	}
+
+	// Sort by recency. Never-used connections sort last so they claim a turn
+	// before anyone who has already served.
+	byOldest := make([]*models.ProviderConnection, len(conns))
+	copy(byOldest, conns)
+	sort.SliceStable(byOldest, func(i, j int) bool {
+		a, b := byOldest[i], byOldest[j]
+		if a.LastUsedAt == "" && b.LastUsedAt == "" {
+			return priorityOf(a) < priorityOf(b)
+		}
+		if a.LastUsedAt == "" {
+			return true
+		}
+		if b.LastUsedAt == "" {
+			return false
+		}
+		if a.LastUsedAt != b.LastUsedAt {
+			return a.LastUsedAt < b.LastUsedAt
+		}
+		return priorityOf(a) < priorityOf(b)
+	})
+
+	// Stay put while the current account still has budget in its run. "Current"
+	// is the most recently used; if that one just handed over, it is the oldest
+	// that goes next.
+	var chosen *models.ProviderConnection
+	mostRecent := byOldest[len(byOldest)-1]
+	if mostRecent != nil && mostRecent.LastUsedAt != "" && mostRecent.ConsecutiveUseCount < stickyLimit {
+		chosen = mostRecent
+	} else {
+		chosen = byOldest[0]
+	}
+
+	if chosen != nil && h.Repo != nil {
+		// One write records both the timestamp and the run length: SQLite bumps
+		// consecutiveUseCount, and a handover resets it so the new account starts
+		// its own run. Doing the arithmetic here as well would double-count, and
+		// the in-memory copy is a stale snapshot by the next request anyway.
+		handover := chosen != mostRecent || chosen.LastUsedAt == ""
+		if err := h.Repo.UpdateConnectionLastUsed(chosen.ID, handover); err != nil {
+			log.Warn("round-robin", "not recorded; rotation will repeat this account",
+				"provider", provider, "connection", chosen.ID, "error", err)
+		}
+		// Keep the caller's copy consistent with what was just written, so a
+		// second call in the same request does not repeat the same account.
+		chosen.LastUsedAt = time.Now().UTC().Format(time.RFC3339Nano)
+		if handover {
+			chosen.ConsecutiveUseCount = 1
+		} else {
+			chosen.ConsecutiveUseCount++
+		}
+	}
+
+	// Put the chosen connection first and keep the rest in their existing order,
+	// so a caller that walks the slice falls back predictably.
+	rotated := make([]*models.ProviderConnection, 0, len(conns))
+	if chosen != nil {
+		rotated = append(rotated, chosen)
+	}
+	for _, c := range conns {
+		if chosen == nil || c.ID != chosen.ID {
+			rotated = append(rotated, c)
+		}
+	}
+	return rotated
+}
+
+// rotateConnectionsInMemory advances a per-provider index, used only when there
+// is no Repo to persist to. The state is lost on restart.
+func (h *ChatHandler) rotateConnectionsInMemory(provider string, conns []*models.ProviderConnection, stickyLimit int) []*models.ProviderConnection {
 	h.stickyMu.Lock()
 	defer h.stickyMu.Unlock()
 	if h.stickyState == nil {
@@ -477,6 +586,14 @@ func (h *ChatHandler) rotateConnectionsSticky(provider string, conns []*models.P
 		rotated[i] = conns[(servingIndex+i)%len(conns)]
 	}
 	return rotated
+}
+
+// priorityOf reads a connection's priority, treating an unset value as lowest.
+func priorityOf(c *models.ProviderConnection) int {
+	if c == nil || c.Priority == nil {
+		return 999999
+	}
+	return *c.Priority
 }
 
 // ResetConnectionState clears rotation state for a provider (or all providers if provider="").

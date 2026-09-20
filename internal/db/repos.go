@@ -82,10 +82,11 @@ func (r *Repo) CreateProviderConnection(id, provider, authType, name string, api
 func (r *Repo) GetProviderConnectionByID(id string) (*models.ProviderConnection, error) {
 	var conn models.ProviderConnection
 	err := r.db.QueryRow(
-		"SELECT id, provider, authType, name, email, priority, isActive, data, createdAt, updatedAt FROM providerConnections WHERE id = ? LIMIT 1",
+		"SELECT id, provider, authType, name, email, priority, isActive, data, createdAt, updatedAt, COALESCE(lastUsedAt, ''), COALESCE(consecutiveUseCount, 0) FROM providerConnections WHERE id = ? LIMIT 1",
 		id,
 	).Scan(&conn.ID, &conn.Provider, &conn.AuthType, &conn.Name, &conn.Email,
-		&conn.Priority, &conn.IsActive, &conn.Data, &conn.CreatedAt, &conn.UpdatedAt)
+		&conn.Priority, &conn.IsActive, &conn.Data, &conn.CreatedAt, &conn.UpdatedAt,
+		&conn.LastUsedAt, &conn.ConsecutiveUseCount)
 
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -104,12 +105,14 @@ func (r *Repo) GetProviderConnections(provider string, activeOnly bool) ([]*mode
 
 	if provider != "" {
 		if activeOnly {
-			query = `SELECT id, provider, authType, name, email, priority, isActive, data, createdAt, updatedAt
+			query = `SELECT id, provider, authType, name, email, priority, isActive, data, createdAt, updatedAt,
+				COALESCE(lastUsedAt, ''), COALESCE(consecutiveUseCount, 0)
 				FROM providerConnections
 				WHERE provider = ? AND isActive = 1
 				ORDER BY CASE WHEN priority IS NULL THEN 999999 ELSE priority END ASC, updatedAt DESC`
 		} else {
-			query = `SELECT id, provider, authType, name, email, priority, isActive, data, createdAt, updatedAt
+			query = `SELECT id, provider, authType, name, email, priority, isActive, data, createdAt, updatedAt,
+				COALESCE(lastUsedAt, ''), COALESCE(consecutiveUseCount, 0)
 				FROM providerConnections
 				WHERE provider = ?
 				ORDER BY CASE WHEN priority IS NULL THEN 999999 ELSE priority END ASC, updatedAt DESC`
@@ -117,12 +120,14 @@ func (r *Repo) GetProviderConnections(provider string, activeOnly bool) ([]*mode
 		args = append(args, provider)
 	} else {
 		if activeOnly {
-			query = `SELECT id, provider, authType, name, email, priority, isActive, data, createdAt, updatedAt
+			query = `SELECT id, provider, authType, name, email, priority, isActive, data, createdAt, updatedAt,
+				COALESCE(lastUsedAt, ''), COALESCE(consecutiveUseCount, 0)
 				FROM providerConnections
 				WHERE isActive = 1
 				ORDER BY CASE WHEN priority IS NULL THEN 999999 ELSE priority END ASC, updatedAt DESC`
 		} else {
-			query = `SELECT id, provider, authType, name, email, priority, isActive, data, createdAt, updatedAt
+			query = `SELECT id, provider, authType, name, email, priority, isActive, data, createdAt, updatedAt,
+				COALESCE(lastUsedAt, ''), COALESCE(consecutiveUseCount, 0)
 				FROM providerConnections
 				ORDER BY CASE WHEN priority IS NULL THEN 999999 ELSE priority END ASC, updatedAt DESC`
 		}
@@ -140,6 +145,7 @@ func (r *Repo) GetProviderConnections(provider string, activeOnly bool) ([]*mode
 		err := rows.Scan(
 			&conn.ID, &conn.Provider, &conn.AuthType, &conn.Name, &conn.Email,
 			&conn.Priority, &conn.IsActive, &conn.Data, &conn.CreatedAt, &conn.UpdatedAt,
+			&conn.LastUsedAt, &conn.ConsecutiveUseCount,
 		)
 		if err != nil {
 			return nil, err

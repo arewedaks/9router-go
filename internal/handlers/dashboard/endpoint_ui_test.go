@@ -229,3 +229,32 @@ func TestUIEndpointOmitsPortForDefaultScheme(t *testing.T) {
 		}
 	}
 }
+
+// The provider page must expose the account round-robin toggle, the control
+// VansRouter shows next to its Connections heading. Without it an operator can
+// only set the strategy by hand, and the stored fallbackStrategy is invisible.
+func TestUIProviderPageHasAccountRoundRobinToggle(t *testing.T) {
+	ui := readEmbeddedUI(t)
+
+	for _, need := range []string{
+		"function accountRoundRobinControls",
+		"function setAccountRoundRobin",
+		"function setAccountStickyLimit",
+		"function saveAccountStrategy",
+		"fallbackStrategy: \"round-robin\"",
+		"stickyRoundRobinLimit",
+	} {
+		if !strings.Contains(ui, need) {
+			t.Errorf("account round-robin control missing: %s", need)
+		}
+	}
+}
+
+// The toggle must be rendered inside the Connections tab, not only defined.
+func TestUIAccountRoundRobinIsRenderedInConnections(t *testing.T) {
+	ui := readEmbeddedUI(t)
+
+	if !strings.Contains(ui, "${accountRoundRobinControls(d)}") {
+		t.Error("accountRoundRobinControls is defined but never rendered in the Connections tab")
+	}
+}
