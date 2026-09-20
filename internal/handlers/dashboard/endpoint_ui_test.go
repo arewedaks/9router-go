@@ -164,3 +164,68 @@ func TestUIEndpointWarnsOnlyWhenExposed(t *testing.T) {
 		t.Error("the exposure warning no longer follows the real host")
 	}
 }
+
+// The endpoint page must not print a port the client cannot dial.
+//
+// The listen port was hard-coded (20129) in the markup and used as the fallback
+// when the browser reports no port. Behind a reverse proxy the browser reports
+// none — https://example.com — so the page advertised
+// "https://example.com:20129/v1": a URL that is wrong, and reachable only if the
+// internal port happens to be exposed, which the Cloudflare hardening exists to
+// prevent. The live install served on :20127 while the page said :20129.
+func TestUIEndpointTabHasNoHardcodedPort(t *testing.T) {
+	ui := readEmbeddedUI(t)
+
+	if strings.Contains(ui, "20129") {
+		t.Errorf("a hard-coded listen port is still present; the endpoint page would " +
+			"advertise a port that is not the one clients should use")
+	}
+}
+
+// The samples must be built from the detected origin, not embedded literals, so
+// they cannot disagree with the URL shown above them.
+func TestUIEndpointSamplesAreDerivedFromOrigin(t *testing.T) {
+	ui := readEmbeddedUI(t)
+
+	if !strings.Contains(ui, "function refreshEndpointSamples") {
+		t.Fatal("refreshEndpointSamples is missing; samples would be stale literals")
+	}
+	// Each sample container must be empty in the markup and filled at runtime.
+	for _, id := range []string{
+		`id="curl-sample"`,
+		`id="endpoint-json-sample"`,
+		`id="anthropic-sample"`,
+		`id="anthropic-curl-sample"`,
+	} {
+		i := strings.Index(ui, id)
+		if i < 0 {
+			t.Errorf("%s not found", id)
+			continue
+		}
+		rest := ui[i:]
+		end := strings.Index(rest, ">")
+		close := strings.Index(rest, "</div>")
+		if end < 0 || close < 0 {
+			continue
+		}
+		if body := strings.TrimSpace(rest[end+1 : close]); body != "" {
+			t.Errorf("%s still contains a literal sample: %q", id, body)
+		}
+	}
+}
+
+// A reverse-proxy origin has no port in location.port, so the derived URL must
+// omit it rather than borrow the listen port.
+func TestUIEndpointOmitsPortForDefaultScheme(t *testing.T) {
+	ui := readEmbeddedUI(t)
+
+	for _, need := range []string{
+		"function renderEndpointHost",
+		"isDefaultPort",
+		"svcEndpointBase",
+	} {
+		if !strings.Contains(ui, need) {
+			t.Errorf("renderEndpointHost no longer handles the proxied case: %s missing", need)
+		}
+	}
+}

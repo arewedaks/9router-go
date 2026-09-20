@@ -660,12 +660,12 @@
       <div class="endpoint-rows">
         <div class="endpoint-row">
           <span class="endpoint-tag active">Local</span>
-          <input class="endpoint-url" id="endpoint-local" readonly value="http://localhost:20129/v1">
+          <input class="endpoint-url" id="endpoint-local" readonly value="">
           <button class="btn btn-sm" onclick="copyEndpoint('endpoint-local', this)">Copy</button>
         </div>
         <div class="endpoint-row">
           <span class="endpoint-tag">Docker</span>
-          <input class="endpoint-url" id="endpoint-docker" readonly value="http://host.docker.internal:20129/v1">
+          <input class="endpoint-url" id="endpoint-docker" readonly value="">
           <button class="btn btn-sm" onclick="copyEndpoint('endpoint-docker', this)">Copy</button>
         </div>
       </div>
@@ -673,10 +673,7 @@
       <!-- The endpoint is only useful if the operator knows what to paste into
            a client. This block used to live on the retired Overview tab. -->
       <p style="font-size: 0.85rem; color: var(--muted); margin: 16px 0 8px;">Use this proxy with any OpenAI- or Claude-compatible client:</p>
-      <div class="code-block" id="curl-sample">curl http://localhost:20129/v1/chat/completions \
-  -H "Authorization: Bearer &lt;YOUR_KEY&gt;" \
-  -H "Content-Type: application/json" \
-  -d '{"model": "gemini-3.7-flash", "messages": [{"role": "user", "content": "Hello!"}]}'</div>
+      <div class="code-block" id="curl-sample"></div>
       <button class="btn btn-sm" style="margin-top: 10px;" onclick="copyCurlSample(this)">Copy command</button>
     </div>
 
@@ -1221,26 +1218,17 @@
 
     <div class="card" style="margin-bottom: 20px;">
       <h3 style="color: #fff; margin-bottom: 8px;">Claude Code CLI (~/.claude/config.json)</h3>
-      <div class="code-block">{
-  "primaryApiKey": "YOUR_9ROUTER_KEY",
-  "apiBaseUrl": "http://localhost:20129/v1"
-}</div>
+      <div class="code-block" id="endpoint-json-sample"></div>
     </div>
 
     <div class="card" style="margin-bottom: 20px;">
       <h3 style="color: #fff; margin-bottom: 8px;">Cursor IDE / Cline / Windsurf (OpenAI Compatible)</h3>
-      <div class="code-block">Base URL: http://localhost:20129/v1
-API Key:  <YOUR_9ROUTER_KEY>
-Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
+      <div class="code-block" id="anthropic-sample"></div>
     </div>
 
     <div class="card">
       <h3 style="color: #fff; margin-bottom: 8px;">Direct Anthropic Messages Endpoint</h3>
-      <div class="code-block">curl http://localhost:20129/v1/messages \
-  -H "x-api-key: <YOUR_KEY>" \
-  -H "anthropic-version: 2023-06-01" \
-  -H "Content-Type: application/json" \
-  -d '{"model": "claude-fable", "max_tokens": 1024, "messages": [{"role": "user", "content": "ping"}]}'</div>
+      <div class="code-block" id="anthropic-curl-sample"></div>
     </div>
   </div>
 </main>
@@ -2291,6 +2279,11 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
   // routing for no-auth providers. Kept in state so the Proxy tab can save a
   // full-replace map without re-reading settings first.
   let providerStrategies = {};
+
+  // The origin clients should call, derived from where the dashboard is served.
+  // Empty until renderEndpointHost runs; the copy-paste samples read it so they
+  // cannot disagree with the URL shown beside them.
+  let svcEndpointBase = "";
 
   // keepTab: passed by actions taken from inside the panel (add/import/remove
   // model, auto-disable) so a re-fetch does not kick the operator off the tab
@@ -4161,23 +4154,82 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
     renderEndpointHost();
     loadKeys();
     loadEndpointStatus();
+    // The Docker hint needs the listen port, which arrives with the settings
+    // payload. Re-run once it lands so the hint is not left empty on a first
+    // visit, and re-run after every settings save for the same reason.
+    try {
+      const res = await api("/api/dashboard/settings");
+      if (res.ok) {
+        applyProxySettingsToUI(await res.json());
+        renderEndpointHost();
+      }
+    } catch (_) { /* the endpoint block is still usable without it */ }
   }
 
   // The endpoint URLs are derived from the address the operator actually used,
   // so opening the dashboard over Tailscale or a LAN IP shows that host rather
   // than a hard-coded localhost that would not work from their other machine.
+  //
+  // Behind a reverse proxy the browser sees no port (https://example.com), and
+  // falling back to the listen port produced a wrong URL: the internal port is
+  // not what a client dials, and it is not even open to them. When there is no
+  // port, the origin is the endpoint.
   function renderEndpointHost() {
     const host = location.hostname || "localhost";
-    const port = location.port || "20129";
+    const isDefaultPort = !location.port ||
+      (location.protocol === "https:" && location.port === "443") ||
+      (location.protocol === "http:" && location.port === "80");
+    const origin = isDefaultPort
+      ? `${location.protocol}//${host}`
+      : `${location.protocol}//${host}:${location.port}`;
     const local = document.getElementById("endpoint-local");
-    if (local) local.value = `${location.protocol}//${host}:${port}/v1`;
+    if (local) local.value = `${origin}/v1`;
     const docker = document.getElementById("endpoint-docker");
-    if (docker) docker.value = `http://host.docker.internal:${port}/v1`;
+    if (docker) {
+      // host.docker.internal reaches the host from a container, so only the
+      // listen port is meaningful there — a proxy-fronted origin is not
+      // reachable that way.
+      docker.value = listenPortValue()
+        ? `http://host.docker.internal:${listenPortValue()}/v1`
+        : `${origin}/v1`;
+    }
+    svcEndpointBase = origin;
+    refreshEndpointSamples();
     // A loopback host means only this machine can reach the proxy; anything
     // else is exposed, and that is worth saying out loud next to the key list.
     const localHosts = ["localhost", "127.0.0.1", "::1", "0.0.0.0", ""];
     const warn = document.getElementById("endpoint-exposed-warn");
     if (warn) warn.style.display = localHosts.includes(host) ? "none" : "";
+  }
+
+  // The port the process listens on, as reported by the server. Used only for
+  // the Docker hint, where the internal port is the right thing to show.
+  function listenPortValue() {
+    const el = document.getElementById("set-listen-port");
+    const v = el && el.textContent ? el.textContent.trim() : "";
+    return /^[0-9]+$/.test(v) ? v : "";
+  }
+
+  // Rebuild the copy-paste samples from svcEndpointBase so the curl commands
+  // and config snippets cannot drift from the URL shown above them.
+  function refreshEndpointSamples() {
+    const base = svcEndpointBase || `${location.protocol}//${location.hostname}`;
+    const curl = document.getElementById("curl-sample");
+    if (curl) {
+      curl.textContent = `curl ${base}/v1/chat/completions \\\n  -H "Authorization: Bearer <YOUR_KEY>" \\\n  -H "Content-Type: application/json" \\\n  -d '{"model": "gemini-3.7-flash", "messages": [{"role": "user", "content": "Hello!"}]}'`;
+    }
+    const anthropic = document.getElementById("anthropic-sample");
+    if (anthropic) {
+      anthropic.textContent = `Base URL: ${base}/v1\nAPI key:  <YOUR_KEY>\n`;
+    }
+    const anthCurl = document.getElementById("anthropic-curl-sample");
+    if (anthCurl) {
+      anthCurl.textContent = `curl ${base}/v1/messages \\\n  -H "x-api-key: <YOUR_KEY>" \\\n  -H "anthropic-version: 2023-06-01" \\\n  -H "Content-Type: application/json"`;
+    }
+    const json = document.getElementById("endpoint-json-sample");
+    if (json) {
+      json.textContent = `{\n  "apiBaseUrl": "${base}/v1"\n}`;
+    }
   }
 
   // The status pill probes the public /health route from the browser, the same
