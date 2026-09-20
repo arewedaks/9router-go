@@ -50,6 +50,13 @@ type modelTestResult struct {
 	Error     string `json:"error,omitempty"`
 	Note      string `json:"note,omitempty"`
 	Status    int    `json:"status,omitempty"`
+	// TimedOut distinguishes "the provider did not answer in time" from "the
+	// provider answered with a failure". Auto-disable must only act on the
+	// second: a slow-but-healthy model is still a usable model, and deleting it
+	// loses an entry the operator imported deliberately. With 110 models on one
+	// node and a 30s budget, a batch run would otherwise prune healthy models
+	// whose provider merely took longer than the timeout.
+	TimedOut bool `json:"timedOut,omitempty"`
 }
 
 // activeApiKey returns any active API key so the dashboard can call the
@@ -96,7 +103,7 @@ func (h *Handler) pingModel(ctx context.Context, model, kind string) modelTestRe
 		if ctx.Err() != nil {
 			secs := int(modelTestTimeout().Seconds())
 			return modelTestResult{
-				ModelID: model, OK: false, LatencyMs: latency,
+				ModelID: model, OK: false, LatencyMs: latency, TimedOut: true,
 				Error: fmt.Sprintf("Test timed out after %ds — provider too slow or unreachable. "+
 					"The model may not exist on this provider, or the route (proxy pool / relay) is slow. "+
 					"Increase MODEL_TEST_TIMEOUT_MS to allow more time.", secs),
@@ -324,7 +331,7 @@ func (h *Handler) HandleTestProviderModels(w http.ResponseWriter, r *http.Reques
 	firstStart := time.Now()
 	firstRes := h.pingModel(ctx, first, "llm")
 	results = append(results, modelTestResultFor(first, firstRes, time.Since(firstStart).Milliseconds()))
-	h.maybeAutoDisable(first, firstRes.OK, req.AutoDisableFailed)
+	h.maybeAutoDisable(first, firstRes, req.AutoDisableFailed)
 
 	if rest := models[1:]; len(rest) > 0 {
 		if req.Parallel {
@@ -339,7 +346,7 @@ func (h *Handler) HandleTestProviderModels(w http.ResponseWriter, r *http.Reques
 					res := h.pingModel(ctx, model, "llm")
 					restRes[idx] = modelTestResultFor(model, res, time.Since(started).Milliseconds())
 					mu.Lock()
-					h.maybeAutoDisable(model, res.OK, req.AutoDisableFailed)
+					h.maybeAutoDisable(model, res, req.AutoDisableFailed)
 					mu.Unlock()
 				}(i, m)
 			}
@@ -350,7 +357,7 @@ func (h *Handler) HandleTestProviderModels(w http.ResponseWriter, r *http.Reques
 				started := time.Now()
 				res := h.pingModel(ctx, m, "llm")
 				results = append(results, modelTestResultFor(m, res, time.Since(started).Milliseconds()))
-				h.maybeAutoDisable(m, res.OK, req.AutoDisableFailed)
+				h.maybeAutoDisable(m, res, req.AutoDisableFailed)
 			}
 		}
 	}
@@ -378,8 +385,15 @@ func (h *Handler) HandleTestProviderModels(w http.ResponseWriter, r *http.Reques
 // maybeAutoDisable removes a model from the provider cache when it failed and
 // the caller asked for auto-disable. Mirrors the upstream "Auto-disable
 // failed" checkbox on the batch test toolbar.
-func (h *Handler) maybeAutoDisable(fullModel string, ok, autoDisable bool) {
-	if ok || !autoDisable {
+func (h *Handler) maybeAutoDisable(fullModel string, res modelTestResult, autoDisable bool) {
+	if res.OK || !autoDisable {
+		return
+	}
+	// A timeout says the provider was slow, not that the model is gone. Pruning
+	// on it deletes healthy models: 110 models on one node with a 30s budget
+	// meant any provider answering slower than that lost its entries. Only a
+	// real failure (4xx/5xx response) is evidence the model should go.
+	if res.TimedOut {
 		return
 	}
 	// fullModel looks like "<alias>/<modelID>".

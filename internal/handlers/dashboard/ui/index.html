@@ -3013,6 +3013,9 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
     let done = 0;
     let okCount = 0;
     let failCount = 0;
+    // How many models were actually disabled. Distinct from failCount because a
+    // timeout counts as a failure to report but must not remove anything.
+    let removed = 0;
 
     const tick = () => {
       if (progress) progress.innerText = `${done}/${total} — ${okCount} ok, ${failCount} error`;
@@ -3032,12 +3035,14 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
         modelTestResults[modelId] = data.ok ? "ok" : "error";
         if (data.latencyMs != null) modelTestLatency[modelId] = data.latencyMs;
         if (!data.ok) { modelTestError[modelId] = errorMessage(data, res.status) || "failed"; failCount++; }
-        else okCount++;
-        if (!data.ok && autoDisable) {
+        else okCount++;        if (!data.ok && autoDisable && !data.timedOut) {
           // Auto-disable: drop the model from the provider's advertised list.
-          // The rows are re-fetched at the end of the run, so the removed model
-          // disappears instead of lingering until the next manual reload.
+          // A timeout is skipped deliberately: it means the provider was slow,
+          // not that the model is gone, and removing it would delete a working
+          // entry. Rows are re-fetched at the end of the run so the removed
+          // model disappears instead of lingering until the next reload.
           await api(`/api/dashboard/providers/${encodeURIComponent(providerId)}/models?modelId=${encodeURIComponent(modelId)}`, { method: "DELETE" });
+          removed++;
         }
       } catch (e) {
         if (e && e.name === "AbortError") return;
@@ -3067,13 +3072,14 @@ Model:    claude-fable  OR  gemini-3.7-flash  OR  deepseek-model</div>
       if (btn) btn.disabled = false;
       if (stopBtn) stopBtn.style.display = "none";
       activeTestController = null;
-      renderProviderDetailRefresh();
-      if (autoDisable && failCount > 0) {
-        // Several models were removed server-side, so re-fetch rather than
-        // re-render: lastProviderDetail still holds the pre-run list and would
-        // paint the disabled models back onto the page.
-        // keepTab: stay on Models so the operator sees the updated rows.
-        setTimeout(() => openProviderDetail(providerId, true), 800);
+      if (autoDisable && removed > 0) {
+        // Models were removed server-side, so re-fetch rather than re-render:
+        // lastProviderDetail still holds the pre-run list and would paint the
+        // disabled models back onto the page. keepTab stays on Models so the
+        // operator sees the updated rows.
+        openProviderDetail(providerId, true);
+      } else {
+        renderProviderDetailRefresh();
       }
     }
   }

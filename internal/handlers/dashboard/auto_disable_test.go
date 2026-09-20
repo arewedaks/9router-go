@@ -103,3 +103,54 @@ func TestProviderModelsAutoDisableOffRemovesNothing(t *testing.T) {
 		t.Errorf("auto-disable was off but the model was hidden anyway")
 	}
 }
+
+// A timeout must not disable a model.
+//
+// The probe has a fixed budget (MODEL_TEST_TIMEOUT_MS, 30s by default) and a
+// batch run over a node with 110 models will very often exceed it for reasons
+// that say nothing about the model: a slow upstream, a busy relay, a cold
+// start. Treating that as a failure deleted healthy entries, which is the
+// opposite of what the box is for.
+func TestAutoDisableSkipsTimedOutModel(t *testing.T) {
+	_, repo, _ := setupTestDashboard(t)
+
+	if _, err := repo.DB().Exec(
+		`INSERT INTO providerConnections (id, provider, authType, name, priority, isActive, data, createdAt, updatedAt)
+		 VALUES ('nv-1','nvidia','apikey','NVIDIA',1,1,'{"apiKey":"k"}','2026-07-18T00:00:00Z','2026-07-18T00:00:00Z')`,
+	); err != nil {
+		t.Fatalf("seed connection: %v", err)
+	}
+	if _, err := repo.DB().Exec(
+		`INSERT INTO kv (scope, key, value) VALUES ('customModels', ?, ?)`,
+		"nvidia|slow-but-alive|llm", `{"providerAlias":"nvidia","id":"slow-but-alive","type":"llm"}`,
+	); err != nil {
+		t.Fatalf("seed custom model: %v", err)
+	}
+
+	// Drive the guard directly: it is the piece that decides on removal, and a
+	// real 30s timeout would make the test unusable.
+	h := &Handler{repo: repo}
+	h.maybeAutoDisable("nvidia/slow-but-alive", modelTestResult{
+		ModelID: "slow-but-alive", OK: false, TimedOut: true,
+	}, true)
+
+	hidden, err := repo.GetAllHiddenModels()
+	if err != nil {
+		t.Fatalf("GetAllHiddenModels: %v", err)
+	}
+	if hidden["nvidia|slow-but-alive"] {
+		t.Errorf("a timed-out model was disabled; timeouts mean slow, not dead")
+	}
+
+	// The same call with a real failure must still disable it.
+	h.maybeAutoDisable("nvidia/slow-but-alive", modelTestResult{
+		ModelID: "slow-but-alive", OK: false, Status: 404,
+	}, true)
+	hidden, err = repo.GetAllHiddenModels()
+	if err != nil {
+		t.Fatalf("GetAllHiddenModels: %v", err)
+	}
+	if !hidden["nvidia|slow-but-alive"] {
+		t.Errorf("a model that answered 404 was not disabled")
+	}
+}
