@@ -841,6 +841,26 @@ func (h *Handler) HandleProviderDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	models, err := h.repo.ListCachedModelsForDashboard(keys...)
 	if err == nil && len(models) > 0 {
+		// A model the operator removed must not reappear here. /v1/models
+		// filters through hiddenModels; this payload did not, so removing a
+		// model took it out of the API and left it on the page — which reads
+		// as "the removal did nothing".
+		hiddenKeys := append([]string{}, keys...)
+		if p := h.nodePrefixKey(raw); p != "" {
+			hiddenKeys = append(hiddenKeys, p)
+		}
+		if p := h.nodePrefixKey(canonical); p != "" {
+			hiddenKeys = append(hiddenKeys, p)
+		}
+		hidden, _ := h.repo.GetAllHiddenModels()
+		kept := make([]db.CachedModel, 0, len(models))
+		for _, m := range models {
+			if isHiddenModel(hidden, hiddenKeys, m.ModelID) {
+				continue
+			}
+			kept = append(kept, m)
+		}
+		models = kept
 		// Free-ness is a property of the (provider, model) pair, so it is
 		// computed here rather than in the Repo: see providers.IsModelFreeBadge.
 		for i := range models {
@@ -1108,7 +1128,6 @@ func providerKeyCandidates(canonical, raw string) []string {
 // nodePrefixKey returns the prefix a compatible-endpoint node advertises its
 // models under ("xkiro" for node "openai-compatible-chat-<uuid>"), or "" when
 // the id is not a node or has no prefix configured.
-//
 // /v1/models renders a node's models as "<prefix>/<model>" and checks hidden
 // markers against that same prefix, so anything recording a removal has to use
 // it. Writing the marker under the node's generated id instead produced 13
@@ -1816,4 +1835,23 @@ func sanitizeProviderStrategies(in map[string]db.ProviderStrategy) map[string]db
 		return nil
 	}
 	return out
+}
+
+// isHiddenModel reports whether modelID was explicitly removed for any of the
+// given provider spellings. The hidden set is keyed "<provider>|<model>", so
+// every spelling the provider can be addressed by must be tried — an alias and
+// a node prefix produce different keys for the same model.
+func isHiddenModel(hidden map[string]bool, providerKeys []string, modelID string) bool {
+	if len(hidden) == 0 {
+		return false
+	}
+	for _, k := range providerKeys {
+		if k == "" {
+			continue
+		}
+		if hidden[k+"|"+modelID] {
+			return true
+		}
+	}
+	return false
 }
