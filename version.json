@@ -1,5 +1,5 @@
 {
-  "latestVersion": "1.8.28",
+  "latestVersion": "1.8.29",
   "downloadUrl": "https://github.com/arewedaks/9router-go/releases/latest",
-  "releaseNotes": "- Only disable a model on a permanent rejection (d2bb818)\n- chore(release): version.json -> v1.8.27 (f44f2f7)\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
+  "releaseNotes": "- Reflow model rows to two lines on mobile screens (43dbb69)\n- chore(release): version.json -> v1.8.28 (7ba5178)\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
 }
