@@ -1291,6 +1291,19 @@
   </div>
 </div>
 
+<div class="modal-overlay" id="model-error-modal">
+  <div class="modal-box" style="max-width: 560px;">
+    <h2 style="font-size: 1.15rem; margin-bottom: 4px;">Test result</h2>
+    <div id="model-error-id" style="font-size: 0.78rem; color: var(--muted); margin-bottom: 10px; word-break: break-all;"></div>
+    <div class="code-block" id="model-error-body" style="white-space: pre-wrap; word-break: break-word; max-height: 260px; overflow: auto;"></div>
+    <div id="model-error-note" style="margin: 10px 0 14px; font-size: 0.78rem;"></div>
+    <div style="display: flex; gap: 10px; justify-content: flex-end;">
+      <button class="btn" id="model-error-copy" onclick="copyModelErrorText()">Copy error</button>
+      <button class="btn btn-primary" onclick="closeModal('model-error-modal')">Close</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="login-modal">
   <div class="modal-box" style="max-width: 420px; text-align: center;">
     <div style="font-size: 2.2rem; margin-bottom: 12px;">⚡</div>
@@ -2794,8 +2807,17 @@
             : st === 'ok'
               ? `<span class="mkind" style="color:#22c55e;">${latency != null ? latency + 'ms' : 'ok'}</span>`
               : st === 'error'
-                ? `<span class="mkind" style="color:#ef4444;" title="${escapeHtml(modelTestError[m.modelId] || '')}">failed</span>`
+                ? `<span class="mkind" style="color:${modelTestRetryable[m.modelId] ? '#eab308' : '#ef4444'};">${modelTestRetryable[m.modelId] ? 'rate limited' : 'failed'}</span>`
                 : '';
+          // The full error is one click away rather than buried in a title
+          // attribute: a truncated tooltip made a rate limit look identical to
+          // a missing model, which is exactly the distinction that decides
+          // whether a model should be removed.
+          const hasError = st === 'error' && modelTestError[m.modelId];
+          const infoBtn = hasError
+            ? `<button class="btn btn-sm" title="Show the full error" onclick="showModelError('${escapeHtml(m.modelId)}')">` +
+              `<span class="msym" style="font-size:14px;">info</span></button>`
+            : '';
           // The router addresses a model as "<alias>/<modelId>", so that is
           // what the operator must copy. The upstream's own label (when it
           // differs from the id) and a Free badge sit underneath, mirroring
@@ -2813,6 +2835,10 @@
             ${freeBadge}
             <span class="mkind">${escapeHtml(m.kind || 'llm')}</span>
             ${statusBadge}
+            ${infoBtn}
+            <button class="btn btn-sm" title="Copy this model id" onclick="copyModelId('${escapeHtml(fullModel)}', this)">
+              <span class="msym" style="font-size:14px;">content_copy</span>
+            </button>
             <button class="btn btn-sm" title="Test this model" ${testing ? 'disabled' : ''}
                     onclick="testModel('${d.provider}','${escapeHtml(m.modelId)}')">
               <span class="msym" style="font-size:14px;${testing ? 'animation:spin 1s linear infinite;' : ''}">${testing ? 'progress_activity' : 'science'}</span>
@@ -3002,9 +3028,73 @@
   // Model test (ping) — per-model and batch, mirrors the upstream
   // "Test" button and "Test All Models" toolbar.
   // ----------------------------------------------------------------
+  // isRetryableFailure mirrors the server's isPermanentModelFailure: a 429, 5xx
+  // or timeout says nothing about whether the model exists, so it must not be
+  // presented — or treated — as a reason to remove it.
+  const PERMANENT_FAILURES = [400, 401, 403, 404, 410, 422];
+  function isRetryableFailure(data, httpStatus) {
+    if (data && data.timedOut) return true;
+    const status = (data && data.status) || httpStatus || 0;
+    if (!status) return true; // transport error: nothing was learned
+    return !PERMANENT_FAILURES.includes(status);
+  }
+
+  // showModelError displays the complete probe error. The row tooltip holds the
+  // same text but browsers clip it, and the difference between "rate limited"
+  // and "model not found" is the difference between retrying and deleting.
+  function showModelError(modelId) {
+    const msg = modelTestError[modelId] || "(no detail recorded)";
+    const retryable = !!modelTestRetryable[modelId];
+    const idEl = document.getElementById("model-error-id");
+    if (idEl) idEl.textContent = modelId;
+    const bodyEl = document.getElementById("model-error-body");
+    if (bodyEl) bodyEl.textContent = msg;
+    const noteEl = document.getElementById("model-error-note");
+    if (noteEl) {
+      noteEl.textContent = retryable
+        ? "Temporary failure — the provider was busy, throttled or unreachable. This is not evidence the model is gone, and auto-disable will not remove it."
+        : "Permanent rejection — the provider refused this model. Auto-disable may remove it.";
+      noteEl.style.color = retryable ? "#eab308" : "#ef4444";
+    }
+    document.getElementById("model-error-modal").classList.add("active");
+  }
+
+  async function copyModelErrorText() {
+    const bodyEl = document.getElementById("model-error-body");
+    const idEl = document.getElementById("model-error-id");
+    const text = (idEl ? idEl.textContent : "") + "\n\n" + (bodyEl ? bodyEl.textContent : "");
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch (_) {
+      window.prompt("Copy this error:", text);
+    }
+  }
+
+  // copyModelId copies the fully-qualified id clients must send.
+  async function copyModelId(fullModel, btn) {
+    try {
+      await navigator.clipboard.writeText(fullModel);
+      if (btn) {
+        const icon = btn.querySelector('.msym');
+        if (icon) {
+          const prev = icon.textContent;
+          icon.textContent = 'check';
+          setTimeout(() => { icon.textContent = prev; }, 1200);
+        }
+      }
+    } catch (_) {
+      window.prompt('Copy this model id:', fullModel);
+    }
+  }
+
   let modelTestResults = {};   // modelId -> "ok" | "error"
   let modelTestLatency = {};   // modelId -> ms
   let modelTestError = {};     // modelId -> message
+  // modelId -> true when the failure was a "try again" condition (429, 5xx,
+  // timeout) rather than the provider rejecting the model. The row shows
+  // "rate limited" instead of "failed" so the operator is not told to delete a
+  // model that is merely throttled.
+  let modelTestRetryable = {};
   let testingModelIds = new Set();
   let activeTestController = null;
   let parallelTestMode = false;
@@ -3092,13 +3182,18 @@
         const data = await res.json().catch(() => ({}));
         modelTestResults[modelId] = data.ok ? "ok" : "error";
         if (data.latencyMs != null) modelTestLatency[modelId] = data.latencyMs;
-        if (!data.ok) { modelTestError[modelId] = errorMessage(data, res.status) || "failed"; failCount++; }
-        else okCount++;        if (!data.ok && autoDisable && !data.timedOut) {
+        if (!data.ok) {
+          modelTestError[modelId] = errorMessage(data, res.status) || "failed";
+          modelTestRetryable[modelId] = isRetryableFailure(data, res.status);
+          failCount++;
+        }
+        else okCount++;
+        if (!data.ok && autoDisable && !data.timedOut && !modelTestRetryable[modelId]) {
           // Auto-disable: drop the model from the provider's advertised list.
-          // A timeout is skipped deliberately: it means the provider was slow,
-          // not that the model is gone, and removing it would delete a working
-          // entry. Rows are re-fetched at the end of the run so the removed
-          // model disappears instead of lingering until the next reload.
+          // Skipped when the failure is retryable — a timeout, 429 or 5xx means
+          // the provider was slow or throttled, not that the model is gone, and
+          // removing it would delete a working entry. The server applies the
+          // same rule, so this is belt and braces rather than the only guard.
           await api(`/api/dashboard/providers/${encodeURIComponent(providerId)}/models?modelId=${encodeURIComponent(modelId)}`, { method: "DELETE" });
           removed++;
         }
@@ -3117,7 +3212,21 @@
 
     try {
       if (parallel) {
-        await Promise.all(modelIds.map(testOne));
+        // Bounded concurrency, not Promise.all. Firing every model at once is
+        // what produced the false failures: a 110-model node hit its upstream's
+        // rate limiter, every limiter response looked like a dead model, and
+        // auto-disable removed working entries. A small window keeps the run
+        // fast while staying under the provider's limit.
+        const limit = Math.max(1, Math.min(6, modelIds.length));
+        let cursor = 0;
+        const worker = async () => {
+          while (!signal.aborted) {
+            const i = cursor++;
+            if (i >= modelIds.length) return;
+            await testOne(modelIds[i]);
+          }
+        };
+        await Promise.all(Array.from({ length: limit }, worker));
       } else {
         for (const id of modelIds) {
           if (signal.aborted) break;

@@ -382,6 +382,35 @@ func (h *Handler) HandleTestProviderModels(w http.ResponseWriter, r *http.Reques
 	})
 }
 
+// isPermanentModelFailure reports whether an HTTP status is evidence that this
+// model cannot be called, as opposed to a condition that may pass on a retry.
+//
+// Only the provider's own refusal counts:
+//
+//  400 bad request, 401 unauthorised, 403 forbidden, 404 not found,
+//  410 gone, 422 unprocessable — the provider evaluated the request and
+//  rejected it. A 404 from a provider that knows its models is the strongest
+//  signal there is that the model does not exist on this account.
+//
+// Everything else is excluded deliberately:
+//
+//  408 request timeout, 429 rate limited, 5xx gateway/origin errors — these say
+//  the provider is busy or unwell, nothing about the model. A parallel run over
+//  a large node triggers 429 against its own upstream, and acting on it deletes
+//  healthy models: measured live, three models a parallel run reported as
+//  "failed" all answered 200 on a serial retry a minute later.
+//
+//  0 means no HTTP response was produced at all (connection refused, DNS
+//  failure). Nothing was learned, so nothing may be removed.
+func isPermanentModelFailure(status int) bool {
+	switch status {
+	case 400, 401, 403, 404, 410, 422:
+		return true
+	default:
+		return false
+	}
+}
+
 // maybeAutoDisable removes a model from the provider cache when it failed and
 // the caller asked for auto-disable. Mirrors the upstream "Auto-disable
 // failed" checkbox on the batch test toolbar.
@@ -394,6 +423,12 @@ func (h *Handler) maybeAutoDisable(fullModel string, res modelTestResult, autoDi
 	// meant any provider answering slower than that lost its entries. Only a
 	// real failure (4xx/5xx response) is evidence the model should go.
 	if res.TimedOut {
+		return
+	}
+	// Only a permanent rejection is evidence the model is gone. Everything else
+	// means "ask again later" or "the provider is having a bad day", and acting
+	// on it removes models that work.
+	if !isPermanentModelFailure(res.Status) {
 		return
 	}
 	// fullModel looks like "<alias>/<modelID>".
