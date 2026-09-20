@@ -1,5 +1,5 @@
 {
-  "latestVersion": "1.8.21",
+  "latestVersion": "1.8.22",
   "downloadUrl": "https://github.com/arewedaks/9router-go/releases/latest",
-  "releaseNotes": "- Make the Auto-disable failed checkbox actually disable models (892e1b4)\n- chore(release): version.json -> v1.8.20 (1620adc)\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
+  "releaseNotes": "- Record removals under the node prefix the list actually matches (542f50c)\n- chore(release): version.json -> v1.8.21 (3b165a9)\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
 }
