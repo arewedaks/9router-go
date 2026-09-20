@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 
@@ -543,6 +544,12 @@ func (h *ChatHandler) buildModelsList() []ModelInfoObject {
 		}
 	}
 
+	// comboIDs marks the entries contributed by the Combos source, so the final
+	// ordering can put them first. Recording the names here rather than inferring
+	// them from the payload keeps the response shape untouched — OwnedBy is
+	// "system" for model aliases too, so it cannot distinguish the two.
+	comboIDs := make(map[string]bool)
+
 	// 3. Combos
 	if h.Repo != nil {
 		if combos, err := h.Repo.GetCombos(); err == nil {
@@ -551,6 +558,7 @@ func (h *ChatHandler) buildModelsList() []ModelInfoObject {
 					continue
 				}
 				seen[c.Name] = true
+				comboIDs[c.Name] = true
 				ctxLen, maxOut := providers.GetModelTokenLimits(c.Name)
 				caps := providers.GetCapabilitiesDetailForModel("combo", c.Name)
 				if caps.ContextWindows > 0 && ctxLen == 0 {
@@ -652,6 +660,22 @@ func (h *ChatHandler) buildModelsList() []ModelInfoObject {
 	if data == nil {
 		data = []ModelInfoObject{}
 	}
+
+	// Order the list instead of leaving it in map-iteration order. Go randomises
+	// map ranges deliberately, so the list reshuffled on every call: three
+	// consecutive requests returned three different orderings, which made a
+	// client's model dropdown jump and two captures impossible to diff.
+	//
+	// Combos lead because they are the operator's own named routes and are looked
+	// up by name; everything else is bulk and reads better alphabetically.
+	sort.SliceStable(data, func(i, j int) bool {
+		aCombo, bCombo := comboIDs[data[i].ID], comboIDs[data[j].ID]
+		if aCombo != bCombo {
+			return aCombo
+		}
+		return data[i].ID < data[j].ID
+	})
+
 	return data
 }
 
