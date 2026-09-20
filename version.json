@@ -1,5 +1,5 @@
 {
-  "latestVersion": "1.8.22",
+  "latestVersion": "1.8.23",
   "downloadUrl": "https://github.com/arewedaks/9router-go/releases/latest",
-  "releaseNotes": "- Record removals under the node prefix the list actually matches (542f50c)\n- chore(release): version.json -> v1.8.21 (3b165a9)\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
+  "releaseNotes": "- Never let a timeout disable a model, and refresh the list after a run (5cf7003)\n- chore(release): version.json -> v1.8.22 (07fc68c)\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
 }
