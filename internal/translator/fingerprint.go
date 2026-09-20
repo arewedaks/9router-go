@@ -32,7 +32,14 @@ import (
 // Ported from the equivalent fix in decolua/9router (opencodeFingerprint.js).
 
 // OpenCodeFingerprintTools holds the canonical names the upstream gate looks for.
-var OpenCodeFingerprintTools = []string{"bash", "glob", "grep", "read"}
+//
+// The gate needs at least TWO declarations present, and `read` plus `shell` is
+// the pair the official client sends: measured 2026-09-20, a single tool (
+// `read` alone) still returned 403 while `read`+`shell` returned 200. `bash`,
+// `glob` and `grep` are kept because they are what an older gate revision
+// fingerprinted and clients send them capitalised, so the rename path still
+// matters.
+var OpenCodeFingerprintTools = []string{"read", "shell", "bash", "glob", "grep"}
 
 // FingerprintToolKey returns the canonical lowercase name when name is a quartet
 // member, or "" when it is not.
@@ -81,13 +88,21 @@ func setToolName(tool any, name string) {
 
 // ConcealFingerprintTools renames quartet case-variants to the canonical
 // lowercase form, drops duplicate names (the upstream rejects a body carrying two
-// tools with the same name), and appends the quartet members that are genuinely
-// absent as no-op declarations.
+// tools with the same name), and appends the missing members as no-op
+// declarations.
+//
+// responsesWire selects the declaration shape: true puts "name" at the top level
+// (the Responses API), false wraps it in "function" (Chat Completions). The
+// caller knows which endpoint it is about to hit; inferring it from the tools
+// already present meant an empty tools array decided nothing and produced the
+// wrong shape, which the chat endpoint rejected with "tools.0.function Field
+// required" and the Responses endpoint with "tools[0] missing required field
+// name".
 //
 // It returns the resulting body together with a map of sent-name -> original-name
 // for the response side. When nothing needed to change, the original body is
 // returned unchanged with an empty map.
-func ConcealFingerprintTools(body []byte) ([]byte, map[string]string) {
+func ConcealFingerprintTools(body []byte, responsesWire bool) ([]byte, map[string]string) {
 	noop := map[string]string{}
 	if len(body) == 0 {
 		return body, noop
@@ -132,17 +147,9 @@ func ConcealFingerprintTools(body []byte) ([]byte, map[string]string) {
 		kept = append(kept, tool)
 	}
 
-	// Injected declarations mirror the shape already in use: the Responses API
-	// puts "name" at the top level, Chat Completions wraps it in "function".
-	flat := true
-	for _, tool := range kept {
-		if tm, ok := tool.(map[string]any); ok {
-			if _, has := tm["function"]; has {
-				flat = false
-			}
-			break
-		}
-	}
+	// Injected declarations take the shape the target endpoint expects; the
+	// caller states which one it is (see the responsesWire parameter).
+	flat := responsesWire
 
 	for _, name := range OpenCodeFingerprintTools {
 		if seen[name] {
@@ -175,6 +182,14 @@ func ConcealFingerprintTools(body []byte) ([]byte, map[string]string) {
 			}
 		}
 	}
+
+	// Force streaming. The gate rejects a non-streaming request outright (403
+	// FreeTierError) even when the tools and headers are otherwise perfect:
+	// measured 2026-09-20, `tools + non-stream` -> 403 while `tools + stream` ->
+	// 200 on the same body otherwise. The caller is told the truth by the
+	// response writer, which converts the upstream SSE back into a single JSON
+	// body for a client that did not ask to stream.
+	m["stream"] = true
 
 	out, err := json.Marshal(m)
 	if err != nil {

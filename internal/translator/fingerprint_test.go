@@ -36,7 +36,7 @@ func TestConcealFingerprintToolsNoDuplicates(t *testing.T) {
 		{"type":"function","name":"Edit"}
 	]}`)
 
-	out, nameMap := ConcealFingerprintTools(body)
+	out, nameMap := ConcealFingerprintTools(body, false)
 	names := toolNames(t, out)
 
 	seen := map[string]int{}
@@ -75,20 +75,21 @@ func TestConcealFingerprintToolsNoDuplicates(t *testing.T) {
 
 func TestConcealFingerprintToolsDropsPlainDuplicates(t *testing.T) {
 	body := []byte(`{"tools":[{"name":"Bash"},{"name":"bash"},{"name":"Read"},{"name":"read"}]}`)
-	out, _ := ConcealFingerprintTools(body)
+	out, _ := ConcealFingerprintTools(body, false)
 	names := toolNames(t, out)
-	if len(names) != 4 {
-		t.Errorf("want 4 unique tools (bash,read plus injected glob,grep), got %d: %v", len(names), names)
+	// bash, read plus the three injected (shell, glob, grep), each once.
+	if len(names) != 5 {
+		t.Errorf("want 5 unique tools (bash,read plus injected shell,glob,grep), got %d: %v", len(names), names)
 	}
 }
 
 func TestConcealFingerprintToolsInjectsWhenNoTools(t *testing.T) {
 	// A tool-less request is also rejected upstream (403), so the quartet is added.
 	body := []byte(`{"model":"muse-spark-1.3-contributor-free","input":[]}`)
-	out, _ := ConcealFingerprintTools(body)
+	out, _ := ConcealFingerprintTools(body, false)
 	names := toolNames(t, out)
-	if len(names) != 4 {
-		t.Fatalf("want 4 injected tools, got %d: %v", len(names), names)
+	if len(names) != 5 {
+		t.Fatalf("want 5 injected tools, got %d: %v", len(names), names)
 	}
 	for _, n := range names {
 		if n != strings.ToLower(n) {
@@ -100,7 +101,7 @@ func TestConcealFingerprintToolsInjectsWhenNoTools(t *testing.T) {
 func TestConcealFingerprintToolsChatShape(t *testing.T) {
 	// The chat shape nests the name inside "function".
 	body := []byte(`{"tools":[{"type":"function","function":{"name":"Bash"}},{"type":"function","function":{"name":"terminal"}}]}`)
-	out, nameMap := ConcealFingerprintTools(body)
+	out, nameMap := ConcealFingerprintTools(body, false)
 	var m map[string]any
 	if err := json.Unmarshal(out, &m); err != nil {
 		t.Fatalf("unmarshal: %v", err)
@@ -131,7 +132,7 @@ func TestConcealFingerprintToolsChatShape(t *testing.T) {
 
 func TestConcealFingerprintToolsRetargetsToolChoice(t *testing.T) {
 	body := []byte(`{"tools":[{"name":"Bash"}],"tool_choice":{"type":"tool","name":"Bash"}}`)
-	out, _ := ConcealFingerprintTools(body)
+	out, _ := ConcealFingerprintTools(body, false)
 	var m map[string]any
 	if err := json.Unmarshal(out, &m); err != nil {
 		t.Fatalf("unmarshal: %v", err)
@@ -143,16 +144,17 @@ func TestConcealFingerprintToolsRetargetsToolChoice(t *testing.T) {
 }
 
 func TestConcealFingerprintToolsAlreadyCanonical(t *testing.T) {
-	// A body that already carries the lowercase quartet needs no rename and no
-	// extra declarations.
-	body := []byte(`{"tools":[{"name":"terminal"},{"name":"bash"},{"name":"glob"},{"name":"grep"},{"name":"read"}]}`)
-	out, nameMap := ConcealFingerprintTools(body)
+	// A body that already carries every fingerprinted name in canonical form
+	// needs no rename and no extra declarations. `shell` is included because the
+	// gate requires it; an unlisted extra tool (`terminal`) must be left alone.
+	body := []byte(`{"tools":[{"name":"terminal"},{"name":"shell"},{"name":"bash"},{"name":"glob"},{"name":"grep"},{"name":"read"}]}`)
+	out, nameMap := ConcealFingerprintTools(body, false)
 	if len(nameMap) != 0 {
 		t.Errorf("map should be empty, got %v", nameMap)
 	}
 	names := toolNames(t, out)
-	if len(names) != 5 {
-		t.Errorf("no tools should be added, want 5, got %d: %v", len(names), names)
+	if len(names) != 6 {
+		t.Errorf("no tools should be added, want 6, got %d: %v", len(names), names)
 	}
 	seen := map[string]int{}
 	for _, n := range names {
@@ -170,7 +172,7 @@ func TestConcealFingerprintToolsInjectsWhenQuartetAbsent(t *testing.T) {
 	// (upstream returns 403 without those lowercase names), and caller tools must
 	// survive untouched.
 	body := []byte(`{"tools":[{"name":"terminal"},{"name":"read_file"}]}`)
-	out, nameMap := ConcealFingerprintTools(body)
+	out, nameMap := ConcealFingerprintTools(body, false)
 	if len(nameMap) != 0 {
 		t.Errorf("nothing was capitalised, map should be empty: %v", nameMap)
 	}

@@ -2,6 +2,7 @@ package executor
 
 import (
 	"9router/proxy/internal/log"
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/hmac"
@@ -13,6 +14,7 @@ import (
 	"net/http"
 	"os"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -415,7 +417,7 @@ func ForwardOpencode(w http.ResponseWriter, req *Request) error {
 		// The free-tier gate fingerprints the lowercase tool quartet; capitalised
 		// variants from Claude Code CLI are renamed here and restored on the
 		// response (translator.ConcealFingerprintTools).
-		transformedBody, toolNameMap := translator.ConcealFingerprintTools(transformedBody)
+		transformedBody, toolNameMap := translator.ConcealFingerprintTools(transformedBody, true)
 		req.Ctx = translator.WithToolNameMap(req.Ctx, toolNameMap)
 		w = NewToolNameRestoringWriter(w, toolNameMap)
 
@@ -487,7 +489,7 @@ func ForwardOpencode(w http.ResponseWriter, req *Request) error {
 
 	body := InjectReasoningContent(req.Body, "opencode")
 	// opencode Chat Completions path: same conceal + restore of tool names.
-	body, toolNameMap := translator.ConcealFingerprintTools(body)
+	body, toolNameMap := translator.ConcealFingerprintTools(body, false)
 	req.Ctx = translator.WithToolNameMap(req.Ctx, toolNameMap)
 	w = NewToolNameRestoringWriter(w, toolNameMap)
 
@@ -498,7 +500,13 @@ func ForwardOpencode(w http.ResponseWriter, req *Request) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	resp, err := proxy.ForwardOpenAI(ctx, req.Client, &cfg, apiKey, body, req.IsStream)
+	// The Zen free-tier gate rejects a non-streaming request, so the body always
+	// carries stream:true by the time it gets here (see ConcealFingerprintTools).
+	// The upstream call must therefore ask for SSE regardless of what the client
+	// wanted, and a non-streaming caller gets the SSE collapsed back into one
+	// JSON body below.
+	upstreamStream := req.IsStream || bodyRequestsStream(body)
+	resp, err := proxy.ForwardOpenAI(ctx, req.Client, &cfg, apiKey, body, upstreamStream)
 	if err != nil {
 		return fmt.Errorf("ForwardOpencode: %w", err)
 	}
@@ -507,7 +515,190 @@ func ForwardOpencode(w http.ResponseWriter, req *Request) error {
 	if req.IsStream {
 		return execSSEStream(w, resp.Body, req)
 	}
+	// Upstream answered with SSE but the client asked for one JSON body.
+	if upstreamStream {
+		return jsonFromSSE(ctx, w, resp.Body, req)
+	}
 	return jsonResponse(req.Ctx, w, resp.Body, req.TranslateResp, req.ResponseBuf)
+}
+
+// jsonFromSSE collapses an upstream SSE stream into a single Chat Completions
+// JSON body.
+//
+// The Zen free-tier gate only serves streaming requests, so a client that asked
+// for one JSON object still causes an SSE upstream call. Rather than leak the
+// stream to that client, the deltas are merged back into the shape it expects:
+// content and reasoning_content are concatenated in order, tool_call fragments
+// are reassembled by index, and the finish_reason from the last chunk wins.
+func jsonFromSSE(ctx context.Context, w http.ResponseWriter, upstream io.Reader, req *Request) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	scanner := bufio.NewScanner(upstream)
+	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+
+	var (
+		id      string
+		model   string
+		created int64
+		content strings.Builder
+		reason  strings.Builder
+		finish  string
+		tools   = map[int]*streamToolCall{}
+		order   []int
+	)
+
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || !strings.HasPrefix(line, "data:") {
+			continue
+		}
+		payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if payload == "" || payload == "[DONE]" {
+			continue
+		}
+
+		var chunk struct {
+			ID      string `json:"id"`
+			Model   string `json:"model"`
+			Created int64  `json:"created"`
+			Choices []struct {
+				FinishReason string `json:"finish_reason"`
+				Delta        struct {
+					Content          string `json:"content"`
+					ReasoningContent string `json:"reasoning_content"`
+					Reasoning        string `json:"reasoning"`
+					ToolCalls        []struct {
+						Index    int    `json:"index"`
+						ID       string `json:"id"`
+						Type     string `json:"type"`
+						Function struct {
+							Name      string `json:"name"`
+							Arguments string `json:"arguments"`
+						} `json:"function"`
+					} `json:"tool_calls"`
+				} `json:"delta"`
+			} `json:"choices"`
+		}
+		if err := json.Unmarshal([]byte(payload), &chunk); err != nil {
+			continue
+		}
+		if id == "" {
+			id = chunk.ID
+		}
+		if model == "" {
+			model = chunk.Model
+		}
+		if created == 0 {
+			created = chunk.Created
+		}
+		for _, ch := range chunk.Choices {
+			content.WriteString(ch.Delta.Content)
+			reason.WriteString(ch.Delta.ReasoningContent)
+			reason.WriteString(ch.Delta.Reasoning)
+			if ch.FinishReason != "" {
+				finish = ch.FinishReason
+			}
+			for _, tc := range ch.Delta.ToolCalls {
+				cur, ok := tools[tc.Index]
+				if !ok {
+					cur = &streamToolCall{Index: tc.Index}
+					tools[tc.Index] = cur
+					order = append(order, tc.Index)
+				}
+				if tc.ID != "" {
+					cur.ID = tc.ID
+				}
+				if tc.Type != "" {
+					cur.Type = tc.Type
+				}
+				if tc.Function.Name != "" {
+					cur.Name = tc.Function.Name
+				}
+				cur.Arguments += tc.Function.Arguments
+			}
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("read upstream stream: %w", err)
+	}
+
+	message := map[string]any{"role": "assistant", "content": content.String()}
+	if reason.Len() > 0 {
+		message["reasoning_content"] = reason.String()
+	}
+	if len(order) > 0 {
+		sort.Ints(order)
+		calls := make([]any, 0, len(order))
+		for _, i := range order {
+			tc := tools[i]
+			if tc == nil {
+				continue
+			}
+			calls = append(calls, map[string]any{
+				"id": tc.ID, "type": "function", "index": tc.Index,
+				"function": map[string]any{"name": tc.Name, "arguments": tc.Arguments},
+			})
+		}
+		message["tool_calls"] = calls
+	}
+
+	if finish == "" {
+		finish = "stop"
+	}
+	body := map[string]any{
+		"id":      firstNonEmpty(id, "chatcmpl-9router"),
+		"object":  "chat.completion",
+		"created": created,
+		"model":   model,
+		"choices": []any{map[string]any{
+			"index":         0,
+			"message":       message,
+			"finish_reason": finish,
+		}},
+	}
+
+	out, err := json.Marshal(body)
+	if err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_, err = w.Write(out)
+	return err
+}
+
+// streamToolCall accumulates a tool call whose arguments arrive in fragments.
+type streamToolCall struct {
+	Index     int
+	ID        string
+	Type      string
+	Name      string
+	Arguments string
+}
+
+// firstNonEmpty returns the first non-blank value.
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// bodyRequestsStream reports whether a marshalled request body asks the upstream
+// to stream. It is how the executor learns that the fingerprint step forced
+// stream:true on behalf of a non-streaming client.
+func bodyRequestsStream(body []byte) bool {
+	var probe struct {
+		Stream bool `json:"stream"`
+	}
+	if err := json.Unmarshal(body, &probe); err != nil {
+		return false
+	}
+	return probe.Stream
 }
 
 var opencodeGoMessagesModels = map[string]bool{
@@ -1066,7 +1257,7 @@ func ForwardOpencodeGo(w http.ResponseWriter, req *Request) error {
 	}
 
 	// Default OpenAI format endpoint: https://opencode.ai/zen/go/v1/chat/completions
-	body, toolNameMap := translator.ConcealFingerprintTools(body)
+	body, toolNameMap := translator.ConcealFingerprintTools(body, false)
 	req.Ctx = translator.WithToolNameMap(req.Ctx, toolNameMap)
 	w = NewToolNameRestoringWriter(w, toolNameMap)
 
