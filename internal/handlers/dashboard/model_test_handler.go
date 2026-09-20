@@ -389,6 +389,15 @@ func (h *Handler) maybeAutoDisable(fullModel string, ok, autoDisable bool) {
 	}
 	canonical := providers.ResolveAlias(alias)
 	keys := append([]string{alias, canonical}, providers.AliasesFor(canonical)...)
+	// The model is advertised under the node's prefix ("xkiro/<id>"), and the
+	// list checks markers against that prefix. Recording only the generated
+	// node id left the marker unreadable and the model stayed advertised.
+	if p := h.nodePrefixKey(alias); p != "" {
+		keys = append(keys, p)
+	}
+	if p := h.nodePrefixKey(canonical); p != "" {
+		keys = append(keys, p)
+	}
 	keys = dedupeStrings(keys)
 	for _, k := range keys {
 		_ = h.repo.RemoveCachedModel(k, modelID)

@@ -1064,6 +1064,15 @@ func (h *Handler) HandleRemoveModel(w http.ResponseWriter, r *http.Request) {
 
 	aliases := append(providers.AliasesFor(canonical), providers.AliasesFor(raw)...)
 	keys := append([]string{canonical, raw}, aliases...)
+	// A node advertises its models under its configured prefix, so the marker
+	// must be readable under that spelling as well as the generated node id.
+	if p := h.nodePrefixKey(raw); p != "" {
+		keys = append(keys, p)
+	}
+	if p := h.nodePrefixKey(canonical); p != "" {
+		keys = append(keys, p)
+	}
+	keys = dedupeNonEmpty(keys)
 
 	removed := 0
 	for _, k := range keys {
@@ -1094,6 +1103,26 @@ func providerKeyCandidates(canonical, raw string) []string {
 		keys = append(keys, providers.AliasesFor(raw)...)
 	}
 	return dedupeNonEmpty(keys)
+}
+
+// nodePrefixKey returns the prefix a compatible-endpoint node advertises its
+// models under ("xkiro" for node "openai-compatible-chat-<uuid>"), or "" when
+// the id is not a node or has no prefix configured.
+//
+// /v1/models renders a node's models as "<prefix>/<model>" and checks hidden
+// markers against that same prefix, so anything recording a removal has to use
+// it. Writing the marker under the node's generated id instead produced 13
+// markers that the list could never match, and the "failed" models stayed
+// advertised after auto-disable reported success.
+func (h *Handler) nodePrefixKey(provID string) string {
+	if h.repo == nil || provID == "" {
+		return ""
+	}
+	prefixes, err := h.repo.GetProviderNodePrefixMap()
+	if err != nil {
+		return ""
+	}
+	return prefixes[provID]
 }
 
 // dedupeNonEmpty drops empty strings and duplicates, preserving order.
