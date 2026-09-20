@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Central version bump — single source: VERSION file
+# Central version bump — source of truth: version.json
 # Usage: ./scripts/bump-version.sh 1.8.9
-# Updates: VERSION, version.json, Dockerfile (fallback), internal/updater/updater.go (fallback)
+# Updates: version.json, internal/updater/updater.go (fallback), VERSION (legacy)
 
 if [ $# -ne 1 ]; then
   echo "Usage: $0 <new-version>  e.g. $0 1.8.9"
@@ -21,11 +21,8 @@ cd "$ROOT_DIR"
 
 echo "Bumping version to $NEW_VER ..."
 
-# 1. VERSION file (single source)
-echo -n "$NEW_VER" > VERSION
-echo "  → VERSION"
-
-# 2. version.json
+# 1. version.json — what the Makefile, the Dockerfile and the dashboard's
+#    update check all read. This is the authority.
 if command -v python3 >/dev/null 2>&1; then
   python3 -c "
 import json, pathlib
@@ -42,6 +39,11 @@ else
 fi
 echo "  → version.json"
 
+# 2. VERSION — legacy. The build no longer reads it, but external scripts and
+#    muscle memory may, so it is kept in step rather than left to rot again.
+echo -n "$NEW_VER" > VERSION
+echo "  → VERSION (legacy)"
+
 # 3. internal/updater/updater.go fallback
 # Update the default var CurrentVersion = "x.y.z"
 if grep -q 'var CurrentVersion = "' internal/updater/updater.go; then
@@ -57,5 +59,5 @@ if grep -q 'ARG VERSION' Dockerfile; then
 fi
 
 echo ""
-echo "Done. Version is now $NEW_VER (single source: VERSION file)"
-echo "Next: git add VERSION version.json internal/updater/updater.go && git commit -m \"chore: bump version to $NEW_VER\" && git tag v$NEW_VER"
+echo "Done. Version is now $NEW_VER (source of truth: version.json)"
+echo "Next: git add version.json VERSION internal/updater/updater.go && git commit -m \"chore: bump version to $NEW_VER\" && git tag v$NEW_VER"

@@ -1,8 +1,12 @@
 package db
 
 import (
+	"database/sql"
+	"errors"
 	"fmt"
 	"time"
+
+	"9router/proxy/internal/log"
 )
 
 // GetUsageDaily returns the daily usage JSON data for a given date key.
@@ -16,9 +20,54 @@ func (r *Repo) GetUsageDaily(dateKey string) (string, error) {
 }
 
 // InsertUsageHistory logs a single request's token usage to the usageHistory table.
+//
+// Before inserting it looks for an existing row with the same timestamp,
+// provider, model, connection, key and token counts. This mirrors upstream
+// VansRouter's saveRequestUsage guard, which exists so a retried or duplicated
+// completion callback does not append the same request twice. When such a row
+// exists the only thing updated is a previously-empty endpoint: the token
+// counts already recorded are left alone rather than summed, because a re-call
+// that reports the same numbers is the same request, not an additional one.
 func (r *Repo) InsertUsageHistory(provider, model, connectionID, apiKey, endpoint string, promptTokens, completionTokens int, cost float64, status string, totalTokens int, meta string, tokensJSON string) error {
 	timestamp := time.Now().UTC().Format(time.RFC3339)
-	_, err := r.db.Exec(
+
+	// COALESCE on the text columns so a NULL written by an older version compares
+	// equal to the empty string a newer one passes in; without it the guard never
+	// matches legacy rows and they duplicate exactly as before.
+	var existingID int64
+	var existingEndpoint sql.NullString
+	err := r.db.QueryRow(
+		`SELECT id, endpoint FROM usageHistory
+		  WHERE timestamp = ?
+		    AND COALESCE(provider, '') = COALESCE(?, '')
+		    AND COALESCE(model, '') = COALESCE(?, '')
+		    AND COALESCE(connectionId, '') = COALESCE(?, '')
+		    AND COALESCE(apiKey, '') = COALESCE(?, '')
+		    AND promptTokens = ?
+		    AND completionTokens = ?
+		  ORDER BY id DESC LIMIT 1`,
+		timestamp, provider, model, connectionID, apiKey, promptTokens, completionTokens,
+	).Scan(&existingID, &existingEndpoint)
+	switch {
+	case err == nil:
+		// JS truthiness in upstream's `if (!existing.endpoint)` treats both NULL
+		// and '' as empty. In Go, sql.NullString reports Valid for '', so an
+		// explicit empty check is needed or the backfill never fires for the
+		// common case of a row written with an empty endpoint rather than NULL.
+		if (!existingEndpoint.Valid || existingEndpoint.String == "") && endpoint != "" {
+			if _, uerr := r.db.Exec(
+				`UPDATE usageHistory SET endpoint = ? WHERE id = ?`, endpoint, existingID); uerr != nil {
+				return fmt.Errorf("backfill usage endpoint: %w", uerr)
+			}
+		}
+		return nil
+	case !errors.Is(err, sql.ErrNoRows):
+		// A lookup failure must not drop the row: logging usage is more
+		// important than the duplicate guard, so fall through and insert.
+		log.Debug("usage", "duplicate lookup failed, inserting anyway", "err", err)
+	}
+
+	_, err = r.db.Exec(
 		`INSERT INTO usageHistory (timestamp, provider, model, connectionId, apiKey, endpoint, promptTokens, completionTokens, cost, status, tokens, meta)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		timestamp, provider, model, connectionID, apiKey, endpoint, promptTokens, completionTokens, cost, status, tokensJSON, meta,

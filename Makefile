@@ -1,8 +1,19 @@
 BINARY_NAME := 9router-go
 export GOTOOLCHAIN ?= local
 export GOEXPERIMENT ?= jsonv2
-# Central version — single source: VERSION file, fallback to version.json, then git
-VERSION ?= $(shell cat VERSION 2>/dev/null || (cat version.json 2>/dev/null | grep -o '"latestVersion": *"[^"]*"' | cut -d'"' -f4) || git describe --tags --always 2>/dev/null || echo "1.0.0")
+# Central version. Resolution order:
+#   1. VERSION= passed in — the release workflow passes VERSION=$(git tag), so
+#      a tagged build always wins.
+#   2. version.json — written by the release job; the fallback for a local build
+#      that has not exported a version.
+#   3. git describe — developer checkouts with no version.json yet.
+#
+# The VERSION *file* is deliberately NOT read here. It sat at 1.8.17 for 13
+# releases because the release job only commits version.json, so reading it
+# first made every local `make build` report 1.8.17 while the deployed binary
+# reported 1.8.30. version.json is now the file on disk that the pipeline
+# actually maintains; bump-version.sh keeps it in step for manual releases.
+VERSION ?= $(shell (cat version.json 2>/dev/null | grep -o '"latestVersion": *"[^"]*"' | cut -d'"' -f4) || git describe --tags --always 2>/dev/null || echo "1.0.0")
 PORT ?= 20128
 DATA_DIR ?= $(HOME)/.9router
 RTK ?=

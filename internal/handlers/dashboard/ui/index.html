@@ -85,6 +85,103 @@
     }
 
     /* ----------------------------------------------------------------
+       Scrollbars
+       ----------------------------------------------------------------
+       The default scrollbar is a light OS-grey channel that reads as a seam
+       down a dark panel, and it is the one part of the page that ignores the
+       palette entirely.
+
+       The two syntaxes must NOT be used together. Chrome 153 ignores the whole
+       ::-webkit-scrollbar-* family once scrollbar-width or scrollbar-color is
+       set on the same element, and paints its own thin native bar instead —
+       arrows and all. Measured here: with scrollbar-width present the themed
+       thumb disappeared completely; without it, the rules applied and the
+       arrows went away.
+
+       So the standard properties are scoped, via @supports, to engines that do
+       not understand ::-webkit-scrollbar at all (older Firefox). Modern
+       browsers take the webkit branch only, which is the one that can draw a
+       rounded, inset, tinted thumb. */
+    ::-webkit-scrollbar {
+      width: 10px;
+      height: 10px;
+    }
+    /* Transparent, not opaque: the track then shows whatever glass surface is
+       behind it, so the same rule works on the rail, in a modal and in a card
+       without three variants. */
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(255, 138, 42, 0.30);
+      border-radius: 999px;
+      /* The transparent border plus background-clip insets the thumb inside
+         the 10px channel so it never touches the edges. */
+      border: 2px solid transparent;
+      background-clip: content-box;
+      transition: background 0.15s;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(255, 138, 42, 0.55);
+      background-clip: content-box;
+    }
+    ::-webkit-scrollbar-thumb:active {
+      background: var(--primary);
+      background-clip: content-box;
+    }
+    /* The corner square appears where a vertical and horizontal scrollbar meet
+       (wide tables). Left unstyled it is painted white. */
+    ::-webkit-scrollbar-corner {
+      background: transparent;
+    }
+    /* Arrow buttons.
+
+       `display: none` on ::-webkit-scrollbar-button is ignored — Chrome keeps
+       drawing the arrows — and a default arrow above an orange pill looks
+       broken. The inc/dec pseudo-classes have to be zeroed individually under
+       :single-button, and their background cleared, which is what actually
+       removes them. Clicking the trough still pages and scroll-by-drag is
+       unaffected, so nothing is lost. */
+    ::-webkit-scrollbar-button {
+      background: none;
+      height: 0;
+      width: 0;
+      border: none;
+    }
+    ::-webkit-scrollbar-button:single-button {
+      background: none;
+      height: 0;
+      width: 0;
+    }
+    ::-webkit-scrollbar-button:single-button:vertical:decrement,
+    ::-webkit-scrollbar-button:single-button:vertical:increment,
+    ::-webkit-scrollbar-button:single-button:horizontal:decrement,
+    ::-webkit-scrollbar-button:single-button:horizontal:increment {
+      height: 0;
+      width: 0;
+    }
+    /* When the page or panel loses focus the browser dims the thumb to near
+       black on some platforms, which reads as the bar disappearing. Keep it
+       visible, just quieter than the active state. */
+    ::-webkit-scrollbar-thumb:window-inactive {
+      background: rgba(255, 138, 42, 0.22);
+      background-clip: content-box;
+    }
+
+    /* Standard properties, only where ::-webkit-scrollbar is not understood.
+       @supports checks the pseudo-element itself, so a browser that honours the
+       webkit rules never reaches this block and the two never conflict.
+       Firefox has supported ::-webkit-scrollbar since 64, so in practice this
+       covers older releases and any non-Blink/WebKit engine; there the bar can
+       at least be tinted and thinned, even though it cannot be inset. */
+    @supports not selector(::-webkit-scrollbar) {
+      * {
+        scrollbar-width: thin;
+        scrollbar-color: rgba(255, 138, 42, 0.42) transparent;
+      }
+    }
+
+    /* ----------------------------------------------------------------
        Sidebar layout
        ----------------------------------------------------------------
        Navigation moved out of the top bar into a left rail: the header was
@@ -187,24 +284,99 @@
       font-size: 18px; line-height: 1;
       letter-spacing: normal; text-transform: none;
       /* Standard property first: Firefox does not implement the -webkit- alias,
-         so ligature-only glyph names ('api', 'dns') rendered as literal text in
-         the sidebar there. */
+         so ligature-only glyph names ('api', 'dns') rendered as literal text
+         in the sidebar there. */
       font-feature-settings: 'liga';
       -webkit-font-feature-settings: 'liga';
       -webkit-font-smoothing: antialiased;
-      color: var(--muted);
-      background: rgba(255, 255, 255, 0.04);
-      border: 1px solid transparent;
-      transition: color 0.15s, background 0.15s, border-color 0.15s;
+
+      /* Per-entry hue. Each entry sets --tint to its own colour; every rule
+         below derives its fill, border and shadow from that one value, so a new
+         nav item is one attribute and not four hand-tuned declarations.
+         --tint defaults to the accent so an untinted entry still looks right. */
+      --tint: var(--primary);
+      color: var(--tint);
+
+      /* Volume. The tile is lit from the top-left: a light inner top edge and a
+         dark inner bottom edge read as a bevel, and a tinted drop shadow lifts
+         it off the rail. Same language as .brand-mark, so the logo and the nav
+         tiles look like one family. */
+      background:
+        linear-gradient(150deg,
+          color-mix(in srgb, var(--tint) 26%, #1a1310) 0%,
+          color-mix(in srgb, var(--tint) 10%, #140f0b) 100%);
+      border: 1px solid color-mix(in srgb, var(--tint) 34%, transparent);
+      box-shadow:
+        0 1px 0 rgba(255, 255, 255, 0.10) inset,
+        0 -1px 0 rgba(0, 0, 0, 0.30) inset,
+        0 2px 6px rgba(0, 0, 0, 0.35);
+      transition: color 0.15s, background 0.15s, border-color 0.15s,
+                  box-shadow 0.15s, transform 0.15s;
     }
-    .nav-btn:hover .nav-icon { color: var(--text); background: rgba(255, 255, 255, 0.08); }
-    /* The active entry's tile carries the accent, so the current page is
-       obvious from the icon alone and not just from the label colour. */
+    /* Fallback for browsers without color-mix (Safari < 16.2, Firefox < 113):
+       the gradient and border above would compute to nothing and the tile would
+       vanish into the rail. Keep the flat look from before instead. */
+    @supports not (color: color-mix(in srgb, red 50%, blue)) {
+      .nav-icon { background: rgba(255, 255, 255, 0.05); border-color: transparent; }
+    }
+
+    /* Per-entry hues.
+
+       Seven distinct hues do not survive at 26px: Endpoint/Usage measured a
+       weighted-RGB distance of 48 (0.03 luminance apart) and read as the same
+       tile. So the rail uses a small set of well-separated colours that the
+       dashboard already owns, and repeats the last one rather than inventing a
+       near-duplicate:
+         orange #ff8a2a (accent) · amber #d29922 (warning) ·
+         green  #3fb950 (status-ok) · cyan #22d3ee (live dot) ·
+         slate  #8b949e (muted).
+       Red is deliberately unused: it is the error colour everywhere else in
+       the UI, and Console Log is not an error.
+
+       The hues climb from warm to cool down the rail (27 → 41 → 128 → 188),
+       then the Configuration group drops to slate so it reads as a separate
+       group and keeps Settings visually quieter than the six live views. */
+    #nav-endpoint  .nav-icon { --tint: #ff8a2a; }  /* accent    — orange */
+    #nav-usage     .nav-icon { --tint: #d29922; }  /* warning   — amber  */
+    #nav-providers .nav-icon { --tint: #3fb950; }  /* status-ok — green  */
+    #nav-combos    .nav-icon { --tint: #22d3ee; }  /* live dot  — cyan   */
+    #nav-console   .nav-icon { --tint: #3fb950; }  /* status-ok — green  */
+    #nav-health    .nav-icon { --tint: #d29922; }  /* warning   — amber  */
+    #nav-settings  .nav-icon { --tint: #8b949e; }  /* muted     — slate  */
+
+    .nav-btn:hover .nav-icon {
+      transform: translateY(-1px);
+      box-shadow:
+        0 1px 0 rgba(255, 255, 255, 0.16) inset,
+        0 -1px 0 rgba(0, 0, 0, 0.30) inset,
+        0 4px 12px color-mix(in srgb, var(--tint) 30%, transparent);
+    }
+    /* The active entry's tile carries its own accent at full strength, so the
+       current page is obvious from the icon alone and not just from the label
+       colour.
+
+       The darkening is 50%, not the 62% that looked right on paper: white on the
+       cyan tile at 62% measured only 4.46:1, just under the 4.5 WCAG AA floor
+       for the active Combos tab, and a white glyph on a bright cyan fill is the
+       worst case of the seven. At 50% the range is 6.27:1 (cyan) to 8.93:1
+       (slate), so every tint clears AA with room to spare. */
     .nav-btn.active .nav-icon {
-      color: var(--primary);
-      background: rgba(255, 138, 42, 0.16);
-      border-color: rgba(255, 138, 42, 0.35);
+      color: #fff;
+      background:
+        linear-gradient(150deg,
+          color-mix(in srgb, var(--tint) 78%, #ffffff) 0%,
+          color-mix(in srgb, var(--tint) 50%, #000000) 100%);
+      border-color: color-mix(in srgb, var(--tint) 70%, #fff);
+      box-shadow:
+        0 1px 0 rgba(255, 255, 255, 0.28) inset,
+        0 -1px 0 rgba(0, 0, 0, 0.28) inset,
+        0 3px 10px color-mix(in srgb, var(--tint) 45%, transparent);
       font-variation-settings: 'FILL' 1;
+    }
+    /* Reduced motion: the hover lift is the only motion here, so drop it and
+       keep the colour change as the feedback. */
+    @media (prefers-reduced-motion: reduce) {
+      .nav-btn:hover .nav-icon { transform: none; }
     }
 
     /* Mobile: the rail collapses to a drawer toggled from the top bar. */

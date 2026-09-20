@@ -29,9 +29,16 @@ import (
 )
 
 // CurrentVersion is the active 9router-go application version.
-// Can be overridden at build time via -ldflags "-X 9router/proxy/internal/updater.CurrentVersion=1.8.8"
-// Default fallback is read from version.json at init if not overridden.
-var CurrentVersion = "1.8.17"
+//
+// It is set at build time via -ldflags
+// "-X 9router/proxy/internal/updater.CurrentVersion=x.y.z", which the Makefile
+// and Dockerfile both do from version.json (or the release tag).
+//
+// The literal below is only the value for a bare `go build` with no ldflags —
+// it used to read "1.8.17" and was mistaken for the real version, so it is
+// deliberately not a plausible release number. It is NOT loaded from
+// version.json at runtime, despite what an earlier comment here claimed.
+var CurrentVersion = "dev"
 
 // DefaultUpdateBranch is the branch whose version.json the updater polls.
 //
