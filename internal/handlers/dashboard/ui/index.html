@@ -4,6 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>9Router • High-Performance AI Gateway</title>
+  <!-- Favicon is the same spider-web-and-node mark as the sidebar logo, inlined
+       as a data URI so it needs no extra request and shows on first paint. -->
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%231a1310'/%3E%3Cg fill='none' stroke='%23ff8a2a' stroke-width='1.7' stroke-linecap='round'%3E%3Cpath d='M16 3v26M3 16h26M6.8 6.8l18.4 18.4M25.2 6.8L6.8 25.2'/%3E%3Ccircle cx='16' cy='16' r='5.4' opacity='.62'/%3E%3Ccircle cx='16' cy='16' r='10' opacity='.34'/%3E%3C/g%3E%3Ccircle cx='16' cy='16' r='3' fill='%23ffb066'/%3E%3C/svg%3E">
   <!-- Material Symbols: matches upstream icon vocabulary. Fetched lazily with a
        graceful fallback — the UI stays fully usable if offline. -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -11,21 +14,75 @@
   <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap" rel="stylesheet">
   <style>
     :root {
-      --bg: #090d13;
-      --panel: #121820;
-      --panel-hover: #182230;
-      --border: #232f3e;
+      /* Warm palette: near-black with a brown cast rather than blue, so the
+         orange backdrops read as part of the surface instead of sitting on top
+         of a cold page. Keep these in step with --bg-backdrop below. */
+      --bg: #0d0a07;
+      --panel: #1a1310;
+      --panel-hover: #241a14;
+      --border: #3a2a1d;
       --text: #e6edf3;
       --muted: #8b949e;
-      --primary: #58a6ff;
-      --primary-dim: #1f3554;
+      --primary: #ff8a2a;
+      --primary-dim: #4a2a12;
       --accent: #238636;
       --danger: #da3633;
       --warning: #d29922;
       --radius: 8px;
+      /* Text fields get a rounder corner than panels and buttons. Fully
+         rounded (999px) would make a multi-line textarea look like a pill and
+         clip the first line of a wrapped label, so this is a generous but
+         still rectangular radius. */
+      --radius-field: 14px;
+
+      /* ----------------------------------------------------------------
+         Glassmorphism layer
+         ----------------------------------------------------------------
+         Surfaces move from opaque fills to translucent ones over a fixed
+         gradient backdrop. Every rule below reads these four variables, so the
+         whole look can be retuned (or turned flat) from here.
+
+         --glass-blur is the expensive part: backdrop-filter forces the GPU to
+         re-composite each surface on every scroll. It is declared once so the
+         reduced-transparency media query and the low-power fallback further
+         down can both neutralise it in one place. */
+      --glass: rgba(255, 255, 255, 0.045);
+      --glass-strong: rgba(255, 255, 255, 0.075);
+      --glass-border: rgba(255, 255, 255, 0.09);
+      --glass-border-strong: rgba(255, 255, 255, 0.14);
+      --glass-blur: 14px;
+      --glass-shadow: 0 6px 22px rgba(0, 0, 0, 0.28);
+      /* The page backdrop the glass sits on. Radial blooms give the blur
+         something to diffuse; a flat colour would leave it invisible. */
+      --bg-backdrop:
+        radial-gradient(900px 600px at 12% -8%, rgba(255, 138, 42, 0.17), transparent 60%),
+        radial-gradient(800px 520px at 92% 4%, rgba(168, 96, 42, 0.16), transparent 58%),
+        radial-gradient(700px 700px at 50% 108%, rgba(196, 122, 44, 0.10), transparent 62%),
+        linear-gradient(168deg, #14100b 0%, #0d0a07 45%, #120d09 100%);
     }
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif; }
-    body { background-color: var(--bg); color: var(--text); min-height: 100vh; display: flex; }
+    /* The gradient is fixed to the viewport so it does not scroll away, and
+       so backdrop-filter has a stable layer to sample. */
+    body {
+      background-color: var(--bg);
+      background-image: var(--bg-backdrop);
+      background-attachment: fixed;
+      background-repeat: no-repeat;
+      background-size: cover;
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+    }
+
+    /* Surfaces. One rule drives every panel-like element so the treatment is
+       consistent and a future tweak is a single edit. */
+    .glass {
+      background: var(--glass);
+      border: 1px solid var(--glass-border);
+      -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(150%);
+      backdrop-filter: blur(var(--glass-blur)) saturate(150%);
+      box-shadow: var(--glass-shadow);
+    }
 
     /* ----------------------------------------------------------------
        Sidebar layout
@@ -35,15 +92,44 @@
        fixed sidebar, then a column holding the top bar and the scrolling main
        content. */
     .sidebar {
-      width: 232px; flex: 0 0 232px; background: var(--panel);
-      border-right: 1px solid var(--border);
+      width: 232px; flex: 0 0 232px;
+      background: var(--glass);
+      -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(150%);
+      backdrop-filter: blur(var(--glass-blur)) saturate(150%);
+      border-right: 1px solid var(--glass-border);
       display: flex; flex-direction: column; padding: 16px 12px;
       position: sticky; top: 0; height: 100vh;
     }
-    .sidebar-brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 1.05rem; color: #fff; padding: 6px 10px 18px; }
+    .sidebar-brand {
+      display: flex; align-items: center; gap: 10px;
+      font-weight: 700; font-size: 1.05rem; color: #fff;
+      padding: 6px 10px 18px;
+    }
+    /* Raised tile holding the mark. "Timbul" is done with a light top edge and
+       a dark drop shadow rather than a heavier blur, so it stays crisp next to
+       the flat glass surfaces around it. */
+    .brand-mark {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 34px; height: 34px; flex: 0 0 34px;
+      border-radius: 10px;
+      background: linear-gradient(150deg, #2a1c12 0%, #17100a 100%);
+      border: 1px solid rgba(255, 138, 42, 0.32);
+      box-shadow:
+        0 1px 0 rgba(255, 210, 160, 0.16) inset,
+        0 4px 10px rgba(0, 0, 0, 0.45),
+        0 1px 2px rgba(0, 0, 0, 0.35);
+    }
+    .brand-mark svg { display: block; }
+    /* Name over version, so the version stops competing with the brand for the
+       same line and reading as a third badge. */
+    .brand-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+    .brand-name { font-weight: 700; font-size: 1.02rem; color: #fff; line-height: 1.15; }
     /* Rendered from the update check, so it shows the running build and not
        whatever the page was built with. Hidden until that fetch answers. */
-    .brand-version { font-size: 0.7rem; font-weight: 600; color: var(--muted); letter-spacing: 0.3px; }
+    .brand-version {
+      font-size: 0.66rem; font-weight: 600; color: var(--muted);
+      letter-spacing: 0.3px; line-height: 1.2;
+    }
     /* Update pill — hidden unless the background check found a newer release.
        It sits directly under the brand so it is the first thing seen on open,
        and it is a button rather than a nav item because it is an action. */
@@ -88,19 +174,67 @@
     }
     .nav-btn:hover { color: var(--text); background: var(--panel-hover); }
     .nav-btn.active { color: #fff; background: var(--primary-dim); box-shadow: inset 2px 0 0 var(--primary); }
-    .nav-icon { font-size: 1.05rem; line-height: 1; width: 20px; text-align: center; flex: 0 0 20px; }
+    .nav-icon {
+      /* Each entry gets a fixed-size tile so the labels start at the same x
+         even when a glyph is narrower than its neighbours. Emoji are gone:
+         they render differently on every OS and two entries shared the same
+         one, so Endpoint and Providers were indistinguishable. */
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 26px; height: 26px; flex: 0 0 26px;
+      border-radius: 8px;
+      font-family: 'Material Symbols Outlined', 'Material Icons', sans-serif;
+      font-weight: normal; font-style: normal;
+      font-size: 18px; line-height: 1;
+      letter-spacing: normal; text-transform: none;
+      /* Standard property first: Firefox does not implement the -webkit- alias,
+         so ligature-only glyph names ('api', 'dns') rendered as literal text in
+         the sidebar there. */
+      font-feature-settings: 'liga';
+      -webkit-font-feature-settings: 'liga';
+      -webkit-font-smoothing: antialiased;
+      color: var(--muted);
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid transparent;
+      transition: color 0.15s, background 0.15s, border-color 0.15s;
+    }
+    .nav-btn:hover .nav-icon { color: var(--text); background: rgba(255, 255, 255, 0.08); }
+    /* The active entry's tile carries the accent, so the current page is
+       obvious from the icon alone and not just from the label colour. */
+    .nav-btn.active .nav-icon {
+      color: var(--primary);
+      background: rgba(255, 138, 42, 0.16);
+      border-color: rgba(255, 138, 42, 0.35);
+      font-variation-settings: 'FILL' 1;
+    }
 
     /* Mobile: the rail collapses to a drawer toggled from the top bar. */
     .sidebar-toggle { display: none; background: transparent; border: 1px solid var(--border); color: var(--text); border-radius: var(--radius); padding: 6px 10px; cursor: pointer; font-size: 1rem; }
     .sidebar-scrim { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.55); z-index: 140; }
     .sidebar-scrim.show { display: block; }
     @media (max-width: 860px) {
-      .sidebar { position: fixed; left: 0; top: 0; z-index: 150; transform: translateX(-100%); transition: transform 0.2s ease; box-shadow: 0 0 24px rgba(0,0,0,0.5); }
+      /* The rail becomes a drawer. It gets a more opaque fill than the desktop
+         rail: at this width it covers most of the screen, and a translucent
+         panel with content scrolling behind it is hard to read — and the blur
+         would have to re-composite on every scroll frame. */
+      .sidebar {
+        position: fixed; left: 0; top: 0; z-index: 150;
+        transform: translateX(-100%);
+        transition: transform 0.2s ease;
+        background: rgba(20, 14, 10, 0.94);
+        -webkit-backdrop-filter: blur(18px) saturate(150%);
+        backdrop-filter: blur(18px) saturate(150%);
+        box-shadow: 0 0 30px rgba(0, 0, 0, 0.55);
+        width: 264px; flex: 0 0 264px;
+      }
       .sidebar.open { transform: translateX(0); }
       .sidebar-toggle { display: inline-flex; align-items: center; gap: 6px; }
     }
 
-    header { background: var(--panel); border-bottom: 1px solid var(--border); padding: 12px 24px; display: flex; align-items: center; justify-content: space-between; gap: 12px; position: sticky; top: 0; z-index: 100; }
+    header {
+      background: var(--glass);
+      -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(150%);
+      backdrop-filter: blur(var(--glass-blur)) saturate(150%);
+      border-bottom: 1px solid var(--glass-border); padding: 12px 24px; display: flex; align-items: center; justify-content: space-between; gap: 12px; position: sticky; top: 0; z-index: 100; }
     .logo { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 1.15rem; color: #fff; }
     .badge { padding: 2px 8px; border-radius: 12px; font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px; display: inline-flex; align-items: center; gap: 4px; }
     .badge-go { background: #00add8; color: #fff; }
@@ -110,7 +244,7 @@
     
     /* Category Badges */
     .badge-oauth { background: #271052; color: #d2a8ff; border: 1px solid #8957e5; }
-    .badge-freeTier { background: #0c2d6b; color: #79c0ff; border: 1px solid #388bfd; }
+    .badge-freeTier { background: #3a2412; color: #ffb066; border: 1px solid #a86a2c; }
     .badge-free { background: #10301c; color: #56d364; border: 1px solid #238636; }
     .badge-apikey { background: #3e2800; color: #e3b341; border: 1px solid #9e6a03; }
     .badge-webCookie { background: #3d1a2b; color: #ff9ec4; border: 1px solid #bf4b8a; }
@@ -122,7 +256,7 @@
     .prov-group-row td { border-bottom: 1px solid var(--border); padding: 12px 14px; }
     .prov-chevron { display:inline-block; transition: transform 0.15s; color: var(--muted); font-size: 0.75rem; }
     .prov-chevron.open { transform: rotate(90deg); }
-    .prov-count-pill { background: #1f6feb22; color: #79c0ff; border: 1px solid #1f6feb; border-radius: 999px; padding: 1px 9px; font-size: 0.72rem; font-weight: 600; }
+    .prov-count-pill { background: #a86a2c22; color: #ffb066; border: 1px solid #a86a2c; border-radius: 999px; padding: 1px 9px; font-size: 0.72rem; font-weight: 600; }
     .acct-row td { background: var(--bg); padding: 8px 14px 8px 52px; font-size: 0.83rem; border-bottom: 1px dashed var(--border); }
     .acct-dot { display:inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 7px; }
     .acct-dot.on { background: #3fb950; box-shadow: 0 0 5px #3fb950; }
@@ -168,7 +302,15 @@
     .tab-pane.active { display: block; }
     
     .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-bottom: 24px; }
-    .card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; }
+    .card {
+      background: var(--glass);
+      border: 1px solid var(--glass-border);
+      border-radius: var(--radius);
+      padding: 18px;
+      -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(150%);
+      backdrop-filter: blur(var(--glass-blur)) saturate(150%);
+      box-shadow: var(--glass-shadow);
+    }
     .card h3 { font-size: 0.82rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
     .card .stat-val { font-size: 2rem; font-weight: 700; color: #fff; }
     .card .stat-sub { font-size: 0.8rem; color: var(--muted); margin-top: 4px; }
@@ -202,18 +344,49 @@
     input:checked + .slider { background-color: #238636; }
     input:checked + .slider:before { transform: translateX(18px); }
     
-    input[type="text"], input[type="password"], select, textarea {
-      background: var(--bg); border: 1px solid var(--border); color: #fff; padding: 8px 12px; border-radius: var(--radius); font-size: 0.88rem; width: 100%; outline: none;
+    /* Every field type the dashboard uses, not just text and password: the
+     * number input on the Add Connection modal and the search box were otherwise
+     * left with the browser default (white fill, black text) on a dark page. */
+    input[type="text"], input[type="password"], input[type="number"],
+    input[type="search"], input[type="email"], input[type="url"],
+    select, textarea {
+      background: var(--glass);
+      border: 1px solid var(--glass-border);
+      color: var(--text);
+      padding: 9px 13px;
+      border-radius: var(--radius-field);
+      font-size: 0.88rem;
+      width: 100%;
+      outline: none;
+      -webkit-backdrop-filter: blur(8px);
+      backdrop-filter: blur(8px);
     }
+    /* The dropdown list itself is rendered by the OS and ignores backdrop-filter;
+     * without an opaque option background the items are unreadable on some
+     * platforms. */
+    select option { background: #1a1310; color: var(--text); }
+    input::placeholder, textarea::placeholder { color: var(--muted); }
     input:focus, select:focus, textarea:focus { border-color: var(--primary); }
+    /* Number spinners are near-invisible on a dark field. */
+    input[type="number"] { -moz-appearance: textfield; }
+    input[type="number"]::-webkit-outer-spin-button,
+    input[type="number"]::-webkit-inner-spin-button { opacity: 0.55; }
     
-    .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.75); display: none; align-items: center; justify-content: center; z-index: 1000; padding: 16px; }
+    .modal-overlay { position: fixed; inset: 0; background: rgba(4, 8, 14, 0.62); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); display: none; align-items: center; justify-content: center; z-index: 1000; padding: 16px; }
     .modal-overlay.active { display: flex; }
-    .modal-box { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); max-width: 540px; width: 100%; padding: 24px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
+    .modal-box {
+      background: var(--glass-strong);
+      border: 1px solid var(--glass-border-strong);
+      border-radius: var(--radius);
+      max-width: 540px; width: 100%; padding: 24px;
+      -webkit-backdrop-filter: blur(20px) saturate(160%);
+      backdrop-filter: blur(20px) saturate(160%);
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+    }
     .form-group { margin-bottom: 14px; }
     .form-group label { display: block; font-size: 0.82rem; color: var(--muted); margin-bottom: 6px; }
     
-    .code-block { background: #0d1117; border: 1px solid var(--border); border-radius: 6px; padding: 12px; font-family: monospace; font-size: 0.82rem; color: #79c0ff; overflow-x: auto; white-space: pre-wrap; word-break: break-word; }
+    .code-block { background: #16100a; border: 1px solid var(--border); border-radius: 6px; padding: 12px; font-family: monospace; font-size: 0.82rem; color: #ffb066; overflow-x: auto; white-space: pre-wrap; word-break: break-word; }
 
     /* Endpoint & Key page */
     .badge-ok { background: #0d2818; color: #3fb950; border: 1px solid #238636; }
@@ -221,15 +394,29 @@
     .endpoint-rows { display: flex; flex-direction: column; gap: 8px; }
     .endpoint-row { display: flex; align-items: center; gap: 8px; }
     .endpoint-tag { font-family: monospace; font-size: 0.7rem; padding: 4px 8px; border-radius: 4px; min-width: 74px; text-align: center; background: var(--surface2); color: var(--muted); shrink: 0; flex: 0 0 auto; }
-    .endpoint-tag.active { background: rgba(56,139,253,0.12); color: #79c0ff; }
-    .endpoint-url { flex: 1 1 auto; min-width: 0; font-family: monospace; font-size: 0.82rem; }
+    .endpoint-tag.active { background: rgba(255,138,42,0.14); color: #ffb066; }
+    /* The value is read-only (filled by renderEndpointHost) and exists to be
+     * selected and copied, so it is styled as a field but must not look like an
+     * editable one. It previously inherited the browser default — a solid white
+     * box with black text — which was the only light element on an otherwise
+     * dark page. */
+    .endpoint-url {
+      flex: 1 1 auto; min-width: 0;
+      font-family: monospace; font-size: 0.82rem;
+      background: rgba(0, 0, 0, 0.28);
+      border: 1px solid var(--glass-border);
+      border-radius: var(--radius-field);
+      padding: 6px 10px;
+      color: var(--text);
+    }
+    .endpoint-url:focus { outline: none; border-color: var(--primary); }
     .endpoint-security { display: grid; gap: 10px; }
     .endpoint-lock { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
     .endpoint-lock p { flex: 1 1 100%; margin: 0; font-size: 0.8rem; color: var(--muted); }
-    .endpoint-lock code { background: #0d1117; border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; font-size: 0.78rem; color: #79c0ff; }
+    .endpoint-lock code { background: #16100a; border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; font-size: 0.78rem; color: #ffb066; }
     .endpoint-warn { margin-top: 12px; padding: 10px 12px; border-radius: 6px; font-size: 0.82rem; background: rgba(210,153,34,0.1); border: 1px solid #9e6a03; color: #e3b341; }
     .key-secret { display: flex; align-items: center; gap: 6px; }
-    .key-secret code { background: #090d13; border: 1px solid var(--border); padding: 4px 8px; border-radius: 4px; color: #79c0ff; font-size: 0.78rem; }
+    .key-secret code { background: #0d0a07; border: 1px solid var(--border); padding: 4px 8px; border-radius: 4px; color: #ffb066; font-size: 0.78rem; }
     .icon-btn { background: none; border: none; cursor: pointer; font-size: 0.85rem; padding: 2px 4px; border-radius: 4px; opacity: 0.65; }
     .icon-btn:hover { opacity: 1; background: rgba(255,255,255,0.06); }
     .row-paused { opacity: 0.55; }
@@ -241,7 +428,7 @@
     .combo-model-idx { flex: 0 0 16px; color: var(--muted); font-size: 0.75rem; text-align: right; }
     /* min-width:0 is what lets a flex child shrink below its content width;
        without it a long model ID forces the row (and the modal) wider. */
-    .combo-model-name { flex: 1 1 auto; min-width: 0; font-family: monospace; font-size: 0.8rem; color: #79c0ff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .combo-model-name { flex: 1 1 auto; min-width: 0; font-family: monospace; font-size: 0.8rem; color: #ffb066; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .combo-model-row .btn { flex: 0 0 auto; padding: 1px 7px; line-height: 1.4; }
     .combo-model-row .btn[disabled] { opacity: 0.3; cursor: default; }
     .combo-picker-list { max-height: 340px; overflow-y: auto; border: 1px solid var(--border); border-radius: 6px; }
@@ -257,7 +444,7 @@
        (self-hosted subset via CSS ligatures — no CDN needed at runtime
        beyond the icon ligature names used by upstream).
        ============================================================ */
-    .msym { font-family: 'Material Symbols Outlined', 'Material Icons', sans-serif; font-weight: normal; font-style: normal; font-size: 20px; line-height: 1; letter-spacing: normal; text-transform: none; display: inline-block; white-space: nowrap; word-wrap: normal; direction: ltr; -webkit-font-feature-settings: 'liga'; -webkit-font-smoothing: antialiased; }
+    .msym { font-family: 'Material Symbols Outlined', 'Material Icons', sans-serif; font-weight: normal; font-style: normal; font-size: 20px; line-height: 1; letter-spacing: normal; text-transform: none; display: inline-block; white-space: nowrap; word-wrap: normal; direction: ltr; font-feature-settings: 'liga'; -webkit-font-feature-settings: 'liga'; -webkit-font-smoothing: antialiased; }
 
     /* Provider card grid: mirrors upstream grid-cols-1 -> sm:2 -> lg:3 -> xl:4 */
     .prov-card-grid { display: grid; grid-template-columns: repeat(1, minmax(0, 1fr)); gap: 12px; }
@@ -287,7 +474,7 @@
     .prov-section-count { font-size: 0.72rem; font-weight: 600; color: var(--muted); background: var(--panel-hover); border: 1px solid var(--border); border-radius: 999px; padding: 1px 9px; }
     .prov-section-blurb { font-size: 0.78rem; color: var(--muted); margin: 3px 0 0; }
 
-    .prov-card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 14px; cursor: pointer; transition: border-color .15s, transform .15s; position: relative; overflow: hidden; display: flex; align-items: center; gap: 12px; }
+    .prov-card { background: var(--glass); border: 1px solid var(--glass-border); border-radius: 12px; padding: 14px; cursor: pointer; transition: border-color .15s, transform .15s; position: relative; overflow: hidden; display: flex; align-items: center; gap: 12px; }
     .prov-card:hover { border-color: var(--muted); transform: translateY(-1px); }
     .prov-card-main { flex: 1; min-width: 0; }
     .prov-card-icon { width: 38px; height: 38px; border-radius: 10px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
@@ -329,7 +516,7 @@
     .cap-item .msym { font-size: 19px; color: var(--primary); }
     .cap-item.on { border-color: #2ea043; }
     .cap-item.on .msym { color: #3fb950; }
-    .model-row { display: flex; align-items: center; gap: 10px; padding: 8px 11px; background: var(--panel); border: 1px solid var(--border); border-radius: 7px; margin-bottom: 5px; font-size: 0.82rem; transition: border-color 0.2s; flex-wrap: wrap; }
+    .model-row { display: flex; align-items: center; gap: 10px; padding: 8px 11px; background: var(--glass); border: 1px solid var(--glass-border); border-radius: 7px; margin-bottom: 5px; font-size: 0.82rem; transition: border-color 0.2s; flex-wrap: wrap; }
     /* The row is two groups so it can reflow: the identity block (icon + names)
        and the controls. On a wide screen they sit on one line; on a phone the
        controls wrap to a second line instead of squeezing the model name into an
@@ -380,7 +567,7 @@
 
     @media (min-width: 720px) { .oauth-grid { grid-template-columns: 1fr 1fr auto; align-items: end; } }
     .field-label { display: block; font-size: 0.72rem; color: var(--muted); margin-bottom: 5px; }
-    .add-form input, .add-form select { width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; color: #e6edf3; font-size: 0.82rem; font-family: inherit; }
+    .add-form input, .add-form select { width: 100%; background: var(--glass); border: 1px solid var(--glass-border); border-radius: var(--radius-field); padding: 9px 12px; color: #e6edf3; font-size: 0.82rem; font-family: inherit; }
     .add-form input:focus, .add-form select:focus { outline: none; border-color: var(--primary); }
     .msg-ok { color: #3fb950 !important; }
     .msg-err { color: #ff7b72 !important; }
@@ -388,7 +575,16 @@
     /* Import-models modal */
     .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.65); z-index: 200; align-items: center; justify-content: center; padding: 16px; }
     .modal-overlay.active { display: flex; }
-    .modal-box { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; width: 100%; max-width: 560px; max-height: 86vh; display: flex; flex-direction: column; overflow: hidden; }
+    .modal-box {
+      background: var(--glass-strong);
+      border: 1px solid var(--glass-border-strong);
+      border-radius: 12px;
+      width: 100%; max-width: 560px; max-height: 86vh;
+      display: flex; flex-direction: column; overflow: hidden;
+      -webkit-backdrop-filter: blur(20px) saturate(160%);
+      backdrop-filter: blur(20px) saturate(160%);
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+    }
     .modal-head { display: flex; align-items: center; gap: 9px; padding: 13px 15px; border-bottom: 1px solid var(--border); font-size: 0.88rem; }
     .modal-toolbar { display: flex; align-items: center; gap: 8px; padding: 9px 15px; border-bottom: 1px solid var(--border); }
     .modal-toolbar span { flex: 1; }
@@ -428,6 +624,47 @@
     .usage-updated.stale::before { background: #f59e0b; box-shadow: none; animation: none; }
     @keyframes usage-live { 0% { box-shadow: 0 0 0 0 rgba(34,197,94,0.55); } 70% { box-shadow: 0 0 0 6px rgba(34,197,94,0); } 100% { box-shadow: 0 0 0 0 rgba(34,197,94,0); } }
     @media (prefers-reduced-motion: reduce) { .usage-updated:not(:empty)::before { animation: none; } }
+
+    /* ----------------------------------------------------------------
+       Glass fallbacks
+       ----------------------------------------------------------------
+       Translucency is a preference, and blur is a cost. Two cases opt out:
+
+       1. prefers-reduced-transparency — an accessibility setting people turn
+          on because translucency makes text hard to read. The look degrades to
+          solid surfaces, which is what they asked for.
+       2. prefers-reduced-motion — blur is not motion, but the setting signals a
+          low-capability or battery-sensitive device, and backdrop-filter is the
+          most expensive thing on this page.
+
+       A browser without backdrop-filter support (older Firefox) is handled by
+       @supports below: it would otherwise render translucent panels with no
+       blur, leaving text over a busy gradient. */
+    @media (prefers-reduced-transparency: reduce), (prefers-reduced-motion: reduce) {
+      :root {
+        --glass: var(--panel);
+        --glass-strong: var(--panel);
+        --glass-border: var(--border);
+        --glass-border-strong: var(--border);
+        --glass-blur: 0px;
+        --glass-shadow: none;
+        --bg-backdrop: linear-gradient(168deg, #14100b 0%, #0d0a07 100%);
+      }
+      .card, .sidebar, header, .modal-box, .model-row, .prov-card,
+      .modal-overlay {
+        -webkit-backdrop-filter: none;
+        backdrop-filter: none;
+      }
+    }
+
+    /* No backdrop-filter: keep the gradient but make the surfaces opaque enough
+       to read against it. */
+    @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+      :root {
+        --glass: rgba(18, 24, 32, 0.92);
+        --glass-strong: rgba(18, 24, 32, 0.96);
+      }
+    }
     @media (max-width: 1024px) { .usage-cards { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
     @media (max-width: 640px) { .usage-cards { grid-template-columns: repeat(1, minmax(0, 1fr)); } }
     .usage-card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 16px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
@@ -510,7 +747,7 @@
     .usage-dot.ok { background: #3fb950; }
     .usage-dot.err { background: #f85149; }
 
-    .usage-select { background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius); padding: 6px 10px; font-size: 0.85rem; font-weight: 500; cursor: pointer; }
+    .usage-select { background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius-field); padding: 6px 12px; font-size: 0.85rem; font-weight: 500; cursor: pointer; }
     .usage-select:focus { outline: none; border-color: var(--primary); }
 
     .usage-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; text-align: left; }
@@ -536,7 +773,7 @@
     @media (max-width: 640px) { .usage-filters { grid-template-columns: minmax(0, 1fr); } }
     .usage-field { display: flex; flex-direction: column; gap: 5px; font-size: 0.78rem; color: var(--muted); }
     .usage-field-spacer { visibility: hidden; }
-    .usage-field input { background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius); padding: 6px 10px; font-size: 0.85rem; }
+    .usage-field input { background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius-field); padding: 6px 12px; font-size: 0.85rem; }
     .usage-field input:focus { outline: none; border-color: var(--primary); }
 
     .usage-pagination { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; padding: 14px 16px; border-top: 1px solid var(--border); font-size: 0.82rem; color: var(--muted); }
@@ -561,7 +798,7 @@
     .usage-drawer details > div { padding: 0 12px 12px; }
 
     .console-terminal {
-      background: #090d13;
+      background: #0d0a07;
       border: 1px solid var(--border);
       border-radius: var(--radius);
       padding: 12px;
@@ -621,9 +858,26 @@
 <!-- SIDEBAR NAVIGATION -->
 <aside class="sidebar" id="sidebar">
   <div class="sidebar-brand">
-    <span>⚡ 9Router</span>
+    <span class="brand-mark" aria-hidden="true">
+      <!-- Spider web (the router mesh) with the router node at its centre.
+           Eight rays, then two full rings of silk joining every ray, so the web
+           reads as a web at 24px instead of as a starburst. The centre dot is
+           the routing hop every request passes through. -->
+      <svg width="24" height="24" viewBox="0 0 28 28" fill="none">
+        <g stroke="#ff8a2a" stroke-width="1.3" stroke-linecap="round">
+          <path d="M14 2.2v23.6M2.2 14h23.6M5.6 5.6l16.8 16.8M22.4 5.6L5.6 22.4" opacity="0.9" />
+          <circle cx="14" cy="14" r="4.6" opacity="0.62" fill="none" />
+          <path d="M9.4 14a4.6 4.6 0 0 1 4.6-4.6M14 9.4a4.6 4.6 0 0 1 4.6 4.6M18.6 14a4.6 4.6 0 0 1-4.6 4.6M14 18.6A4.6 4.6 0 0 1 9.4 14" opacity="0.62" />
+          <circle cx="14" cy="14" r="8.6" opacity="0.34" fill="none" />
+        </g>
+        <circle cx="14" cy="14" r="2.5" fill="#ffb066" />
+      </svg>
+    </span>
+    <span class="brand-text">
+      <span class="brand-name">9Router</span>
+      <span class="brand-version" id="brand-version" hidden></span>
+    </span>
     <span class="badge badge-go">Go</span>
-    <span class="brand-version" id="brand-version" hidden></span>
   </div>
 
   <button id="nav-update" class="update-pill" onclick="promptUpdate()" hidden
@@ -633,19 +887,19 @@
   </button>
 
   <nav class="sidebar-nav">
-    <button class="nav-btn" id="nav-endpoint" onclick="navigateTab('endpoint')"><span class="nav-icon">🔌</span> Endpoint &amp; Key</button>
-    <button class="nav-btn" id="nav-usage" onclick="navigateTab('usage')"><span class="nav-icon">📈</span> Usage</button>
-    <button class="nav-btn" id="nav-providers" onclick="navigateTab('providers')"><span class="nav-icon">🔌</span> Providers</button>
-    <button class="nav-btn" id="nav-combos" onclick="navigateTab('combos')"><span class="nav-icon">🔀</span> Combos</button>
-    <button class="nav-btn" id="nav-console" onclick="navigateTab('console')"><span class="nav-icon">📟</span> Console Log</button>
-    <button class="nav-btn" id="nav-health" onclick="navigateTab('health')"><span class="nav-icon">🩺</span> Health &amp; Setup</button>
+    <button class="nav-btn" id="nav-endpoint" onclick="navigateTab('endpoint')"><span class="nav-icon">api</span> Endpoint &amp; Key</button>
+    <button class="nav-btn" id="nav-usage" onclick="navigateTab('usage')"><span class="nav-icon">monitoring</span> Usage</button>
+    <button class="nav-btn" id="nav-providers" onclick="navigateTab('providers')"><span class="nav-icon">dns</span> Providers</button>
+    <button class="nav-btn" id="nav-combos" onclick="navigateTab('combos')"><span class="nav-icon">merge</span> Combos</button>
+    <button class="nav-btn" id="nav-console" onclick="navigateTab('console')"><span class="nav-icon">terminal</span> Console Log</button>
+    <button class="nav-btn" id="nav-health" onclick="navigateTab('health')"><span class="nav-icon">cardiology</span> Health &amp; Setup</button>
 
     <div class="nav-group-label">Configuration</div>
-    <button class="nav-btn" id="nav-settings" onclick="navigateTab('settings')"><span class="nav-icon">⚙️</span> Settings</button>
+    <button class="nav-btn" id="nav-settings" onclick="navigateTab('settings')"><span class="nav-icon">settings</span> Settings</button>
   </nav>
 
   <div class="sidebar-foot">
-    <button class="btn btn-sm" onclick="signOut()" id="auth-status-btn">🔒 Sign out</button>
+    <button class="btn btn-sm" onclick="signOut()" id="auth-status-btn"><span class="msym" style="font-size:15px;">logout</span> Sign out</button>
   </div>
 </aside>
 
@@ -676,7 +930,7 @@
     <!-- API ENDPOINT -->
     <div class="card" style="margin-bottom: 20px;">
       <div class="section-header" style="margin-bottom: 14px;">
-        <span class="section-title" style="font-size: 1rem;">🔌 API Endpoint</span>
+        <span class="section-title" style="font-size: 1rem;"><span class="msym" style="font-size:17px;">api</span> API Endpoint</span>
         <span class="badge badge-ok" id="endpoint-status">checking…</span>
       </div>
 
@@ -1011,7 +1265,7 @@
     <div class="grid">
       <div class="card">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-          <h3 style="margin:0; font-size:1rem; color: #fff;">🔀 Trust proxy headers</h3>
+          <h3 style="margin:0; font-size:1rem; color: #fff;"><span class="msym" style="font-size:17px;">alt_route</span> Trust proxy headers</h3>
           <label class="switch">
             <input type="checkbox" id="set-trust-proxy">
             <span class="slider"></span>
@@ -1031,7 +1285,7 @@
 
       <div class="card">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-          <h3 style="margin:0; font-size:1rem; color: #fff;">🔒 Secure session cookie</h3>
+          <h3 style="margin:0; font-size:1rem; color: #fff;"><span class="msym" style="font-size:17px;">lock</span> Secure session cookie</h3>
           <label class="switch">
             <input type="checkbox" id="set-cookie-secure">
             <span class="slider"></span>
@@ -1072,7 +1326,7 @@
         so only the tunnel can reach it.
       </div>
       <div style="display:flex; gap:8px; margin-top:14px; flex-wrap:wrap;">
-        <button class="btn" onclick="applyCloudflarePreset()">⚡ Enable Cloudflare mode</button>
+        <button class="btn" onclick="applyCloudflarePreset()"><span class="msym" style="font-size:15px;">bolt</span> Enable Cloudflare mode</button>
         <button class="btn" onclick="showCloudflaredConfig()">📋 Copy config</button>
       </div>
       <div id="cf-msg" class="settings-msg"></div>
@@ -1128,7 +1382,7 @@
     </div>
 
     <!-- TOKEN OPTIMIZATION -->
-    <h3 class="settings-group-title">⚡ Token Optimization</h3>
+    <h3 class="settings-group-title"><span class="msym" style="font-size:17px;">bolt</span> Token Optimization</h3>
     <p style="font-size: 0.85rem; color: var(--muted); margin: -6px 0 14px;">Intelligent token reduction pipeline saving 60-90% bandwidth</p>
 
     <div class="grid">
@@ -1201,7 +1455,7 @@
       <div class="card-head" style="flex-wrap:wrap;gap:12px;margin-bottom:12px;">
         <div style="display:flex;align-items:center;gap:10px;">
           <h2 style="margin:0;font-size:1.1rem;display:flex;align-items:center;gap:8px;">
-            <span>📟 Live Console Log</span>
+            <span><span class="msym" style="font-size:17px;">terminal</span> Live Console Log</span>
           </h2>
           <span id="console-status-badge" class="badge badge-idle">● Connecting...</span>
           <span id="console-line-count" style="font-size:0.75rem;color:var(--muted);font-variant-numeric:tabular-nums;">0 lines</span>
@@ -1329,7 +1583,7 @@
 
 <div class="modal-overlay" id="login-modal">
   <div class="modal-box" style="max-width: 420px; text-align: center;">
-    <div style="font-size: 2.2rem; margin-bottom: 12px;">⚡</div>
+    <div style="margin-bottom: 12px;"><span class="msym" style="font-size:38px; color: var(--primary);">bolt</span></div>
     <h2 style="font-size: 1.3rem; margin-bottom: 6px;">Sign in to 9Router</h2>
     <p id="login-subtitle" style="font-size: 0.85rem; color: var(--muted); margin-bottom: 20px;">Enter your dashboard password to unlock this dashboard.</p>
 
@@ -2736,7 +2990,7 @@
     currentModelAlias = (d.prefix && d.prefix.trim())
       || (d.aliases && d.aliases.length ? d.aliases[0] : null)
       || d.provider;
-    const color = d.color || "#388bfd";
+    const color = d.color || "#ff8a2a";
     const icon = d.icon || "smart_toy";
 
     const aliases = (d.aliases && d.aliases.length)
@@ -4923,7 +5177,7 @@
 
     const resolved = providerLogoId(providerId);
     if (!resolved) {
-      return `<div class="${tile}" style="background:${o.color || "#388bfd"}">${glyphHtml}</div>`;
+      return `<div class="${tile}" style="background:${o.color || "#ff8a2a"}">${glyphHtml}</div>`;
     }
 
     const ext = LOGO_PNG.has(resolved.file) ? "png" : "webp";
@@ -5020,7 +5274,7 @@
       const head = accounts[0];
       const activeCount = accounts.filter(isEffectivelyActive).length;
       const isOpen = !!expandedGroups[prov];
-      const color = head.color || "#388bfd";
+      const color = head.color || "#ff8a2a";
       const icon = head.icon || "smart_toy";
 
       // Card is intentionally minimal: logo, title, connected-account count.
@@ -5294,7 +5548,7 @@
       }
       tbody.innerHTML = combos.map(c => `
         <tr>
-          <td><strong style="color: #79c0ff; font-family: monospace;">${escapeHtml(c.name)}</strong></td>
+          <td><strong style="color: #ffb066; font-family: monospace;">${escapeHtml(c.name)}</strong></td>
           <td>
             <div class="combo-model-cell">
               ${(c.models || []).map(m => `<span class="tag" title="${escapeAttr(m)}">${escapeHtml(m)}</span>`).join("")}
@@ -6030,7 +6284,7 @@
     const cards = [
       { title: "Total Requests", value: fmtNum(s.totalRequests), color: "" },
       { title: "Total Input Tokens", value: fmtNum(s.totalPromptTokens), color: "var(--primary)" },
-      { title: "Cached Tokens", value: fmtNum(s.totalCachedTokens), color: "#79c0ff", sub: hitRate },
+      { title: "Cached Tokens", value: fmtNum(s.totalCachedTokens), color: "#ffb066", sub: hitRate },
       { title: "Output Tokens", value: fmtNum(s.totalCompletionTokens), color: "#3fb950" },
       { title: "Est. Cost", value: "~" + fmtCost(s.totalCost), color: "var(--warning)", sub: "Estimated, not actual billing" },
     ];

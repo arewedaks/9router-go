@@ -17,7 +17,7 @@ func TestUIEndpointTabReplacesOverview(t *testing.T) {
 		`id="nav-endpoint"`,
 		`id="tab-endpoint" class="tab-pane"`,
 		`navigateTab('endpoint')`,
-		`<span class="nav-icon">🔌</span> Endpoint &amp; Key`,
+		`<span class="nav-icon">api</span> Endpoint &amp; Key`,
 	} {
 		if !strings.Contains(ui, need) {
 			t.Errorf("missing endpoint tab piece: %q", need)
