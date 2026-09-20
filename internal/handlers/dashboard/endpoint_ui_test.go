@@ -258,3 +258,37 @@ func TestUIAccountRoundRobinIsRenderedInConnections(t *testing.T) {
 		t.Error("accountRoundRobinControls is defined but never rendered in the Connections tab")
 	}
 }
+
+// The model row must reflow to two lines on a phone.
+//
+// Five controls sat inline with the model name, which on a narrow screen left
+// the name clipped to a few characters — and the name is the thing the operator
+// copies. The row is now two groups, so the controls wrap to their own line
+// while staying on one line on a wide screen.
+func TestModelRowWrapsOnNarrowScreens(t *testing.T) {
+	ui := readEmbeddedUI(t)
+
+	for _, need := range []string{
+		`class="mrow-main"`,
+		`class="mrow-actions"`,
+		`.model-row .mrow-main`,
+		`.model-row .mrow-actions`,
+		`@media (max-width: 640px)`,
+		`.model-row .mrow-main { flex: 1 1 100%;`,
+		`.model-row .mrow-actions { flex: 1 1 100%;`,
+	} {
+		if !strings.Contains(ui, need) {
+			t.Errorf("model row does not reflow for mobile: %s missing", need)
+		}
+	}
+}
+
+// The model id must not be truncated on a narrow screen; wrapping is the point
+// of the change.
+func TestModelNameWrapsInsteadOfTruncatingOnMobile(t *testing.T) {
+	ui := readEmbeddedUI(t)
+
+	if !strings.Contains(ui, `.model-row .mid { white-space: normal; overflow-wrap: anywhere;`) {
+		t.Error("the model id is still truncated on mobile instead of wrapping")
+	}
+}

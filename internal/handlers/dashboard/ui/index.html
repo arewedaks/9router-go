@@ -329,10 +329,17 @@
     .cap-item .msym { font-size: 19px; color: var(--primary); }
     .cap-item.on { border-color: #2ea043; }
     .cap-item.on .msym { color: #3fb950; }
-    .model-row { display: flex; align-items: center; gap: 10px; padding: 8px 11px; background: var(--panel); border: 1px solid var(--border); border-radius: 7px; margin-bottom: 5px; font-size: 0.82rem; transition: border-color 0.2s; }
+    .model-row { display: flex; align-items: center; gap: 10px; padding: 8px 11px; background: var(--panel); border: 1px solid var(--border); border-radius: 7px; margin-bottom: 5px; font-size: 0.82rem; transition: border-color 0.2s; flex-wrap: wrap; }
+    /* The row is two groups so it can reflow: the identity block (icon + names)
+       and the controls. On a wide screen they sit on one line; on a phone the
+       controls wrap to a second line instead of squeezing the model name into an
+       unreadable ellipsis. */
+    .model-row .mrow-main { display: flex; align-items: center; gap: 10px; flex: 1 1 auto; min-width: 0; }
+    .model-row .mrow-actions { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+    .model-row .mrow-icon { flex: 0 0 auto; }
     /* The names block stacks the full "alias/modelId" the router expects on top
        of the upstream's own label, mirroring OmniRoute's model row. */
-    .model-row .mnames { flex: 1 1 auto; min-width: 90px; display: flex; flex-direction: column; gap: 1px; overflow: hidden; }
+    .model-row .mnames { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; overflow: hidden; }
     /* `.mid` is used both inside `.mnames` (model rows) and standalone on
        account rows; in both cases it must absorb the free space so the trailing
        controls are pushed to the right edge instead of hugging the label. */
@@ -352,9 +359,25 @@
     .add-form-title { font-size: 0.85rem; font-weight: 600; color: #e6edf3; display: flex; align-items: center; gap: 7px; margin-bottom: 11px; }
     .add-form-title .msym { font-size: 17px; color: var(--primary); }
     .add-form-grid { display: grid; grid-template-columns: 1fr; gap: 10px; }
-    @media (min-width: 720px) { .add-form-grid { grid-template-columns: 2fr 2fr auto; align-items: end; } }
+    /* On a narrow screen the controls take the full second line and align to
+       the right, and the model name is allowed to use the whole first line.
+       Without this the five controls consumed the row and the name was clipped
+       to a few characters. */
+    @media (max-width: 640px) {
+      .model-row { gap: 6px; padding: 9px 10px; }
+      .model-row .mrow-main { flex: 1 1 100%; min-width: 0; }
+      .model-row .mrow-actions { flex: 1 1 100%; justify-content: flex-end; gap: 5px; }
+      /* Let the name wrap rather than truncate: a model id is the thing the
+         operator copies, so hiding its tail is the worst outcome. */
+      .model-row .mnames { min-width: 0; }
+      .model-row .mid { white-space: normal; overflow-wrap: anywhere; min-width: 0; }
+      .model-row .msub { white-space: normal; overflow-wrap: anywhere; }
+      .model-row .mkind { max-width: none; }
+    }
     .oauth-form { margin-top: 10px; border-color: var(--primary-dim); }
     .oauth-form code { background: var(--bg); padding: 1px 4px; border-radius: 4px; font-size: 0.7rem; }
+    @media (min-width: 720px) { .add-form-grid { grid-template-columns: 2fr 2fr auto; align-items: end; } }
+
     @media (min-width: 720px) { .oauth-grid { grid-template-columns: 1fr 1fr auto; align-items: end; } }
     .field-label { display: block; font-size: 0.72rem; color: var(--muted); margin-bottom: 5px; }
     .add-form input, .add-form select { width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; color: #e6edf3; font-size: 0.82rem; font-family: inherit; }
@@ -2827,23 +2850,27 @@
             ? m.displayName : '';
           const freeBadge = m.isFree ? `<span class="mfree" title="Free tier model">Free</span>` : '';
           return `<div class="model-row" style="${rowBorder}" title="${escapeHtml(modelTestError[m.modelId] || fullModel)}">
-            <span class="msym" style="font-size:16px; color:${iconColor};">${icon}</span>
-            <span class="mnames">
-              <span class="mid">${escapeHtml(fullModel)}</span>
-              ${upstreamName ? `<span class="msub">${escapeHtml(upstreamName)}</span>` : ''}
+            <span class="mrow-main">
+              <span class="msym mrow-icon" style="font-size:16px; color:${iconColor};">${icon}</span>
+              <span class="mnames">
+                <span class="mid">${escapeHtml(fullModel)}</span>
+                ${upstreamName ? `<span class="msub">${escapeHtml(upstreamName)}</span>` : ''}
+              </span>
             </span>
-            ${freeBadge}
-            <span class="mkind">${escapeHtml(m.kind || 'llm')}</span>
-            ${statusBadge}
-            ${infoBtn}
-            <button class="btn btn-sm" title="Copy this model id" onclick="copyModelId('${escapeHtml(fullModel)}', this)">
-              <span class="msym" style="font-size:14px;">content_copy</span>
-            </button>
-            <button class="btn btn-sm" title="Test this model" ${testing ? 'disabled' : ''}
-                    onclick="testModel('${d.provider}','${escapeHtml(m.modelId)}')">
-              <span class="msym" style="font-size:14px;${testing ? 'animation:spin 1s linear infinite;' : ''}">${testing ? 'progress_activity' : 'science'}</span>
-            </button>
-            <button class="btn btn-sm btn-danger" title="Remove model" onclick="removeModel('${d.provider}','${escapeHtml(m.modelId)}')">×</button>
+            <span class="mrow-actions">
+              ${freeBadge}
+              <span class="mkind">${escapeHtml(m.kind || 'llm')}</span>
+              ${statusBadge}
+              ${infoBtn}
+              <button class="btn btn-sm" title="Copy this model id" onclick="copyModelId('${escapeHtml(fullModel)}', this)">
+                <span class="msym" style="font-size:14px;">content_copy</span>
+              </button>
+              <button class="btn btn-sm" title="Test this model" ${testing ? 'disabled' : ''}
+                      onclick="testModel('${d.provider}','${escapeHtml(m.modelId)}')">
+                <span class="msym" style="font-size:14px;${testing ? 'animation:spin 1s linear infinite;' : ''}">${testing ? 'progress_activity' : 'science'}</span>
+              </button>
+              <button class="btn btn-sm btn-danger" title="Remove model" onclick="removeModel('${d.provider}','${escapeHtml(m.modelId)}')">×</button>
+            </span>
           </div>`;
         }).join("")
       : `<div style="text-align:center; color:var(--muted); padding:26px; border:1px dashed var(--border); border-radius:10px;">No cached models. Add one below.</div>`;
