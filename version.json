@@ -1,5 +1,5 @@
 {
-  "latestVersion": "1.8.23",
+  "latestVersion": "1.8.24",
   "downloadUrl": "https://github.com/arewedaks/9router-go/releases/latest",
-  "releaseNotes": "- Never let a timeout disable a model, and refresh the list after a run (5cf7003)\n- chore(release): version.json -> v1.8.22 (07fc68c)\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
+  "releaseNotes": "- Omit hidden models from the provider detail payload (eb1e797)\n- chore(release): version.json -> v1.8.23 (ee27f53)\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
 }
