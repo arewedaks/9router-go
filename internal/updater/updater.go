@@ -38,7 +38,7 @@ import (
 // it used to read "1.8.17" and was mistaken for the real version, so it is
 // deliberately not a plausible release number. It is NOT loaded from
 // version.json at runtime, despite what an earlier comment here claimed.
-var CurrentVersion = "1.8.36"
+var CurrentVersion = "1.8.37"
 
 // DefaultUpdateBranch is the branch whose version.json the updater polls.
 //
