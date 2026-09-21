@@ -131,3 +131,56 @@ func TestEnsureClaudeMessages_SanitizesInvalidToolIDs(t *testing.T) {
 		}
 	}
 }
+
+// A tool call whose id is missing entirely must still reach Anthropic with a
+// valid id. Forwarding an empty string makes the upstream reject the entire
+// request — 400 "messages.N.content.N.tool_use.id: Field required" — instead of
+// merely dropping the tool call. History loses ids when another upstream trims
+// a tool_calls entry or the client omits the field.
+func TestEnsureClaudeMessages_FillsMissingToolIDs(t *testing.T) {
+	body := []byte(`{
+		"model": "cc/claude-opus-4-6-thinking",
+		"max_tokens": 100,
+		"messages": [
+			{"role": "user", "content": "run it"},
+			{"role": "assistant", "content": null, "tool_calls": [
+				{"type": "function", "function": {"name": "run", "arguments": "{\"x\":1}"}}
+			]},
+			{"role": "tool", "tool_call_id": "", "content": "result-1"}
+		]
+	}`)
+
+	out := ensureMessagesMaxTokens(body, "cc/claude-opus-4-6-thinking")
+
+	var parsed map[string]any
+	if err := json.Unmarshal(out, &parsed); err != nil {
+		t.Fatalf("output is not valid JSON: %v", err)
+	}
+	msgs, _ := parsed["messages"].([]any)
+
+	var useID, resultID string
+	for _, raw := range msgs {
+		msg, _ := raw.(map[string]any)
+		blocks, _ := msg["content"].([]any)
+		for _, b := range blocks {
+			bm, _ := b.(map[string]any)
+			switch bm["type"] {
+			case "tool_use":
+				useID, _ = bm["id"].(string)
+			case "tool_result":
+				resultID, _ = bm["tool_use_id"].(string)
+			}
+		}
+	}
+
+	if useID == "" {
+		t.Fatal("tool_use.id is empty; the upstream rejects the whole request with 'Field required'")
+	}
+	if !claudeToolIDPattern.MatchString(useID) {
+		t.Errorf("synthesized tool_use.id %q does not match the Anthropic pattern", useID)
+	}
+	// The pair must still reference each other, or the conversation is invalid.
+	if resultID != useID {
+		t.Errorf("tool_result.tool_use_id = %q, want it to match tool_use.id %q", resultID, useID)
+	}
+}

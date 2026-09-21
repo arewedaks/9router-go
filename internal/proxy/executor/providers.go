@@ -923,9 +923,18 @@ func convertToolChoiceToClaude(tc any) any {
 // characters; those are rewritten deterministically as "toolu_<sha256>" so
 // the same id always maps to the same replacement, keeping tool_use and
 // tool_result blocks paired. mapping must be shared across the whole request.
+//
+// An EMPTY id is replaced too, not passed through: the Anthropic Messages API
+// requires tool_use.id, so forwarding "" makes the upstream reject the whole
+// request with 400 "messages.N.content.N.tool_use.id: Field required". History
+// can lose ids when another upstream trims a tool_calls entry or the client
+// omits the field. Because both tool_use and tool_result look up the same ""
+// key, they receive the same synthetic id and stay paired.
 func sanitizeToolUseID(id string, mapping map[string]string) string {
 	if id == "" {
-		return id
+		const missing = "toolu_missing"
+		mapping[id] = missing
+		return missing
 	}
 	if mapped, ok := mapping[id]; ok {
 		return mapped
