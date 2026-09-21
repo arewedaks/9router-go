@@ -3,6 +3,7 @@ package media
 import (
 	"database/sql"
 	json "encoding/json/v2"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -423,7 +424,14 @@ func TestHandleOllamaChat(t *testing.T) {
 }
 
 func TestHandleResponsesCompact(t *testing.T) {
-	upstream := setupFakeOpenAIUpstream(t)
+	var gotPath string
+	var gotBody []byte
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotBody, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"id":"c1","object":"response","output":[]}`))
+	}))
 	defer upstream.Close()
 
 	database, cleanup := setupMultimodalTestDB(t)
@@ -433,7 +441,9 @@ func TestHandleResponsesCompact(t *testing.T) {
 	repo := db.NewRepo(database)
 	handler := newTestMediaHandler(repo)
 
-	body := `{"model":"openai/gpt-4","messages":[{"role":"user","content":"compact this"}],"stream":false}`
+	// The payload is Responses shaped and carries the client marker that the
+	// reference implementation strips before dispatch.
+	body := `{"_compact":true,"model":"openai/gpt-4","input":[{"role":"user","content":"compact this"}],"stream":false}`
 	req := httptest.NewRequest("POST", "/v1/responses/compact", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -442,6 +452,25 @@ func TestHandleResponsesCompact(t *testing.T) {
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// The upstream must be addressed at the compaction path, not the plain
+	// Responses path. This is the whole point of the endpoint, and it is what
+	// the previous implementation got wrong.
+	if !strings.HasSuffix(gotPath, "/responses/compact") {
+		t.Errorf("upstream path = %q, want it to end with /responses/compact", gotPath)
+	}
+
+	// "_compact" is not a Responses field. Forwarding it makes the provider
+	// answer 400 "unknown field", which is the error this work fixes.
+	if strings.Contains(string(gotBody), "_compact") {
+		t.Errorf("the client-only _compact marker was forwarded upstream: %s", gotBody)
+	}
+
+	// The Responses-only "input" array has to survive. Converting to the Chat
+	// Completions shape would drop it.
+	if !strings.Contains(string(gotBody), `"input"`) {
+		t.Errorf("the Responses-shaped body was rewritten: %s", gotBody)
 	}
 }
 

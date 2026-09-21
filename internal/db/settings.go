@@ -197,7 +197,18 @@ type SettingsData struct {
 	// client reach the proxy without distributing a key. Nil (absent) means the
 	// default, which is to require a key — so an untouched install, and any
 	// VansRouter blob that never set this, keeps the stricter behaviour.
+	//
+	// False is deliberately not the same as "the proxy is open": see
+	// AllowRemoteNoApiKey.
 	RequireAPIKey *bool `json:"requireApiKey,omitempty"`
+
+	// AllowRemoteNoApiKey mirrors VansRouter's allowRemoteNoApiKey. It only has
+	// an effect while RequireAPIKey is false, and even then it is the difference
+	// between "loopback clients need no key" and "anyone who can reach the port
+	// needs no key". Nil (absent) means false, so turning the main switch off
+	// never widens access beyond this machine on its own — the operator has to
+	// make a second, explicitly labelled decision to expose the proxy.
+	AllowRemoteNoApiKey *bool `json:"allowRemoteNoApiKey,omitempty"`
 
 	// Extra carries every key of the settings blob that this struct does not
 	// model, exactly as stored. The table is shared with VansRouter, which writes
@@ -228,6 +239,7 @@ var knownSettingsKeys = map[string]bool{
 	"password":                 true,
 	"requireLogin":             true,
 	"requireApiKey":            true,
+	"allowRemoteNoApiKey":      true,
 }
 
 // MarshalJSON writes the typed fields followed by the preserved passthrough
@@ -270,6 +282,9 @@ func (s SettingsData) MarshalJSON() ([]byte, error) {
 	}
 	if s.RequireAPIKey != nil {
 		out["requireApiKey"] = *s.RequireAPIKey
+	}
+	if s.AllowRemoteNoApiKey != nil {
+		out["allowRemoteNoApiKey"] = *s.AllowRemoteNoApiKey
 	}
 	if len(s.ProviderStrategies) > 0 {
 		out["providerStrategies"] = s.ProviderStrategies
@@ -348,6 +363,9 @@ func (r *Repo) GetSettings() (*SettingsData, error) {
 	}
 	if v, ok := raw["requireApiKey"].(bool); ok {
 		s.RequireAPIKey = &v
+	}
+	if v, ok := raw["allowRemoteNoApiKey"].(bool); ok {
+		s.AllowRemoteNoApiKey = &v
 	}
 	// Preserve any key this build does not model (tunnelEnabled, headroom flags,
 	// anything a future VansRouter adds) so a read/write round-trip on a shared
@@ -455,6 +473,18 @@ func (r *Repo) SetRequireAPIKey(require *bool) error {
 		s = DefaultSettings()
 	}
 	s.RequireAPIKey = require
+	return r.saveSettings(s)
+}
+
+// SetAllowRemoteNoApiKey toggles whether clients other than this machine may
+// reach the engine routes without a key. It is the second step behind
+// SetRequireAPIKey and has no effect while a key is still required.
+func (r *Repo) SetAllowRemoteNoApiKey(allow *bool) error {
+	s, err := r.GetSettings()
+	if err != nil {
+		s = DefaultSettings()
+	}
+	s.AllowRemoteNoApiKey = allow
 	return r.saveSettings(s)
 }
 

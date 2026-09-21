@@ -124,6 +124,41 @@ func (h *MediaHandler) HandleEmbeddings(w http.ResponseWriter, r *http.Request) 
 	}
 }
 
+// codexCompactPath is the compaction segment appended to a Responses base URL.
+// Matches the reference implementation's `buildUrl` for the Codex executor.
+const codexCompactPath = "/compact"
+
+// responsesPath is the OpenAI Responses API path. openai's base URL points at the
+// Chat Completions route, so the Responses path has to be supplied explicitly.
+const responsesPath = "/responses"
+
+// stripCompactMarker removes the "_compact" field that a client may send and
+// that this proxy no longer needs once the target URL carries the intent.
+//
+// Reasons to remove it rather than forward it:
+//   - It is not part of the OpenAI Responses schema, so an upstream that
+//     validates the body answers 400 "unknown field".
+//   - The reference implementation deletes it before dispatch.
+//
+// A body that does not carry the marker is returned unchanged, and a body that
+// cannot be parsed is returned as-is so the upstream produces the real error
+// rather than this helper masking it.
+func stripCompactMarker(body []byte) []byte {
+	if len(body) == 0 || !bytes.Contains(body, []byte(`"_compact"`)) {
+		return body
+	}
+	var m map[string]any
+	if err := json.Unmarshal(body, &m); err != nil {
+		return body
+	}
+	delete(m, "_compact")
+	out, err := json.Marshal(m)
+	if err != nil {
+		return body
+	}
+	return out
+}
+
 // HandleResponses handles OpenAI Responses API (/v1/responses).
 func (h *MediaHandler) HandleResponses(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(r.Body)
@@ -136,9 +171,24 @@ func (h *MediaHandler) HandleResponses(w http.ResponseWriter, r *http.Request) {
 	h.forwardMediaRequest(w, r, body, "gpt-4o", "/responses")
 }
 
-// HandleResponsesCompact handles compact responses.
+// HandleResponsesCompact handles /v1/responses/compact.
+//
+// Compaction is not a different payload shape: it is the Responses request sent
+// to the provider's compaction path, which returns a condensed transcript the
+// client then continues from. Forwarding uses the "/responses/compact" endpoint
+// so forwardMediaRequest appends the /compact segment to the provider base URL
+// and the Codex executor is told to do the same. Converting the body to the Chat
+// Completions shape here would lose the Responses-only fields the endpoint needs
+// (input items, reasoning, tool outputs) and is what made this route fail.
 func (h *MediaHandler) HandleResponsesCompact(w http.ResponseWriter, r *http.Request) {
-	h.HandleResponses(w, r)
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		handlerutil.WriteJSONError(w, http.StatusBadRequest, "failed to read request body")
+		return
+	}
+	defer r.Body.Close()
+
+	h.forwardMediaRequest(w, r, body, "gpt-4o", "/responses/compact")
 }
 
 // HandleImages handles /v1/images/generations.
@@ -617,7 +667,16 @@ func (h *MediaHandler) forwardMediaRequest(w http.ResponseWriter, r *http.Reques
 	finalBody := handlerutil.UpdateModelInBody(body, modelInfo.Model)
 	client := h.ChatH.GetClientForConnection(connData)
 
-	if (endpoint == "/responses" || endpoint == "/v1/responses") && (modelInfo.Provider == "opencode" || modelInfo.Provider == "opencode-go" || modelInfo.Provider == "antigravity" || modelInfo.Provider == "antigravity-go") {
+	// A compaction request is the same Responses payload sent to a different
+	// upstream path. The reference implementation strips the client-only marker
+	// and appends "/compact" to the URL; leaving it in the body makes the
+	// provider reject the request for an unknown field.
+	isCompact := endpoint == "/responses/compact"
+	if isCompact {
+		finalBody = stripCompactMarker(finalBody)
+	}
+
+	if (endpoint == "/responses" || endpoint == "/v1/responses" || isCompact) && (modelInfo.Provider == "opencode" || modelInfo.Provider == "opencode-go" || modelInfo.Provider == "antigravity" || modelInfo.Provider == "antigravity-go" || modelInfo.Provider == "codex") {
 		exec := executor.Get(modelInfo.Provider)
 		if (modelInfo.Provider == "antigravity" || modelInfo.Provider == "antigravity-go") && strings.Contains(modelInfo.Model, "muse-spark") {
 			exec = executor.Get("opencode")
@@ -644,6 +703,7 @@ func (h *MediaHandler) forwardMediaRequest(w http.ResponseWriter, r *http.Reques
 			Body:          finalBody,
 			ModelName:     modelInfo.Model,
 			IsStream:      isStream,
+			IsCompact:     isCompact,
 			TranslateResp: false,
 			ConnectionID:  connID,
 			SessionID:     handlerutil.ExtractSessionID(r),
@@ -662,9 +722,20 @@ func (h *MediaHandler) forwardMediaRequest(w http.ResponseWriter, r *http.Reques
 	}
 
 	baseURL := strings.TrimRight(providerCfg.BaseURL, "/")
-	if endpoint == "/responses" || endpoint == "/v1/responses" {
+	if endpoint == responsesPath || endpoint == "/v1/responses" || isCompact {
 		if strings.HasSuffix(baseURL, "/chat/completions") {
 			baseURL = strings.TrimSuffix(baseURL, "/chat/completions")
+		}
+	}
+	// The compact endpoint lives one segment below the Responses endpoint. The
+	// base URL may or may not already carry the Responses path (openai's base is
+	// .../v1/chat/completions, codex's is .../codex/responses), so the segment is
+	// appended to whichever form the provider uses rather than assuming one.
+	if isCompact {
+		if strings.HasSuffix(baseURL, "/responses") {
+			endpoint = codexCompactPath
+		} else {
+			endpoint = responsesPath + codexCompactPath
 		}
 	}
 	targetURL := baseURL + endpoint

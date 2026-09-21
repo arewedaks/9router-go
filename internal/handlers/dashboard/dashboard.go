@@ -1641,7 +1641,10 @@ func (h *Handler) HandleGetSettings(w http.ResponseWriter, r *http.Request) {
 		"authCookieSecure": h.effectiveCookieSecure(s),
 		// requireApiKey mirrors VansRouter. Absent means the default (required),
 		// resolved to a concrete bool so the toggle always has a state to render.
-		"requireApiKey":        s.RequireAPIKey == nil || *s.RequireAPIKey,
+		"requireApiKey": s.RequireAPIKey == nil || *s.RequireAPIKey,
+		// allowRemoteNoApiKey only matters while requireApiKey is off; it is the
+		// second, explicit step that widens access past this machine.
+		"allowRemoteNoApiKey":  s.AllowRemoteNoApiKey != nil && *s.AllowRemoteNoApiKey,
 		"proxyEnvTrustProxy":   strings.EqualFold(os.Getenv("TRUST_PROXY"), "true"),
 		"proxyEnvCookieSecure": strings.EqualFold(os.Getenv("AUTH_COOKIE_SECURE"), "true"),
 		"listenHost":           db.ListenHost(),
@@ -1718,6 +1721,9 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		// requireApiKey mirrors VansRouter's flag of the same name. Absent leaves
 		// the current value alone; explicit false lets /v1/* answer without a key.
 		RequireAPIKey *bool `json:"requireApiKey"`
+		// allowRemoteNoApiKey widens the above from loopback-only to anyone who
+		// can reach the port. Same name and semantics as VansRouter's.
+		AllowRemoteNoApiKey *bool `json:"allowRemoteNoApiKey"`
 		// providerStrategies is a full-replace map keyed by provider id, matching
 		// VansRouter's PATCH /api/settings behavior. An entry with no fields left
 		// set is dropped so the settings blob stays clean.
@@ -1778,6 +1784,9 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	if req.RequireAPIKey != nil {
 		s.RequireAPIKey = req.RequireAPIKey
 	}
+	if req.AllowRemoteNoApiKey != nil {
+		s.AllowRemoteNoApiKey = req.AllowRemoteNoApiKey
+	}
 	if req.ProviderStrategies != nil {
 		// providerStrategies arrives as the operator's complete view of the map,
 		// but other callers (scripts, the Next.js dashboard) may patch a single
@@ -1822,7 +1831,8 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		"providerStrategies":    providerStrategiesOrEmpty(s.ProviderStrategies),
 		// Echoed back so the endpoint toggle can settle on the stored value
 		// instead of guessing. Absent means the default, which is "required".
-		"requireApiKey": s.RequireAPIKey == nil || *s.RequireAPIKey,
+		"requireApiKey":       s.RequireAPIKey == nil || *s.RequireAPIKey,
+		"allowRemoteNoApiKey": s.AllowRemoteNoApiKey != nil && *s.AllowRemoteNoApiKey,
 	})
 }
 

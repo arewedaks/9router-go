@@ -729,6 +729,11 @@
     .endpoint-lock p { flex: 1 1 100%; margin: 0; font-size: 0.8rem; color: var(--muted); }
     .endpoint-lock code { background: #16100a; border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; font-size: 0.78rem; color: #ffb066; }
     .endpoint-warn { margin-top: 12px; padding: 10px 12px; border-radius: 6px; font-size: 0.82rem; background: rgba(210,153,34,0.1); border: 1px solid #9e6a03; color: #e3b341; }
+    /* Remote-without-key is a different severity from the loopback-only state,
+       so it gets its own treatment rather than the same amber box. */
+    .endpoint-warn-critical { background: rgba(248,81,73,0.12); border-color: #f85149; color: #ff9b94; }
+    #require-apikey-msg { margin-top: 10px; font-size: 0.8rem; }
+    #allow-remote-toggle:checked + .slider { background-color: #f85149; }
     .key-secret { display: flex; align-items: center; gap: 6px; }
     .key-secret code { background: #0d0a07; border: 1px solid var(--border); padding: 4px 8px; border-radius: 4px; color: #ffb066; font-size: 0.78rem; }
     .icon-btn { background: none; border: none; cursor: pointer; font-size: 0.85rem; padding: 2px 4px; border-radius: 4px; opacity: 0.65; }
@@ -1519,7 +1524,21 @@
                    onchange="saveRequireApiKey(this.checked)">
             <span class="slider"></span>
           </label>
-          <p>Every request to <code>/v1/*</code> must carry a valid key. Turning this off leaves the proxy open to anyone who can reach this port.</p>
+          <p>Every request to <code>/v1/*</code> must carry a valid key. With this off, only this machine can reach the proxy.</p>
+        </div>
+        <!-- The second step, and it only appears once the first is off: a
+             separate decision to widen access past loopback. Mirrors
+             VansRouter's allowRemoteNoApiKey so a value set in either
+             dashboard is read by the other. -->
+        <div class="endpoint-lock" id="allow-remote-row" style="display:none;">
+          <strong>Allow remote access without a key</strong>
+          <span class="badge" id="allow-remote-badge">Off</span>
+          <label class="switch" title="Let non-loopback requests reach /v1/* without a key">
+            <input type="checkbox" id="allow-remote-toggle"
+                   onchange="saveAllowRemoteNoApiKey(this.checked)">
+            <span class="slider"></span>
+          </label>
+          <p>Lets requests from outside this machine reach <code>/v1/*</code> with no key at all. Only enable this if something else already guards the port.</p>
         </div>
         <div class="endpoint-lock">
           <strong>Dashboard session</strong>
@@ -1527,9 +1546,16 @@
           <p>A login cookie only opens <code>/api/dashboard/*</code> and <code>/api/oauth/*</code>. It can never reach the model proxy.</p>
         </div>
       </div>
+      <!-- Two distinct warnings, because the two states are not equally
+           dangerous: loopback-only is a local convenience, remote is an open
+           proxy. Collapsing them into one message would understate the second. -->
       <div class="endpoint-warn" id="require-apikey-warn" style="display:none;">
-        ⚠️ API key requirement is OFF — this endpoint answers unauthenticated requests.
+        ⚠️ API key requirement is off — only requests from this machine are allowed through.
       </div>
+      <div class="endpoint-warn endpoint-warn-critical" id="allow-remote-warn" style="display:none;">
+        🚨 Remote access without an API key is on — anyone who can reach this port can use your providers.
+      </div>
+      <p id="require-apikey-msg" class="field-msg"></p>
       <div class="endpoint-warn" id="endpoint-exposed-warn" style="display:none;">
         ⚠️ This server is reachable from another machine and a key can be used from anywhere. Treat keys as secrets.
       </div>
@@ -5102,8 +5128,9 @@
     try {
       const res = await api("/api/dashboard/settings");
       if (res.ok) {
-        applyProxySettingsToUI(await res.json());
-        renderEndpointHost();
+        const data = await res.json();
+        applyProxySettingsToUI(data);
+        renderEndpointHost(data);
       }
     } catch (_) { /* the endpoint block is still usable without it */ }
   }
@@ -5113,9 +5140,10 @@
   // than a hard-coded localhost that would not work from their other machine.
   //
   // The API-key requirement, as last reported by GET /api/dashboard/settings.
-  // Kept in a variable so the endpoint page can repaint the switch whenever the
-  // settings response lands, without re-fetching from renderEndpointHost.
+  // Kept in a variable so the endpoint page can repaint the switches whenever
+  // the settings response lands, without re-fetching from renderEndpointHost.
   let apiKeyRequired = true;
+  let allowRemoteNoApiKey = false;
 
   function renderRequireApiKey(required) {
     apiKeyRequired = required !== false;
@@ -5128,6 +5156,28 @@
     }
     const warn = document.getElementById("require-apikey-warn");
     if (warn) warn.style.display = apiKeyRequired ? "none" : "";
+    // The remote switch is only meaningful while a key is not required; hiding
+    // it otherwise keeps the page from advertising a setting that does nothing.
+    const row = document.getElementById("allow-remote-row");
+    if (row) row.style.display = apiKeyRequired ? "none" : "";
+    renderAllowRemote(allowRemoteNoApiKey);
+  }
+
+  function renderAllowRemote(allow) {
+    allowRemoteNoApiKey = allow === true;
+    // A stray value must never light this up while the main gate is closed —
+    // the server ignores the flag in that state, so showing it as active would
+    // describe exposure that does not exist.
+    const on = apiKeyRequired ? false : allowRemoteNoApiKey;
+    const toggle = document.getElementById("allow-remote-toggle");
+    if (toggle) toggle.checked = on;
+    const badge = document.getElementById("allow-remote-badge");
+    if (badge) {
+      badge.textContent = on ? "On" : "Off";
+      badge.className = on ? "badge badge-err" : "badge badge-ok";
+    }
+    const warn = document.getElementById("allow-remote-warn");
+    if (warn) warn.style.display = on ? "" : "none";
   }
 
   // Writes requireApiKey to the shared settings row. VansRouter writes the same
@@ -5148,12 +5198,34 @@
       if (!res.ok) throw new Error("HTTP " + res.status);
       const data = await res.json();
       renderRequireApiKey(data.requireApiKey);
+      renderAllowRemote(data.allowRemoteNoApiKey);
       setMsg("require-apikey-msg", required
         ? "API key now required on /v1/*."
-        : "API key requirement removed — /v1/* is open.", required ? true : false);
+        : "API key requirement removed — only this machine may reach /v1/*.", required);
     } catch (e) {
       renderRequireApiKey(previous);
       if (toggle) toggle.checked = previous;
+      setMsg("require-apikey-msg", "Could not save: " + e.message, false);
+    }
+  }
+
+  async function saveAllowRemoteNoApiKey(allow) {
+    const previous = allowRemoteNoApiKey;
+    renderAllowRemote(allow);
+    try {
+      const res = await fetch("/api/dashboard/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ allowRemoteNoApiKey: allow }),
+      });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const data = await res.json();
+      renderAllowRemote(data.allowRemoteNoApiKey);
+      setMsg("require-apikey-msg", allow
+        ? "Remote access without a key is ON — the proxy is open."
+        : "Remote access without a key is off; loopback only.", !allow);
+    } catch (e) {
+      renderAllowRemote(previous);
       setMsg("require-apikey-msg", "Could not save: " + e.message, false);
     }
   }
@@ -5162,7 +5234,14 @@
   // falling back to the listen port produced a wrong URL: the internal port is
   // not what a client dials, and it is not even open to them. When there is no
   // port, the origin is the endpoint.
-  function renderEndpointHost() {
+  function renderEndpointHost(settings) {
+    // Called with no argument from the endpoint tab's own refresh, and with the
+    // settings payload when the settings fetch resolves. Only the latter knows
+    // the API-key flags, so the switches are repainted solely when supplied.
+    if (settings) {
+      renderRequireApiKey(settings.requireApiKey);
+      renderAllowRemote(settings.allowRemoteNoApiKey);
+    }
     const host = location.hostname || "localhost";
     const isDefaultPort = !location.port ||
       (location.protocol === "https:" && location.port === "443") ||
@@ -5172,7 +5251,6 @@
       : `${location.protocol}//${host}:${location.port}`;
     const local = document.getElementById("endpoint-local");
     if (local) local.value = `${origin}/v1`;
-    renderRequireApiKey(apiKeyRequired);
     const docker = document.getElementById("endpoint-docker");
     if (docker) {
       // host.docker.internal reaches the host from a container, so only the

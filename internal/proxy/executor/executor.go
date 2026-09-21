@@ -26,6 +26,7 @@ type Request struct {
 	Endpoint       string            // custom URL override (azure)
 	ToolNameMap    map[string]string // claude OAuth tool-cloak map (suffixed -> original)
 	UpstreamClaude bool              // upstream responds in Claude format while client sent OpenAI format
+	IsCompact      bool              // Responses-API compaction: appends /compact to the upstream URL
 	ResponseBuf    io.Writer         // writer to capture response text for token estimation & logging
 	StartTime      time.Time         // request start time for TTFT tracking
 	TTFT           *int64            // pointer to TTFT metric (ms to first chunk)

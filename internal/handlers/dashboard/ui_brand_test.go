@@ -142,3 +142,31 @@ func TestEndpointSecurityHasRealAPIKeyToggle(t *testing.T) {
 		t.Error("the stale \"no switch\" copy is still present")
 	}
 }
+
+// Turning the key off must not be the same as publishing the proxy. The second
+// switch, matching VansRouter's allowRemoteNoApiKey, is what widens access past
+// loopback, and it must write that exact key so the two dashboards agree.
+func TestRemoteAccessIsASeparateSecondSwitch(t *testing.T) {
+	ui := readEmbeddedUI(t)
+
+	if !strings.Contains(ui, `id="allow-remote-toggle"`) {
+		t.Fatal("the endpoint page has no remote-access switch")
+	}
+	if !strings.Contains(ui, `onchange="saveAllowRemoteNoApiKey(this.checked)"`) {
+		t.Error("the remote switch is not wired to its save handler")
+	}
+	if !strings.Contains(ui, "function saveAllowRemoteNoApiKey(") {
+		t.Error("saveAllowRemoteNoApiKey is missing, so the switch cannot persist")
+	}
+	if !strings.Contains(ui, "allowRemoteNoApiKey: allow") {
+		t.Error(`the payload does not use VansRouter's "allowRemoteNoApiKey" key`)
+	}
+	// The switch is inert unless the main requirement is off, so it starts hidden
+	// and the render function is what reveals it.
+	if !strings.Contains(ui, `id="allow-remote-row" style="display:none;"`) {
+		t.Error("the remote row must start hidden until requireApiKey is off")
+	}
+	if !strings.Contains(ui, `id="allow-remote-warn"`) {
+		t.Error("no warning element for the fully-open state")
+	}
+}

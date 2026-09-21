@@ -77,7 +77,9 @@ func TestUIEndpointTabShowsUrlsAndCurl(t *testing.T) {
 		`id="endpoint-local"`,
 		`id="endpoint-docker"`,
 		"function copyEndpoint(",
-		"function renderEndpointHost()",
+		// The signature takes the settings payload so the API-key switches can be
+		// repainted from the same response the rest of the endpoint block uses.
+		"function renderEndpointHost(settings)",
 		// The host is derived from the address the operator used, so the page is
 		// correct over LAN or a tunnel instead of always claiming localhost.
 		"const host = location.hostname",

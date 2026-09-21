@@ -2,6 +2,7 @@ package db
 
 import (
 	json "encoding/json/v2"
+	"strings"
 	"testing"
 )
 
@@ -117,5 +118,53 @@ func TestRequireAPIKeyRoundTrips(t *testing.T) {
 	}
 	if s.RequireAPIKey != nil {
 		t.Errorf("an absent requireApiKey must stay nil so the default applies, got %v", *s.RequireAPIKey)
+	}
+}
+
+// allowRemoteNoApiKey is the second half of the exposure switch: it only widens
+// access past loopback while requireApiKey is off. It has to round-trip under
+// the same key VansRouter writes, or a migrated database loses the operator's
+// choice and silently falls back to loopback-only.
+func TestAllowRemoteNoApiKeyRoundTrips(t *testing.T) {
+	r := newSettingsRepo(t)
+
+	on := true
+	if err := r.SetAllowRemoteNoApiKey(&on); err != nil {
+		t.Fatalf("SetAllowRemoteNoApiKey: %v", err)
+	}
+	s, err := r.GetSettings()
+	if err != nil {
+		t.Fatalf("GetSettings: %v", err)
+	}
+	if s.AllowRemoteNoApiKey == nil || !*s.AllowRemoteNoApiKey {
+		t.Errorf("allowRemoteNoApiKey did not round-trip as true: %v", s.AllowRemoteNoApiKey)
+	}
+
+	// The stored blob must use VansRouter's exact key, since that is what the
+	// other dashboard reads.
+	var raw string
+	if err := r.db.QueryRow(`SELECT data FROM settings WHERE id = 1`).Scan(&raw); err != nil {
+		t.Fatalf("read stored blob: %v", err)
+	}
+	if !strings.Contains(raw, `"allowRemoteNoApiKey":true`) {
+		t.Errorf("stored blob is missing VansRouter's key: %s", raw)
+	}
+
+	// Absent must stay absent so the default (loopback-only) applies.
+	off := false
+	if err := r.SetRequireAPIKey(&off); err != nil {
+		t.Fatalf("SetRequireAPIKey: %v", err)
+	}
+	if _, err := r.db.Exec(
+		`INSERT INTO settings (id, data) VALUES (1, ?) ON CONFLICT(id) DO UPDATE SET data = excluded.data`,
+		`{"rtkEnabled": true}`); err != nil {
+		t.Fatalf("re-seed settings: %v", err)
+	}
+	s, err = r.GetSettings()
+	if err != nil {
+		t.Fatalf("GetSettings after re-seed: %v", err)
+	}
+	if s.AllowRemoteNoApiKey != nil {
+		t.Errorf("an absent allowRemoteNoApiKey must stay nil, got %v", *s.AllowRemoteNoApiKey)
 	}
 }

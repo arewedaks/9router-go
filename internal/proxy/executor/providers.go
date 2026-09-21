@@ -48,6 +48,12 @@ func ForwardGrokCLI(w http.ResponseWriter, req *Request) error {
 
 // ForwardCodex forwards to codex using Responses API format.
 // Transforms Chat Completions body → Responses API body before forwarding.
+//
+// When compact is set the request is addressed to the provider's compaction
+// endpoint (base URL + "/compact"), which is how a client asks the model to
+// summarise a conversation that no longer fits. Mirrors the reference
+// implementation, where the Codex executor appends "/compact" per request
+// rather than carrying a second base URL.
 func ForwardCodex(w http.ResponseWriter, req *Request) error {
 	transformedBody, _, err := buildResponsesBody(req.Body)
 	if err != nil {
@@ -57,12 +63,31 @@ func ForwardCodex(w http.ResponseWriter, req *Request) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	resp, err := proxy.ForwardCodex(ctx, req.Client, req.Config, req.APIKey, transformedBody, req.IsStream)
+	cfg := req.Config
+	if req.IsCompact {
+		// Copy the config so the shared provider entry is not mutated: the same
+		// *ProviderConfig is handed to every request for this provider.
+		c := *cfg
+		c.BaseURL = codexCompactURL(c.BaseURL)
+		cfg = &c
+	}
+	resp, err := proxy.ForwardCodex(ctx, req.Client, cfg, req.APIKey, transformedBody, req.IsStream)
 	if err != nil {
 		return fmt.Errorf("ForwardCodex: %w", err)
 	}
 	defer resp.Body.Close()
 	return handleCodexStream(w, req, resp.Body)
+}
+
+// codexCompactURL appends the compaction path segment to a Codex base URL.
+// Idempotent, so a config that already points at the compact endpoint (or a
+// retry that runs this twice) does not grow a second suffix.
+func codexCompactURL(base string) string {
+	b := strings.TrimRight(base, "/")
+	if strings.HasSuffix(b, "/compact") {
+		return b
+	}
+	return b + "/compact"
 }
 
 // ForwardIflow forwards to iflow with HMAC-SHA256 signature.

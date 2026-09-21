@@ -1189,34 +1189,6 @@ func contentBlockChars(block any) int {
 	}
 }
 
-// HandleResponsesCompact forwards to chat handler with compact flag.
-// POST /v1/responses/compact
-func (h *ChatHandler) HandleResponsesCompact(w http.ResponseWriter, r *http.Request) {
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		handlerutil.WriteJSONError(w, http.StatusBadRequest, "failed to read request body")
-		return
-	}
-	defer r.Body.Close()
-
-	var m map[string]any
-	if err := json.Unmarshal(body, &m); err != nil {
-		handlerutil.WriteJSONError(w, http.StatusBadRequest, "invalid JSON body")
-		return
-	}
-	m["_compact"] = true
-	body, err = json.Marshal(m)
-	if err != nil {
-		log.Error("chat", "marshal compact body failed", "error", err)
-		handlerutil.WriteJSONError(w, http.StatusInternalServerError, "failed to process request")
-		return
-	}
-
-	newReq, _ := http.NewRequestWithContext(r.Context(), "POST", "/v1/chat/completions", bytes.NewReader(body))
-	newReq.Header = r.Header
-	h.HandleChatCompletions(w, newReq)
-}
-
 // HandleOllamaChat handles Ollama-compatible /v1/api/chat endpoint.
 // POST /v1/api/chat
 func (h *ChatHandler) HandleOllamaChat(w http.ResponseWriter, r *http.Request) {
