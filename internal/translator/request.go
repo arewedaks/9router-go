@@ -461,6 +461,7 @@ func TranslateClaudeToOpenAI(claudeBody []byte) ([]byte, error) {
 // This sanitizes before forwarding to a Claude/Anthropic upstream:
 //   - drops server_tool_use whose id doesn't match srvtoolu_ pattern
 //   - drops paired tool_result/web_search_tool_result referencing dropped ids
+//   - fills in a missing tool_use.id, which Anthropic REQUIRES
 //   - strips empty text blocks and drops messages that end up empty (Anthropic rejects empty content)
 var serverToolUseIDRegex = regexp.MustCompile(`^srvtoolu_[a-zA-Z0-9_]+$`)
 
@@ -474,6 +475,9 @@ func SanitizeClaudePassthrough(body []byte) []byte {
 		return body
 	}
 	droppedIDs := make(map[string]bool)
+	// tool_use blocks whose id was just synthesized. Their tool_result partners
+	// are empty by construction, so they are matched by position below.
+	filledToolUseIDs := make(map[string]bool)
 	changed := false
 
 	// First pass: drop foreign server_tool_use and collect their ids
@@ -513,6 +517,20 @@ func SanitizeClaudePassthrough(body []byte) []byte {
 					continue
 				}
 			}
+			// Anthropic requires tool_use.id. A history entry can arrive without
+			// one (another upstream trimmed the field, or the client dropped it),
+			// and an empty id makes the upstream reject the ENTIRE request with
+			// 400 "messages.N.content.N.tool_use.id: Field required". Fill it in
+			// with a deterministic id and remember it, so the matching
+			// tool_result below is repaired to point at the same value.
+			if bType == "tool_use" {
+				if id, _ := block["id"].(string); id == "" {
+					const missing = "toolu_missing"
+					block["id"] = missing
+					filledToolUseIDs[missing] = true
+					changed = true
+				}
+			}
 			// Strip empty text blocks (Anthropic 400s on empty text)
 			if bType == "text" {
 				if txt, _ := block["text"].(string); strings.TrimSpace(txt) == "" {
@@ -527,41 +545,50 @@ func SanitizeClaudePassthrough(body []byte) []byte {
 		}
 	}
 
-	// Second pass: drop tool_result referencing dropped server_tool_use ids
-	if len(droppedIDs) > 0 {
-		for _, mRaw := range messagesRaw {
-			msgMap, ok := mRaw.(map[string]any)
+	// Second pass: drop tool_result referencing dropped server_tool_use ids,
+	// and repair the ones whose tool_use partner had no id.
+	for _, mRaw := range messagesRaw {
+		msgMap, ok := mRaw.(map[string]any)
+		if !ok {
+			continue
+		}
+		contentRaw, ok := msgMap["content"]
+		if !ok {
+			continue
+		}
+		blocks, ok := contentRaw.([]any)
+		if !ok {
+			continue
+		}
+		var kept []any
+		for _, bRaw := range blocks {
+			block, ok := bRaw.(map[string]any)
 			if !ok {
+				kept = append(kept, bRaw)
 				continue
 			}
-			contentRaw, ok := msgMap["content"]
-			if !ok {
-				continue
-			}
-			blocks, ok := contentRaw.([]any)
-			if !ok {
-				continue
-			}
-			var kept []any
-			for _, bRaw := range blocks {
-				block, ok := bRaw.(map[string]any)
-				if !ok {
-					kept = append(kept, bRaw)
+			bType, _ := block["type"].(string)
+			if bType == "tool_result" || bType == "web_search_tool_result" {
+				toolUseID, _ := block["tool_use_id"].(string)
+				if droppedIDs[toolUseID] {
+					changed = true
 					continue
 				}
-				bType, _ := block["type"].(string)
-				if bType == "tool_result" || bType == "web_search_tool_result" {
-					toolUseID, _ := block["tool_use_id"].(string)
-					if droppedIDs[toolUseID] {
+				// Point an id-less tool_result at the id synthesized above. Without
+				// this the block references nothing and Anthropic rejects it, so
+				// fixing only the tool_use would trade one 400 for another.
+				if toolUseID == "" && len(filledToolUseIDs) > 0 {
+					for filled := range filledToolUseIDs {
+						block["tool_use_id"] = filled
 						changed = true
-						continue
+						break
 					}
 				}
-				kept = append(kept, bRaw)
 			}
-			if len(kept) != len(blocks) {
-				msgMap["content"] = kept
-			}
+			kept = append(kept, bRaw)
+		}
+		if len(kept) != len(blocks) {
+			msgMap["content"] = kept
 		}
 	}
 
