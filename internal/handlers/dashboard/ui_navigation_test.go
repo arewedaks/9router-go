@@ -300,20 +300,28 @@ func TestUIProviderCountsUseEffectiveStatus(t *testing.T) {
 		}
 	}
 
-	// The provider card counter must go through the effective-status helper.
-	if !strings.Contains(ui, "accounts.filter(isEffectivelyActive).length") {
-		t.Error("provider card active count does not use isEffectivelyActive()")
+	// The provider card counter shows the TOTAL connection count as plain text
+	// under the provider name. It deliberately does not show an active/total
+	// pill: the operator asked "how many accounts does this provider have?", and
+	// the active subset is visible per-account once the card is expanded.
+	if !strings.Contains(ui, "connection ${accounts.length}") {
+		t.Error("provider card must label the total connection count as 'connection N'")
 	}
 	if strings.Contains(ui, "accounts.filter(a => a.isActive === 1).length") {
 		t.Error("provider card still counts a connection as active just because its toggle is on")
 	}
 
 	// The account-row and expanded-list statuses must be derived, never read
-	// straight from testStatus (a stale "unavailable" is not a broken account).
-	// The only sanctioned direct comparison is the legacy-payload fallback
-	// inside isEffectivelyActive itself.
-	if n := strings.Count(ui, `p.testStatus === "active"`); n != 1 {
-		t.Errorf("expected exactly one direct testStatus comparison (the fallback in isEffectivelyActive), found %d", n)
+	// straight from testStatus (a stale "unavailable" is not a broken account;
+	// a missing one is not a failure at all). Every comparison now goes through
+	// a normalised local, so no raw field comparison may appear at all.
+	if n := strings.Count(ui, `p.testStatus === "active"`); n != 0 {
+		t.Errorf("expected no direct testStatus comparison (it must go through a derived status), found %d", n)
+	}
+	// A never-probed connection has no status string to compare, so the helper
+	// must branch on its absence rather than falling through to the failure case.
+	if !strings.Contains(ui, `if (!status) return !p.hasActiveCooldown;`) {
+		t.Error("isEffectivelyActive must treat a missing testStatus as not-yet-probed, not as a failure")
 	}
 
 	// The dot must distinguish a failing-but-enabled account from a healthy one.
@@ -654,17 +662,13 @@ func TestUIAddConnectionModalFollowsAuthType(t *testing.T) {
 func TestUINoAuthCardSaysNoKeyNeeded(t *testing.T) {
 	body := readEmbeddedUI(t)
 	if !strings.Contains(body, "head.noConnection") {
-		t.Fatal("the card renderer must branch on noConnection; otherwise a keyless provider shows 0/0")
+		t.Fatal("the card renderer must branch on noConnection; otherwise a keyless provider shows 'connection 0'")
 	}
-	pillIdx := strings.Index(body, "prov-count-pill")
-	if pillIdx == -1 {
-		t.Fatal("the account-count pill disappeared from the card renderer")
-	}
-	// The noConnection branch must come before the numeric fallback and must not
-	// itself emit a numeric counter.
-	noConnIdx := strings.Index(body, "const countPill = head.noConnection")
+	// The branch must exist, must live on the card's sub-line, and must not emit
+	// a numeric counter.
+	noConnIdx := strings.Index(body, "const countLine = head.noConnection")
 	if noConnIdx == -1 {
-		t.Fatal("expected the count pill to be chosen by a noConnection branch")
+		t.Fatal("expected the card sub-line to be chosen by a noConnection branch")
 	}
 	if !strings.Contains(body[noConnIdx:noConnIdx+500], "no key needed") {
 		t.Error("a no-auth card must label itself 'no key needed'")
@@ -676,7 +680,7 @@ func TestUINoAuthCardSaysNoKeyNeeded(t *testing.T) {
 	if end := strings.Index(arm, ": `"); end != -1 {
 		arm = arm[:end]
 	}
-	if strings.Contains(arm, "activeCount}/${accounts.length") {
+	if strings.Contains(arm, "accounts.length}") {
 		t.Error("the no-auth branch must not fall through to a numeric counter")
 	}
 }
