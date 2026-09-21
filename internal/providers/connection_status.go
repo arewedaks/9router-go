@@ -57,7 +57,21 @@ func EffectiveStatusWithError(isActive int, testStatus string, hasActiveCooldown
 
 	status := strings.ToLower(strings.TrimSpace(testStatus))
 	if status == "" {
-		return StatusUnknown
+		// Never probed (a freshly added account) or probed before this build
+		// started recording a verdict. An untested connection is not a broken
+		// one: reporting it as a distinct unknown state made a healthy account
+		// render with the same red "failed" treatment as a rejected one, so an
+		// operator had to press Test on every new account before it looked
+		// right.
+		//
+		// Treat it as active UNLESS a cooldown is live, which is real evidence of
+		// a recent failure. This mirrors the rule just below: no live cooldown
+		// means nothing is currently known to be wrong, and the chat path will
+		// discover any real problem on first use and record it then.
+		if hasActiveCooldown {
+			return StatusUnavailable
+		}
+		return StatusActive
 	}
 
 	// A spent budget does not refill on a timer.

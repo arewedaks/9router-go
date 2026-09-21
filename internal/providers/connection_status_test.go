@@ -33,10 +33,18 @@ func TestEffectiveStatus(t *testing.T) {
 		{"error", 1, "error", false, StatusError, false},
 		{"expired", 1, "expired", false, StatusExpired, false},
 
-		// Unknown / empty statuses must not be counted as active.
-		{"unknown status", 1, "unknown", false, "unknown", false},
-		{"empty status", 1, "", false, StatusUnknown, false},
-		{"whitespace status", 1, "  ", false, StatusUnknown, false},
+		// Never-probed connections (empty status) are treated as active, because an
+		// untested account is not a broken one. Reporting it as inactive made every
+		// freshly added account render with the same red failure treatment as a
+		// rejected one until the operator pressed Test. A live cooldown is real
+		// evidence and still marks it unavailable.
+		{"empty status is not a failure", 1, "", false, StatusActive, true},
+		{"whitespace status is not a failure", 1, "  ", false, StatusActive, true},
+		{"empty status with live cooldown stays unavailable", 1, "", true, StatusUnavailable, false},
+
+		// An explicit "unknown" was WRITTEN by a probe, so it is a real verdict
+		// and is not the same as "never probed". It must not count as active.
+		{"explicit unknown is not active", 1, "unknown", false, "unknown", false},
 		{"status is trimmed", 1, "  ACTIVE  ", false, StatusActive, true},
 	}
 
