@@ -65,11 +65,19 @@ var DefaultGitHubRepo = "arewedaks/9router-go"
 // replacing its own binary by a third party.
 var TrustedUpdateOwners = []string{"arewedaks"}
 
-// DefaultCheckInterval is the periodic background update check interval (6 hours).
-const DefaultCheckInterval = 6 * time.Hour
+// DefaultCheckInterval is the periodic background update check interval.
+//
+// 30 minutes matches the dashboard's own poll cadence: the browser already asks
+// this often, so checking less frequently than that is what let a published
+// release stay invisible while the sidebar button waited on a stale cache. A
+// longer interval buys nothing — the manifest fetch is not rate limited and a
+// release check is a single cheap request.
+const DefaultCheckInterval = 30 * time.Minute
 
 var (
 	cachedInfo        *UpdateInfo
+	refreshMu         sync.Mutex
+	refreshInFlight   bool
 	cacheMu           sync.RWMutex
 	lastCheckTime     time.Time
 	autoUpdateEnabled bool
@@ -841,7 +849,41 @@ func ComputeSHA256(data []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// StartBackgroundCheck initiates recurring background update check and executes auto-update when enabled.
+// RefreshInBackground kicks off a version check without blocking the caller.
+//
+// Handlers must never wait on the network to answer a status poll: a slow or
+// unreachable GitHub would hang the dashboard request. They serve the cached
+// result immediately and use this to make the NEXT poll see fresh data — the
+// pattern the reference implementation uses (tailscale.go: checkVersionAsync
+// runs in a goroutine and getLatestVersion only ever reads the cache).
+//
+// Concurrent calls collapse into one in-flight check, so a dashboard polled by
+// several tabs cannot fan out into a burst of requests.
+func RefreshInBackground() {
+	refreshMu.Lock()
+	if refreshInFlight {
+		refreshMu.Unlock()
+		return
+	}
+	refreshInFlight = true
+	refreshMu.Unlock()
+
+	go func() {
+		defer func() {
+			refreshMu.Lock()
+			refreshInFlight = false
+			refreshMu.Unlock()
+		}()
+
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		// Errors are dropped on purpose: the cached value stays, and the next
+		// background cycle retries. There is no caller to report to.
+		_, _ = CheckUpdate(ctx)
+	}()
+}
+
+// startBackgroundCheck initiates recurring background update check and executes auto-update when enabled.
 func StartBackgroundCheck(ctx context.Context, initialAutoUpdate bool) {
 	SetAutoUpdate(initialAutoUpdate)
 

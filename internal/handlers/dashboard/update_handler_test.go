@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"9router/proxy/internal/updater"
 )
@@ -108,5 +110,60 @@ func TestUpdateStatusIsFlat(t *testing.T) {
 	}
 	if got, _ := body["latestVersion"].(string); got != "9.9.9" {
 		t.Errorf("latestVersion = %q, want 9.9.9", got)
+	}
+}
+
+// The browser polls this endpoint every 30 minutes, while the background check
+// used to refresh only every 6 hours. Serving the cache unconditionally meant a
+// release published just after a background check stayed invisible for hours:
+// the sidebar button the operator was waiting for never appeared, with no error
+// to explain why. A cache older than the poll interval must be refreshed.
+func TestUpdateStatusRefreshesStaleCache(t *testing.T) {
+	if !staleBeyondPollInterval(time.Now().Add(-3 * time.Hour).UTC().Format(time.RFC3339)) {
+		t.Error("a cache 3 hours old is stale for a 30-minute poll interval, but was treated as fresh")
+	}
+	if staleBeyondPollInterval(time.Now().Add(-2 * time.Minute).UTC().Format(time.RFC3339)) {
+		t.Error("a cache 2 minutes old is fresh; refreshing it would hit the network on every page load")
+	}
+}
+
+// Not knowing when the cache was written means we cannot claim it is current.
+// The safe answer is to check again, not to trust an unlabelled value.
+func TestUpdateStatusTreatsMissingTimestampAsStale(t *testing.T) {
+	if !staleBeyondPollInterval("") {
+		t.Error("an empty lastCheckTime must be treated as stale")
+	}
+	if !staleBeyondPollInterval("not-a-timestamp") {
+		t.Error("an unparseable lastCheckTime must be treated as stale")
+	}
+}
+
+// The status endpoint must never wait on the network. A blocking check makes a
+// slow or unreachable GitHub hang the dashboard, so the poll has to answer from
+// the cache and refresh in the background instead. This pins the handler to the
+// non-blocking call: swapping in updater.CheckUpdate would make it block.
+func TestUpdateStatusDoesNotBlockOnTheNetwork(t *testing.T) {
+	src, err := os.ReadFile("update_handler.go")
+	if err != nil {
+		t.Fatalf("read handler source: %v", err)
+	}
+	// Scope to HandleUpdateStatus: HandleUpdateCheck is a different endpoint and
+	// is SUPPOSED to block, because the operator explicitly asked for a fresh
+	// check when opening the update dialog.
+	body := string(src)
+	start := strings.Index(body, "func (h *Handler) HandleUpdateStatus")
+	if start == -1 {
+		t.Fatal("HandleUpdateStatus not found in the source")
+	}
+	fn := body[start:]
+	if end := strings.Index(fn, "\nfunc "); end != -1 {
+		fn = fn[:end]
+	}
+
+	if !strings.Contains(fn, "updater.RefreshInBackground()") {
+		t.Error("HandleUpdateStatus does not trigger a background refresh")
+	}
+	if strings.Contains(fn, "updater.CheckUpdate(") {
+		t.Error("HandleUpdateStatus calls CheckUpdate synchronously; a slow GitHub would hang the dashboard")
 	}
 }

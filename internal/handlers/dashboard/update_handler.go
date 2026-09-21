@@ -33,6 +33,16 @@ func (h *Handler) HandleUpdateStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The browser polls this every 30 minutes, and the background check now runs
+	// on the same cadence. When the cache is older than that, kick off a refresh
+	// WITHOUT waiting for it: a status endpoint that blocks on GitHub turns a
+	// slow network into a hanging dashboard. This reply carries the cached value;
+	// the next poll sees the fresh one. A release therefore appears within one
+	// poll interval rather than never.
+	if staleBeyondPollInterval(st.LastCheckTime) {
+		updater.RefreshInBackground()
+	}
+
 	out := map[string]any{
 		"currentVersion":    st.CurrentVersion,
 		"latestVersion":     st.LatestVersion,
@@ -51,6 +61,27 @@ func (h *Handler) HandleUpdateStatus(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	handlerutil.WriteJSON(w, http.StatusOK, out)
+}
+
+// browserPollInterval is how often the dashboard polls the status endpoint. The
+// server treats a cache older than this as stale, so a release cannot stay
+// invisible for longer than the operator's own refresh expectation.
+const browserPollInterval = 30 * time.Minute
+
+// staleBeyondPollInterval reports whether the last check is old enough that the
+// browser has already polled again and would otherwise get the same answer.
+//
+// An unparseable or missing timestamp counts as stale: the safe response to "we
+// do not know when this was checked" is to check again, not to trust it.
+func staleBeyondPollInterval(lastCheck string) bool {
+	if lastCheck == "" {
+		return true
+	}
+	t, err := time.Parse(time.RFC3339, lastCheck)
+	if err != nil {
+		return true
+	}
+	return time.Since(t) > browserPollInterval
 }
 
 // HandleUpdateCheck forces a fresh check against the release source.
