@@ -10,6 +10,35 @@ import (
 
 const modelLockPrefix = "modelLock_"
 
+// NextConnectionPriority returns the priority a new connection for provider
+// should be given so it joins the round-robin in insertion order.
+//
+// Existing connections carry priorities 1..N. A fresh connection left at NULL
+// sorts LAST in both the SQL listing (repos.go) and the rotation comparator
+// (priorityOf), so it only ever serves after every ranked account has been
+// exhausted — effectively invisible in normal rotation. Handing out max+1 keeps
+// the newcomer at the end of the queue, which is the intended behaviour for a
+// hand-added account: it waits its turn rather than jumping the queue.
+//
+// A NULL/absent priority is treated as "unranked" and ignored when computing the
+// maximum, so a run of unranked rows cannot push the counter to a huge number.
+// Errors are returned rather than swallowed: failing to rank a connection would
+// silently reproduce the invisible-account bug this exists to prevent.
+func (r *Repo) NextConnectionPriority(provider string) (int, error) {
+	var max sql.NullInt64
+	err := r.db.QueryRow(
+		"SELECT MAX(priority) FROM providerConnections WHERE provider = ? AND priority IS NOT NULL",
+		provider,
+	).Scan(&max)
+	if err != nil {
+		return 0, fmt.Errorf("next connection priority: %w", err)
+	}
+	if !max.Valid {
+		return 1, nil
+	}
+	return int(max.Int64) + 1, nil
+}
+
 // modelLockDataKey builds the JSON key used to store a model lock in the
 // providerConnections.data blob. Matches Next.js flat field key format
 // so dashboard can read modelLock_* fields across shared DB.

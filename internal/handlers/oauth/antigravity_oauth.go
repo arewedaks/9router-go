@@ -450,9 +450,23 @@ func (h *OAuthHandler) saveAntigravityConnection(tokens *antigravityTokenPayload
 	}
 
 	now := currentTimestamp()
+	// Rank the connection so it joins the rotation. Without a priority the row
+	// sorts last in both the listing query (repos.go) and priorityOf, so a
+	// hand-added account only served after every ranked account was exhausted —
+	// which is what made tempeduai9@gmail.com look like it was never used.
+	// Email is stored too: the label needs it, and the column stayed NULL for
+	// OAuth-created rows while VansRouter-created rows had it populated.
+	priority, perr := h.Repo.NextConnectionPriority("antigravity")
+	if perr != nil {
+		return "", "", "", fmt.Errorf("rank connection: %w", perr)
+	}
+	var emailArg any
+	if email != "" {
+		emailArg = email
+	}
 	if _, err := h.Repo.RawDB().Exec(
-		`INSERT INTO providerConnections (id, provider, authType, name, isActive, data, createdAt, updatedAt) VALUES (?, 'antigravity', 'oauth', ?, 1, ?, ?, ?)`,
-		connID, name, string(raw), now, now,
+		`INSERT INTO providerConnections (id, provider, authType, name, email, priority, isActive, data, createdAt, updatedAt) VALUES (?, 'antigravity', 'oauth', ?, ?, ?, 1, ?, ?, ?)`,
+		connID, name, emailArg, priority, string(raw), now, now,
 	); err != nil {
 		return "", "", "", fmt.Errorf("save connection: %w", err)
 	}

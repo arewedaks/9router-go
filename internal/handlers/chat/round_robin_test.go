@@ -209,3 +209,74 @@ func TestAccountRotationReturnsEachConnectionOnce(t *testing.T) {
 		seen[c.ID] = true
 	}
 }
+
+// A connection ranked by NextConnectionPriority must land BEHIND the accounts
+// that are already established, not at the very back of the listing.
+//
+// This is the regression guard for the invisible-account bug. When the OAuth
+// INSERT left priority NULL, the row sorted last in the listing query
+// (ORDER BY ... priority IS NULL THEN 999999) and last in priorityOf, so a
+// hand-added account only ever served after every ranked account was exhausted.
+// Allocating max+1 puts it at the end of the queue, which is the intended
+// behaviour measured here: it must rank below the existing accounts but ABOVE
+// nothing — i.e. it is an ordinary queue member, not a permanent last resort.
+func TestRankedNewcomerJoinsTheQueueInOrder(t *testing.T) {
+	database, cleanup := setupChatTestDB(t)
+	defer cleanup()
+	repo := db.NewRepo(database)
+
+	seedConnections(t, repo, "newprov", 3)
+	// Distinct priorities, as a real install has them (1,2,3...). seedConnections
+	// gives everyone 1, which would make priority a no-op for this test.
+	for i, id := range []string{"newprov-conn-a", "newprov-conn-b", "newprov-conn-c"} {
+		if _, err := repo.DB().Exec(`UPDATE providerConnections SET priority = ? WHERE id = ?`, i+1, id); err != nil {
+			t.Fatalf("rank %s: %v", id, err)
+		}
+	}
+
+	// What the OAuth save path now does instead of writing NULL.
+	priority, err := repo.NextConnectionPriority("newprov")
+	if err != nil {
+		t.Fatalf("NextConnectionPriority: %v", err)
+	}
+	if priority != 4 {
+		t.Fatalf("allocated priority = %d, want 4 (behind the three seeded accounts)", priority)
+	}
+
+	if _, err := repo.DB().Exec(
+		`INSERT INTO providerConnections (id, provider, authType, name, priority, isActive, data, createdAt, updatedAt, consecutiveUseCount)
+		 VALUES ('newprov-newcomer', 'newprov', 'oauth', 'hand-added', ?, 1, '{}', '2026-07-18T00:00:00Z', '2026-07-18T00:00:00Z', 0)`,
+		priority,
+	); err != nil {
+		t.Fatalf("seed ranked newcomer: %v", err)
+	}
+
+	h := &ChatHandler{Repo: repo}
+	strat := db.ProviderStrategy{FallbackStrategy: "round-robin", StickyRoundRobinLimit: 1}
+
+	// The listing must place it last among the ranked rows, and it is ranked —
+	// so it is reachable. A NULL would have made it indistinguishable from
+	// "unranked", which is what the fix removes.
+	conns := loadConns(t, repo, "newprov")
+	if conns[len(conns)-1].ID != "newprov-newcomer" {
+		t.Errorf("ranked newcomer should sort last among ranked rows, got order %v", ids(conns))
+	}
+
+	// Round-robin must treat it as a full member: it takes a turn.
+	led := map[string]bool{}
+	for i := 0; i < 4; i++ {
+		rotated := h.applyConnectionStrategy("newprov", loadConns(t, repo, "newprov"), strat)
+		led[rotated[0].ID] = true
+	}
+	if !led["newprov-newcomer"] {
+		t.Errorf("the ranked newcomer never served over 4 rounds; it is not in the rotation")
+	}
+}
+
+func ids(conns []*models.ProviderConnection) []string {
+	out := make([]string, 0, len(conns))
+	for _, c := range conns {
+		out = append(out, c.ID)
+	}
+	return out
+}
