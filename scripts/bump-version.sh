@@ -39,13 +39,12 @@ else
 fi
 echo "  → version.json"
 
-# 2. VERSION — legacy. The build no longer reads it, but external scripts and
-#    muscle memory may, so it is kept in step rather than left to rot again.
-echo -n "$NEW_VER" > VERSION
-echo "  → VERSION (legacy)"
-
-# 3. internal/updater/updater.go fallback
+# 2. internal/updater/updater.go fallback
 # Update the default var CurrentVersion = "x.y.z"
+# NOTE: a VERSION file is deliberately NOT written. It used to be kept here as a
+# legacy mirror, but nothing reads it (see the Makefile header) and the stale
+# copy it accumulated was the exact bug that made version.json the sole source
+# of truth. Reintroducing it would restart that drift.
 if grep -q 'var CurrentVersion = "' internal/updater/updater.go; then
   # Use a temp file for BSD sed compatibility
   sed -i.bak "s/var CurrentVersion = \".*\"/var CurrentVersion = \"$NEW_VER\"/" internal/updater/updater.go
@@ -60,4 +59,4 @@ fi
 
 echo ""
 echo "Done. Version is now $NEW_VER (source of truth: version.json)"
-echo "Next: git add version.json VERSION internal/updater/updater.go && git commit -m \"chore: bump version to $NEW_VER\" && git tag v$NEW_VER"
+echo "Next: git add version.json internal/updater/updater.go && git commit -m \"chore: bump version to $NEW_VER\" && git tag v$NEW_VER"

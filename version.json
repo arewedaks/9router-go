@@ -1,5 +1,5 @@
 {
-  "latestVersion": "1.8.30",
+  "latestVersion": "1.8.35",
   "downloadUrl": "https://github.com/arewedaks/9router-go/releases/latest",
-  "releaseNotes": "- Restore OpenCode free tier: stream the body, inject the tool pair (3de3ff2)\n- chore(release): version.json -> v1.8.29 (5f8e0b3)\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
+  "releaseNotes": "- Fix auto-compact: POST /v1/responses/compact now addresses the provider's /compact path instead of plain /responses (7a13d40)\n- Strip the client-only _compact marker before dispatch, so providers no longer reject the body with \"unknown field\" (7a13d40)\n- Add the Require API key toggle with VansRouter-compatible settings, including allowRemoteNoApiKey (d7f0462)\n- Dashboard: full-page login, header sign-out, glassmorphic combo cards\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
 }
