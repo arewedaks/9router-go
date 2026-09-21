@@ -191,6 +191,91 @@ type SettingsData struct {
 	// dashboard is open and no session is needed. Nil (absent) means the default,
 	// which is to require login.
 	RequireLogin *bool `json:"requireLogin,omitempty"`
+
+	// RequireAPIKey mirrors VansRouter's requireApiKey: when explicitly false the
+	// engine routes (/v1/*) accept unauthenticated requests, which is what lets a
+	// client reach the proxy without distributing a key. Nil (absent) means the
+	// default, which is to require a key — so an untouched install, and any
+	// VansRouter blob that never set this, keeps the stricter behaviour.
+	RequireAPIKey *bool `json:"requireApiKey,omitempty"`
+
+	// Extra carries every key of the settings blob that this struct does not
+	// model, exactly as stored. The table is shared with VansRouter, which writes
+	// keys this build has no field for (tunnelEnabled, headroom flags, …).
+	// saveSettings rewrites the whole row, so without this a single write from
+	// 9router-go would delete the operator's VansRouter-only configuration on a
+	// migrated database. Mirrors ProviderStrategy.Extra.
+	Extra map[string]any `json:"-"`
+}
+
+// knownSettingsKeys lists every key represented by a typed SettingsData field.
+// Anything else found in the stored blob is preserved in Extra.
+var knownSettingsKeys = map[string]bool{
+	"rtkEnabled":               true,
+	"cavemanEnabled":           true,
+	"cavemanLevel":             true,
+	"ponytailEnabled":          true,
+	"ponytailLevel":            true,
+	"headroomUrl":              true,
+	"headroomCodeAware":        true,
+	"headroomKompress":         true,
+	"headroomTimeoutMs":        true,
+	"autoUpdate":               true,
+	"providerStrategies":       true,
+	"antigravityClientProfile": true,
+	"trustProxy":               true,
+	"authCookieSecure":         true,
+	"password":                 true,
+	"requireLogin":             true,
+	"requireApiKey":            true,
+}
+
+// MarshalJSON writes the typed fields followed by the preserved passthrough
+// keys, so unknown VansRouter settings survive a read/write round-trip. Typed
+// fields win on collision, which cannot normally happen because Extra only ever
+// receives keys that knownSettingsKeys does not list.
+func (s SettingsData) MarshalJSON() ([]byte, error) {
+	out := make(map[string]any, len(s.Extra)+17)
+	for k, v := range s.Extra {
+		out[k] = v
+	}
+
+	out["rtkEnabled"] = s.RTKEnabled
+	out["cavemanEnabled"] = s.CavemanEnabled
+	out["cavemanLevel"] = s.CavemanLevel
+	out["ponytailEnabled"] = s.PonytailEnabled
+	out["ponytailLevel"] = s.PonytailLevel
+	out["headroomUrl"] = s.HeadroomUrl
+	out["headroomCodeAware"] = s.HeadroomCodeAware
+	out["headroomKompress"] = s.HeadroomKompress
+	out["headroomTimeoutMs"] = s.HeadroomTimeoutMs
+	out["autoUpdate"] = s.AutoUpdate
+
+	// The named optional fields are omitted when nil so an absent value keeps
+	// meaning "use the default" rather than being frozen into the blob.
+	if s.AntigravityClientProfile != "" {
+		out["antigravityClientProfile"] = s.AntigravityClientProfile
+	}
+	if s.TrustProxy != nil {
+		out["trustProxy"] = *s.TrustProxy
+	}
+	if s.AuthCookieSecure != nil {
+		out["authCookieSecure"] = *s.AuthCookieSecure
+	}
+	if s.PasswordHash != "" {
+		out["password"] = s.PasswordHash
+	}
+	if s.RequireLogin != nil {
+		out["requireLogin"] = *s.RequireLogin
+	}
+	if s.RequireAPIKey != nil {
+		out["requireApiKey"] = *s.RequireAPIKey
+	}
+	if len(s.ProviderStrategies) > 0 {
+		out["providerStrategies"] = s.ProviderStrategies
+	}
+
+	return json.Marshal(out)
 }
 
 // DefaultSettings returns fallback settings.
@@ -260,6 +345,21 @@ func (r *Repo) GetSettings() (*SettingsData, error) {
 	}
 	if v, ok := raw["requireLogin"].(bool); ok {
 		s.RequireLogin = &v
+	}
+	if v, ok := raw["requireApiKey"].(bool); ok {
+		s.RequireAPIKey = &v
+	}
+	// Preserve any key this build does not model (tunnelEnabled, headroom flags,
+	// anything a future VansRouter adds) so a read/write round-trip on a shared
+	// database cannot destroy it.
+	for k, kv := range raw {
+		if knownSettingsKeys[k] {
+			continue
+		}
+		if s.Extra == nil {
+			s.Extra = make(map[string]any)
+		}
+		s.Extra[k] = kv
 	}
 	if v, ok := raw["trustProxy"].(bool); ok {
 		s.TrustProxy = &v
@@ -340,6 +440,21 @@ func (r *Repo) SetRequireLogin(require *bool) error {
 		s = DefaultSettings()
 	}
 	s.RequireLogin = require
+	return r.saveSettings(s)
+}
+
+// SetRequireAPIKey toggles whether the engine routes demand an API key. Passing
+// nil removes the override so the default (require a key) applies again.
+//
+// This is the counterpart of VansRouter's requireApiKey and writes the same key
+// to the same shared settings row, so a value flipped in either build is the
+// value the other one reads back.
+func (r *Repo) SetRequireAPIKey(require *bool) error {
+	s, err := r.GetSettings()
+	if err != nil {
+		s = DefaultSettings()
+	}
+	s.RequireAPIKey = require
 	return r.saveSettings(s)
 }
 

@@ -1637,13 +1637,16 @@ func (h *Handler) HandleGetSettings(w http.ResponseWriter, r *http.Request) {
 		// Reverse-proxy awareness. These are editable from the UI and take effect
 		// immediately. The bind address is included for diagnostics only: it is
 		// fixed at process start and cannot be changed from here.
-		"trustProxy":            h.effectiveTrustProxy(s),
-		"authCookieSecure":      h.effectiveCookieSecure(s),
-		"proxyEnvTrustProxy":    strings.EqualFold(os.Getenv("TRUST_PROXY"), "true"),
-		"proxyEnvCookieSecure":  strings.EqualFold(os.Getenv("AUTH_COOKIE_SECURE"), "true"),
-		"listenHost":            db.ListenHost(),
-		"listenPort":            db.ListenPort(),
-		"behindProxySuggested":  db.ListenHost() == "127.0.0.1" || db.ListenHost() == "localhost",
+		"trustProxy":       h.effectiveTrustProxy(s),
+		"authCookieSecure": h.effectiveCookieSecure(s),
+		// requireApiKey mirrors VansRouter. Absent means the default (required),
+		// resolved to a concrete bool so the toggle always has a state to render.
+		"requireApiKey":        s.RequireAPIKey == nil || *s.RequireAPIKey,
+		"proxyEnvTrustProxy":   strings.EqualFold(os.Getenv("TRUST_PROXY"), "true"),
+		"proxyEnvCookieSecure": strings.EqualFold(os.Getenv("AUTH_COOKIE_SECURE"), "true"),
+		"listenHost":           db.ListenHost(),
+		"listenPort":           db.ListenPort(),
+		"behindProxySuggested": db.ListenHost() == "127.0.0.1" || db.ListenHost() == "localhost",
 	}
 
 	handlerutil.WriteJSON(w, http.StatusOK, resp)
@@ -1712,6 +1715,9 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		// Reverse-proxy awareness, editable from the UI settings page.
 		TrustProxy       *bool `json:"trustProxy"`
 		AuthCookieSecure *bool `json:"authCookieSecure"`
+		// requireApiKey mirrors VansRouter's flag of the same name. Absent leaves
+		// the current value alone; explicit false lets /v1/* answer without a key.
+		RequireAPIKey *bool `json:"requireApiKey"`
 		// providerStrategies is a full-replace map keyed by provider id, matching
 		// VansRouter's PATCH /api/settings behavior. An entry with no fields left
 		// set is dropped so the settings blob stays clean.
@@ -1769,6 +1775,9 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	if req.AuthCookieSecure != nil {
 		s.AuthCookieSecure = req.AuthCookieSecure
 	}
+	if req.RequireAPIKey != nil {
+		s.RequireAPIKey = req.RequireAPIKey
+	}
 	if req.ProviderStrategies != nil {
 		// providerStrategies arrives as the operator's complete view of the map,
 		// but other callers (scripts, the Next.js dashboard) may patch a single
@@ -1811,6 +1820,9 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		"injectionGuardEnabled": h.tokenSaver.InjectionGuardEnabled(),
 		"autoUpdate":            s.AutoUpdate,
 		"providerStrategies":    providerStrategiesOrEmpty(s.ProviderStrategies),
+		// Echoed back so the endpoint toggle can settle on the stored value
+		// instead of guessing. Absent means the default, which is "required".
+		"requireApiKey": s.RequireAPIKey == nil || *s.RequireAPIKey,
 	})
 }
 

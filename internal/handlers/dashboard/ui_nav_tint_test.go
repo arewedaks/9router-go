@@ -17,8 +17,8 @@ func TestEverySidebarEntryHasATint(t *testing.T) {
 	// newly added button is covered even if nobody writes a rule for it.
 	navRe := regexp.MustCompile(`<button class="nav-btn" id="(nav-[a-z-]+)"`)
 	ids := navRe.FindAllStringSubmatch(ui, -1)
-	if len(ids) < 7 {
-		t.Fatalf("found %d nav buttons, expected at least 7", len(ids))
+	if len(ids) < 6 {
+		t.Fatalf("found %d nav buttons, expected at least 6", len(ids))
 	}
 
 	tintRe := regexp.MustCompile(`#(nav-[a-z-]+)\s+\.nav-icon\s*\{\s*--tint:`)

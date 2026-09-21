@@ -219,7 +219,7 @@ func SetupServerRouter(r chi.Router, repo *db.Repo, ts *TokenSaverConfig) {
 		// add-account endpoints live here and a password-logged-in browser holds
 		// only the cookie. The engine routes in this group are unaffected — they
 		// keep working with an API key exactly as before.
-		r.Use(middleware.RequireApiKeyWithSession(repo, dashH.VerifySession,
+		r.Use(middleware.RequireApiKeyUnlessDisabled(repo, dashH.VerifySession,
 			"/api/oauth/", "/api/dashboard/", "/api/translator/", "/translator/", "/usage/", "/api/usage/",
 			// The dashboard's model pickers read the catalog to build combo and
 			// provider model lists. A password-logged-in browser holds only the

@@ -21,23 +21,27 @@ import (
 func TestLigatureFontsDeclareStandardFeatureSettings(t *testing.T) {
 	ui := readEmbeddedUI(t)
 
-	for _, cls := range []string{".msym {", ".nav-icon {"} {
-		at := strings.Index(ui, cls)
-		if at < 0 {
-			t.Fatalf("stylesheet no longer defines %s", cls)
-		}
-		block := ui[at:]
-		if end := strings.Index(block, "}"); end >= 0 {
-			block = block[:end]
-		}
-		if !strings.Contains(block, `font-family: 'Material Symbols`) {
-			t.Errorf("%s no longer selects the Material Symbols family; this "+
-				"test guards the ligature declarations inside it", cls)
-		}
-		if !strings.Contains(block, "font-feature-settings: 'liga'") {
-			t.Errorf("%s has no standard font-feature-settings: 'liga'; with "+
-				"only the -webkit- alias Firefox shows the ligature name as "+
-				"plain text instead of an icon", cls)
-		}
+	// Find the rule that actually selects the family, not merely the first block
+	// whose selector starts with .msym: `font-size` overrides like
+	// `.combo-card-meta .msym { ... }` and `.model-chip .msym { ... }` appear
+	// earlier in the sheet and would match a naive search.
+	at := strings.Index(ui, "font-family: 'Material Symbols")
+	if at < 0 {
+		t.Fatal("no rule selects the Material Symbols family; this test guards " +
+			"the ligature declarations inside it")
+	}
+	// Walk back to the opening brace of that declaration block.
+	open := strings.LastIndex(ui[:at], "{")
+	// Walk forward to its closing brace.
+	close := strings.Index(ui[at:], "}")
+	if open < 0 || close < 0 {
+		t.Fatal("malformed rule containing font-family: Material Symbols")
+	}
+	block := ui[open : at+close]
+
+	if !strings.Contains(block, "font-feature-settings: 'liga'") {
+		t.Errorf("the %s rule has no standard font-feature-settings: 'liga'; "+
+			"with only the -webkit- alias Firefox shows the ligature name as "+
+			"plain text instead of an icon", strings.TrimSpace(ui[strings.LastIndex(ui[:open], "}")+1:open]))
 	}
 }

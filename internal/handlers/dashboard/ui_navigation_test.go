@@ -120,7 +120,7 @@ func TestUINoFlickerOnRefresh(t *testing.T) {
 // like it works until the operator refreshes.
 func TestUINavButtonsRecordHash(t *testing.T) {
 	ui := readEmbeddedUI(t)
-	tabs := []string{"endpoint", "providers", "combos", "health", "settings"}
+	tabs := []string{"endpoint", "providers", "combos", "settings"}
 	for _, tab := range tabs {
 		if !strings.Contains(ui, `navigateTab('`+tab+`')`) {
 			t.Errorf("nav button for %q is not wired to navigateTab", tab)
@@ -150,7 +150,7 @@ func TestUINavigationLivesInSidebar(t *testing.T) {
 	}
 
 	// Every pane needs a nav button, and vice versa.
-	for _, tab := range []string{"endpoint", "providers", "combos", "health", "settings"} {
+	for _, tab := range []string{"endpoint", "providers", "combos", "settings"} {
 		if !strings.Contains(ui, `id="tab-`+tab+`" class="tab-pane"`) {
 			t.Errorf("pane for %q is missing", tab)
 		}

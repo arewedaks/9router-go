@@ -54,27 +54,33 @@ func TestUIEndpointTabReplacesOverview(t *testing.T) {
 			t.Errorf("the standalone API Keys tab is still present: %q", gone)
 		}
 	}
-	if !strings.Contains(ui, `"endpoint", "usage", "providers", "combos", "console", "health", "settings"`) {
+	if !strings.Contains(ui, `"endpoint", "usage", "providers", "combos", "console", "settings"`) {
 		t.Error("HASH_TABS was not updated for the new tab set")
+	}
+	// The Health & Setup tab was removed, so neither nav entry may survive.
+	for _, gone := range []string{`id="nav-health"`, `id="tab-health"`, `navigateTab('health')`} {
+		if strings.Contains(ui, gone) {
+			t.Errorf("the retired Health & Setup tab is still present: %q", gone)
+		}
 	}
 }
 
-// TestUIEndpointTabShowsUrlsAndCurl checks the page actually tells the operator
-// what to paste into a client.
+// TestUIEndpointTabShowsUrlsAndCurl checks the page tells the operator which
+// base URL to call, for both a local and a containerised client.
+//
+// The curl/sample block was removed from this tab, so nothing here asserts on a
+// copy-paste snippet any more.
 func TestUIEndpointTabShowsUrlsAndCurl(t *testing.T) {
 	ui := readEmbeddedUI(t)
 
 	for _, need := range []string{
 		`id="endpoint-local"`,
 		`id="endpoint-docker"`,
-		`id="curl-sample"`,
 		"function copyEndpoint(",
-		"function copyCurlSample(",
 		"function renderEndpointHost()",
 		// The host is derived from the address the operator used, so the page is
 		// correct over LAN or a tunnel instead of always claiming localhost.
 		"const host = location.hostname",
-		"/v1/chat/completions",
 	} {
 		if !strings.Contains(ui, need) {
 			t.Errorf("endpoint page is missing %q", need)
@@ -143,7 +149,7 @@ func TestUIEndpointIsTheDefaultLandingTab(t *testing.T) {
 	}
 	// Both hash tables (the pre-paint inline script and the bundle) must list it,
 	// or the first frame and the bundle disagree about what is valid.
-	if n := strings.Count(ui, `"endpoint", "usage", "providers", "combos", "console", "health", "settings"`); n != 2 {
+	if n := strings.Count(ui, `"endpoint", "usage", "providers", "combos", "console", "settings"`); n != 2 {
 		t.Errorf("expected endpoint in both tab tables, found %d", n)
 	}
 	// The static title is painted before the bundle runs and must match.
@@ -182,34 +188,19 @@ func TestUIEndpointTabHasNoHardcodedPort(t *testing.T) {
 	}
 }
 
-// The samples must be built from the detected origin, not embedded literals, so
-// they cannot disagree with the URL shown above them.
-func TestUIEndpointSamplesAreDerivedFromOrigin(t *testing.T) {
+// The removed sample block must not leave orphans behind: a dangling element id
+// or a handler that references it would be dead code masquerading as a feature.
+func TestUIEndpointSampleIsFullyRemoved(t *testing.T) {
 	ui := readEmbeddedUI(t)
 
-	if !strings.Contains(ui, "function refreshEndpointSamples") {
-		t.Fatal("refreshEndpointSamples is missing; samples would be stale literals")
-	}
-	// Each sample container must be empty in the markup and filled at runtime.
-	for _, id := range []string{
+	for _, gone := range []string{
 		`id="curl-sample"`,
-		`id="endpoint-json-sample"`,
-		`id="anthropic-sample"`,
-		`id="anthropic-curl-sample"`,
+		"function copyCurlSample(",
+		"function refreshEndpointSamples(",
+		"svcEndpointBase",
 	} {
-		i := strings.Index(ui, id)
-		if i < 0 {
-			t.Errorf("%s not found", id)
-			continue
-		}
-		rest := ui[i:]
-		end := strings.Index(rest, ">")
-		close := strings.Index(rest, "</div>")
-		if end < 0 || close < 0 {
-			continue
-		}
-		if body := strings.TrimSpace(rest[end+1 : close]); body != "" {
-			t.Errorf("%s still contains a literal sample: %q", id, body)
+		if strings.Contains(ui, gone) {
+			t.Errorf("the removed endpoint-sample block still leaves behind: %q", gone)
 		}
 	}
 }
@@ -222,7 +213,6 @@ func TestUIEndpointOmitsPortForDefaultScheme(t *testing.T) {
 	for _, need := range []string{
 		"function renderEndpointHost",
 		"isDefaultPort",
-		"svcEndpointBase",
 	} {
 		if !strings.Contains(ui, need) {
 			t.Errorf("renderEndpointHost no longer handles the proxied case: %s missing", need)

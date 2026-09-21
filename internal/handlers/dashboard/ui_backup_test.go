@@ -36,12 +36,14 @@ func TestUISettingsHasBackupControls(t *testing.T) {
 	}
 
 	// The controls must be inside the Settings pane, not stranded elsewhere.
+	// The pane now ends at </main>: the Health & Setup tab that used to follow it
+	// was removed, so it can no longer be used as the closing marker.
 	settingsIdx := strings.Index(ui, `id="tab-settings"`)
-	healthIdx := strings.Index(ui, `id="tab-health"`)
-	if settingsIdx < 0 || healthIdx < 0 || settingsIdx > healthIdx {
-		t.Fatalf("could not locate the settings pane between tab-settings and tab-health")
+	mainEnd := strings.Index(ui[settingsIdx:], "</main>")
+	if settingsIdx < 0 || mainEnd < 0 {
+		t.Fatalf("could not locate the settings pane")
 	}
-	pane := ui[settingsIdx:healthIdx]
+	pane := ui[settingsIdx : settingsIdx+mainEnd]
 	for _, need := range []string{`id="backup-pw"`, `id="restore-file"`, `id="restore-btn"`} {
 		if !strings.Contains(pane, need) {
 			t.Errorf("backup control %s is not inside the Settings pane", need)

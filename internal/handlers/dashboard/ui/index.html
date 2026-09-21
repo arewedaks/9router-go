@@ -182,6 +182,100 @@
     }
 
     /* ----------------------------------------------------------------
+       Login screen
+       ----------------------------------------------------------------
+       Full-page, centred card. The dashboard shell is removed from the flow
+       while this is up, so nothing behind it can be read or tabbed into. */
+    .login-screen {
+      position: fixed; inset: 0; z-index: 2000;
+      display: flex; align-items: center; justify-content: center;
+      padding: 20px;
+      /* Opaque, not translucent: this must not let the shell show through. */
+      background-color: var(--bg);
+      background-image: var(--bg-backdrop);
+      background-attachment: fixed;
+      overflow-y: auto;
+    }
+    .login-screen[hidden] { display: none; }
+    /* The shell is hidden by attribute, not by the screen's z-index, so a
+       keyboard user cannot tab into controls they cannot see. */
+    body.needs-login .shell,
+    body.needs-login .sidebar,
+    body.needs-login .sidebar-scrim { display: none; }
+
+    .login-card {
+      width: 100%; max-width: 400px;
+      background: var(--glass-strong);
+      border: 1px solid var(--glass-border-strong);
+      border-radius: 14px;
+      padding: 28px 26px 22px;
+      -webkit-backdrop-filter: blur(20px) saturate(160%);
+      backdrop-filter: blur(20px) saturate(160%);
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+    }
+    /* Wordmark under the mark on the sign-in card. The login screen has the
+       room the rail does not, so the name is set larger here as the heading. */
+    .login-brand { text-align: center; margin-bottom: 22px; }
+    .login-brand .brand-mark { width: 52px; height: 52px; flex: 0 0 52px; margin-bottom: 14px; display: inline-flex; }
+    .login-title {
+      font-size: 1.55rem; font-weight: 700; color: #fff; line-height: 1.1;
+      letter-spacing: -0.4px; margin-bottom: 4px;
+    }
+    .login-sub { font-size: 0.85rem; color: var(--muted); }
+    /* The GO chip scales off em so it tracks the larger login heading instead of
+       looking like a speck next to it. */
+    .login-title .brand-go { font-size: 0.62em; vertical-align: 3px; padding: 2px 8px; }
+    .login-submit { width: 100%; justify-content: center; margin-top: 4px; }
+    /* Scoped to the sign-in form.
+
+       .btn-primary is GitHub green (#238636), which was the action colour of
+       the old blue palette and is the one green left on a warm page. It is used
+       for Create Key / Add Provider / Save Settings, so it is not changed
+       globally here — only the first button a visitor sees is re-tinted to the
+       theme accent. */
+    #login-form .login-submit {
+      background: linear-gradient(150deg, #ff9d47 0%, #ff8a2a 55%, #e0741c 100%);
+      border: 1px solid rgba(255, 160, 90, 0.45);
+      color: #24160c;
+      font-weight: 700;
+      /* Same bevel language as .brand-mark and the nav tiles: light top edge,
+         dark bottom edge, warm drop shadow. */
+      box-shadow:
+        0 1px 0 rgba(255, 235, 210, 0.45) inset,
+        0 -1px 0 rgba(90, 40, 0, 0.30) inset,
+        0 6px 18px rgba(255, 138, 42, 0.28);
+      transition: filter 0.15s, transform 0.15s, box-shadow 0.15s;
+    }
+    #login-form .login-submit:hover:not(:disabled) {
+      filter: brightness(1.07);
+      transform: translateY(-1px);
+      box-shadow:
+        0 1px 0 rgba(255, 235, 210, 0.55) inset,
+        0 -1px 0 rgba(90, 40, 0, 0.30) inset,
+        0 8px 24px rgba(255, 138, 42, 0.36);
+    }
+    #login-form .login-submit:active:not(:disabled) { transform: none; filter: brightness(0.97); }
+    /* The lockout countdown disables the button, so it needs a readable disabled
+       state rather than the default washed-out one. */
+    #login-form .login-submit:disabled {
+      background: rgba(255, 138, 42, 0.18);
+      border-color: rgba(255, 138, 42, 0.28);
+      color: #c9a081;
+      box-shadow: none;
+      cursor: not-allowed;
+    }
+    .login-hint { font-size: 0.75rem; color: var(--muted); margin-bottom: 12px; }
+    .login-hint[hidden] { display: none; }
+    .login-error { font-size: 0.8rem; color: var(--danger); margin-bottom: 12px; }
+    .login-error[hidden] { display: none; }
+    .login-foot {
+      margin-top: 18px; padding-top: 14px;
+      border-top: 1px solid var(--glass-border);
+      font-size: 0.72rem; line-height: 1.5; color: var(--muted); text-align: center;
+    }
+    .login-foot code { font-size: 0.7rem; color: var(--primary); }
+
+    /* ----------------------------------------------------------------
        Sidebar layout
        ----------------------------------------------------------------
        Navigation moved out of the top bar into a left rail: the header was
@@ -200,7 +294,9 @@
     .sidebar-brand {
       display: flex; align-items: center; gap: 10px;
       font-weight: 700; font-size: 1.05rem; color: #fff;
-      padding: 6px 10px 18px;
+      /* Top padding is small because .traffic-lights now sits above this block
+         and already supplies the gap from the top edge. */
+      padding: 0 0 18px;
     }
     /* Raised tile holding the mark. "Timbul" is done with a light top edge and
        a dark drop shadow rather than a heavier blur, so it stays crisp next to
@@ -217,10 +313,41 @@
         0 1px 2px rgba(0, 0, 0, 0.35);
     }
     .brand-mark svg { display: block; }
-    /* Name over version, so the version stops competing with the brand for the
-       same line and reading as a third badge. */
+    /* macOS window ornament. The three colours are the real system values, not
+       theme tints: the point is that they read as chrome at a glance, and
+       orange/green approximations of them just look like stray status dots. */
+    .traffic-lights {
+      display: flex; align-items: center; gap: 8px;
+      /* Horizontal padding is 0: the sidebar already pads 12px and the brand
+         block below aligns to that same edge. The bottom gap is what keeps the
+         dots off the logo tile. */
+      padding: 2px 0 20px;
+    }
+    .traffic-lights .tl {
+      width: 12px; height: 12px; border-radius: 50%;
+      box-shadow: inset 0 -1px 1px rgba(0, 0, 0, 0.22);
+    }
+    .tl-close { background: #ff5f56; }
+    .tl-min   { background: #ffbd2e; }
+    .tl-zoom  { background: #27c93f; }
+    /* Wordmark over the version line. The name gets a tighter, heavier
+       treatment than body text so the mark and the name read as one lockup
+       instead of a logo with a stray label next to it. */
     .brand-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-    .brand-name { font-weight: 700; font-size: 1.02rem; color: #fff; line-height: 1.15; }
+    .brand-name {
+      font-weight: 700; font-size: 1.06rem; color: #fff; line-height: 1.1;
+      letter-spacing: -0.3px;
+    }
+    /* GO marker trailing the wordmark. Uppercase glass chip: it is a label, not
+       a word, so it gets the accent tint and letter-spacing of the other small
+       caps markers on the page instead of the tight wordmark tracking. */
+    .brand-go {
+      display: inline-block; vertical-align: 1px;
+      margin-left: 5px; padding: 1px 5px; border-radius: 5px;
+      font-size: 0.6rem; font-weight: 700; letter-spacing: 0.6px;
+      color: #ffb066; background: rgba(255, 138, 42, 0.14);
+      border: 1px solid rgba(255, 138, 42, 0.34);
+    }
     /* Rendered from the update check, so it shows the running build and not
        whatever the page was built with. Hidden until that fetch answers. */
     .brand-version {
@@ -257,8 +384,17 @@
     /* A faint label between groups — the list is short enough that headings
        would add noise, so only the gap plus label for the last group. */
     .nav-group-label { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); padding: 14px 10px 6px; }
-    .sidebar-foot { border-top: 1px solid var(--border); padding-top: 12px; margin-top: 12px; }
-    .sidebar-foot .btn { width: 100%; justify-content: center; }
+    /* Sign out in the header. Kept visually quieter than the surrounding
+       controls: it is destructive-ish and should not compete with the nav for
+       attention, but it must not look disabled either. */
+    .header-signout { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+    .header-signout:hover { border-color: rgba(248, 81, 73, 0.5); color: #f85149; }
+
+    /* Mobile: the header gets tight, so the label is dropped and the glyph
+       carries the meaning (the title attribute still explains it). */
+    @media (max-width: 640px) {
+      .header-signout .header-signout-label { display: none; }
+    }
 
     .shell { flex: 1; min-width: 0; display: flex; flex-direction: column; }
     /* The old pill buttons are gone, but the class name is kept so the
@@ -341,7 +477,6 @@
     #nav-providers .nav-icon { --tint: #3fb950; }  /* status-ok — green  */
     #nav-combos    .nav-icon { --tint: #22d3ee; }  /* live dot  — cyan   */
     #nav-console   .nav-icon { --tint: #3fb950; }  /* status-ok — green  */
-    #nav-health    .nav-icon { --tint: #d29922; }  /* warning   — amber  */
     #nav-settings  .nav-icon { --tint: #8b949e; }  /* muted     — slate  */
 
     .nav-btn:hover .nav-icon {
@@ -515,6 +650,13 @@
     .slider:before { position: absolute; content: ""; height: 14px; width: 14px; left: 3px; bottom: 3px; background-color: white; transition: .2s; border-radius: 50%; }
     input:checked + .slider { background-color: #238636; }
     input:checked + .slider:before { transform: translateX(18px); }
+    /* The API-key switch is the one control on this page that weakens security
+       when off, so its ON state is the accent colour rather than green — the
+       same accent the rest of the warm theme uses for "is set". Its OFF state
+       is the alarm red instead of the neutral grey, so a glance at the endpoint
+       page shows an open proxy without reading the label. */
+    #require-apikey-toggle:checked + .slider { background-color: #ff8a2a; }
+    #require-apikey-toggle:not(:checked) + .slider { background-color: #f85149; }
     
     /* Every field type the dashboard uses, not just text and password: the
      * number input on the Add Connection modal and the search box were otherwise
@@ -593,7 +735,206 @@
     .icon-btn:hover { opacity: 1; background: rgba(255,255,255,0.06); }
     .row-paused { opacity: 0.55; }
     .key-paused { margin: 2px 0 0; font-size: 0.72rem; color: #d29922; }
-    .tag { display: inline-block; background: var(--primary-dim); color: var(--primary); border: 1px solid #1f3554; border-radius: 4px; padding: 2px 6px; font-size: 0.75rem; margin: 2px; }
+
+    /* Generic chip. The border was #1f3554, a leftover navy from the blue
+       palette that read as a cold seam on every chip after the theme moved to
+       warm orange. */
+    .tag { display: inline-block; background: var(--primary-dim); color: var(--primary); border: 1px solid var(--primary-dim); border-radius: 4px; padding: 2px 6px; font-size: 0.75rem; margin: 2px; }
+
+    /* ----------------------------------------------------------------
+       Combo cards
+       ----------------------------------------------------------------
+       A table forced five columns on data that only has two useful ones: the
+       alias and its strategy. The 28-model list then had to live in a scrolling
+       cell, which is where the "wall of text" came from.
+
+       A card in a responsive grid shows what the operator scans for (alias,
+       strategy) and hides the model list behind a count, which is available on
+       the card but not competing for attention.
+       Established pattern: .prov-card / .usage-card already use the same glass
+       surface, so this does not introduce a new visual language. */
+    .combo-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(268px, 1fr));
+      gap: 12px;
+    }
+    .combo-empty {
+      grid-column: 1 / -1;
+      padding: 28px;
+      text-align: center;
+      color: var(--muted);
+      font-size: 0.85rem;
+    }
+
+    .combo-card {
+      display: flex; flex-direction: column; gap: 10px;
+      background: var(--glass);
+      border: 1px solid var(--glass-border);
+      border-radius: var(--radius);
+      padding: 14px;
+      min-width: 0;
+      -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(150%);
+      backdrop-filter: blur(var(--glass-blur)) saturate(150%);
+      transition: border-color 0.15s, transform 0.15s;
+    }
+    .combo-card:hover { border-color: var(--glass-border-strong); transform: translateY(-1px); }
+
+    .combo-card-top {
+      display: flex; align-items: flex-start; justify-content: space-between; gap: 8px;
+    }
+    /* The alias is the client-facing model id, so it is the primary label and
+       gets the monospace treatment used for every other id in the dashboard. */
+    .combo-card-name {
+      min-width: 0;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 0.92rem; font-weight: 600;
+      color: #ffb066;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .combo-card-strategy {
+      flex: 0 0 auto;
+      font-size: 0.66rem; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 0.5px;
+      color: var(--muted);
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid var(--glass-border);
+      border-radius: 999px;
+      padding: 2px 9px;
+      white-space: nowrap;
+    }
+
+    .combo-card-meta {
+      font-size: 0.75rem; color: var(--muted);
+      display: flex; align-items: center; gap: 6px;
+    }
+    .combo-card-meta .msym { font-size: 14px; }
+    /* The model count doubles as the disclosure control: it is the only place
+       the target list is reachable from, so it has to look clickable. */
+    .combo-card-toggle {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: none; border: none; padding: 2px 0;
+      color: var(--muted);
+      font: inherit; font-size: 0.75rem; font-weight: 600;
+      cursor: pointer;
+      transition: color 0.15s;
+    }
+    .combo-card-toggle:hover { color: var(--primary); }
+    .combo-card-toggle[aria-expanded="true"] { color: var(--primary); }
+    .combo-card-caret { transition: transform 0.15s; }
+    .combo-card-toggle[aria-expanded="true"] .combo-card-caret { transform: rotate(180deg); }
+
+    /* Icon buttons. text-align and the gap keep the glyph centred when the
+       label is present, and aria-label carries the meaning when it is not. */
+    .combo-card-actions { display: flex; gap: 6px; margin-top: 2px; }
+    .icon-btn-sm {
+      display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+      flex: 1 1 auto;
+      padding: 6px 8px;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--glass-border);
+      color: var(--muted);
+      font-size: 0.73rem; font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s, color 0.15s;
+    }
+    .icon-btn-sm .msym { font-size: 15px; }
+    .icon-btn-sm:hover {
+      background: rgba(255, 255, 255, 0.10);
+      border-color: var(--glass-border-strong);
+      color: var(--text);
+    }
+    .icon-btn-sm.is-edit:hover { color: var(--primary); border-color: rgba(255, 138, 42, 0.45); }
+    .icon-btn-sm.is-copy:hover { color: #3fb950; border-color: rgba(63, 185, 80, 0.45); }
+    /* Delete is the destructive action, so it only turns red on hover: a red
+       button sitting in every card would draw the eye to the wrong action. */
+    .icon-btn-sm.is-del:hover { color: #f85149; border-color: rgba(248, 81, 73, 0.45); }
+
+    /* The chip list, shown on the card but de-emphasised: it is reference data,
+       not the thing being chosen.
+
+       No max-height: the card is in a grid that sizes rows independently, so a
+       taller card costs nothing and a clipped chip is worse than a long list.
+       The 74px cap that was here cut 'gemini-3.7-flash-low' in half. */
+    .combo-card-models {
+      display: flex; flex-wrap: wrap; gap: 4px;
+      padding-top: 9px;
+      border-top: 1px solid var(--glass-border);
+      overflow-anchor: none;
+    }
+    /* [hidden] on a flex item is overridden by display:flex, so the attribute
+       alone would not collapse the list. */
+    .combo-card-models[hidden] { display: none; }
+
+    /* ----------------------------------------------------------------
+       Combo model chips
+       ----------------------------------------------------------------
+       Every chip used to be the same orange with the full provider-qualified id
+       (bm/nvidia/llama-3.3-nemotron-...), repeated provider segment included.
+       That reads as a wall of identical text.
+
+       Two changes:
+       1. The chip is split into a small provider prefix and the model name, so
+          the eye can find the model instead of scanning past the same 3-6
+          namespace characters on every row.
+       2. The provider carries a per-provider hue, reusing the colour the
+          provider already has in the grid and topology, so models from the
+          same upstream group visually. */
+    .model-chip {
+      display: inline-flex; align-items: center; gap: 5px;
+      max-width: 100%;
+      background: rgba(0, 0, 0, 0.28);
+      border: 1px solid var(--glass-border);
+      border-radius: 7px;
+      padding: 2px 7px 2px 5px;
+      font-size: 0.72rem;
+      line-height: 1.5;
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .model-chip:hover { border-color: var(--chip-tint, var(--primary)); background: rgba(0, 0, 0, 0.4); }
+
+    /* Provider prefix: a dot then the short label. The dot carries the hue at
+       small size; the label stays muted so it cannot compete with the model
+       name it qualifies. */
+    .model-chip-prov {
+      display: inline-flex; align-items: center; gap: 4px;
+      flex: 0 0 auto;
+      padding-right: 5px;
+      border-right: 1px solid var(--glass-border);
+      color: var(--muted);
+      font-size: 0.67rem;
+      font-weight: 600;
+      letter-spacing: 0.2px;
+      white-space: nowrap;
+    }
+    .model-chip-dot {
+      width: 6px; height: 6px; border-radius: 50%; flex: 0 0 6px;
+      background: var(--chip-tint, var(--primary));
+    }
+    /* min-width:0 + ellipsis keeps a 90-character Nvidia id from forcing the
+       card wider than its grid track. */
+    .model-chip-name {
+      min-width: 0;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 0.70rem;
+      color: #ffb066;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .combo-model-more {
+      display: inline-flex; align-items: center;
+      padding: 2px 7px;
+      border-radius: 7px;
+      background: rgba(255, 138, 42, 0.10);
+      border: 1px dashed rgba(255, 138, 42, 0.35);
+      color: var(--primary);
+      font-size: 0.70rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .combo-model-more:hover { background: rgba(255, 138, 42, 0.18); }
     /* Combo editor: ordered model list with reorder / remove controls. */
     .combo-model-list { display: flex; flex-direction: column; gap: 6px; margin: 4px 0; }
     .combo-model-row { display: flex; align-items: center; gap: 6px; background: var(--panel-hover); border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; }
@@ -607,8 +948,6 @@
     .combo-picker-row { display: flex; align-items: center; gap: 8px; padding: 7px 10px; cursor: pointer; border-bottom: 1px solid var(--border); }
     .combo-picker-row:last-child { border-bottom: none; }
     .combo-picker-row:hover { background: var(--panel-hover); }
-    /* The combo table's model chips must wrap instead of overflowing the cell. */
-    .combo-model-cell { display: flex; flex-wrap: wrap; gap: 4px; max-height: 96px; overflow-y: auto; }
     .sub-id { font-size: 0.75rem; color: var(--muted); font-family: monospace; display: block; margin-top: 2px; }
 
     /* ============================================================
@@ -844,7 +1183,10 @@
     .usage-card .usage-card-value { font-size: 1.5rem; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .usage-card .usage-card-sub { font-size: 0.66rem; color: var(--muted); }
 
-    .usage-two-col { display: grid; grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr); gap: 12px; align-items: stretch; }
+    /* Wider right column: a 1fr track squeezed the model id, the token pair and
+       the relative time into the same horizontal space, so everything was
+       tight. See .usage-recent below for the row-count this buys. */
+    .usage-two-col { display: grid; grid-template-columns: minmax(0, 3fr) minmax(360px, 2fr); gap: 12px; align-items: stretch; }
     @media (max-width: 1024px) { .usage-two-col { grid-template-columns: minmax(0, 1fr); } }
 
     .usage-chart { position: relative; height: 220px; width: 100%; }
@@ -910,12 +1252,24 @@
     .topo-legend i { display: inline-block; width: 16px; height: 2px; margin-right: 6px; vertical-align: middle; }
 
     .usage-section-label { font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); }
-    .usage-recent { max-height: 420px; overflow-y: auto; }
+    /* The card is the grid's right-hand column and shares its height with the
+       topology card beside it, so the list is given room to show a useful
+       number of rows instead of scrolling after four. Rows are 33px
+       (6px padding + 21px line + 1px border); ~14 fit before it scrolls. */
+    .usage-recent { flex: 1 1 auto; min-height: 0; max-height: 560px; overflow-y: auto; }
     .usage-recent table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
-    .usage-recent th { text-align: left; font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); padding: 6px 8px; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--panel); }
-    .usage-recent td { padding: 6px 8px; border-bottom: 1px solid var(--border); }
-    .usage-recent .usage-model { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-    .usage-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; }
+    .usage-recent th { text-align: left; font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); padding: 7px 10px; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--panel); }
+    .usage-recent td { padding: 7px 10px; border-bottom: 1px solid var(--border); }
+    /* No max-width: the cell is already bounded by the table, and a 140px cap
+       truncated ids like gemini-3.8-flash-high while the column still had room.
+       min-width:0 on the flex child is what lets it ellipsis when the table is
+       genuinely narrow. */
+    .usage-recent .usage-model { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    /* Status dot and model name share one cell so the dot sits against the name.
+       As a separate table column the dot was pushed to the cell edge and the
+       padding left a gap, which read as the dot belonging to nothing. */
+    .usage-model-cell { display: flex; align-items: center; gap: 6px; min-width: 0; }
+    .usage-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex: 0 0 8px; }
     .usage-dot.ok { background: #3fb950; }
     .usage-dot.err { background: #f85149; }
 
@@ -1027,8 +1381,31 @@
 </head>
 <body>
 
+<!-- Hide the shell before anything paints.
+
+     The main bundle cannot do this: it runs after checkAuth() resolves, and until
+     then the sidebar and empty panes would be visible to a signed-out visitor
+     for as long as the status request takes. This inline script is synchronous,
+     so the first frame is already correct.
+
+     It adds the class unconditionally; checkAuth removes it on every successful
+     path. If JS is disabled the class stays and the dashboard never shows, which
+     is the safe direction to fail for an authenticated UI. The login screen is
+     shown by checkAuth for the same reason. -->
+<script>
+  document.body.classList.add("needs-login");
+</script>
+
 <!-- SIDEBAR NAVIGATION -->
 <aside class="sidebar" id="sidebar">
+  <!-- macOS window ornament, as on the VansRouter rail. Decorative only: it
+       echoes the desktop-client framing without claiming the page is a window,
+       so it is aria-hidden and the dots carry no click handlers. -->
+  <div class="traffic-lights" aria-hidden="true">
+    <span class="tl tl-close"></span>
+    <span class="tl tl-min"></span>
+    <span class="tl tl-zoom"></span>
+  </div>
   <div class="sidebar-brand">
     <span class="brand-mark" aria-hidden="true">
       <!-- Spider web (the router mesh) with the router node at its centre.
@@ -1045,11 +1422,14 @@
         <circle cx="14" cy="14" r="2.5" fill="#ffb066" />
       </svg>
     </span>
+    <!-- Wordmark over the version line, with the GO marker trailing the name on
+         the same baseline. The name is the product identity; GO says which
+         engine this build runs. The version sits under both so it reads as part
+         of the lockup rather than a third badge. -->
     <span class="brand-text">
-      <span class="brand-name">9Router</span>
+      <span class="brand-name">9Router <span class="brand-go">GO</span></span>
       <span class="brand-version" id="brand-version" hidden></span>
     </span>
-    <span class="badge badge-go">Go</span>
   </div>
 
   <button id="nav-update" class="update-pill" onclick="promptUpdate()" hidden
@@ -1064,15 +1444,10 @@
     <button class="nav-btn" id="nav-providers" onclick="navigateTab('providers')"><span class="nav-icon">dns</span> Providers</button>
     <button class="nav-btn" id="nav-combos" onclick="navigateTab('combos')"><span class="nav-icon">merge</span> Combos</button>
     <button class="nav-btn" id="nav-console" onclick="navigateTab('console')"><span class="nav-icon">terminal</span> Console Log</button>
-    <button class="nav-btn" id="nav-health" onclick="navigateTab('health')"><span class="nav-icon">cardiology</span> Health &amp; Setup</button>
 
     <div class="nav-group-label">Configuration</div>
     <button class="nav-btn" id="nav-settings" onclick="navigateTab('settings')"><span class="nav-icon">settings</span> Settings</button>
   </nav>
-
-  <div class="sidebar-foot">
-    <button class="btn btn-sm" onclick="signOut()" id="auth-status-btn"><span class="msym" style="font-size:15px;">logout</span> Sign out</button>
-  </div>
 </aside>
 
 <div class="sidebar-scrim" id="sidebar-scrim" onclick="toggleSidebar(false)"></div>
@@ -1083,8 +1458,15 @@
     <button class="sidebar-toggle" id="sidebar-toggle" onclick="toggleSidebar()" aria-label="Toggle navigation">☰</button>
     <div id="page-title" style="font-weight:600; color:#fff;">Endpoint &amp; Key</div>
   </div>
-  <div>
+  <div style="display:flex; align-items:center; gap:10px;">
     <span class="badge badge-go">Go Engine</span>
+    <!-- Sign out lives in the top-right corner rather than at the bottom of the
+         rail: it is an app-level action, and at the foot of a scrolling nav it
+         could sit below the fold on a short window. -->
+    <button class="btn btn-sm header-signout" onclick="signOut()" id="auth-status-btn"
+            title="Sign out of the dashboard">
+      <span class="msym" style="font-size:15px;">logout</span> <span class="header-signout-label">Sign out</span>
+    </button>
   </div>
 </header>
 
@@ -1118,12 +1500,6 @@
           <button class="btn btn-sm" onclick="copyEndpoint('endpoint-docker', this)">Copy</button>
         </div>
       </div>
-
-      <!-- The endpoint is only useful if the operator knows what to paste into
-           a client. This block used to live on the retired Overview tab. -->
-      <p style="font-size: 0.85rem; color: var(--muted); margin: 16px 0 8px;">Use this proxy with any OpenAI- or Claude-compatible client:</p>
-      <div class="code-block" id="curl-sample"></div>
-      <button class="btn btn-sm" style="margin-top: 10px;" onclick="copyCurlSample(this)">Copy command</button>
     </div>
 
     <!-- SECURITY -->
@@ -1132,16 +1508,27 @@
         <span class="section-title" style="font-size: 1rem;">🔐 Security</span>
       </div>
       <div class="endpoint-security">
+        <!-- Writes the same settings key VansRouter's endpoint page writes,
+             so a value flipped in either dashboard is the value the other one
+             reads back on a shared database. -->
         <div class="endpoint-lock">
           <strong>Require API key</strong>
-          <span class="badge badge-ok">Always on</span>
-          <p>Every request to <code>/v1/*</code> must carry a valid key. This build does not expose a switch to turn it off.</p>
+          <span class="badge" id="require-apikey-badge">On</span>
+          <label class="switch" title="Require a valid key on every /v1/* request">
+            <input type="checkbox" id="require-apikey-toggle" checked
+                   onchange="saveRequireApiKey(this.checked)">
+            <span class="slider"></span>
+          </label>
+          <p>Every request to <code>/v1/*</code> must carry a valid key. Turning this off leaves the proxy open to anyone who can reach this port.</p>
         </div>
         <div class="endpoint-lock">
           <strong>Dashboard session</strong>
           <span class="badge badge-ok">Scoped</span>
           <p>A login cookie only opens <code>/api/dashboard/*</code> and <code>/api/oauth/*</code>. It can never reach the model proxy.</p>
         </div>
+      </div>
+      <div class="endpoint-warn" id="require-apikey-warn" style="display:none;">
+        ⚠️ API key requirement is OFF — this endpoint answers unauthenticated requests.
       </div>
       <div class="endpoint-warn" id="endpoint-exposed-warn" style="display:none;">
         ⚠️ This server is reachable from another machine and a key can be used from anywhere. Treat keys as secrets.
@@ -1214,7 +1601,7 @@
           <div id="usage-topology" class="usage-topology"><div class="usage-empty">Loading…</div></div>
         </div>
 
-        <div class="card" style="display:flex; flex-direction:column; gap:10px;">
+        <div class="card" style="display:flex; flex-direction:column; gap:10px; min-height:0;">
           <span class="usage-section-label">Recent Requests</span>
           <div id="usage-recent" class="usage-recent"></div>
         </div>
@@ -1359,21 +1746,8 @@
       <button class="btn btn-primary" onclick="openAddComboModal()">+ Create Combo</button>
     </div>
 
-    <div class="table-container">
-      <table>
-        <thead>
-          <tr>
-            <th>Combo Alias</th>
-            <th>Target Models (Waterfall Priority)</th>
-            <th>Strategy</th>
-            <th>Created</th>
-            <th style="text-align: right;">Actions</th>
-          </tr>
-        </thead>
-        <tbody id="combos-table-body">
-          <tr><td colspan="5" style="text-align: center; color: var(--muted);">Loading combos...</td></tr>
-        </tbody>
-      </table>
+    <div id="combos-grid" class="combo-grid">
+      <div class="combo-empty">Loading combos...</div>
     </div>
   </div>
 
@@ -1656,29 +2030,6 @@
   </div>
 
   <!-- HEALTH & SETUP TAB -->
-  <div id="tab-health" class="tab-pane">
-    <div class="section-header">
-      <div>
-        <h2 class="section-title">System Health & Client Setup</h2>
-        <p style="font-size: 0.85rem; color: var(--muted);">Diagnostic tools and drop-in config for popular coding agents</p>
-      </div>
-      <button class="btn" onclick="syncCatalog()">🔄 Refresh Catalog</button>
-    </div>
-
-    <div class="card" style="margin-bottom: 20px;">
-      <h3 style="color: #fff; margin-bottom: 8px;">Claude Code CLI (~/.claude/config.json)</h3>
-      <div class="code-block" id="endpoint-json-sample"></div>
-    </div>
-
-    <div class="card" style="margin-bottom: 20px;">
-      <h3 style="color: #fff; margin-bottom: 8px;">Cursor IDE / Cline / Windsurf (OpenAI Compatible)</h3>
-      <div class="code-block" id="anthropic-sample"></div>
-    </div>
-
-    <div class="card">
-      <h3 style="color: #fff; margin-bottom: 8px;">Direct Anthropic Messages Endpoint</h3>
-      <div class="code-block" id="anthropic-curl-sample"></div>
-    </div>
   </div>
 </main>
 </div><!-- /.shell -->
@@ -1697,7 +2048,7 @@
     (function () {
       var raw = (location.hash || "").replace(/^#/, "");
       var parts = raw.split("/").filter(Boolean).map(decodeURIComponent);
-      var tabs = ["endpoint", "usage", "providers", "combos", "console", "health", "settings"];
+      var tabs = ["endpoint", "usage", "providers", "combos", "console", "settings"];
       var pane = null, nav = null;
       if (parts[0] === "provider" && parts[1]) {
         pane = document.getElementById("tab-provider-detail");
@@ -1714,7 +2065,7 @@
       // Keep the top-bar title correct on the first frame as well, otherwise it
       // would read the default title until the bundle runs.
       var titles = { endpoint: "Endpoint & Key", usage: "Usage", providers: "Providers", combos: "Combos",
-                     console: "Console Log", health: "Health & Setup", settings: "Settings",
+                     console: "Console Log", settings: "Settings",
                      "provider-detail": "Provider Detail" };
       var t = document.getElementById("page-title");
       if (t) t.textContent = titles[pane.id.replace(/^tab-/, "")] || "Endpoint & Key";
@@ -1753,32 +2104,53 @@
   </div>
 </div>
 
-<div class="modal-overlay" id="login-modal">
-  <div class="modal-box" style="max-width: 420px; text-align: center;">
-    <div style="margin-bottom: 12px;"><span class="msym" style="font-size:38px; color: var(--primary);">bolt</span></div>
-    <h2 style="font-size: 1.3rem; margin-bottom: 6px;">Sign in to 9Router</h2>
-    <p id="login-subtitle" style="font-size: 0.85rem; color: var(--muted); margin-bottom: 20px;">Enter your dashboard password to unlock this dashboard.</p>
+<!-- LOGIN SCREEN
 
-    <div id="login-password-fields" style="text-align: left;">
+     A full-page screen, not a modal over the dashboard. As a modal the shell
+     stayed mounted and visible behind it, so the sidebar, page title and empty
+     panes were on screen before the operator had authenticated.
+
+     It is hidden by default and revealed by checkAuth(); the shell is hidden
+     while it is up, so the first paint never shows the dashboard to a stranger.
+     There is no API-key path here: a client key is for /v1/* and cannot open
+     the dashboard (upstream VansRouter has never allowed it either). -->
+<div id="login-screen" class="login-screen" hidden>
+  <div class="login-card">
+    <div class="login-brand">
+      <span class="brand-mark" aria-hidden="true">
+        <svg width="30" height="30" viewBox="0 0 28 28" fill="none">
+          <g stroke="#ff8a2a" stroke-width="1.3" stroke-linecap="round">
+            <path d="M14 2.2v23.6M2.2 14h23.6M5.6 5.6l16.8 16.8M22.4 5.6L5.6 22.4" opacity="0.9" />
+            <circle cx="14" cy="14" r="4.6" opacity="0.62" fill="none" />
+            <path d="M9.4 14a4.6 4.6 0 0 1 4.6-4.6M14 9.4a4.6 4.6 0 0 1 4.6 4.6M18.6 14a4.6 4.6 0 0 1-4.6 4.6M14 18.6A4.6 4.6 0 0 1 9.4 14" opacity="0.62" />
+            <circle cx="14" cy="14" r="8.6" opacity="0.34" fill="none" />
+          </g>
+          <circle cx="14" cy="14" r="2.5" fill="#ffb066" />
+        </svg>
+      </span>
+      <h1 class="login-title">9Router <span class="brand-go">GO</span></h1>
+      <p class="login-sub">Sign in to the dashboard to continue</p>
+    </div>
+
+    <form id="login-form" onsubmit="submitLogin(event)">
       <div class="form-group">
-        <label>Password</label>
-        <input type="password" id="login-password-input" placeholder="Password" autofocus autocomplete="current-password">
+        <label for="login-password-input">Password</label>
+        <input type="password" id="login-password-input" placeholder="Enter your password"
+               autocomplete="current-password" autofocus>
       </div>
-      <div id="login-reset-hint" style="font-size: 0.75rem; color: var(--muted); margin-bottom: 12px; display: none;"></div>
-    </div>
 
-    <div id="login-key-fields" style="text-align: left; display: none;">
-      <div class="form-group">
-        <label>Client API Key</label>
-        <input type="password" id="login-key-input" placeholder="sk-..." autocomplete="off">
-      </div>
-    </div>
+      <div id="login-reset-hint" class="login-hint" hidden></div>
+      <div id="login-error" class="login-error" hidden></div>
 
-    <div id="login-error" style="color: var(--danger); font-size: 0.8rem; margin-bottom: 12px; display: none;"></div>
-    <button class="btn btn-primary" id="login-submit-btn" style="width: 100%; justify-content: center;" onclick="submitLogin()">Unlock Dashboard</button>
-    <div style="margin-top: 14px; font-size: 0.78rem;">
-      <a href="#" id="login-toggle-mode" onclick="toggleLoginMode(event)" style="color: var(--accent);">Use an API key instead</a>
-    </div>
+      <button class="btn btn-primary login-submit" id="login-submit-btn" type="submit">
+        Sign In
+      </button>
+    </form>
+
+    <p class="login-foot">
+      The dashboard password is set on first run. It is not a client API key:
+      keys authorise <code>/v1/*</code> and cannot open this page.
+    </p>
   </div>
 </div>
 
@@ -2115,10 +2487,10 @@
 </div>
 
 <script>
-  let authKey = localStorage.getItem("nine_api_key") || "";
-  // Dashboard login state. loginMode is "password" (default) or "key" (legacy
-  // API-key path); authHasPassword reflects whether a password has been set yet.
-  let loginMode = "password";
+  // Dashboard login state. Password only: the dashboard used to accept a client
+  // API key here as well, which made a key meant for /v1/* into a dashboard
+  // credential. Upstream VansRouter has never allowed that, and a key cannot be
+  // scoped or revoked per browser the way a session can.
   let authHasPassword = false;
   let lockCountdownTimer = null;
   let allProviders = [];
@@ -2129,14 +2501,9 @@
 
   function api(url, opts = {}) {
     opts.headers = opts.headers || {};
-    // Only send the legacy API key when we actually have one. Once the dashboard
-    // is unlocked by the password login the session cookie is what authenticates
-    // (it is httpOnly, so JS cannot read it — the browser attaches it). Sending
-    // `Bearer ` with an empty value makes the server reject a request that the
-    // cookie would otherwise have authorised.
-    if (authKey) {
-      opts.headers["Authorization"] = "Bearer " + authKey;
-    }
+    // The httpOnly session cookie is what authenticates this request; it is set
+    // by the password login and the browser attaches it automatically. JS cannot
+    // read it, which is the point.
     opts.headers["Content-Type"] = "application/json";
     return fetch(url, opts);
   }
@@ -2203,14 +2570,14 @@
   // The hash is the natural home for this: it survives reload, and it gives the
   // browser's back/forward buttons something meaningful to move through.
   //
-  // Shape: `#endpoint`, `#providers`, `#combos`, `#keys`, `#health`, `#settings`,
+  // Shape: `#endpoint`, `#providers`, `#combos`, `#console`, `#settings`,
   // or `#provider/<id>` / `#provider/<id>/<subtab>` for a provider detail page.
-  const HASH_TABS = ["endpoint", "usage", "providers", "combos", "console", "health", "settings"];
+  const HASH_TABS = ["endpoint", "usage", "providers", "combos", "console", "settings"];
 
   // Page titles shown in the top bar, keyed by tab id.
   const TAB_TITLES = {
     endpoint: "Endpoint & Key", usage: "Usage", providers: "Providers", combos: "Combos",
-    console: "Console Log", health: "Health & Setup", settings: "Settings",
+    console: "Console Log", settings: "Settings",
     "provider-detail": "Provider Detail",
   };
 
@@ -2391,14 +2758,12 @@
     } catch (_) {}
   }
 
-  // consoleLogURL returns the console-log endpoint with the API key attached as
-  // a query parameter. EventSource cannot send an Authorization header, so the
-  // key has to travel in the URL for the API-key login path. When the operator
-  // signed in with the dashboard password there is no authKey and the browser's
-  // httpOnly session cookie authenticates the request instead, so the URL is
-  // left untouched.
+  // consoleLogURL returns the console-log endpoint. EventSource cannot send an
+  // Authorization header, but it does send cookies for same-origin requests, so
+  // the httpOnly session cookie authenticates it and no query parameter is
+  // needed.
   function consoleLogURL(path) {
-    return authKey ? path + "?key=" + encodeURIComponent(authKey) : path;
+    return path;
   }
 
   function startConsoleLogs() {
@@ -2719,7 +3084,7 @@
   // operator is signed in.
   window.addEventListener("hashchange", () => {
     if (writingHash) return;
-    if (document.getElementById("login-modal").classList.contains("active")) return;
+    if (document.body.classList.contains("needs-login")) return;
     restoreFromHash();
   });
 
@@ -2741,11 +3106,6 @@
   // routing for no-auth providers. Kept in state so the Proxy tab can save a
   // full-replace map without re-reading settings first.
   let providerStrategies = {};
-
-  // The origin clients should call, derived from where the dashboard is served.
-  // Empty until renderEndpointHost runs; the copy-paste samples read it so they
-  // cannot disagree with the URL shown beside them.
-  let svcEndpointBase = "";
 
   // keepTab: passed by actions taken from inside the panel (add/import/remove
   // model, auto-disable) so a re-fetch does not kick the operator off the tab
@@ -4472,7 +4832,7 @@
   async function checkForUpdate() {
     try {
       // The list endpoint is served from the server's cache, so this is cheap.
-      const res = await fetch("/api/dashboard/update/status", { headers: authKey ? { Authorization: "Bearer " + authKey } : {} });
+      const res = await fetch("/api/dashboard/update/status");
       if (!res.ok) return; // not signed in yet, or the route is absent on an older build
       const st = await res.json();
       updateState = st;
@@ -4481,12 +4841,13 @@
     } catch (_) { /* a failed check must never break the dashboard */ }
   }
 
-  // The running build, shown in the sidebar and the browser tab. Both come from
-  // the server rather than a hardcoded string so an update is visible without a
-  // rebuild of this page.
+  // The running build, shown in the sidebar badge and the browser tab. Both come
+  // from the server rather than a hardcoded string so an update is visible
+  // without a rebuild of this page.
   function renderVersion(st) {
     const v = st && st.currentVersion;
     if (!v) return;
+    // The badge carries the version next to the Go marker: "Go 1.8.30".
     const el = document.getElementById("brand-version");
     if (el) { el.textContent = "v" + v; el.hidden = false; }
     document.title = "9Router v" + v + " • AI Gateway";
@@ -4514,7 +4875,7 @@
 
     // Re-check before showing details: the cached state may be half an hour old.
     try {
-      const res = await fetch("/api/dashboard/update/check", { headers: authKey ? { Authorization: "Bearer " + authKey } : {} });
+      const res = await fetch("/api/dashboard/update/check");
       if (res.ok) { updateState = await res.json(); renderUpdateButton(); }
     } catch (_) { /* fall back to the cached state below */ }
 
@@ -4593,7 +4954,7 @@
         // well as in the signed-in dashboard.
         renderVersion(st);
         if (st.requireLogin === false) {
-          document.getElementById("login-modal").classList.remove("active");
+          hideLoginScreen();
           restoreFromHash();
           startUpdatePolling();
           return;
@@ -4610,7 +4971,7 @@
       if (res.ok) {
         const s = await res.json();
         if (s.authenticated) {
-          document.getElementById("login-modal").classList.remove("active");
+          hideLoginScreen();
           restoreFromHash();
           startUpdatePolling();
           return;
@@ -4618,72 +4979,45 @@
       }
     } catch (e) { /* fall through to the login prompt */ }
 
-    // Legacy API-key sessions: only relevant for browsers that stored a key
-    // before password login existed.
-    if (authKey) {
-      try {
-        const res = await api("/api/dashboard/auth/verify", {
-          method: "POST",
-          body: JSON.stringify({ key: authKey })
-        });
-        if (res.ok) {
-          document.getElementById("login-modal").classList.remove("active");
-          restoreFromHash();
-          startUpdatePolling();
-          return;
-        }
-      } catch (e) { /* ignore, show login */ }
-    }
+    // Legacy API-key sessions are gone: the dashboard is password-only, so a
+    // stored key from an older build is cleared rather than used.
+    try { localStorage.removeItem("nine_api_key"); } catch (_) {}
 
-    showLoginModal();
+    showLoginScreen();
   }
 
-  function showLoginModal(msg, resetHintText) {
-    document.getElementById("login-modal").classList.add("active");
-    setLoginMode("password");
+  function showLoginScreen(msg, resetHintText) {
+    document.body.classList.add("needs-login");
+    const screen = document.getElementById("login-screen");
+    if (screen) screen.hidden = false;
+    setLoginError("");
     if (msg) setLoginError(msg);
     const hintEl = document.getElementById("login-reset-hint");
-    if (resetHintText) {
-      hintEl.innerText = resetHintText;
-      hintEl.style.display = "block";
+    if (hintEl) {
+      hintEl.innerText = resetHintText || "";
+      hintEl.hidden = !resetHintText;
     }
+    const input = document.getElementById("login-password-input");
+    if (input) input.focus();
   }
 
-  function setLoginMode(mode) {
-    loginMode = mode;
-    const isPassword = mode === "password";
-    document.getElementById("login-password-fields").style.display = isPassword ? "" : "none";
-    document.getElementById("login-key-fields").style.display = isPassword ? "none" : "";
-    document.getElementById("login-subtitle").innerText = isPassword
-      ? "Enter your dashboard password to unlock this dashboard."
-      : "Enter a client API key to unlock this dashboard.";
-    document.getElementById("login-toggle-mode").innerText = isPassword
-      ? "Use an API key instead"
-      : "Use the dashboard password";
-    document.getElementById("login-submit-btn").innerText = isPassword ? "Unlock Dashboard" : "Unlock with API Key";
-    const focusEl = document.getElementById(isPassword ? "login-password-input" : "login-key-input");
-    if (focusEl) focusEl.focus();
-  }
-
-  function toggleLoginMode(ev) {
-    if (ev) ev.preventDefault();
-    setLoginError("");
-    setLoginMode(loginMode === "password" ? "key" : "password");
+  // hideLoginScreen reveals the dashboard. Called on every successful auth path
+  // (no-login mode, an existing cookie, or a fresh password login).
+  function hideLoginScreen() {
+    document.body.classList.remove("needs-login");
+    const screen = document.getElementById("login-screen");
+    if (screen) screen.hidden = true;
   }
 
   function setLoginError(msg) {
     const el = document.getElementById("login-error");
+    if (!el) return;
     el.innerText = msg || "";
-    el.style.display = msg ? "block" : "none";
+    el.hidden = !msg;
   }
 
-  async function submitLogin() {
-    if (loginMode === "password") {
-      await submitPasswordLogin();
-    } else {
-      await submitKeyLogin();
-    }
-  }
+  // The login form is password-only, so there is no mode to switch and no
+  // dispatch: submitting always runs the password path.
 
   async function submitPasswordLogin() {
     const password = document.getElementById("login-password-input").value;
@@ -4700,8 +5034,9 @@
       if (res.ok && data.success) {
         setLoginError("");
         document.getElementById("login-password-input").value = "";
-        document.getElementById("login-reset-hint").style.display = "none";
-        document.getElementById("login-modal").classList.remove("active");
+        const hint = document.getElementById("login-reset-hint");
+        if (hint) hint.hidden = true;
+        hideLoginScreen();
         restoreFromHash();
         startUpdatePolling();
         return;
@@ -4727,7 +5062,7 @@
         clearInterval(lockCountdownTimer);
         lockCountdownTimer = null;
         btn.disabled = false;
-        btn.innerText = "Unlock Dashboard";
+        btn.innerText = "Sign In";
         return;
       }
       btn.innerText = `Locked — retry in ${remaining}s`;
@@ -4737,27 +5072,11 @@
     lockCountdownTimer = setInterval(tick, 1000);
   }
 
-  async function submitKeyLogin() {
-    const key = document.getElementById("login-key-input").value.trim();
-    if (!key) return;
-    try {
-      const res = await fetch("/api/dashboard/auth/verify", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ key })
-      });
-      if (res.ok) {
-        authKey = key;
-        localStorage.setItem("nine_api_key", key);
-        document.getElementById("login-modal").classList.remove("active");
-        restoreFromHash();
-        startUpdatePolling();
-      } else {
-        setLoginError("Invalid or inactive API key");
-      }
-    } catch (e) {
-      setLoginError(e.message);
-    }
+  // The form is a real <form>, so Enter submits it natively; the handler takes
+  // the event to suppress the default full-page navigation.
+  async function submitLogin(event) {
+    if (event) event.preventDefault();
+    await submitPasswordLogin();
   }
 
   async function signOut() {
@@ -4765,10 +5084,6 @@
     try {
       await fetch("/api/dashboard/auth/logout", { method: "POST" });
     } catch (e) { /* best effort */ }
-    // The API key is a local convenience, not the session: drop it so a shared
-    // machine does not silently re-authenticate the next person.
-    localStorage.removeItem("nine_api_key");
-    authKey = "";
     // Drop the remembered view too: restoring it after sign-out would open a
     // provider page against a session that no longer exists.
     history.replaceState(null, "", location.pathname);
@@ -4797,6 +5112,52 @@
   // so opening the dashboard over Tailscale or a LAN IP shows that host rather
   // than a hard-coded localhost that would not work from their other machine.
   //
+  // The API-key requirement, as last reported by GET /api/dashboard/settings.
+  // Kept in a variable so the endpoint page can repaint the switch whenever the
+  // settings response lands, without re-fetching from renderEndpointHost.
+  let apiKeyRequired = true;
+
+  function renderRequireApiKey(required) {
+    apiKeyRequired = required !== false;
+    const toggle = document.getElementById("require-apikey-toggle");
+    if (toggle) toggle.checked = apiKeyRequired;
+    const badge = document.getElementById("require-apikey-badge");
+    if (badge) {
+      badge.textContent = apiKeyRequired ? "On" : "Off";
+      badge.className = apiKeyRequired ? "badge badge-ok" : "badge badge-err";
+    }
+    const warn = document.getElementById("require-apikey-warn");
+    if (warn) warn.style.display = apiKeyRequired ? "none" : "";
+  }
+
+  // Writes requireApiKey to the shared settings row. VansRouter writes the same
+  // key, so the value survives a move between the two dashboards.
+  async function saveRequireApiKey(required) {
+    const toggle = document.getElementById("require-apikey-toggle");
+    // Paint optimistically so the control does not sit stale during the request,
+    // then roll back to the server's answer — which is authoritative — or to the
+    // previous value if the write failed.
+    const previous = apiKeyRequired;
+    renderRequireApiKey(required);
+    try {
+      const res = await fetch("/api/dashboard/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ requireApiKey: required }),
+      });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const data = await res.json();
+      renderRequireApiKey(data.requireApiKey);
+      setMsg("require-apikey-msg", required
+        ? "API key now required on /v1/*."
+        : "API key requirement removed — /v1/* is open.", required ? true : false);
+    } catch (e) {
+      renderRequireApiKey(previous);
+      if (toggle) toggle.checked = previous;
+      setMsg("require-apikey-msg", "Could not save: " + e.message, false);
+    }
+  }
+
   // Behind a reverse proxy the browser sees no port (https://example.com), and
   // falling back to the listen port produced a wrong URL: the internal port is
   // not what a client dials, and it is not even open to them. When there is no
@@ -4811,6 +5172,7 @@
       : `${location.protocol}//${host}:${location.port}`;
     const local = document.getElementById("endpoint-local");
     if (local) local.value = `${origin}/v1`;
+    renderRequireApiKey(apiKeyRequired);
     const docker = document.getElementById("endpoint-docker");
     if (docker) {
       // host.docker.internal reaches the host from a container, so only the
@@ -4820,8 +5182,6 @@
         ? `http://host.docker.internal:${listenPortValue()}/v1`
         : `${origin}/v1`;
     }
-    svcEndpointBase = origin;
-    refreshEndpointSamples();
     // A loopback host means only this machine can reach the proxy; anything
     // else is exposed, and that is worth saying out loud next to the key list.
     const localHosts = ["localhost", "127.0.0.1", "::1", "0.0.0.0", ""];
@@ -4835,28 +5195,6 @@
     const el = document.getElementById("set-listen-port");
     const v = el && el.textContent ? el.textContent.trim() : "";
     return /^[0-9]+$/.test(v) ? v : "";
-  }
-
-  // Rebuild the copy-paste samples from svcEndpointBase so the curl commands
-  // and config snippets cannot drift from the URL shown above them.
-  function refreshEndpointSamples() {
-    const base = svcEndpointBase || `${location.protocol}//${location.hostname}`;
-    const curl = document.getElementById("curl-sample");
-    if (curl) {
-      curl.textContent = `curl ${base}/v1/chat/completions \\\n  -H "Authorization: Bearer <YOUR_KEY>" \\\n  -H "Content-Type: application/json" \\\n  -d '{"model": "gemini-3.7-flash", "messages": [{"role": "user", "content": "Hello!"}]}'`;
-    }
-    const anthropic = document.getElementById("anthropic-sample");
-    if (anthropic) {
-      anthropic.textContent = `Base URL: ${base}/v1\nAPI key:  <YOUR_KEY>\n`;
-    }
-    const anthCurl = document.getElementById("anthropic-curl-sample");
-    if (anthCurl) {
-      anthCurl.textContent = `curl ${base}/v1/messages \\\n  -H "x-api-key: <YOUR_KEY>" \\\n  -H "anthropic-version: 2023-06-01" \\\n  -H "Content-Type: application/json"`;
-    }
-    const json = document.getElementById("endpoint-json-sample");
-    if (json) {
-      json.textContent = `{\n  "apiBaseUrl": "${base}/v1"\n}`;
-    }
   }
 
   // The status pill probes the public /health route from the browser, the same
@@ -4877,11 +5215,6 @@
   function copyEndpoint(id, btn) {
     const el = document.getElementById(id);
     if (el) copyText(el.value, btn);
-  }
-
-  function copyCurlSample(btn) {
-    const el = document.getElementById("curl-sample");
-    if (el) copyText(el.innerText, btn);
   }
 
   function copyText(text, btn) {
@@ -5713,30 +6046,127 @@
       if (!res.ok) return;
       const combos = await res.json();
       lastCombos = combos;
-      const tbody = document.getElementById("combos-table-body");
+      const grid = document.getElementById("combos-grid");
+      if (!grid) return;
       if (!combos.length) {
-        tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--muted); padding: 24px;">No combos configured.</td></tr>`;
+        grid.innerHTML = '<div class="combo-empty">No combos configured.</div>';
         return;
       }
-      tbody.innerHTML = combos.map(c => `
-        <tr>
-          <td><strong style="color: #ffb066; font-family: monospace;">${escapeHtml(c.name)}</strong></td>
-          <td>
-            <div class="combo-model-cell">
-              ${(c.models || []).map(m => `<span class="tag" title="${escapeAttr(m)}">${escapeHtml(m)}</span>`).join("")}
-            </div>
-          </td>
-          <td><span class="badge badge-dim">${escapeHtml(c.strategy || 'fallback')}</span></td>          <td style="color:var(--muted); font-size: 0.8rem;">${c.createdAt ? c.createdAt.substring(0, 10) : '-'}</td>
-          <td style="text-align: right; white-space: nowrap;">
-            <button class="btn btn-sm" onclick="editCombo('${c.id}')">Edit</button>
-            <button class="btn btn-sm btn-danger" onclick="deleteCombo('${c.id}')">Delete</button>
-          </td>
-        </tr>
-      `).join("");
+      grid.innerHTML = combos.map(c => comboCard(c)).join("");
     } catch(e) {
       console.error(e);
     }
   }
+
+  // comboCard renders one combo.
+  //
+  // The card carries only what is scanned for — the alias and its strategy —
+  // plus the three actions. The model list is deliberately demoted to a count:
+  // a combo can hold 28 models, and rendering them inline was what made the old
+  // table unreadable. The full list stays reachable through the count, which
+  // re-renders the card body on click.
+  function comboCard(c) {
+    const models = c.models || [];
+    const count = models.length;
+    return `
+      <div class="combo-card" data-combo-card="${escapeAttr(c.id)}">
+        <div class="combo-card-top">
+          <span class="combo-card-name" title="${escapeAttr(c.name)}">${escapeHtml(c.name)}</span>
+          <span class="combo-card-strategy">${escapeHtml(c.strategy || "fallback")}</span>
+        </div>
+
+        <div class="combo-card-meta">
+          <button class="combo-card-toggle" onclick="toggleComboModels('${escapeAttr(c.id)}')"
+                  aria-expanded="false" title="Show target models">
+            <span class="msym">layers</span>
+            <span>${count} model${count === 1 ? "" : "s"}</span>
+            <span class="msym combo-card-caret">expand_more</span>
+          </button>
+        </div>
+
+        <div class="combo-card-models" hidden></div>
+
+        <div class="combo-card-actions">
+          <button class="icon-btn-sm is-edit" onclick="editCombo('${escapeAttr(c.id)}')"
+                  title="Edit combo" aria-label="Edit ${escapeAttr(c.name)}">
+            <span class="msym">edit</span>Edit
+          </button>
+          <button class="icon-btn-sm is-copy" onclick="copyCombo('${escapeAttr(c.id)}', this)"
+                  title="Copy the model id clients send" aria-label="Copy ${escapeAttr(c.name)}">
+            <span class="msym">content_copy</span>Copy
+          </button>
+          <button class="icon-btn-sm is-del" onclick="deleteCombo('${escapeAttr(c.id)}')"
+                  title="Delete combo" aria-label="Delete ${escapeAttr(c.name)}">
+            <span class="msym">delete</span>Delete
+          </button>
+        </div>
+      </div>`;
+  }
+
+  // copyCombo copies the alias, because that is the model id a client sends to
+  // the gateway — not the internal combo row id, which is a uuid and useless to
+  // the operator.
+  async function copyCombo(id, btn) {
+    const c = lastCombos.find(x => x.id === id);
+    if (!c) return;
+    try {
+      await navigator.clipboard.writeText(c.name);
+    } catch (_) {
+      window.prompt("Copy this model id:", c.name);
+      return;
+    }
+    if (btn) {
+      const label = btn.querySelector(".msym");
+      if (label) {
+        const prev = label.textContent;
+        label.textContent = "check";
+        setTimeout(() => { label.textContent = prev; }, 1200);
+      }
+    }
+  }
+
+  // toggleComboModels reveals the target list inside a card, rendering it on
+  // first expand only. The list is hidden by default so a 28-model combo does
+  // not dominate the grid.
+  function toggleComboModels(id) {
+    const c = lastCombos.find(x => x.id === id);
+    const card = document.querySelector(`[data-combo-card="${id}"]`);
+    const box = card && card.querySelector(".combo-card-models");
+    if (!c || !box) return;
+    if (box.hidden) {
+      if (!box.innerHTML) {
+        box.innerHTML = (c.models || []).map(m => modelChip(m)).join("");
+      }
+      box.hidden = false;
+    } else {
+      box.hidden = true;
+    }
+    const toggle = card.querySelector(".combo-card-toggle");
+    if (toggle) toggle.setAttribute("aria-expanded", box.hidden ? "false" : "true");
+  }
+
+  // modelChip renders one combo target as a provider-tinted chip.
+  //
+  // Combo ids are "provider/model", and for aggregator providers the model part
+  // itself contains another slash (bm/nvidia/llama-...). Splitting on the FIRST
+  // slash is what upstream ids expect; taking the last would label every
+  // bm/... row as its inner vendor.
+  function modelChip(full) {
+    const s = String(full || "");
+    const slash = s.indexOf("/");
+    const prov = slash > 0 ? s.slice(0, slash) : "";
+    const model = slash > 0 ? s.slice(slash + 1) : s;
+    // providerColor falls back to a neutral grey for ids with no registry entry,
+    // which keeps unknown prefixes visibly distinct from known ones.
+    const tint = prov ? providerColor(prov) : "#6b7280";
+    const label = prov ? providerLabel(prov) : "";
+    return `<span class="model-chip" style="--chip-tint:${escapeAttr(tint)}" title="${escapeAttr(s)}">` +
+      (prov ? `<span class="model-chip-prov"><span class="model-chip-dot"></span>${escapeHtml(label)}</span>` : "") +
+      `<span class="model-chip-name">${escapeHtml(model)}</span></span>`;
+  }
+
+  // showAllComboModels was the table's expander; the card replaced it with
+  // toggleComboModels, which reveals the same chip list inside the card.
 
   // ---- Combo editor -------------------------------------------------------
   // Combo names become client-facing model IDs (VansRouter parity), so keep
@@ -5827,12 +6257,8 @@
     if (comboModelCatalog && !force) return comboModelCatalog;
     try {
       // The dashboard session cookie authenticates this route (it is listed in
-      // the server's sessionPaths); the legacy API key is still sent when the
-      // operator logged in that way instead.
-      const headers = {};
-      if (authKey) headers["Authorization"] = "Bearer " + authKey;
-      const url = authKey ? "/v1/models?key=" + encodeURIComponent(authKey) : "/v1/models";
-      const res = await fetch(url, { headers });
+      // the server's sessionPaths).
+      const res = await fetch("/v1/models");
       if (!res.ok) {
         comboModelCatalogError = res.status === 401
           ? "Not signed in. Sign in to the dashboard to load the model list."
@@ -6205,11 +6631,6 @@
     }
   }
 
-  function syncCatalog() {
-    alert("Catalog refreshed from active provider connections.");
-    loadProviders();
-  }
-
   function escapeHtml(str) {
     if (!str) return "";
     return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -6221,12 +6642,9 @@
     return escapeHtml(str).replace(/'/g, "&#39;");
   }
 
-  // Enter submits the visible form, so a password manager or keyboard-only user
-  // gets the expected behaviour.
+  // Enter submits the form, so a password manager or keyboard-only user gets
+  // the expected behaviour. There is only one field now.
   document.getElementById("login-password-input").addEventListener("keydown", (e) => {
-    if (e.key === "Enter") { e.preventDefault(); submitLogin(); }
-  });
-  document.getElementById("login-key-input").addEventListener("keydown", (e) => {
     if (e.key === "Enter") { e.preventDefault(); submitLogin(); }
   });
 
@@ -6552,12 +6970,16 @@
     }
     el.innerHTML = `
       <table>
-        <thead><tr><th style="width:16px;"><span class="sr-only">Status</span></th><th>Model</th><th style="text-align:right;">In / Out</th><th style="text-align:right;">When</th></tr></thead>
+        <thead><tr><th>Model</th><th style="text-align:right;">In / Out</th><th style="text-align:right;">When</th></tr></thead>
         <tbody>${rows.map(r => {
           const ok = !r.status || r.status === "ok" || r.status === "success";
           return `<tr>
-            <td><span class="usage-dot ${ok ? "ok" : "err"}" aria-label="${ok ? "Success" : "Error"}"></span></td>
-            <td class="usage-model" title="${escapeHtml(r.model)}">${escapeHtml(r.model || "-")}</td>
+            <td>
+              <div class="usage-model-cell">
+                <span class="usage-dot ${ok ? "ok" : "err"}" aria-label="${ok ? "Success" : "Error"}"></span>
+                <span class="usage-model" title="${escapeHtml(r.model)}">${escapeHtml(r.model || "-")}</span>
+              </div>
+            </td>
             <td style="text-align:right;white-space:nowrap;"><span style="color:var(--primary)">${fmtNum(r.promptTokens)}↑</span> <span style="color:#3fb950">${fmtNum(r.completionTokens)}↓</span></td>
             <td style="text-align:right;color:var(--muted);white-space:nowrap;" data-ts="${escapeHtml(r.timestamp || "")}">${escapeHtml(timeAgo(r.timestamp))}</td>
           </tr>`;
@@ -6632,9 +7054,26 @@
   // providerNodeLabel renders a display name for a provider id. Generated
   // compatible-node ids are never shown to the operator, so those fall back to
   // the node name the connection carries.
+  // providerEntry resolves a provider id OR one of its short aliases.
+  //
+  // Combo targets are written with aliases (ag/… , cl/… , kr/…), because the
+  // model ids come from the router's own prefix table, while usageState.providers
+  // is keyed by canonical id. Matching only on provider/id meant every aliased
+  // model missed the registry entry, lost its colour and fell back to grey — and
+  // providerLabel returned the bare alias instead of the readable name.
+  //
+  // The server already resolves aliases (providers.AliasesFor) and ships them as
+  // `aliases` on each provider, so this reads that list rather than keeping a
+  // second alias table here that would drift.
   function providerEntry(id) {
     const key = String(id || "").toLowerCase();
-    return (usageState.providers || []).find(x => String(x.provider || x.id || "").toLowerCase() === key) || null;
+    if (!key) return null;
+    const list = usageState.providers || [];
+    return list.find(x => {
+      const own = String(x.provider || x.id || "").toLowerCase();
+      if (own === key) return true;
+      return Array.isArray(x.aliases) && x.aliases.some(a => String(a).toLowerCase() === key);
+    }) || null;
   }
 
   // Graph label. A generated node id (openai-compatible-chat-<uuid>) must never
