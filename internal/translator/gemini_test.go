@@ -625,3 +625,109 @@ func TestHardenAntigravityRequest_GuardsThinkingBudget(t *testing.T) {
 	}
 }
 
+// Antigravity/Vertex translate a Gemini functionCall into an Anthropic tool_use
+// when the model is a claude-* one, and that translation needs the id carried on
+// the part. Without it the upstream rejects the ENTIRE request with
+// 400 "messages.N.content.N.tool_use.id: Field required" — the model is unusable
+// for any conversation that used a tool.
+//
+// The public Gemini schema does not document an id, but the reference
+// implementation (VansRouter, chunks/2587.js) always sends one on both the call
+// and its response, so it is part of the wire format in practice.
+func TestTranslateOpenAIToGemini_CarriesToolCallIDs(t *testing.T) {
+	body := []byte(`{
+		"model": "ag/claude-opus-4-6-thinking",
+		"max_tokens": 100,
+		"messages": [
+			{"role": "user", "content": "jalankan echo"},
+			{"role": "assistant", "content": "Saya jalankan.", "tool_calls": [
+				{"id": "toolu_X1", "type": "function",
+				 "function": {"name": "bash_ide", "arguments": "{\"command\":\"echo hi\"}"}}
+			]},
+			{"role": "tool", "tool_call_id": "toolu_X1", "content": "hi"}
+		]
+	}`)
+
+	out, err := TranslateOpenAIToGemini(body)
+	if err != nil {
+		t.Fatalf("TranslateOpenAIToGemini: %v", err)
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal(out, &parsed); err != nil {
+		t.Fatalf("output is not valid JSON: %v", err)
+	}
+
+	var callID, respID string
+	for _, cRaw := range parsed["contents"].([]any) {
+		c, _ := cRaw.(map[string]any)
+		for _, pRaw := range c["parts"].([]any) {
+			p, _ := pRaw.(map[string]any)
+			if fc, ok := p["functionCall"].(map[string]any); ok {
+				callID, _ = fc["id"].(string)
+			}
+			if fr, ok := p["functionResponse"].(map[string]any); ok {
+				respID, _ = fr["id"].(string)
+			}
+		}
+	}
+
+	if callID == "" {
+		t.Fatal("functionCall.id is empty; Antigravity emits a tool_use without an id and the upstream 400s")
+	}
+	if respID == "" {
+		t.Fatal("functionResponse.id is empty; it no longer pairs with its call")
+	}
+	if callID != "toolu_X1" {
+		t.Errorf("functionCall.id = %q, want the original tool call id preserved", callID)
+	}
+	if respID != callID {
+		t.Errorf("functionResponse.id = %q, want it to match functionCall.id %q", respID, callID)
+	}
+}
+
+// History can arrive with no tool call id at all. A synthetic id is better than
+// an empty one, because empty is what the upstream rejects.
+func TestTranslateOpenAIToGemini_SynthesizesMissingToolCallID(t *testing.T) {
+	body := []byte(`{
+		"model": "ag/claude-opus-4-6-thinking",
+		"max_tokens": 100,
+		"messages": [
+			{"role": "user", "content": "jalankan echo"},
+			{"role": "assistant", "content": null, "tool_calls": [
+				{"type": "function", "function": {"name": "bash_ide", "arguments": "{}"}}
+			]},
+			{"role": "tool", "tool_call_id": "", "content": "hi"}
+		]
+	}`)
+
+	out, err := TranslateOpenAIToGemini(body)
+	if err != nil {
+		t.Fatalf("TranslateOpenAIToGemini: %v", err)
+	}
+	var parsed map[string]any
+	json.Unmarshal(out, &parsed)
+
+	var callID, respID string
+	for _, cRaw := range parsed["contents"].([]any) {
+		c, _ := cRaw.(map[string]any)
+		for _, pRaw := range c["parts"].([]any) {
+			p, _ := pRaw.(map[string]any)
+			if fc, ok := p["functionCall"].(map[string]any); ok {
+				callID, _ = fc["id"].(string)
+			}
+			if fr, ok := p["functionResponse"].(map[string]any); ok {
+				respID, _ = fr["id"].(string)
+			}
+		}
+	}
+
+	if callID == "" {
+		t.Error("functionCall.id is empty for an id-less tool call")
+	}
+	if respID == "" {
+		t.Error("functionResponse.id is empty for an id-less tool result")
+	}
+	if callID != respID {
+		t.Errorf("synthesized ids do not pair: call=%q response=%q", callID, respID)
+	}
+}

@@ -56,9 +56,18 @@ func (p *GeminiPart) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// GeminiFunctionCall is a function call part in a Gemini request.
+//
+// The id is part of the wire format even though the public Gemini schema does
+// not document it: Antigravity/Vertex accept it and USE IT when translating the
+// request to Anthropic for claude-* models. Omitting it makes that translation
+// emit a tool_use block with no id, and the upstream rejects the whole request
+// with 400 "messages.N.content.N.tool_use.id: Field required". The reference
+// implementation (VansRouter, chunks/2587.js) always sends it.
 type GeminiFunctionCall struct {
 	Name string         `json:"name"`
 	Args map[string]any `json:"args"`
+	ID   string         `json:"id,omitempty"`
 }
 
 // DefaultThinkingSignature is the hardcoded thought signature the Next.js
@@ -73,6 +82,10 @@ const DefaultThinkingSignature = "EuwGCukGAXLI2nxwZIq54WWSoL/YN0P3TsDZ7zRnLi8g0S
 type GeminiFunctionResp struct {
 	Name     string          `json:"name"`
 	Response *GeminiFuncResp `json:"response,omitempty"`
+	// ID pairs this response with its call through Antigravity's translation to
+	// Anthropic for claude-* models; see GeminiFunctionCall for the failure it
+	// prevents when omitted.
+	ID string `json:"id,omitempty"`
 }
 
 type GeminiFuncResp struct {
@@ -184,14 +197,17 @@ func TranslateOpenAIToGemini(openaiBody []byte) ([]byte, error) {
 	for _, msg := range msgs {
 		if msg.Role == "assistant" {
 			for _, tc := range msg.ToolCalls {
-				if tc.ID != "" && tc.Function.Name != "" {
-					cleanID := tc.ID
-					if ts := strings.LastIndex(cleanID, "__ts__"); ts != -1 {
-						cleanID = cleanID[:ts]
-					}
-					tcID2Name[tc.ID] = tc.Function.Name
-					tcID2Name[cleanID] = tc.Function.Name
+				if tc.Function.Name == "" {
+					continue
 				}
+				cleanID := syntheticToolCallID(tc.ID, tc.Function.Name)
+				if ts := strings.LastIndex(cleanID, "__ts__"); ts != -1 {
+					cleanID = cleanID[:ts]
+				}
+				// Register under the original id (which may be "") as well, so a
+				// tool_result carrying an empty tool_call_id still resolves the name.
+				tcID2Name[tc.ID] = tc.Function.Name
+				tcID2Name[cleanID] = tc.Function.Name
 			}
 		}
 	}
@@ -252,7 +268,15 @@ func TranslateOpenAIToGemini(openaiBody []byte) ([]byte, error) {
 					ts = DefaultThinkingSignature
 				}
 				firstFunctionCallSeen = true
-				gp := GeminiPart{FunctionCall: &GeminiFunctionCall{Name: tc.Function.Name, Args: args}, ThoughtSignature: ts}
+				// Carry the tool call id onto the part. Antigravity/Vertex translate
+				// functionCall into an Anthropic tool_use when the model is a claude-*
+				// one, and that translation needs the id; without it the upstream
+				// answers 400 "tool_use.id: Field required" and the request fails.
+				// The id may be empty when history arrived from an upstream that
+				// dropped it, so synthesize one from the function name the same way
+				// the reference does, keeping call and response paired.
+				callID := syntheticToolCallID(tc.ID, tc.Function.Name)
+				gp := GeminiPart{FunctionCall: &GeminiFunctionCall{Name: tc.Function.Name, Args: args, ID: callID}, ThoughtSignature: ts}
 				parts = append(parts, gp)
 			}
 
@@ -280,8 +304,7 @@ func TranslateOpenAIToGemini(openaiBody []byte) ([]byte, error) {
 						name = rest
 					}
 				}
-			}
-			// Tool result content may be plain text or JSON.
+			}			// Tool result content may be plain text or JSON.
 			// Gemini requires the result to be valid JSON.
 			var resultValue any
 			if jsontext.Value(content).IsValid() {
@@ -294,6 +317,11 @@ func TranslateOpenAIToGemini(openaiBody []byte) ([]byte, error) {
 				FunctionResponse: &GeminiFunctionResp{
 					Name:     name,
 					Response: &GeminiFuncResp{Result: resultValue},
+					// Use the SAME id the call was given so the pair stays linked.
+					// Deriving it from the resolved name (not from cleanID, which is
+					// empty when the client sent no tool_call_id) is what keeps a
+					// call and its response matched.
+					ID: syntheticToolCallID(cleanID, name),
 				},
 			}}
 			req.Contents = append(req.Contents, GeminiContent{Role: "user", Parts: parts})
@@ -392,6 +420,28 @@ func TranslateOpenAIToGemini(openaiBody []byte) ([]byte, error) {
 }
 
 // extractThoughtSig extracts a thought_signature encoded in a tool call ID (format: "...__ts__<sig>").
+// syntheticToolCallID returns the id to put on a functionCall/functionResponse
+// pair. A present id is kept verbatim (minus the __ts__ transport suffix).
+//
+// An absent id gets one derived from the function name. That derivation MUST be
+// a pure function of values both sides have, because the call and its response
+// are emitted in different loop iterations: if they computed the id differently
+// the pair would not match, and Antigravity would translate them into an
+// orphaned tool_use plus an unmatched tool_result. Empty is never returned,
+// since an empty id is exactly what the upstream rejects.
+func syntheticToolCallID(id, name string) string {
+	if id != "" {
+		if ts := strings.LastIndex(id, "__ts__"); ts != -1 {
+			return id[:ts]
+		}
+		return id
+	}
+	if name == "" {
+		return "call_unknown"
+	}
+	return "call_" + name
+}
+
 func extractThoughtSig(id string) string {
 	const sep = "__ts__"
 	if i := strings.LastIndex(id, sep); i >= 0 {
