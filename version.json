@@ -1,5 +1,5 @@
 {
-  "latestVersion": "1.8.38",
+  "latestVersion": "1.8.39",
   "downloadUrl": "https://github.com/arewedaks/9router-go/releases/latest",
   "releaseNotes": "- chore: bump version to 1.8.38 (a6e2fc8)\n- fix(update): allow a sub-hour check interval from the environment (7b5dfd0)\n- feat(providers): add four providers, Claude-format upstreams, Kimchi quota reset (c279da5)\n- feat(resilience): add provider circuit breaker and account semaphore (7d8d2c1)\n- test(dashboard): pin auto-disable markers to the node prefix (0c27b8f)\n- docs(changelog): record ACL enforcement and the new OAuth flows (882a907)\n- feat(oauth): add Gemini CLI and Freebuff sign-in, fix Kiro device flow (786e862)\n- feat(auth): enforce per-API-key ACL for providers, combos and kinds (1655ccc)\n- chore(release): version.json -> v1.8.37 (410e73b)\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
 }
