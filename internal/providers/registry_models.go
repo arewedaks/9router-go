@@ -50,6 +50,8 @@ var ProviderModels = map[string][]string{
 	"elevenlabs": {"eleven_multilingual_v2", "eleven_turbo_v2_5"},
 	"fal-ai": {"fal-ai/flux/schnell", "fal-ai/flux/dev", "fal-ai/flux-pro/v1.1", "fal-ai/flux-pro/v1.1-ultra", "fal-ai/recraft-v3", "fal-ai/ideogram/v2", "fal-ai/stable-diffusion-v35-large"},
 	"featherless": {"deepseek-ai/DeepSeek-V4-Pro", "deepseek-ai/DeepSeek-V4-Flash", "zai-org/GLM-5.2", "zai-org/GLM-5.1", "moonshotai/Kimi-K2.7-Code", "moonshotai/Kimi-K2.6", "moonshotai/Kimi-K2.5"},
+	"fb": {"deepseek/deepseek-v4-flash", "deepseek/deepseek-v4-pro", "mimo/mimo-v2.5", "minimax/minimax-m3", "openai/gpt-5.6-luna", "z-ai/glm-5.2", "z-ai/glm-5.3-flash", "upstage/solar-pro4", "meta/muse-spark-1.2-contributor", "anthropic/claude-fable-5"},
+	"freebuff": {"deepseek/deepseek-v4-flash", "deepseek/deepseek-v4-pro", "mimo/mimo-v2.5", "minimax/minimax-m3", "openai/gpt-5.6-luna", "z-ai/glm-5.2", "z-ai/glm-5.3-flash", "upstage/solar-pro4", "meta/muse-spark-1.2-contributor", "anthropic/claude-fable-5"},
 	"fireworks": {"accounts/fireworks/models/deepseek-v3p1", "accounts/fireworks/models/llama-v3p3-70b-instruct", "accounts/fireworks/models/qwen3-235b-a22b", "nomic-ai/nomic-embed-text-v1.5"},
 	"fish": {"s2.1-pro-free", "s2.1-pro", "s2-pro", "s1"},
 	"fish-audio": {"s2.1-pro-free", "s2.1-pro", "s2-pro", "s1"},

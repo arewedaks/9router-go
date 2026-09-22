@@ -130,6 +130,18 @@ func SetupRoutes(r interface {
 	r.Get("/api/oauth/cline/authorize", oauthH.HandleClineAuthorize)
 	r.Post("/api/oauth/cline/exchange", oauthH.HandleClineExchange)
 
+	// Gemini CLI OAuth (Google consumer PKCE flow, same pattern as Antigravity
+	// but different client credentials and scopes). Authorize returns the Google
+	// consent URL; exchange turns the pasted callback into a provider connection.
+	r.Get("/api/oauth/gemini-cli/authorize", oauthH.HandleGeminiCLIAuthorize)
+	r.Post("/api/oauth/gemini-cli/exchange", oauthH.HandleGeminiCLIExchange)
+
+	// Freebuff / Codebuff CLI login (fingerprint device flow). Authorize returns
+	// a browser login URL; exchange is polled with the fingerprint until the
+	// operator signs in. Stateless server-side, so it works headless.
+	r.Get("/api/oauth/freebuff/authorize", oauthH.HandleFreebuffAuthorize)
+	r.Post("/api/oauth/freebuff/exchange", oauthH.HandleFreebuffExchange)
+
 	// Live Console Logs Domain (dashboard "Monitor Console Log")
 	r.Get("/translator/console-logs", HandleConsoleLogsGet)
 	r.Get("/api/translator/console-logs", HandleConsoleLogsGet)
@@ -190,6 +202,8 @@ func SetupServerRouter(r chi.Router, repo *db.Repo, ts *TokenSaverConfig) {
 	// whose PKCE verifier is held in this process's in-memory store.
 	oauthPublic := oauth.NewOAuthHandler(repo)
 	r.Get("/oauth/antigravity/callback", oauthPublic.HandleAntigravityCallback)
+	r.Get("/oauth/gemini-cli/callback", oauthPublic.HandleGeminiCLICallback)
+
 
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set(constants.HeaderContentType, constants.ContentTypeJSON)

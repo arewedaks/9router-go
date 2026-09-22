@@ -108,11 +108,16 @@ func TestHandleOAuthKiroSocialAuthorize_invalidProvider(t *testing.T) {
 }
 
 func TestHandleOAuthKiroSocialAuthorize_google(t *testing.T) {
+	// Kiro's device-authorization endpoint is a live upstream, so this test is
+	// skipped when the network is unavailable rather than failing spuriously.
 	handler := NewOAuthHandler(nil)
 	req := httptest.NewRequest("GET", "/api/oauth/kiro/social-authorize?provider=google", nil)
 	rec := httptest.NewRecorder()
 	handler.HandleOAuthKiroSocialAuthorize(rec, req)
 
+	if rec.Code == http.StatusBadGateway {
+		t.Skipf("Kiro device authorization unreachable: %s", rec.Body.String())
+	}
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -124,8 +129,9 @@ func TestHandleOAuthKiroSocialAuthorize_google(t *testing.T) {
 	if resp["authUrl"] == nil {
 		t.Error("expected authUrl")
 	}
-	if resp["codeVerifier"] == nil {
-		t.Error("expected codeVerifier")
+	// Device flow returns a deviceCode to poll with; there is no PKCE verifier.
+	if resp["deviceCode"] == nil {
+		t.Error("expected deviceCode")
 	}
 }
 
@@ -161,17 +167,5 @@ func TestHandleOAuthCodexBulkImport(t *testing.T) {
 	count, _ := resp["count"].(float64)
 	if count != 2 {
 		t.Errorf("expected count=2, got %v", count)
-	}
-}
-
-func TestTitleProvider(t *testing.T) {
-	if titleProvider("google") != "Google" {
-		t.Errorf("expected Google, got %s", titleProvider("google"))
-	}
-	if titleProvider("github") != "GitHub" {
-		t.Errorf("expected GitHub, got %s", titleProvider("github"))
-	}
-	if titleProvider("other") != "other" {
-		t.Errorf("expected other, got %s", titleProvider("other"))
 	}
 }

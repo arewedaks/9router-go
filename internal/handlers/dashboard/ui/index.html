@@ -2183,19 +2183,21 @@
   </div>
 </div>
 
-<!-- ADD/EDIT PROVIDER MODAL -->
+<!-- ADD PROVIDER PICKER — select a provider, then go to its detail page to add accounts -->
 <div class="modal-overlay" id="provider-modal">
-  <div class="modal-box">
+  <div class="modal-box" style="max-width:480px;">
     <div class="section-header" style="margin-bottom: 16px;">
-      <h3 style="font-size: 1.1rem; color: #fff;" id="provider-modal-title">Add Provider Connection</h3>
+      <h3 style="font-size: 1.1rem; color: #fff;" id="provider-modal-title">Add Provider</h3>
       <button class="btn btn-sm" onclick="closeModal('provider-modal')">✕</button>
     </div>
-    <input type="hidden" id="p-id">
+    <div style="font-size:0.78rem; color:var(--muted); margin-bottom:12px;">
+      Select a provider to add. You'll configure accounts and credentials on the next page.
+    </div>
     <div class="form-group">
-      <label>Provider Type (Organized by Category)</label>
-      <select id="p-provider" onchange="onProviderSelectChange()">
+      <label>Provider Type</label>
+      <select id="p-provider" size="12" style="width:100%; height:auto; padding:0; border-radius:var(--radius);" ondblclick="pickProvider()">
         <optgroup label="🟣 OAuth & CLI Tools (Session / Auth Token)">
-          <option value="antigravity" selected>Google Antigravity (ag)</option>
+          <option value="antigravity">Google Antigravity (ag)</option>
           <option value="github">GitHub Copilot (gh)</option>
           <option value="claude">Claude Code CLI (cc)</option>
           <option value="codex">OpenAI Codex CLI (cx)</option>
@@ -2234,25 +2236,10 @@
         </optgroup>
       </select>
     </div>
-    <div class="form-group">
-      <label>Identifier / Account Name</label>
-      <input type="text" id="p-name" placeholder="e.g. Work Antigravity or Production BAI">
-    </div>
-    <div class="form-group">
-      <label id="p-key-label">API Key / Access Token</label>
-      <input type="password" id="p-key" placeholder="Bearer token or API Secret">
-    </div>
-    <div class="form-group">
-      <label id="p-url-label">Base URL (Required for Custom Nodes, optional override for APIs)</label>
-      <input type="text" id="p-url" placeholder="https://api.example.com/v1">
-    </div>
-    <div class="form-group">
-      <label>Routing Priority (1 = Highest Priority)</label>
-      <input type="text" id="p-priority" value="1">
-    </div>
-    <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px;">
+    <div id="provider-picker-msg" style="font-size:0.75rem; margin-top:4px; color:var(--muted); display:none;"></div>
+    <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px;">
       <button class="btn" onclick="closeModal('provider-modal')">Cancel</button>
-      <button class="btn btn-primary" onclick="saveProvider()">Save Provider</button>
+      <button class="btn btn-primary" onclick="pickProvider()">Add & Configure →</button>
     </div>
   </div>
 </div>
@@ -3583,10 +3570,16 @@
       || d.provider === "codebuddy-intl" || d.provider === "cbai";
     const isGitHub = d.provider === "github" || d.provider === "gh" || d.provider === "copilot";
     const isCline = d.provider === "cline" || d.provider === "cl" || d.provider === "clinepass" || d.provider === "cp";
+    const isGeminiCli = d.provider === "gemini-cli" || d.provider === "gc";
+    const isKiro = d.provider === "kiro" || d.provider === "kr";
+    const isFreebuff = d.provider === "freebuff" || d.provider === "fb";
     const oauthPanel = isAntigravity ? oauthPanelHtml(d.provider)
       : (isCodebuddy ? codebuddyOAuthPanelHtml(d.provider)
       : (isGitHub ? githubOAuthPanelHtml()
-      : (isCline ? clineOAuthPanelHtml(d.provider) : '')));
+      : (isCline ? clineOAuthPanelHtml(d.provider)
+      : (isGeminiCli ? geminiCliOAuthPanelHtml(d.provider)
+      : (isKiro ? kiroOAuthPanelHtml(d.provider)
+      : (isFreebuff ? freebuffOAuthPanelHtml(d.provider) : ''))))));
     // A compatible endpoint owns its own Add button on the node card, so the
     // toolbar must not offer a second one (upstream hides it for the same
     // reason: ConnectionsHeaderToolbar renders Add only when !isCompatible).
@@ -4384,6 +4377,357 @@
     } catch (e) {
       msg.style.color = "var(--danger)";
       msg.textContent = String(e);
+    }
+  }
+
+  // ----------------------------------------------------------------
+  // Gemini CLI OAuth — same Google PKCE flow as Antigravity, different
+  // client credentials and scopes. No LCA probing needed.
+  // ----------------------------------------------------------------
+  function geminiCliOAuthPanelHtml(providerId) {
+    return `
+      <div class="add-form oauth-form">
+        <div class="add-form-title"><span class="msym">passkey</span>Add via Google OAuth</div>
+        <div style="font-size:0.72rem; color:var(--muted); margin-bottom:8px;">
+          Sign in with the Google account linked to your Gemini CLI subscription.
+          If this server runs on your machine, the account is added automatically after you approve.
+          On a remote/headless server, copy the full <code>localhost</code> address bar URL and paste it below.
+        </div>
+        <div class="add-form-grid oauth-grid">
+          <div>
+            <label class="field-label">Account name (optional)</label>
+            <input type="text" id="gcli-oauth-name" placeholder="auto-filled from Google">
+          </div>
+          <div style="display:flex; align-items:flex-end;">
+            <button class="btn btn-primary" id="gcli-oauth-start" onclick="startGeminiCliOAuth('${providerId}')">Sign in</button>
+          </div>
+        </div>
+        <div id="gcli-oauth-step2" style="display:none; margin-top:10px;">
+          <label class="field-label">Callback URL (or raw code)</label>
+          <div class="auth-add">
+            <input type="text" id="gcli-oauth-callback" placeholder="http://localhost:20128/oauth/gemini-cli/callback?code=...">
+            <button class="btn btn-primary" onclick="finishGeminiCliOAuth('${providerId}')">Finish</button>
+          </div>
+        </div>
+        <div id="gcli-oauth-msg" style="font-size:0.75rem; margin-top:8px; color:var(--muted);"></div>
+      </div>`;
+  }
+
+  let geminiCliOAuthCtx = null;
+
+  async function startGeminiCliOAuth(providerId) {
+    const msg = document.getElementById("gcli-oauth-msg");
+    msg.style.color = "var(--muted)";
+    msg.textContent = "Requesting authorization URL…";
+    try {
+      const res = await api("/api/oauth/gemini-cli/authorize");
+      const data = await res.json();
+      if (!res.ok) {
+        msg.style.color = "var(--danger)";
+        msg.textContent = errorMessage(data, res.status);
+        return;
+      }
+      geminiCliOAuthCtx = { state: data.state, redirectUri: data.redirectUri };
+      document.getElementById("gcli-oauth-step2").style.display = "block";
+      msg.style.color = "var(--muted)";
+      msg.textContent = "Waiting for Google sign-in… (approve the tab, or paste the callback URL below)";
+      window.open(data.authUrl, "_blank", "noopener");
+      pollGeminiCliConnection(providerId, data.state);
+    } catch (e) {
+      msg.style.color = "var(--danger)";
+      msg.textContent = String(e);
+    }
+  }
+
+  async function pollGeminiCliConnection(providerId, state) {
+    const msg = document.getElementById("gcli-oauth-msg");
+    const before = await api(`/api/dashboard/providers/${encodeURIComponent(providerId)}`).then(r => r.json()).catch(() => ({}));
+    const countBefore = (before.connections || []).length;
+    for (let i = 0; i < 80; i++) {
+      await new Promise(res => setTimeout(res, 3000));
+      if (!geminiCliOAuthCtx || geminiCliOAuthCtx.state !== state) return;
+      try {
+        const res = await api(`/api/dashboard/providers/${encodeURIComponent(providerId)}`);
+        if (!res.ok) continue;
+        const d = await res.json();
+        if ((d.connections || []).length > countBefore) {
+          msg.style.color = "var(--accent)";
+          msg.textContent = "Account added.";
+          geminiCliOAuthCtx = null;
+          document.getElementById("gcli-oauth-step2").style.display = "none";
+          setTimeout(() => openProviderDetail(providerId), 600);
+          return;
+        }
+      } catch (e) { /* keep polling */ }
+    }
+    if (geminiCliOAuthCtx && geminiCliOAuthCtx.state === state) {
+      msg.style.color = "var(--muted)";
+      msg.textContent = "Still waiting. Paste the callback URL below to finish manually.";
+    }
+  }
+
+  async function finishGeminiCliOAuth(providerId) {
+    const msg = document.getElementById("gcli-oauth-msg");
+    const input = document.getElementById("gcli-oauth-callback");
+    const raw = (input.value || "").trim();
+    if (!raw) {
+      msg.style.color = "var(--danger)";
+      msg.textContent = "Paste the callback URL or the code.";
+      return;
+    }
+    if (!geminiCliOAuthCtx) {
+      msg.style.color = "var(--danger)";
+      msg.textContent = "Click Sign in first.";
+      return;
+    }
+    const body = {
+      state: geminiCliOAuthCtx.state,
+      redirectUri: geminiCliOAuthCtx.redirectUri,
+      name: (document.getElementById("gcli-oauth-name").value || "").trim(),
+    };
+    if (/^https?:\/\//i.test(raw)) { body.callbackUrl = raw; } else { body.code = raw; }
+    msg.style.color = "var(--muted)";
+    msg.textContent = "Exchanging code…";
+    const send = async (extra) => {
+      const res = await api("/api/oauth/gemini-cli/exchange", {
+        method: "POST",
+        body: JSON.stringify(Object.assign({}, body, extra || {})),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        if (handleDuplicateAccount(data, res.status, msg, send)) return;
+        msg.style.color = "var(--danger)";
+        msg.textContent = errorMessage(data, res.status);
+        return;
+      }
+      msg.style.color = "var(--accent)";
+      msg.textContent = `Added ${data.name || data.id}.`;
+      input.value = "";
+      document.getElementById("gcli-oauth-step2").style.display = "none";
+      geminiCliOAuthCtx = null;
+      openProviderDetail(providerId);
+    };
+    try {
+      await send({});
+    } catch (e) {
+      msg.style.color = "var(--danger)";
+      msg.textContent = String(e);
+    }
+  }
+
+
+  // ----------------------------------------------------------------
+  // Kiro AI — RFC 8628 device flow against Kiro's own auth service.
+  //
+  // We request a device code, show the verification link, and poll until the
+  // operator approves in the browser tab. Nothing is pasted back, so this works
+  // on a headless server.
+  // ----------------------------------------------------------------
+  function kiroOAuthPanelHtml(providerId) {
+    return `
+      <div class="add-form oauth-form">
+        <div class="add-form-title"><span class="msym">passkey</span>Add via Kiro sign-in</div>
+        <div style="font-size:0.72rem; color:var(--muted); margin-bottom:8px;">
+          Sign in with the Google or GitHub account your Kiro subscription uses. Click Sign in,
+          approve in the tab that opens, and the account is added here automatically.
+        </div>
+        <div class="add-form-grid oauth-grid">
+          <div>
+            <label class="field-label">Sign in with</label>
+            <select id="kiro-provider">
+              <option value="google">Google</option>
+              <option value="github">GitHub</option>
+            </select>
+          </div>
+          <div style="display:flex; align-items:flex-end;">
+            <button class="btn btn-primary" id="kiro-start" onclick="startKiroOAuth('${providerId}')">Sign in</button>
+          </div>
+        </div>
+        <div id="kiro-step2" style="display:none; margin-top:10px;">
+          <div style="font-size:0.72rem; color:var(--muted);">
+            Browser did not open? <a id="kiro-link" href="#" target="_blank" rel="noopener" style="color:var(--accent);">Open the sign-in page</a>,
+            then return here — this keeps polling on its own.
+          </div>
+        </div>
+        <div id="kiro-msg" style="font-size:0.75rem; margin-top:8px; color:var(--muted);"></div>
+      </div>`;
+  }
+
+  // Pending Kiro device flow. flowId guards against a stale poll loop writing
+  // into a panel that has since been restarted or navigated away from.
+  let kiroOAuthCtx = null;
+
+  async function startKiroOAuth(providerId) {
+    const msg = document.getElementById("kiro-msg");
+    const provider = document.getElementById("kiro-provider").value;
+    msg.style.color = "var(--muted)";
+    msg.textContent = "Requesting a sign-in link…";
+    try {
+      const res = await api("/api/oauth/kiro/social-authorize?provider=" + encodeURIComponent(provider));
+      const data = await res.json();
+      if (!res.ok) {
+        msg.style.color = "var(--danger)";
+        msg.textContent = errorMessage(data, res.status);
+        return;
+      }
+      const flowId = (kiroOAuthCtx && kiroOAuthCtx.flowId || 0) + 1;
+      kiroOAuthCtx = { deviceCode: data.deviceCode, provider, flowId };
+      const step2 = document.getElementById("kiro-step2");
+      if (step2) step2.style.display = "block";
+      const link = document.getElementById("kiro-link");
+      if (link && data.authUrl) link.href = data.authUrl;
+      msg.style.color = "var(--muted)";
+      msg.textContent = "Waiting for you to approve the sign-in…";
+      if (data.authUrl) window.open(data.authUrl, "_blank", "noopener");
+      pollKiroConnection(providerId, data.deviceCode, provider, flowId, data.interval || 5, data.expiresIn || 300);
+    } catch (e) {
+      msg.style.color = "var(--danger)";
+      msg.textContent = String(e);
+    }
+  }
+
+  async function pollKiroConnection(providerId, deviceCode, provider, flowId, interval, expiresIn) {
+    const msg = document.getElementById("kiro-msg");
+    const deadline = Date.now() + expiresIn * 1000;
+    while (Date.now() < deadline) {
+      await new Promise(res => setTimeout(res, interval * 1000));
+      if (!kiroOAuthCtx || kiroOAuthCtx.flowId !== flowId) return;
+      try {
+        const res = await api("/api/oauth/kiro/social-exchange", {
+          method: "POST",
+          body: JSON.stringify({ deviceCode, provider, targetProvider: providerId }),
+        });
+        const data = await res.json();
+        if (res.ok && data.pending) {
+          if (data.error === "slow_down") interval += 5;
+          continue;
+        }
+        if (!res.ok || !data.success) {
+          msg.style.color = "var(--danger)";
+          msg.textContent = errorMessage(data, res.status);
+          kiroOAuthCtx = null;
+          return;
+        }
+        msg.style.color = "var(--accent)";
+        msg.textContent = "Account added.";
+        kiroOAuthCtx = null;
+        document.getElementById("kiro-step2").style.display = "none";
+        openProviderDetail(providerId);
+        return;
+      } catch (e) { /* keep polling */ }
+    }
+    if (kiroOAuthCtx && kiroOAuthCtx.flowId === flowId) {
+      msg.style.color = "var(--muted)";
+      msg.textContent = "Timed out. Click Sign in again.";
+    }
+  }
+
+
+  // ----------------------------------------------------------------
+  // Freebuff / Codebuff — fingerprint device login.
+  //
+  // We request a login URL, the operator signs in on freebuff.com, and we poll
+  // until the token lands. Nothing is pasted back.
+  // ----------------------------------------------------------------
+  function freebuffOAuthPanelHtml(providerId) {
+    return `
+      <div class="add-form oauth-form">
+        <div class="add-form-title"><span class="msym">passkey</span>Add via Freebuff sign-in</div>
+        <div style="font-size:0.72rem; color:var(--muted); margin-bottom:8px;">
+          Sign in with your Freebuff/Codebuff account. Click Sign in, approve in the tab that opens,
+          and the account is added here automatically. One account holds ONE active session locked to
+          ONE model — use a separate account per model.
+        </div>
+        <div class="add-form-grid oauth-grid">
+          <div>
+            <label class="field-label">Account name (optional)</label>
+            <input type="text" id="fb-oauth-name" placeholder="auto-filled from Freebuff">
+          </div>
+          <div style="display:flex; align-items:flex-end;">
+            <button class="btn btn-primary" id="fb-oauth-start" onclick="startFreebuffOAuth('${providerId}')">Sign in</button>
+          </div>
+        </div>
+        <div id="fb-oauth-step2" style="display:none; margin-top:10px;">
+          <div style="font-size:0.72rem; color:var(--muted);">
+            Browser did not open? <a id="fb-oauth-link" href="#" target="_blank" rel="noopener" style="color:var(--accent);">Open the sign-in page</a>,
+            then return here — this keeps polling on its own.
+          </div>
+        </div>
+        <div id="fb-oauth-msg" style="font-size:0.75rem; margin-top:8px; color:var(--muted);"></div>
+      </div>`;
+  }
+
+  // Pending Freebuff login. flowId guards against a stale poll loop writing into
+  // a panel that has since been restarted.
+  let freebuffOAuthCtx = null;
+
+  async function startFreebuffOAuth(providerId) {
+    const msg = document.getElementById("fb-oauth-msg");
+    msg.style.color = "var(--muted)";
+    msg.textContent = "Requesting a sign-in link…";
+    try {
+      const res = await api("/api/oauth/freebuff/authorize");
+      const data = await res.json();
+      if (!res.ok) {
+        msg.style.color = "var(--danger)";
+        msg.textContent = errorMessage(data, res.status);
+        return;
+      }
+      const flowId = (freebuffOAuthCtx && freebuffOAuthCtx.flowId || 0) + 1;
+      freebuffOAuthCtx = {
+        fingerprintId: data.fingerprintId,
+        fingerprintHash: data.fingerprintHash,
+        expiresAt: data.expiresAt,
+        flowId,
+      };
+      document.getElementById("fb-oauth-step2").style.display = "block";
+      const link = document.getElementById("fb-oauth-link");
+      if (link && data.authUrl) link.href = data.authUrl;
+      msg.style.color = "var(--muted)";
+      msg.textContent = "Waiting for you to sign in…";
+      if (data.authUrl) window.open(data.authUrl, "_blank", "noopener");
+      pollFreebuffConnection(providerId, flowId, data.pollIntervalMs || 5000, data.expiresAt);
+    } catch (e) {
+      msg.style.color = "var(--danger)";
+      msg.textContent = String(e);
+    }
+  }
+
+  async function pollFreebuffConnection(providerId, flowId, intervalMs, expiresAt) {
+    const msg = document.getElementById("fb-oauth-msg");
+    const deadline = expiresAt || (Date.now() + 300000);
+    while (Date.now() < deadline) {
+      await new Promise(res => setTimeout(res, intervalMs));
+      if (!freebuffOAuthCtx || freebuffOAuthCtx.flowId !== flowId) return;
+      try {
+        const res = await api("/api/oauth/freebuff/exchange", {
+          method: "POST",
+          body: JSON.stringify({
+            fingerprintId: freebuffOAuthCtx.fingerprintId,
+            fingerprintHash: freebuffOAuthCtx.fingerprintHash,
+            expiresAt: freebuffOAuthCtx.expiresAt,
+            name: (document.getElementById("fb-oauth-name") || {}).value || "",
+          }),
+        });
+        const data = await res.json();
+        if (res.ok && data.pending) continue;
+        if (!res.ok || !data.success) {
+          msg.style.color = "var(--danger)";
+          msg.textContent = errorMessage(data, res.status);
+          freebuffOAuthCtx = null;
+          return;
+        }
+        msg.style.color = "var(--accent)";
+        msg.textContent = "Account added.";
+        freebuffOAuthCtx = null;
+        document.getElementById("fb-oauth-step2").style.display = "none";
+        openProviderDetail(providerId);
+        return;
+      } catch (e) { /* keep polling */ }
+    }
+    if (freebuffOAuthCtx && freebuffOAuthCtx.flowId === flowId) {
+      msg.style.color = "var(--muted)";
+      msg.textContent = "Timed out. Click Sign in again.";
     }
   }
 
@@ -6082,57 +6426,28 @@
   }
 
   function openAddProviderModal() {
-    document.getElementById("p-id").value = "";
-    document.getElementById("p-name").value = "";
-    document.getElementById("p-key").value = "";
-    document.getElementById("p-url").value = "";
-    document.getElementById("p-priority").value = "1";
-    onProviderSelectChange();
+    const sel = document.getElementById("p-provider");
+    sel.selectedIndex = -1; // nothing pre-selected
+    const msg = document.getElementById("provider-picker-msg");
+    msg.style.display = "none";
+    msg.textContent = "";
     document.getElementById("provider-modal").classList.add("active");
   }
 
-  function onProviderSelectChange() {
-    const sel = document.getElementById("p-provider").value;
-    const keyLabel = document.getElementById("p-key-label");
-    const urlLabel = document.getElementById("p-url-label");
-    if (sel === "openai-compatible") {
-      keyLabel.innerText = "API Key / Authorization Secret (Optional for local)";
-      urlLabel.innerText = "Base URL (e.g. http://localhost:11434/v1 or https://my-relay/v1)";
-    } else if (sel === "antigravity" || sel === "github" || sel === "claude" || sel === "codex") {
-      keyLabel.innerText = "OAuth / CLI Access Token or Refresh Credential";
-      urlLabel.innerText = "Base URL (Optional override)";
-    } else {
-      keyLabel.innerText = "API Key / Secret Token";
-      urlLabel.innerText = "Base URL (Optional override)";
-    }
-  }
-
-  async function saveProvider() {
+  // pickProvider: open the provider's detail page, where accounts are added via
+  // OAuth or API key. No row is written here — the provider appears in the grid
+  // only once it owns a real connection, so an abandoned pick leaves no trace.
+  function pickProvider() {
     const provider = document.getElementById("p-provider").value;
-    const name = document.getElementById("p-name").value.trim();
-    const apiKey = document.getElementById("p-key").value.trim();
-    const baseUrl = document.getElementById("p-url").value.trim();
-    const priority = parseInt(document.getElementById("p-priority").value, 10) || 1;
-
-    try {
-      const res = await api("/api/dashboard/providers", {
-        method: "POST",
-        body: JSON.stringify({
-          provider,
-          name: name ? name : provider,
-          apiKey,
-          baseUrl,
-          priority,
-          authType: "apikey",
-          isActive: 1
-        })
-      });
-      if (!res.ok) throw new Error(await res.text());
-      closeModal("provider-modal");
-      loadProviders();
-    } catch(e) {
-      alert("Failed to save provider: " + e.message);
+    if (!provider) {
+      const msg = document.getElementById("provider-picker-msg");
+      msg.style.display = "";
+      msg.style.color = "var(--danger)";
+      msg.textContent = "Select a provider first.";
+      return;
     }
+    closeModal("provider-modal");
+    openProviderDetail(provider);
   }
 
   async function loadCombos() {
