@@ -172,6 +172,22 @@ func isAnthropicUpstream(provider string, cfg *providers.ProviderConfig) bool {
 		strings.HasPrefix(targetURL, "https://api.anthropic.com/v1/messages?")
 }
 
+// upstreamClaudeWanted reports whether the upstream returns Claude Messages
+// format, so the response must be translated back.
+//
+// True for Anthropic's own host (unless the client already speaks Messages) and
+// for any provider flagged FormatClaude — a third-party gateway fronting Claude
+// models, whose body conversion EnsureClaudeMessages performs. The credential
+// handling for Anthropic OAuth is deliberately NOT extended to those providers:
+// they are not Anthropic, so Claude-Code cloaking would only send headers they
+// do not expect.
+func upstreamClaudeWanted(isAnthropic bool, cfg *providers.ProviderConfig, claudeNative bool) bool {
+	if claudeNative {
+		return false
+	}
+	return isAnthropic || (cfg != nil && cfg.IsClaudeFormat())
+}
+
 func appendBetaQuery(u string) string {
 	if strings.Contains(u, "beta=true") {
 		return u
@@ -257,20 +273,24 @@ func (h *ChatHandler) tryForwardWithConnection(
 	apiKey = NormalizeProviderToken(provider, apiKey)
 
 	// Token savers + provider-format normalization:
-	// - /v1/messages (claudeNative): body stays Claude format; savers inject
-	//   into top-level "system".
-	// - /v1/chat/completions to an Anthropic upstream: the body is OpenAI
-	//   format and would otherwise be forwarded raw; convert it to a
-	//   spec-compliant Claude Messages payload (top-level system, tools,
-	//   merged roles) — same conversion the dashboard applies server-side.
-	// claudeNative indicates the CLIENT body is in Claude Messages format.
-	// Requires an Anthropic upstream too: chat.go converts /v1/messages
-	// requests for non-Anthropic providers (DeepSeek, OpenAI-compatible) to
-	// OpenAI format before the fallback, and passing endpoint "/v1/v1/messages"
-	// alone would wrongly inject a top-level "system" the upstream ignores.
-	claudeNative := isAnthropic && (endpoint == "/v1/v1/messages" || endpoint == "/v1/messages")
+	// - claudeNative: the CLIENT body is already Claude Messages format, so it
+	//   stays as-is and savers inject into the top-level "system".
+	// - an OpenAI-format body headed to a Messages upstream: convert to a
+	//   spec-compliant Claude payload (top-level system, tools, merged roles).
+	//
+	// claudeNative needs a Messages-speaking upstream as well as a Messages
+	// endpoint: chat.go converts /v1/messages requests for OpenAI-compatible
+	// providers to OpenAI format before reaching here, so the endpoint alone
+	// would wrongly inject a top-level "system" that upstream ignores.
+	claudeNative := (isAnthropic || providerCfg.IsClaudeFormat()) && (endpoint == "/v1/v1/messages" || endpoint == "/v1/messages")
 	pipedBody := h.applyTokenSavers(body, claudeNative)
 	var claudeToolMap map[string]string
+	// A Claude-format provider needs the same Messages-shaped body as Anthropic's
+	// own host, but none of the Claude-Code credential handling below (it is not
+	// Anthropic, so cloaking would only add headers it does not expect).
+	if providerCfg.IsClaudeFormat() && !claudeNative {
+		pipedBody = executor.EnsureClaudeMessages(pipedBody, model)
+	}
 	if isAnthropic {
 		if !claudeNative {
 			// Raw OpenAI-format body would be invalid at the Messages API:
@@ -325,7 +345,7 @@ func (h *ChatHandler) tryForwardWithConnection(
 			ConnectionID:   connectionID,
 			SessionID:      sessionID,
 			ToolNameMap:    claudeToolMap,
-			UpstreamClaude: isAnthropic && !claudeNative,
+			UpstreamClaude: upstreamClaudeWanted(isAnthropic, providerCfg, claudeNative),
 			ResponseBuf:    &metrics.ResponseBuf,
 			StartTime:      start,
 			TTFT:           &metrics.TTFT,
@@ -354,7 +374,7 @@ func (h *ChatHandler) tryForwardWithConnection(
 					ConnectionID:   connectionID,
 					SessionID:      sessionID,
 					ToolNameMap:    claudeToolMap,
-					UpstreamClaude: isAnthropic && !claudeNative,
+					UpstreamClaude: upstreamClaudeWanted(isAnthropic, providerCfg, claudeNative),
 					ResponseBuf:    &metrics.ResponseBuf,
 					StartTime:      start,
 					TTFT:           &metrics.TTFT,

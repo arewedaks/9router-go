@@ -146,6 +146,7 @@ var providerRegistry = map[string]ProviderMeta{
 	"opencode":   {ID: "opencode", Name: "OpenCode Free", Alias: "oc", Category: CategoryFree, AuthType: "none", Description: "Free public coding assistance endpoints", Priority: 40, Icon: "terminal", Color: "#E87040", ServiceKinds: []string{"llm"}, Website: "https://opencode.ai"},
 
 	// ---- category: "apikey" (API Key Providers) ----
+	"agentrouter":          {ID: "agentrouter", Name: "AgentRouter", Alias: "agentrouter", Category: CategoryFreeTier, AuthType: "apikey", Description: "$200 free credits on signup, no credit card", Priority: 25, Icon: "router", Color: "#10B981", ServiceKinds: []string{"llm"}, Website: "https://agentrouter.org"},
 	"alicode-intl":         {ID: "alicode-intl", Name: "Alibaba Coding", Alias: "alicode-intl", Category: CategoryAPIKey, AuthType: "apikey", Priority: 10, Icon: "cloud", Color: "#FF6A00", ServiceKinds: []string{"llm"}, Website: "https://www.alibabacloud.com/product/coding"},
 	"alicode":              {ID: "alicode", Name: "Alibaba", Alias: "alicode", Category: CategoryAPIKey, AuthType: "apikey", Priority: 20, Icon: "cloud", Color: "#FF6A00", ServiceKinds: []string{"llm"}, Website: "https://bailian.console.aliyun.com"},
 	"anthropic":            {ID: "anthropic", Name: "Anthropic", Alias: "anthropic", Category: CategoryAPIKey, AuthType: "apikey", Priority: 30, Icon: "smart_toy", Color: "#D97757", ServiceKinds: []string{"llm", "imageToText"}, Website: "https://console.anthropic.com"},
@@ -162,6 +163,7 @@ var providerRegistry = map[string]ProviderMeta{
 	"comfyui":              {ID: "comfyui", Name: "ComfyUI", Alias: "comfyui", Category: CategoryAPIKey, AuthType: "apikey", Priority: 120, Icon: "account_tree", Color: "#4CAF50", ServiceKinds: []string{"image"}, Website: "https://github.com/comfyanonymous/ComfyUI"},
 	"commandcode":          {ID: "commandcode", Name: "Command Code", Alias: "commandcode", Category: CategoryAPIKey, AuthType: "apikey", Priority: 100, Icon: "smart_toy", Color: "#000000", ServiceKinds: []string{"tts"}, Website: "https://commandcode.ai"},
 	"deepgram":             {ID: "deepgram", Name: "Deepgram", Alias: "deepgram", Category: CategoryAPIKey, AuthType: "apikey", Priority: 20, Icon: "mic", Color: "#13EF93", ServiceKinds: []string{"stt"}, Website: "https://deepgram.com"},
+	"deepinfra":            {ID: "deepinfra", Name: "DeepInfra", Alias: "deepinfra", Category: CategoryAPIKey, AuthType: "apikey", Description: "Free signup credits for API testing", Priority: 50, Icon: "hub", Color: "#2563EB", ServiceKinds: []string{"llm"}, Website: "https://deepinfra.com"},
 	"deepseek":             {ID: "deepseek", Name: "DeepSeek", Alias: "deepseek", Category: CategoryAPIKey, AuthType: "apikey", Priority: 110, Icon: "bolt", Color: "#4D6BFE", ServiceKinds: []string{"llm"}, Website: "https://deepseek.com"},
 	"elevenlabs":           {ID: "elevenlabs", Name: "ElevenLabs", Alias: "el", Category: CategoryAPIKey, AuthType: "apikey", Website: "https://elevenlabs.io"},
 	"exa":                  {ID: "exa", Name: "Exa", Alias: "exa", Category: CategoryAPIKey, AuthType: "apikey", Website: "https://exa.ai"},
@@ -222,6 +224,8 @@ var providerRegistry = map[string]ProviderMeta{
 	"fish-audio":           {ID: "fish-audio", Name: "Fish Audio", Alias: "fish", Category: CategoryAPIKey, AuthType: "apikey", Website: "https://fish.audio"},
 	"alitp-intl":           {ID: "alitp-intl", Name: "Alibaba Token Plan", Alias: "alitp-intl", Category: CategoryAPIKey, AuthType: "apikey", Priority: 11, Icon: "cloud", Color: "#FF6A00", ServiceKinds: []string{"webSearch"}, Website: "https://www.alibabacloud.com/campaign/ai-landing-page-token"},
 	"xquik":                {ID: "xquik", Name: "Xquik", Alias: "xquik", Category: CategoryAPIKey, AuthType: "apikey", Website: "https://docs.xquik.com"},
+	"zcode":                {ID: "zcode", Name: "ZCode (Z.ai)", Alias: "zc", Category: CategoryAPIKey, AuthType: "apikey", Description: "Z.ai GLM coding plan; API key or OAuth", Priority: 141, Icon: "smart_toy", Color: "#0EA5E9", ServiceKinds: []string{"llm"}, Website: "https://z.ai"},
+	"zenmux":               {ID: "zenmux", Name: "ZenMux", Alias: "zenmux", Category: CategoryAPIKey, AuthType: "apikey", Priority: 116, Icon: "layers", Color: "#6366F1", ServiceKinds: []string{"llm", "embedding", "image"}, Website: "https://zenmux.ai"},
 
 	// ---- category: "webCookie" (Web Session Cookie) ----
 	"grok-web":       {ID: "grok-web", Name: "Grok Web (Subscription)", Alias: "gw", Category: CategoryWebCookie, AuthType: "cookie", Description: "Paste your sso= cookie from grok.com", Priority: 150, Icon: "auto_awesome", Color: "#1DA1F2", ServiceKinds: []string{"llm"}, Website: "https://grok.com"},

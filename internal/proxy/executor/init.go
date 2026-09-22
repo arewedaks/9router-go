@@ -6,6 +6,13 @@ func RegisterAll() {
 	Register("openai", func() Executor { return ForwardOpenAI })
 	Register("anthropic", func() Executor { return ForwardOpenAI })
 	Register("deepseek", func() Executor { return ForwardOpenAI })
+	// Claude-format gateways: the body is already converted to Messages format
+	// by the fallback (IsClaudeFormat), and ForwardOpenAI translates the Claude
+	// response back for OpenAI-format clients.
+	Register("agentrouter", func() Executor { return ForwardOpenAI })
+	Register("zcode", func() Executor { return ForwardOpenAI })
+	Register("deepinfra", func() Executor { return ForwardOpenAI })
+	Register("zenmux", func() Executor { return ForwardOpenAI })
 	Register("groq", func() Executor { return ForwardOpenAI })
 	Register("nvidia", func() Executor { return ForwardOpenAI })
 	Register("openrouter", func() Executor { return ForwardOpenAI })

@@ -24,6 +24,20 @@ type ProviderConfig struct {
 	FetchMethod   string            // HTTP method for fetch: GET or POST (default POST)
 }
 
+// FormatClaude marks a provider whose upstream speaks the Anthropic Messages
+// API (POST /v1/messages) rather than the OpenAI chat-completions shape.
+//
+// This is the general "the upstream is Claude-format" signal, distinct from
+// isAnthropicUpstream (which identifies Anthropic's own host and gates
+// Claude-specific auth behaviour). A third-party gateway that fronts Claude
+// models — AgentRouter, ZCode — uses this so the request body is converted to
+// Messages format and the response converted back.
+const FormatClaude = "claude"
+
+// IsClaudeFormat reports whether the provider's upstream speaks the Anthropic
+// Messages API.
+func (p *ProviderConfig) IsClaudeFormat() bool { return p.Format == FormatClaude }
+
 // IsGeminiNative returns true if provider uses Gemini-native format.
 func (p *ProviderConfig) IsGeminiNative() bool { return p.Format == "gemini-native" }
 
@@ -44,10 +58,47 @@ var KnownProviders = map[string]ProviderConfig{
 		AuthHeader: "x-api-key",
 		AuthScheme: "raw",
 	},
+	// AgentRouter fronts Claude models behind the Anthropic Messages API, so the
+	// request body must be converted to Messages format. It accepts any model id
+	// (passthrough), and needs the Claude CLI identity headers to authenticate.
+	"agentrouter": {
+		BaseURL:    "https://agentrouter.org/v1/messages",
+		AuthHeader: "x-api-key",
+		AuthScheme: "raw",
+		Format:     FormatClaude,
+		StaticHeaders: map[string]string{
+			"anthropic-version": "2023-06-01",
+			"User-Agent":        "claude-cli/2.1.258 (external, sdk-cli)",
+			"X-App":             "cli",
+		},
+	},
+	// ZCode is Z.ai's coding plan, also Messages-format. The API key rides in
+	// x-api-key alongside the Claude headers.
+	"zcode": {
+		BaseURL:    "https://api.z.ai/api/anthropic/v1/messages",
+		AuthHeader: "x-api-key",
+		AuthScheme: "raw",
+		Format:     FormatClaude,
+		StaticHeaders: map[string]string{
+			"anthropic-version": "2023-06-01",
+			"Anthropic-Beta":    "claude-code-20250219,interleaved-thinking-2025-05-14",
+		},
+	},
 	"deepseek": {
 		BaseURL:    "https://api.deepseek.com/chat/completions",
 		AuthHeader: "Authorization",
 		AuthScheme: "bearer",
+	},
+	"deepinfra": {
+		BaseURL:    "https://api.deepinfra.com/v1/openai/chat/completions",
+		AuthHeader: "Authorization",
+		AuthScheme: "bearer",
+	},
+	"zenmux": {
+		BaseURL:    "https://zenmux.ai/v1/chat/completions",
+		AuthHeader: "Authorization",
+		AuthScheme: "bearer",
+		ImageURL:   "https://zenmux.ai/v1/images/generations",
 	},
 	"groq": {
 		BaseURL:    "https://api.groq.com/openai/v1/chat/completions",
@@ -383,6 +434,7 @@ var KnownProviders = map[string]ProviderConfig{
 		BaseURL:    "https://api.anthropic.com/v1/messages",
 		AuthHeader: "x-api-key",
 		AuthScheme: "raw",
+		Format:     FormatClaude,
 		StaticHeaders: map[string]string{
 			"anthropic-version":                         "2023-06-01",
 			"Anthropic-Beta":                            "claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,prompt-caching-scope-2026-01-05,advanced-tool-use-2025-11-20,effort-2025-11-24,structured-outputs-2025-12-15,fast-mode-2026-02-01,redact-thinking-2026-02-12,token-efficient-tools-2026-03-28",

@@ -45,7 +45,10 @@ func TestHandleModelsHidesOrphanCustomModels(t *testing.T) {
 	defer cleanup()
 
 	orphan := "openai-compatible-chat-16dc7b96-9c2f-4cf5-9903-2543176744fb"
-	unknownPlain := "agentrouter" // not a KnownProvider and not an alias
+	// A name that is neither a KnownProvider nor an alias. Deliberately
+	// fictional: using a real provider id here would break the moment that
+	// provider is added to the registry.
+	unknownPlain := "not-a-real-provider-zzz"
 	seeds := map[string]string{
 		orphan + "|gpt-5.5|llm":        `{"id":"gpt-5.5","providerAlias":"` + orphan + `","type":"llm"}`,
 		unknownPlain + "|router-x|llm": `{"id":"router-x","providerAlias":"` + unknownPlain + `","type":"llm"}`,

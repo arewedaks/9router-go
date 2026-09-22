@@ -147,6 +147,23 @@ func (r *Repo) ResetConnectionHealthState(connID string) error {
 	return err
 }
 
+// ReactivateConnection restores a parked connection: it sets isActive=1 and
+// replaces the credential blob.
+//
+// Both halves are needed together. An account parked for quota exhaustion has
+// isActive=0, so clearing only the blob would leave it out of the
+// active-connection query and it would never serve again.
+func (r *Repo) ReactivateConnection(connID, data string) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+	if _, err := r.db.Exec(
+		"UPDATE providerConnections SET isActive = 1, data = ?, updatedAt = ? WHERE id = ?",
+		data, now, connID,
+	); err != nil {
+		return fmt.Errorf("reactivate connection %s: %w", connID, err)
+	}
+	return nil
+}
+
 // GetConnectionBackoffLevel reads the backoffLevel from a connection's data.
 // Returns 0 when not set or on error.
 func (r *Repo) GetConnectionBackoffLevel(connID string) int {

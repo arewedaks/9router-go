@@ -5,6 +5,20 @@
 
 ### 🚀 Features & Upstream Parity
 
+**Four Providers Added, Claude-Format Upstreams Supported:**
+- `internal/providers/category.go` + `registry_models.go` + `aliases.go` — registered **AgentRouter** (freeTier, `$200` signup credits), **ZCode** (Z.ai GLM coding plan), **DeepInfra**, and **ZenMux**, with their model lists and aliases (`ar`, `zc`).
+- `internal/providers/providers.go` — new `FormatClaude` marker for providers whose upstream speaks the Anthropic Messages API without being Anthropic. AgentRouter and ZCode use it: their request body is converted to Messages format and the response translated back, but they do **not** inherit Anthropic OAuth or Claude-Code cloaking, since they are not Anthropic's host.
+- `internal/handlers/chat/fallback.go` — `claudeNative` now recognises a Claude-format provider, and the new `upstreamClaudeWanted` helper decides response translation. Previously only a provider literally named `claude`/`anthropic` with Anthropic's own baseURL could take this path.
+
+**Kimchi Monthly Quota Auto-Reactivation:**
+- `internal/quota/reactivation.go` — new periodic sweep that restores accounts parked as `quota_exhausted` once their cooldown has passed. Kimchi's free budget refills monthly, not on a timer, so nothing in the request path brings such an account back: it is not serving traffic, so it never gets a chance to succeed. Ported from VansRouter's `src/sse/services/kimchiQuotaReactivation.js`.
+- `internal/db/accounts.go` — `ReactivateConnection` sets `isActive=1` alongside the blob; clearing only the blob would leave the account out of the active-connection query.
+- `cmd/9router-go/main.go` — starts the sweep (30s after boot, then every 30 minutes).
+
+Verified against a live server: an expired account went `isActive=1` / `testStatus=active` with the cooldown and error cleared and its credential intact, while an account still cooling stayed parked.
+
+Test fix: `models_orphan_test.go` used `"agentrouter"` as its example of "neither a KnownProvider nor an alias". Registering that provider invalidated the premise, so the fixture now uses a deliberately fictional name.
+
 **Provider Circuit Breaker and Account Semaphore:**
 - `internal/resilience/circuitbreaker.go` — new in-memory breaker per provider with CLOSED → DEGRADED → OPEN → HALF_OPEN states, exponential backoff on repeated failed probes (capped), and VansRouter's failure model: only 5xx/408/timeout count. **429 is deliberately excluded** — it is per-account rate limiting, and counting it would open the breaker for every healthy account once a few are throttled. Ported from `open-sse/utils/circuitBreaker.js`.
 - `internal/resilience/semaphore.go` — new per-account FIFO concurrency limiter keyed `provider:account:proxy`, with a bounded queue, wait timeout, context cancellation, and `Block` for holding an account after a 429. Ported from `open-sse/services/accountSemaphore.js`. A connection sets `providerSpecificData.maxConcurrency` to override; `0` disables it.
