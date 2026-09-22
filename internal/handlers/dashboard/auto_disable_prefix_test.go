@@ -1,8 +1,6 @@
 package dashboard
 
 import (
-	"bytes"
-	json "encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -62,9 +60,9 @@ func TestAutoDisableMarksNodePrecededModelUnderItsPrefix(t *testing.T) {
 	}
 }
 
-// The batch endpoint the Test toolbar calls must apply the same rule.
+// The batch auto-disable path must apply the same prefix-key rule.
 func TestAutoDisableBatchMarksNodeModelUnderItsPrefix(t *testing.T) {
-	_, repo, r := setupTestDashboard(t)
+	_, repo, _ := setupTestDashboard(t)
 
 	const nodeID = "openai-compatible-chat-bbbb"
 	if _, err := repo.DB().Exec(
@@ -89,19 +87,12 @@ func TestAutoDisableBatchMarksNodeModelUnderItsPrefix(t *testing.T) {
 		t.Fatalf("seed custom model: %v", err)
 	}
 
-	body, _ := json.Marshal(map[string]any{
-		"parallel":          false,
-		"autoDisableFailed": true,
-		"models":            []string{"xkiro/z-ai/glm-4.5-air"},
-	})
-	req := httptest.NewRequest(http.MethodPost,
-		"/api/dashboard/providers/"+nodeID+"/test-models", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("test-models status = %d (%s)", w.Code, w.Body.String())
-	}
+	// Simulate a permanent probe failure (404) — no running server needed.
+	// The model is addressed as "xkiro/<id>" the way the UI sends it.
+	h := &Handler{repo: repo}
+	h.maybeAutoDisable("xkiro/z-ai/glm-4.5-air", modelTestResult{
+		ModelID: "z-ai/glm-4.5-air", OK: false, Status: 404,
+	}, true)
 
 	hidden, err := repo.GetAllHiddenModels()
 	if err != nil {

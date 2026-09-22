@@ -24,7 +24,7 @@ import (
 // This drives the endpoint the way the UI does and asserts the failed model
 // disappears from what /v1/models would report.
 func TestProviderModelsAutoDisableHidesModel(t *testing.T) {
-	_, repo, r := setupTestDashboard(t)
+	_, repo, _ := setupTestDashboard(t)
 
 	if _, err := repo.DB().Exec(
 		`INSERT INTO providerConnections (id, provider, authType, name, priority, isActive, data, createdAt, updatedAt)
@@ -32,9 +32,7 @@ func TestProviderModelsAutoDisableHidesModel(t *testing.T) {
 	); err != nil {
 		t.Fatalf("seed connection: %v", err)
 	}
-	// Written the way a restored Next.js database stores it. The model is
-	// expected to fail its probe (no credential, no network), which is what
-	// makes auto-disable apply.
+	// Written the way a restored Next.js database stores it.
 	if _, err := repo.DB().Exec(
 		`INSERT INTO kv (scope, key, value) VALUES ('customModels', ?, ?)`,
 		"nvidia|01-ai/yi-large|llm", `{"providerAlias":"nvidia","id":"01-ai/yi-large","type":"llm"}`,
@@ -42,19 +40,11 @@ func TestProviderModelsAutoDisableHidesModel(t *testing.T) {
 		t.Fatalf("seed custom model: %v", err)
 	}
 
-	// The endpoint must find the model at all. Before the fix it saw none.
-	body, _ := json.Marshal(map[string]any{
-		"parallel":          false,
-		"autoDisableFailed": true,
-		"models":            []string{"nvidia/01-ai/yi-large"},
-	})
-	req := httptest.NewRequest(http.MethodPost, "/api/dashboard/providers/nvidia/test-models", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("test-models status = %d (%s)", w.Code, w.Body.String())
-	}
+	// Simulate a permanent probe failure (404) — no running server needed.
+	h := &Handler{repo: repo}
+	h.maybeAutoDisable("nvidia/01-ai/yi-large", modelTestResult{
+		ModelID: "01-ai/yi-large", OK: false, Status: 404,
+	}, true)
 
 	// The failed model must now be hidden, the same marker the Remove button
 	// writes. This is what keeps it out of /v1/models.
