@@ -1,6 +1,29 @@
 # Changelog
 
 
+## [Unreleased]
+
+### 🚀 Features & Upstream Parity
+
+**Per-API-Key ACL Enforced (providers / combos / kinds):**
+- `internal/models/types.go` — `APIKey` gained `AllowedProviders`, `AllowedCombos`, `AllowedKinds` plus `IsProviderAllowed` / `IsComboAllowed` / `IsKindAllowed`. Semantics match VansRouter: `nil` = all allowed, `[]` = none, `[x]` = only x.
+- `internal/db/repos.go` — `GetApiKeyByKey` now reads the three ACL columns and decodes them via `decodeACLList`, which keeps NULL as `nil` (unrestricted) and a stored `[]` as an empty non-nil slice (nothing allowed). A malformed column falls back to `nil` so a broken ACL cannot lock an operator out.
+- `internal/db/dashboard.go` — `GetAllApiKeys` surfaces the ACL columns; new `UpdateApiKeyACL` writes them.
+- `internal/handlers/chat/acl.go` — enforcement helpers. A combo is checked against `allowedCombos` **and** against every provider it can route to, so a provider restriction cannot be bypassed by fanning out through a combo.
+- `internal/handlers/chat/chat.go` — `HandleChatCompletions` and `HandleMessages` authorise before any upstream work.
+- `internal/handlers/media/media.go` — `forwardMediaRequest` (all 11 media routes) plus `HandleEmbeddings` authorise, with the kind derived from the endpoint.
+- `internal/handlers/dashboard/dashboard.go` — `PUT /api/dashboard/keys/{id}/acl`. A field absent from the body is left unchanged; an explicit `null` clears the restriction.
+- `internal/middleware/auth.go` — `WithApiKeyForTest` so handler packages can exercise per-key authorisation directly.
+
+Keys created before this change have NULL ACL columns and remain unrestricted — verified end-to-end.
+
+**Freebuff & Devin CLI Added to Provider Catalog:**
+- `internal/providers/category.go` — Registered `devin-cli` (no-auth, Devin CLI via ACP/stdio) and `freebuff` (OAuth, free ad-supported Codebuff agent) in the `free` category. Both had configs and executors wired but were absent from the catalog, so they never rendered in the providers grid.
+- `internal/providers/registry_models.go` — Added Freebuff's model list under both `fb` and `freebuff` keys (10 entries, mirroring the CLI's `FREEBUFF_ROOT_AGENT_ID_BY_MODEL` plus the executor's extra agent mappings).
+- `internal/handlers/oauth/freebuff_oauth.go` — New fingerprint device-flow login (ported from VansRouter's `src/lib/oauth/providers/freebuff.js`): `POST freebuff.com/api/auth/cli/code` → browser sign-in → `GET /api/auth/cli/status` polled until `user.authToken` lands. Stateless server-side, so it works headless.
+- `internal/handlers/router.go` — Routes `GET /api/oauth/freebuff/authorize` and `POST /api/oauth/freebuff/exchange`.
+- `internal/handlers/dashboard/ui/index.html` — Freebuff sign-in panel with automatic polling; freebuff panel wired into the provider-detail OAuth dispatch.
+
 ## [v1.8.17] — 2026-09-18
 
 ### 🚀 Features & Upstream Parity
