@@ -3,6 +3,16 @@
 
 ## [Unreleased]
 
+### 🚀 Features & Upstream Parity
+
+**Kiro Model Import (live account catalogue):**
+- `internal/handlers/dashboard/kiro_catalog.go` — Kiro publishes the models an account may call through the CodeWhisperer control-plane call `AmazonCodeWhispererService.ListAvailableModels`. That is not an OpenAI-style `/models` route, so the generic fetcher could not reach it and Import previously reported "does not support models listing".
+- `internal/handlers/dashboard/models_fetch.go` — dispatches Kiro to the new fetcher, alongside the existing Antigravity / CodeBuddy / GitHub / Cline / Cloudflare special cases.
+
+Why it matters, measured on a live free-tier account: the endpoint returned 9 models, **four of which are absent from the static registry list** (`auto`, `claude-sonnet-4`, `minimax-m2.1`, `minimax-m2.5`), while nine static entries (Opus 5, Sonnet 5, the GPT-5.6 family) were not offered on that tier. The static list was therefore wrong in both directions — importing shows what the account can actually call.
+
+A failure falls back to the static catalogue with a warning rather than erroring, so Import still produces a usable list when the control plane is unreachable.
+
 ### 🐛 Fixes
 
 **OAuth Audit Against VansRouter: Three Real Mismatches Fixed:**

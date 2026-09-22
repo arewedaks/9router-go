@@ -228,6 +228,14 @@ func (h *Handler) fetchUpstreamModels(providerID, data string, timeout time.Dura
 		return h.fetchCloudflareModels(providerID, data, timeout)
 	}
 
+	// Kiro publishes its catalogue through a CodeWhisperer control-plane call
+	// (ListAvailableModels), not an OpenAI-style /models route, and the account's
+	// entitlement differs from the static registry list. Handle it explicitly so
+	// Import reflects what the account can actually call.
+	if isKiroProvider(canonical) || isKiroProvider(providerID) {
+		return h.fetchKiroModels(canonical, data, timeout)
+	}
+
 	client := &http.Client{Timeout: timeout}
 
 	// Branch 1 & 2: user-defined compatible endpoints need a base URL.
