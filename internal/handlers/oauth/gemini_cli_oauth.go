@@ -100,7 +100,7 @@ func (h *OAuthHandler) HandleGeminiCLIAuthorize(w http.ResponseWriter, r *http.R
 
 	redirectURI := strings.TrimSpace(r.URL.Query().Get("redirectUri"))
 	if redirectURI == "" {
-		redirectURI = geminiCLIDefaultRedirectURI
+		redirectURI = loopbackRedirectURI(r, "/oauth/gemini-cli/callback")
 	}
 
 	state := randomString(32)
@@ -188,6 +188,9 @@ func (h *OAuthHandler) HandleGeminiCLIExchange(w http.ResponseWriter, r *http.Re
 		}
 	}
 	if redirectURI == "" {
+		// The authorize call stored the real URI; this only covers a request that
+		// reached exchange without a state, where the configured default is the
+		// only thing left to try.
 		redirectURI = geminiCLIDefaultRedirectURI
 	}
 
@@ -273,10 +276,7 @@ func (h *OAuthHandler) HandleGeminiCLICallback(w http.ResponseWriter, r *http.Re
 }
 
 func writeGeminiCLICallbackPage(w http.ResponseWriter, status int, title, detail string) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(status)
-	fmt.Fprintf(w, `<!doctype html><html><head><title>%s</title></head><body><h2>%s</h2><p>%s</p></body></html>`,
-		htmlEscape(title), htmlEscape(title), htmlEscape(detail))
+	writeCallbackPage(w, status, title, detail, "gemini-cli")
 }
 
 // saveGeminiCLIConnection persists the account and returns (name, email, projectID, err).

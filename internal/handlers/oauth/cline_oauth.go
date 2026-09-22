@@ -75,7 +75,7 @@ type clineTokenPayload struct {
 func (h *OAuthHandler) HandleClineAuthorize(w http.ResponseWriter, r *http.Request) {
 	redirectURI := strings.TrimSpace(r.URL.Query().Get("redirectUri"))
 	if redirectURI == "" {
-		redirectURI = clineDefaultRedirectURI
+		redirectURI = loopbackRedirectURI(r, "/oauth/cline/callback")
 	}
 
 	q := url.Values{

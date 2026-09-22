@@ -145,12 +145,15 @@ func (h *OAuthHandler) HandleAntigravityAuthorize(w http.ResponseWriter, r *http
 	profile := antigravityClientProfile(r.URL.Query().Get("profile"))
 
 	// Antigravity's embedded OAuth client is an installed-app client, so the
-	// only redirect it accepts is a loopback URI. Default to a port the
-	// dashboard does not need to serve: the operator pastes the callback URL
-	// back, which is the only flow that survives a headless/Termux server.
+	// only redirect it accepts is a loopback URI. The port must be the one this
+	// server is actually listening on: a hardcoded default sends Google's
+	// redirect to a port nothing is bound to whenever the operator runs on a
+	// different one, and the code is then lost. The request's own host carries
+	// the real port, so derive from it and keep the constant only as a fallback
+	// for a request whose Host header is unusable.
 	redirectURI := strings.TrimSpace(r.URL.Query().Get("redirectUri"))
 	if redirectURI == "" {
-		redirectURI = antigravityDefaultRedirectURI
+		redirectURI = loopbackRedirectURI(r, "/oauth/antigravity/callback")
 	}
 
 	verifier := randomString(64)
@@ -367,16 +370,58 @@ func (h *OAuthHandler) HandleAntigravityCallback(w http.ResponseWriter, r *http.
 
 // writeAntigravityCallbackPage renders a tiny self-contained status page so the
 // browser tab the operator lands on explains what happened.
+//
+// A link back to the dashboard is included because the tab that lands here is a
+// dead end otherwise: the operator's next step is always to return to the
+// provider page, and making them retype the URL invites confusion about whether
+// the sign-in worked.
 func writeAntigravityCallbackPage(w http.ResponseWriter, status int, title, detail string) {
+	writeCallbackPage(w, status, title, detail, "antigravity")
+}
+
+// writeCallbackPage renders the status page every OAuth loopback callback lands
+// on. One renderer keeps the providers consistent and means a fix here — the
+// no-store header, the back link — reaches all of them.
+//
+// provider is the dashboard handle the "back" link opens, so the operator lands
+// on the page they started from rather than the provider list.
+func writeCallbackPage(w http.ResponseWriter, status int, title, detail, provider string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	// The page names the account and, on failure, echoes upstream error text.
+	// A shared or back-button cache replaying it after a later sign-in would show
+	// a stale result, so it must not be stored.
+	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(status)
+	ok := status == http.StatusOK
 	fmt.Fprintf(w, `<!DOCTYPE html><html><head><meta charset="utf-8"><title>%s</title>`+
 		`<style>body{background:#090d13;color:#e6edf3;font-family:-apple-system,Segoe UI,Roboto,sans-serif;`+
 		`display:flex;align-items:center;justify-content:center;height:100vh;margin:0}`+
 		`.c{max-width:440px;padding:28px;background:#121820;border:1px solid #232f3e;border-radius:12px;text-align:center}`+
 		`h1{font-size:1.05rem;margin:0 0 10px}p{color:#8b949e;font-size:0.85rem;line-height:1.5;margin:0}`+
-		`</style></head><body><div class="c"><h1>%s</h1><p>%s</p></div></body></html>`,
-		htmlEscape(title), htmlEscape(title), htmlEscape(detail))
+		`.mark{font-size:1.6rem;line-height:1;margin-bottom:12px;color:%s}`+
+		`a.btn{display:inline-block;margin-top:18px;padding:9px 18px;border-radius:8px;text-decoration:none;`+
+		`font-size:0.85rem;font-weight:600;background:#ff8a2a;color:#24160c}`+
+		`</style></head><body><div class="c"><div class="mark">%s</div><h1>%s</h1><p>%s</p>`+
+		`<a class="btn" href="/dashboard#provider/%s">Back to the dashboard</a>`+
+		`</div></body></html>`,
+		htmlEscape(title), iconColor(ok), iconGlyph(ok), htmlEscape(title), htmlEscape(detail),
+		url.PathEscape(provider))
+}
+
+// iconColor / iconGlyph give the status page a visual cue that does not rely on
+// reading the text, since the operator's attention is on whether it worked.
+func iconColor(ok bool) string {
+	if ok {
+		return "#3fb950"
+	}
+	return "#da3633"
+}
+
+func iconGlyph(ok bool) string {
+	if ok {
+		return "&#10003;"
+	}
+	return "&#10007;"
 }
 
 // htmlEscape is a minimal escaper for the callback status page.
