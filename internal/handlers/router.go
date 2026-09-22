@@ -158,6 +158,12 @@ func SetupRoutes(r interface {
 
 	// Debug Tracing Domain (p50/p95 latency per provider+model)
 	r.Get("/debug/traces", HandleDebugTraces)
+
+	// Provider resilience state: which breaker is open and which accounts are
+	// saturated. The reset endpoint exists so an operator who has fixed an
+	// upstream does not have to wait out the backoff.
+	r.Get("/debug/resilience", HandleResilienceStatus)
+	r.Post("/debug/resilience/reset", HandleResilienceReset)
 }
 
 // SetupServerRouter mounts public endpoints (/health, /api/hello) and

@@ -39,6 +39,14 @@ func (h *ChatHandler) handleAccountFallback(
 	endpoint string,
 ) error {
 	body = repairToolCallIDsInJSON(body)
+
+	// Provider-level breaker first, before any path that dials upstream — the
+	// pinned-connection path below returns early, and a check placed after it
+	// would let a pinned request bypass an open circuit entirely.
+	if !providerBreakerAllows(provider) {
+		return fmt.Errorf("provider %s is temporarily unavailable (circuit open)", provider)
+	}
+
 	if pinnedConnectionID != "" {
 		connObj, connData, err := h.getBestConnection(provider, pinnedConnectionID, nil, model)
 		if err != nil {
@@ -127,6 +135,11 @@ func (h *ChatHandler) handleAccountFallback(
 			if lockKey != model {
 				_ = h.Repo.LockConnectionModel(connObj.ID, model, cooldownSec, classification.NewBackoffLevel)
 			}
+			// Hold this account's concurrency gate for the cooldown so queued
+			// requests wait instead of adding to the throttle that caused it.
+			if ue.StatusCode == http.StatusTooManyRequests {
+				blockAccountAfter429(provider, connObj.ID, connData, time.Duration(cooldownSec)*time.Second)
+			}
 			log.Warn("fallback", "connection locked", "conn", connObj.ID, "provider", provider, "model", model, "lockKey", lockKey, "status", ue.StatusCode, "cooldown_s", cooldownSec)
 			excludeIDs = append(excludeIDs, c.ID)
 			continue
@@ -182,6 +195,11 @@ func (h *ChatHandler) tryForwardWithConnection(
 	endpoint string,
 ) error {
 	ctx = translator.WithUsageCapture(ctx)
+
+	// Cap concurrent requests to this account before doing any work. Released
+	// by the deferred call below, which runs on every return path.
+	releaseSlot := acquireAccountSlot(ctx, provider, connectionID, connData)
+	defer releaseSlot()
 
 	providerCfg, err := h.getProviderConfig(provider, connData)
 	if err != nil {
@@ -395,6 +413,7 @@ func (h *ChatHandler) tryForwardWithConnection(
 		}
 		h.logUsage(logInfo, usage, latencyMs, body, metrics)
 		fwdErr = nil
+		recordProviderOutcome(provider, 200, false)
 	} else {
 		var ue *upstreamError
 		statusCode := 0
@@ -402,11 +421,15 @@ func (h *ChatHandler) tryForwardWithConnection(
 			statusCode = ue.StatusCode
 		}
 		if isClientCanceled(ctx, fwdErr) {
+			// The client hung up, so the provider never got to answer. Counting
+			// this would let an impatient client open the breaker.
 			log.Info("fallback", "client canceled request", "provider", provider, "model", model, "conn", connectionID)
 		} else if projectProbeCached(connectionID) {
 			log.Debug("fallback", "upstream skipped (cached no-project)", "provider", provider, "model", model, "conn", connectionID, "error", fwdErr)
+			recordProviderOutcome(provider, statusCode, true)
 		} else {
 			log.Warn("fallback", "upstream failed", "provider", provider, "model", model, "conn", connectionID, "status", statusCode, "error", fwdErr)
+			recordProviderOutcome(provider, statusCode, statusCode == 0)
 		}
 	}
 	return fwdErr

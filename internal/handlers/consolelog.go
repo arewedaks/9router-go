@@ -8,6 +8,7 @@ import (
 
 	"9router/proxy/internal/handlerutil"
 	"9router/proxy/internal/log"
+	"9router/proxy/internal/resilience"
 	"9router/proxy/internal/tracing"
 )
 
@@ -40,6 +41,23 @@ func HandleDebugTraces(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(body)
+}
+
+// HandleResilienceStatus reports the circuit-breaker and semaphore state, so an
+// operator can see which provider is being skipped and which accounts are
+// saturated. POST /debug/resilience/reset clears the breakers.
+func HandleResilienceStatus(w http.ResponseWriter, r *http.Request) {
+	handlerutil.WriteJSON(w, http.StatusOK, map[string]any{
+		"breakers":  resilience.AllBreakerStatuses(),
+		"semaphores": resilience.SemaphoreStats(),
+	})
+}
+
+// HandleResilienceReset closes every breaker. Used after fixing an upstream so
+// the gateway stops waiting out the backoff.
+func HandleResilienceReset(w http.ResponseWriter, r *http.Request) {
+	resilience.ResetAllBreakers()
+	handlerutil.WriteJSON(w, http.StatusOK, map[string]any{"success": true})
 }
 
 // HandleConsoleLogsDelete clears the buffered console logs.

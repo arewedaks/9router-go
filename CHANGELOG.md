@@ -5,6 +5,17 @@
 
 ### 🚀 Features & Upstream Parity
 
+**Provider Circuit Breaker and Account Semaphore:**
+- `internal/resilience/circuitbreaker.go` — new in-memory breaker per provider with CLOSED → DEGRADED → OPEN → HALF_OPEN states, exponential backoff on repeated failed probes (capped), and VansRouter's failure model: only 5xx/408/timeout count. **429 is deliberately excluded** — it is per-account rate limiting, and counting it would open the breaker for every healthy account once a few are throttled. Ported from `open-sse/utils/circuitBreaker.js`.
+- `internal/resilience/semaphore.go` — new per-account FIFO concurrency limiter keyed `provider:account:proxy`, with a bounded queue, wait timeout, context cancellation, and `Block` for holding an account after a 429. Ported from `open-sse/services/accountSemaphore.js`. A connection sets `providerSpecificData.maxConcurrency` to override; `0` disables it.
+- `internal/handlers/chat/resilience_wiring.go` — connects both to the request path: acquire a slot per attempt, feed each outcome back to the breaker, block the account on 429.
+- `internal/handlers/chat/fallback.go` — the breaker is checked **before** the pinned-connection path, which returns early and would otherwise let a pinned request bypass an open circuit. A client-cancelled request is not counted as a provider failure.
+- `GET /debug/resilience` reports breaker and semaphore state; `POST /debug/resilience/reset` closes every breaker so an operator who has fixed an upstream need not wait out the backoff.
+
+Verified against a live server: seven failures against a dead upstream opened the breaker (`OPEN`, `retryAfterMs≈30s`), the next request was refused in under 1 ms with `provider breaker open, skipping` and no upstream dial, reset returned it to `CLOSED`, and three concurrent requests to a `maxConcurrency=1` account reported `running=1 queued=2`.
+
+Test isolation: breakers and semaphores are process-global, so `setupChatTestDB` now resets them per test — otherwise a test that drives a provider into failure left an OPEN breaker for the next test using the same provider.
+
 **Per-API-Key ACL Enforced (providers / combos / kinds):**
 - `internal/models/types.go` — `APIKey` gained `AllowedProviders`, `AllowedCombos`, `AllowedKinds` plus `IsProviderAllowed` / `IsComboAllowed` / `IsKindAllowed`. Semantics match VansRouter: `nil` = all allowed, `[]` = none, `[x]` = only x.
 - `internal/db/repos.go` — `GetApiKeyByKey` now reads the three ACL columns and decodes them via `decodeACLList`, which keeps NULL as `nil` (unrestricted) and a stored `[]` as an empty non-nil slice (nothing allowed). A malformed column falls back to `nil` so a broken ACL cannot lock an operator out.

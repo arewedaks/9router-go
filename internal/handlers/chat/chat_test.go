@@ -13,11 +13,20 @@ import (
 	"9router/proxy/internal/db"
 	"9router/proxy/internal/dbtest"
 	"9router/proxy/internal/handlerutil"
+	"9router/proxy/internal/resilience"
 	"os"
 )
 
 func setupChatTestDB(t *testing.T) (*sql.DB, func()) {
 	t.Helper()
+
+	// The circuit breakers and semaphores are process-global (they model live
+	// provider health, not per-connection state), so a test that drives a
+	// provider into failure would leave a breaker OPEN for the next test using
+	// the same provider. Reset them per test so each starts from a clean slate.
+	resilience.ResetAllBreakers()
+	resilience.ResetSemaphores()
+
 	tmpFile, err := os.CreateTemp("", "test_chat_*.sqlite")
 	if err != nil {
 		t.Fatalf("failed to create temp file: %v", err)
