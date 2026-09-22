@@ -179,6 +179,10 @@ func SetupRoutes(r interface {
 	// upstream does not have to wait out the backoff.
 	r.Get("/debug/resilience", HandleResilienceStatus)
 	r.Post("/debug/resilience/reset", HandleResilienceReset)
+
+	// Prompt Cache Domain (Exact prompt hit/miss stats & flush)
+	r.Get("/api/cache/stats", chatH.HandleCacheStats)
+	r.Post("/api/cache/clear", chatH.HandleCacheClear)
 }
 
 // SetupServerRouter mounts public endpoints (/health, /api/hello) and

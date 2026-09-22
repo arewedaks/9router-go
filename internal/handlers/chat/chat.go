@@ -19,6 +19,7 @@ import (
 	"9router/proxy/internal/providers"
 	"9router/proxy/internal/translator"
 	"9router/proxy/internal/updater"
+	"9router/proxy/internal/promptcache"
 )
 
 // HandleChatCompletions handles POST /v1/chat/completions (OpenAI format requests).
@@ -77,10 +78,9 @@ func (h *ChatHandler) HandleChatCompletions(w http.ResponseWriter, r *http.Reque
 
 // handleSingleModel resolves a single ModelInfo and forwards the request upstream.
 func (h *ChatHandler) handleSingleModel(ctx context.Context, w http.ResponseWriter, body []byte, modelInfo *ModelInfo, isStream bool, translateResponse bool) {
-	cw := newCommittedResponseWriter(w)
 	var upstreamBody map[string]any
 	if err := json.Unmarshal(body, &upstreamBody); err != nil {
-		handlerutil.WriteJSONError(cw, http.StatusBadRequest, "failed to parse request body")
+		handlerutil.WriteJSONError(w, http.StatusBadRequest, "failed to parse request body")
 		return
 	}
 	upstreamBody["model"] = modelInfo.Model
@@ -91,20 +91,32 @@ func (h *ChatHandler) handleSingleModel(ctx context.Context, w http.ResponseWrit
 		return
 	}
 
-	result := h.handleAccountFallback(ctx, cw, modelInfo.Provider, modelInfo.Model, modelInfo.ConnectionID, upstreamJSON, isStream, translateResponse, "/v1/chat/completions")
+	// 1. Check prompt cache
+	if h.tryServeFromCache(w, modelInfo.Model, upstreamJSON, isStream) {
+		return
+	}
+
+	// 2. Intercept response to populate cache on success
+	hash, _ := promptcache.HashRequest(modelInfo.Model, upstreamJSON)
+	cw := newCachingResponseWriter(w, modelInfo.Model, hash, h.PromptCache, isStream)
+	defer cw.Finalize()
+
+	commWriter := newCommittedResponseWriter(cw)
+
+	result := h.handleAccountFallback(ctx, commWriter, modelInfo.Provider, modelInfo.Model, modelInfo.ConnectionID, upstreamJSON, isStream, translateResponse, "/v1/chat/completions")
 	if result != nil {
-		if cw.IsCommitted() {
+		if commWriter.IsCommitted() {
 			log.Error("chat", "upstream error after headers committed", "error", result)
 			return
 		}
 		var ue *upstreamError
 		if errors.As(result, &ue) {
-			cw.Header().Set("Content-Type", "application/json")
-			cw.WriteHeader(ue.StatusCode)
-			cw.Write(ue.Body)
+			commWriter.Header().Set("Content-Type", "application/json")
+			commWriter.WriteHeader(ue.StatusCode)
+			commWriter.Write(ue.Body)
 			return
 		}
-		handlerutil.WriteJSONError(cw, http.StatusBadGateway, fmt.Sprintf("upstream error: %v", result))
+		handlerutil.WriteJSONError(commWriter, http.StatusBadGateway, fmt.Sprintf("upstream error: %v", result))
 	}
 }
 
@@ -196,28 +208,39 @@ func (h *ChatHandler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 
 // handleMessagesSingleModel forwards a translated Claude request for a single model.
 func (h *ChatHandler) handleMessagesSingleModel(ctx context.Context, w http.ResponseWriter, translatedReq map[string]any, modelInfo *ModelInfo, isStream bool, translateResponse bool) {
-	cw := newCommittedResponseWriter(w)
 	translatedReq["model"] = modelInfo.Model
 	finalBody, err := json.Marshal(translatedReq)
 	if err != nil {
-		handlerutil.WriteJSONError(cw, http.StatusInternalServerError, "failed to marshal translated request")
+		handlerutil.WriteJSONError(w, http.StatusInternalServerError, "failed to marshal translated request")
 		return
 	}
 
-	result := h.handleAccountFallback(ctx, cw, modelInfo.Provider, modelInfo.Model, modelInfo.ConnectionID, finalBody, isStream, translateResponse, "/v1/v1/messages")
+	// 1. Check prompt cache
+	if h.tryServeFromCache(w, modelInfo.Model, finalBody, isStream) {
+		return
+	}
+
+	// 2. Intercept response to populate cache on success
+	hash, _ := promptcache.HashRequest(modelInfo.Model, finalBody)
+	cw := newCachingResponseWriter(w, modelInfo.Model, hash, h.PromptCache, isStream)
+	defer cw.Finalize()
+
+	commWriter := newCommittedResponseWriter(cw)
+
+	result := h.handleAccountFallback(ctx, commWriter, modelInfo.Provider, modelInfo.Model, modelInfo.ConnectionID, finalBody, isStream, translateResponse, "/v1/v1/messages")
 	if result != nil {
-		if cw.IsCommitted() {
+		if commWriter.IsCommitted() {
 			log.Error("chat", "upstream error after headers committed", "error", result)
 			return
 		}
 		var ue *upstreamError
 		if errors.As(result, &ue) {
-			cw.Header().Set("Content-Type", "application/json")
-			cw.WriteHeader(ue.StatusCode)
-			cw.Write(ue.Body)
+			commWriter.Header().Set("Content-Type", "application/json")
+			commWriter.WriteHeader(ue.StatusCode)
+			commWriter.Write(ue.Body)
 			return
 		}
-		handlerutil.WriteJSONError(cw, http.StatusBadGateway, fmt.Sprintf("upstream error: %v", result))
+		handlerutil.WriteJSONError(commWriter, http.StatusBadGateway, fmt.Sprintf("upstream error: %v", result))
 	}
 }
 

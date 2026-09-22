@@ -15,6 +15,11 @@
 - `internal/handlers/dashboard/codebuddy_catalog_test.go` — the existing test expected `minimax-m2.7`, `deepseek-v4-pro` and `hy3-preview` to be present. All three now answer `11102` on a live account, so the expectation was stale and is replaced with the ids that actually serve.
 
 ### 🚀 Features & Upstream Parity
+**Smart Exact Prompt Caching (0ms TTFT & $0 Token Cost for Repetitive Prompts):**
+- `internal/promptcache/` — thread-safe memory-bounded LRU cache with configurable capacity (default 1000) and TTL (default 15 minutes). Computes deterministic SHA-256 hash over canonical request structures `(model, messages, system, tools, temperature, top_p, max_tokens)`.
+- `internal/handlers/chat/prompt_cache.go` — transparent caching interceptor for `/v1/chat/completions` and `/v1/messages`. Replays complete stream and non-stream responses with `X-9Router-Cache: HIT` and `X-9Router-Cache-Age: <seconds>`, cutting latency to ~0ms and saving 100% of tokens for identical static analysis / linting / retry queries.
+- `internal/handlers/router.go` — added `/api/cache/stats` and `POST /api/cache/clear` for cache health monitoring and flushing.
+
 **Tencent WorkBuddy Provider (OAuth & Models):**
 - `internal/handlers/oauth/codebuddy_oauth.go` — added `workbuddy` (alias `wb`) as a third variant alongside `codebuddy-cn` and `codebuddy-intl`. WorkBuddy is Tencent's office-agent product and speaks the identical plugin-auth device-authorization protocol (`/v2/plugin/auth/state?platform=CLI`, `/v2/plugin/auth/token`, pending code `11217`), sharing backend lineage — verified by authenticating against its chat endpoint using a live CodeBuddy bearer token.
 - `internal/providers/category.go`, `internal/providers/providers.go`, `internal/providers/registry_models.go`, `internal/providers/aliases.go` — registered provider card (icon `work`, `#0052D9`), base URL (`https://www.workbuddy.ai/v2/chat/completions`), short alias `wb`, and the 8 models verified against a live account.

@@ -7,6 +7,7 @@ import (
 	"9router/proxy/internal/db"
 	"9router/proxy/internal/handlers/shared"
 	"9router/proxy/internal/proxy"
+	"9router/proxy/internal/promptcache"
 )
 
 type comboStickyState struct {
@@ -23,6 +24,7 @@ type ChatHandler struct {
 	Repo        *db.Repo
 	Client      *http.Client
 	TokenSaver  *shared.TokenSaverConfig
+	PromptCache *promptcache.Cache
 	stickyMu    sync.Mutex
 	stickyState map[string]*comboStickyState
 }

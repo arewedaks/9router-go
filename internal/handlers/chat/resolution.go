@@ -13,6 +13,7 @@ import (
 	"9router/proxy/internal/providers"
 	"9router/proxy/internal/proxy/executor"
 	"9router/proxy/internal/proxy/oauth"
+	"9router/proxy/internal/promptcache"
 )
 
 // NewChatHandler creates a ChatHandler with the given repository and a streaming-capable HTTP client.
@@ -37,6 +38,7 @@ func NewChatHandler(repo *db.Repo, ts ...*shared.TokenSaverConfig) *ChatHandler 
 			Timeout:   0, // no timeout for streaming support
 		},
 		TokenSaver:  cfg,
+		PromptCache: promptcache.New(1000, 15*time.Minute),
 		stickyState: make(map[string]*comboStickyState),
 	}
 }
