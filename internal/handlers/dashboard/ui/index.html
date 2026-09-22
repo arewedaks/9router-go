@@ -2207,6 +2207,8 @@
           <option value="iflow">iFlow AI (if)</option>
           <option value="qwen">Qwen Code (qw)</option>
           <option value="codebuddy-intl">CodeBuddy International (cbai)</option>
+          <option value="codebuddy-cn">CodeBuddy CN (cbcn)</option>
+          <option value="workbuddy">Tencent WorkBuddy (wb)</option>
         </optgroup>
         <optgroup label="🔵 Cloud AI APIs (API Key)">
           <option value="openrouter">OpenRouter (or)</option>
@@ -5127,11 +5129,12 @@
   function codebuddyOAuthPanelHtml(providerId) {
     const isWorkbuddy = providerId === "workbuddy" || providerId === "wb";
     const isIntl = providerId === "codebuddy-intl" || providerId === "cbai";
+    const titleLabel = isWorkbuddy ? "WorkBuddy" : "CodeBuddy";
     const label = isWorkbuddy ? "Tencent WorkBuddy" : (isIntl ? "CodeBuddy (International)" : "CodeBuddy (Tencent CN)");
     const host = isWorkbuddy ? "www.workbuddy.ai" : (isIntl ? "www.codebuddy.ai" : "copilot.tencent.com");
     return `
       <div class="add-form oauth-form">
-        <div class="add-form-title"><span class="msym">passkey</span>Add via CodeBuddy sign-in</div>
+        <div class="add-form-title"><span class="msym">passkey</span>Add via ${titleLabel} sign-in</div>
         <div style="font-size:0.72rem; color:var(--muted); margin-bottom:8px;">
           ${label} signs in with a device-authorization link from <code>${host}</code>: click Sign in,
           approve in the tab that opens, and the account is added here automatically. Nothing to copy or paste.
@@ -5139,7 +5142,7 @@
         <div class="add-form-grid oauth-grid">
           <div>
             <label class="field-label">Account name (optional)</label>
-            <input type="text" id="oauth-cb-name" placeholder="auto-filled from CodeBuddy">
+            <input type="text" id="oauth-cb-name" placeholder="auto-filled from ${titleLabel}">
           </div>
           <div style="display:flex; align-items:flex-end;">
             <button class="btn btn-primary" id="oauth-cb-start" onclick="startCodebuddyOAuth('${providerId}')">Sign in</button>
