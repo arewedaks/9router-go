@@ -889,7 +889,14 @@ func StartBackgroundCheck(ctx context.Context, initialAutoUpdate bool) {
 
 	// Check custom interval from env
 	interval := DefaultCheckInterval
-	if envHours := os.Getenv("AUTO_UPDATE_INTERVAL_HOURS"); envHours != "" {
+	// Minutes first: the default is 30 minutes, so an hours-only knob could not
+	// express anything faster than the default it was overriding. Hours is still
+	// honoured for a slower cadence on a metered connection.
+	if envMin := os.Getenv("AUTO_UPDATE_INTERVAL_MINUTES"); envMin != "" {
+		if m, err := strconv.Atoi(envMin); err == nil && m > 0 {
+			interval = time.Duration(m) * time.Minute
+		}
+	} else if envHours := os.Getenv("AUTO_UPDATE_INTERVAL_HOURS"); envHours != "" {
 		if h, err := strconv.Atoi(envHours); err == nil && h > 0 {
 			interval = time.Duration(h) * time.Hour
 		}
