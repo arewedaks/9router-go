@@ -3,6 +3,17 @@
 
 ## [Unreleased]
 
+### 🐛 Fixes
+
+**CodeBuddy Model Catalogue Corrected Against a Live Account:**
+- `internal/handlers/dashboard/codebuddy_catalog.go` — probed every catalogued model against a live `codebuddy-intl` account (one request each) and corrected the catalogue. `deepseek-v4.1-flash` was missing and works; fourteen ids the gateway answers with `11102` ("model is not available") are now retired so Import stops offering models that always fail. Import went from 24 entries to the 8 that actually serve.
+
+  A second error code matters here: `14003` means "too many requests", not "unavailable". An early probe conflated the two and wrongly marked `glm-5.1` — which works — as missing. The distinction is now documented in the code, since the next person to probe will hit the same trap.
+
+  `codebuddy-cn` needed no separate work: VansRouter lists an identical model set for both registry entries and they share a backend lineage, so the existing shared catalogue already served it. Verified by importing under a temporary cn connection — same 8 models.
+
+- `internal/handlers/dashboard/codebuddy_catalog_test.go` — the existing test expected `minimax-m2.7`, `deepseek-v4-pro` and `hy3-preview` to be present. All three now answer `11102` on a live account, so the expectation was stale and is replaced with the ids that actually serve.
+
 ### 🚀 Features & Upstream Parity
 
 **Kiro Model Import (live account catalogue):**

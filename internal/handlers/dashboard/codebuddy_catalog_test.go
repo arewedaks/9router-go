@@ -75,9 +75,15 @@ func TestCodebuddyCatalogue_ExcludesRetiredAndNonChat(t *testing.T) {
 			t.Errorf("isDiscoverableCodebuddyModel(%q) = true, want false", bad)
 		}
 	}
-	// At least one real model from each family must survive, or the catalogue
-	// silently regressed to the blocklist behaviour.
-	for _, want := range []string{"glm-5.1", "minimax-m2.7", "deepseek-v4-pro", "hy3-preview"} {
+	// At least one real model from each surviving family must be present, or the
+	// catalogue silently regressed to the blocklist behaviour.
+	//
+	// The expected ids are the ones a live account actually served. minimax-m2.7,
+	// deepseek-v4-pro and hy3-preview were listed here before they were probed:
+	// all three now answer 11102 ("model is not available"), so they are retired
+	// rather than expected. minimax-m3 and deepseek-v4.1-flash are their
+	// available counterparts.
+	for _, want := range []string{"glm-5.1", "minimax-m3", "deepseek-v4.1-flash"} {
 		if !seen[want] {
 			t.Errorf("expected %q in the CodeBuddy catalogue", want)
 		}

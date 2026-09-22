@@ -98,3 +98,65 @@ func TestIsKiroProvider(t *testing.T) {
 		}
 	}
 }
+
+// CodeBuddy CN must produce the same catalogue as intl: VansRouter lists an
+// identical model set for both registry entries, and they share one backend
+// lineage, so a divergence here would be a bug rather than a feature.
+func TestCodebuddyCatalog_CNMatchesIntl(t *testing.T) {
+	if !isCodebuddyProvider("codebuddy-cn") {
+		t.Fatal("codebuddy-cn is not routed to the CodeBuddy catalogue")
+	}
+	cn := codebuddyStaticModels()
+	intl := codebuddyStaticModels()
+	if len(cn) == 0 {
+		t.Fatal("catalogue is empty")
+	}
+	if len(cn) != len(intl) {
+		t.Fatalf("cn has %d models, intl %d", len(cn), len(intl))
+	}
+}
+
+// The retired list is what keeps Import from offering models the gateway
+// answers with 11102. Every entry must actually be filtered out.
+func TestCodebuddyCatalog_RetiredModelsFiltered(t *testing.T) {
+	got := codebuddyStaticModels()
+	served := make(map[string]bool, len(got))
+	for _, m := range got {
+		served[m.ID] = true
+	}
+	for id := range codebuddyRetiredModelIDs {
+		if served[id] {
+			t.Errorf("retired model %q is still offered by Import", id)
+		}
+	}
+}
+
+// deepseek-v4.1-flash works on a live account while the sibling deepseek-v4-pro
+// is rejected with 11102, so the two must be classified differently. This pins
+// that distinction: the availability probe found them opposite.
+func TestCodebuddyCatalog_DeepseekFlashAvailableProUnavailable(t *testing.T) {
+	served := make(map[string]bool)
+	for _, m := range codebuddyStaticModels() {
+		served[m.ID] = true
+	}
+	if !served["deepseek-v4.1-flash"] {
+		t.Error("deepseek-v4.1-flash is available on a live account but is not offered")
+	}
+	if served["deepseek-v4-pro"] {
+		t.Error("deepseek-v4-pro returns 11102 on a live account but is still offered")
+	}
+}
+
+// 14003 means rate limited, not unavailable. An early probe conflated the two
+// and wrongly dropped glm-5.1, which does work, so this pins it as offered.
+func TestCodebuddyCatalog_Glm51Offered(t *testing.T) {
+	served := make(map[string]bool)
+	for _, m := range codebuddyStaticModels() {
+		served[m.ID] = true
+	}
+	for _, id := range []string{"glm-5.2", "glm-5.1", "glm-5v-turbo", "minimax-m3"} {
+		if !served[id] {
+			t.Errorf("%s works on a live account but is not offered", id)
+		}
+	}
+}

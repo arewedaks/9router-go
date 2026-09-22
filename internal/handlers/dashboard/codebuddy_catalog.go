@@ -31,16 +31,36 @@ type codebuddyStaticModel struct {
 	Name string
 }
 
-// codebuddyRetiredModelIDs are ids still referenced by stale account state but
-// which the gateway now answers with 400 "service info not found" (observed:
-// `model [deepseek-v4-flash] service info not found`, code 11102). They are
-// filtered out so Import does not hand the router a model that always fails.
+// codebuddyRetiredModelIDs are ids the gateway answers with code 11102
+// ("service info not found" / "model is not available"), so offering them in
+// Import would hand the router a model that always fails.
 //
-// Note: VansRouter still lists deepseek-v4-flash on codebuddy-intl. We keep it
-// excluded because a live 9router account was rejected for it with code 11102;
-// remove the entry here if the gateway re-enables it.
+// Measured against a live codebuddy-intl account, one request per model. Note
+// that a second error code appears on this endpoint: 14003 means "too many
+// requests", which is transient and must NOT be read as "model unavailable" —
+// an early probe conflated the two and wrongly marked glm-5.1 as missing.
+//
+// VansRouter still lists several of these; they are excluded here because the
+// live gateway rejects them. Remove an entry if the gateway re-enables it.
 var codebuddyRetiredModelIDs = map[string]bool{
-	"deepseek-v4-flash": true,
+	// Confirmed 11102 on a live account.
+	"deepseek-v4-flash":  true,
+	"deepseek-v4-pro":    true,
+	"deepseek-v3-2-volc": true,
+	"deepseek-v3.2":      true,
+	"deepseek-r1":        true,
+	"glm-5.0":            true,
+	"glm-5.0-turbo":      true,
+	"glm-4.7":            true,
+	"glm-4.6":            true,
+	"glm-4.5":            true,
+	"minimax-m2.7":       true,
+	"minimax-m2.5":       true,
+	"minimax-m1":         true,
+	"kimi-k2":            true,
+	"hy3-preview":        true,
+	"hunyuan-t1":         true,
+	"hunyuan-turbo":      true,
 }
 
 // codebuddyStaticCatalog is the fallback catalogue for codebuddy-cn and
@@ -64,6 +84,7 @@ var codebuddyStaticCatalog = []codebuddyStaticModel{
 	{"minimax-m2.5", "MiniMax M2.5"},
 	{"minimax-m1", "MiniMax M1"},
 	// DeepSeek family.
+	{"deepseek-v4.1-flash", "DeepSeek V4.1 Flash"},
 	{"deepseek-v4-pro", "DeepSeek V4 Pro"},
 	{"deepseek-v3-2-volc", "DeepSeek V3.2 (Volc)"},
 	{"deepseek-v3.2", "DeepSeek V3.2"},
