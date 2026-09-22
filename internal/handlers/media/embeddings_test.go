@@ -46,7 +46,10 @@ func setupEmbeddingsTestDB(t *testing.T) (*sql.DB, func()) {
 			name TEXT,
 			machineId TEXT,
 			isActive INTEGER DEFAULT 1,
-			createdAt TEXT NOT NULL
+			createdAt TEXT NOT NULL,
+			allowedProviders TEXT,
+			allowedCombos TEXT,
+			allowedKinds TEXT
 		)`,
 		`CREATE TABLE providerConnections (
 			id TEXT PRIMARY KEY,

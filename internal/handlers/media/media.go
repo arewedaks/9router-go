@@ -41,6 +41,29 @@ func NewMediaHandler(repo *db.Repo, ts *shared.TokenSaverConfig, chatH *chat.Cha
 	}
 }
 
+// mediaKindForEndpoint maps a media route to the ACL kind it exercises. The
+// kinds match the registry's ServiceKinds vocabulary so one key restriction
+// covers both chat and media surfaces consistently.
+func mediaKindForEndpoint(endpoint string) string {
+	switch {
+	case strings.Contains(endpoint, "/embeddings"):
+		return "embedding"
+	case strings.Contains(endpoint, "/images"):
+		return "image"
+	case strings.Contains(endpoint, "/videos"):
+		return "video"
+	case strings.Contains(endpoint, "/audio/transcriptions"):
+		return "stt"
+	case strings.Contains(endpoint, "/audio/speech"):
+		return "tts"
+	case strings.Contains(endpoint, "/search"), strings.Contains(endpoint, "/scrape"), strings.Contains(endpoint, "/web/fetch"):
+		return "web"
+	default:
+		// /responses and /responses/compact are chat-format endpoints.
+		return "llm"
+	}
+}
+
 // HandleEmbeddings forwards /v1/embeddings requests to upstream providers.
 func (h *MediaHandler) HandleEmbeddings(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(r.Body)
@@ -65,6 +88,10 @@ func (h *MediaHandler) HandleEmbeddings(w http.ResponseWriter, r *http.Request) 
 	modelInfo, err := h.ChatH.ResolveModel(reqBody.Model)
 	if err != nil {
 		handlerutil.WriteJSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	if chat.EnforceModelACL(w, r, modelInfo, reqBody.Model, "embedding") {
 		return
 	}
 
@@ -509,6 +536,13 @@ func (h *MediaHandler) forwardMediaRequest(w http.ResponseWriter, r *http.Reques
 		handlerutil.WriteJSONError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+
+	// Authorise before any upstream work. The kind follows the endpoint so the
+	// eleven media routes need no per-route call.
+	if chat.EnforceModelACL(w, r, modelInfo, model, mediaKindForEndpoint(endpoint)) {
+		return
+	}
+
 	log.Debug("media", "forward request", "endpoint", endpoint, "model", model, "provider", modelInfo.Provider, "resolvedModel", modelInfo.Model)
 
 	// Handle combo fallback if model is a combo

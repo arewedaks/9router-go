@@ -1,5 +1,7 @@
 package models
 
+import "strings"
+
 // Meta represents a key-value meta record.
 type Meta struct {
 	Key   string `json:"key"`
@@ -53,6 +55,16 @@ type ProxyPool struct {
 }
 
 // APIKey represents a client-facing authorization key.
+//
+// The three allowed* fields are a per-key access-control list. Semantics (kept
+// identical to VansRouter's isProviderAllowed/isComboAllowed/isKindAllowed):
+//
+//	nil  → everything is allowed (the default, and how a pre-ACL row reads)
+//	[]   → nothing is allowed
+//	[x]  → only x
+//
+// They are stored as JSON arrays in TEXT columns, so an empty (or legacy NULL)
+// column decodes to nil.
 type APIKey struct {
 	ID        string  `json:"id"`
 	Key       string  `json:"key"`
@@ -60,6 +72,43 @@ type APIKey struct {
 	MachineID *string `json:"machineId,omitempty"`
 	IsActive  int     `json:"isActive"` // 0 or 1
 	CreatedAt string  `json:"createdAt"`
+
+	AllowedProviders []string `json:"allowedProviders,omitempty"`
+	AllowedCombos    []string `json:"allowedCombos,omitempty"`
+	AllowedKinds     []string `json:"allowedKinds,omitempty"`
+}
+
+// IsProviderAllowed reports whether this key may use the given provider.
+// A nil list allows everything; an empty list allows nothing.
+func (k *APIKey) IsProviderAllowed(provider string) bool {
+	return aclAllows(k.AllowedProviders, provider)
+}
+
+// IsComboAllowed reports whether this key may use the given combo. A
+// "combo/<name>" prefix is accepted and stripped, matching the model id shape.
+func (k *APIKey) IsComboAllowed(combo string) bool {
+	name := strings.TrimPrefix(combo, "combo/")
+	return aclAllows(k.AllowedCombos, name)
+}
+
+// IsKindAllowed reports whether this key may issue the given request kind
+// ("llm", "embedding", "image", "tts", "stt", "web").
+func (k *APIKey) IsKindAllowed(kind string) bool {
+	return aclAllows(k.AllowedKinds, kind)
+}
+
+// aclAllows applies the shared nil/empty/specific semantics. nil means the list
+// was never configured, which must keep working exactly as before.
+func aclAllows(allowed []string, want string) bool {
+	if allowed == nil {
+		return true
+	}
+	for _, a := range allowed {
+		if a == want {
+			return true
+		}
+	}
+	return false
 }
 
 // Combo represents a multi-model routing combinated alias.

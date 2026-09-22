@@ -110,6 +110,13 @@ func GetAuthenticatedApiKey(r *http.Request) *models.APIKey {
 	return keyObj
 }
 
+// WithApiKeyForTest returns a context carrying the given key, exactly as the
+// auth middleware would leave it. Exported so handler packages can exercise
+// per-key authorisation without standing up the whole middleware chain.
+func WithApiKeyForTest(ctx context.Context, key *models.APIKey) context.Context {
+	return context.WithValue(ctx, ApiKeyContextKey, key)
+}
+
 // ExtractApiKey extracts the client API key from the request.
 // Only header-based auth is accepted — keys in query strings would leak via
 // browser history, referrers, and upstream proxy logs.

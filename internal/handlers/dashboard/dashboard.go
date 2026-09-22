@@ -175,6 +175,7 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 		dr.Get("/keys", h.HandleListKeys)
 		dr.Post("/keys", h.HandleCreateKey)
 		dr.Post("/keys/{id}/toggle", h.HandleToggleKey)
+		dr.Put("/keys/{id}/acl", h.HandleUpdateKeyACL)
 		dr.Delete("/keys/{id}", h.HandleDeleteKey)
 
 		// Token Saver Settings
@@ -1611,6 +1612,80 @@ func (h *Handler) HandleDeleteKey(w http.ResponseWriter, r *http.Request) {
 	}
 
 	handlerutil.WriteJSON(w, http.StatusOK, map[string]any{"deleted": true, "id": id})
+}
+
+// HandleUpdateKeyACL sets the access lists on a key.
+//
+// PUT /api/dashboard/keys/{id}/acl
+// Body: {"allowedProviders":null|[], "allowedCombos":null|[], "allowedKinds":null|[]}
+//
+// A field absent from the body is left unchanged; an explicit null clears the
+// restriction. This is the operator-facing half of the ACL: enforcement lives
+// in the chat/media handlers.
+func (h *Handler) HandleUpdateKeyACL(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		handlerutil.WriteJSONError(w, http.StatusBadRequest, "Missing key ID")
+		return
+	}
+
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if err != nil {
+		handlerutil.WriteJSONError(w, http.StatusBadRequest, "Failed to read body")
+		return
+	}
+
+	// Pointer-to-slice distinguishes "absent" (leave alone) from "null"
+	// (clear the restriction) from "[]" (allow nothing).
+	var req struct {
+		AllowedProviders *[]string `json:"allowedProviders"`
+		AllowedCombos    *[]string `json:"allowedCombos"`
+		AllowedKinds     *[]string `json:"allowedKinds"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		handlerutil.WriteJSONError(w, http.StatusBadRequest, "Invalid JSON body")
+		return
+	}
+
+	keys, err := h.repo.GetAllApiKeys()
+	if err != nil {
+		handlerutil.WriteJSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	var existing *models.APIKey
+	for _, k := range keys {
+		if k.ID == id {
+			existing = k
+			break
+		}
+	}
+	if existing == nil {
+		handlerutil.WriteJSONError(w, http.StatusNotFound, "Key not found")
+		return
+	}
+
+	providers, combos, kinds := existing.AllowedProviders, existing.AllowedCombos, existing.AllowedKinds
+	if req.AllowedProviders != nil {
+		providers = *req.AllowedProviders
+	}
+	if req.AllowedCombos != nil {
+		combos = *req.AllowedCombos
+	}
+	if req.AllowedKinds != nil {
+		kinds = *req.AllowedKinds
+	}
+
+	if err := h.repo.UpdateApiKeyACL(id, providers, combos, kinds); err != nil {
+		handlerutil.WriteJSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	handlerutil.WriteJSON(w, http.StatusOK, map[string]any{
+		"id":               id,
+		"allowedProviders": providers,
+		"allowedCombos":    combos,
+		"allowedKinds":     kinds,
+	})
 }
 
 // HandleGetSettings retrieves token saver and system configuration.

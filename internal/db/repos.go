@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"9router/proxy/internal/log"
 	"9router/proxy/internal/models"
 )
 
@@ -45,10 +46,12 @@ func (r *Repo) ValidateApiKey(key string) (bool, error) {
 // GetApiKeyByKey retrieves detailed APIKey information by key.
 func (r *Repo) GetApiKeyByKey(key string) (*models.APIKey, error) {
 	var apiKey models.APIKey
+	var allowedProviders, allowedCombos, allowedKinds sql.NullString
 	err := r.db.QueryRow(
-		"SELECT id, key, name, machineId, isActive, createdAt FROM apiKeys WHERE key = ? LIMIT 1",
+		"SELECT id, key, name, machineId, isActive, createdAt, allowedProviders, allowedCombos, allowedKinds FROM apiKeys WHERE key = ? LIMIT 1",
 		key,
-	).Scan(&apiKey.ID, &apiKey.Key, &apiKey.Name, &apiKey.MachineID, &apiKey.IsActive, &apiKey.CreatedAt)
+	).Scan(&apiKey.ID, &apiKey.Key, &apiKey.Name, &apiKey.MachineID, &apiKey.IsActive, &apiKey.CreatedAt,
+		&allowedProviders, &allowedCombos, &allowedKinds)
 
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -56,7 +59,35 @@ func (r *Repo) GetApiKeyByKey(key string) (*models.APIKey, error) {
 	if err != nil {
 		return nil, err
 	}
+	apiKey.AllowedProviders = decodeACLList(allowedProviders)
+	apiKey.AllowedCombos = decodeACLList(allowedCombos)
+	apiKey.AllowedKinds = decodeACLList(allowedKinds)
 	return &apiKey, nil
+}
+
+// decodeACLList turns a stored ACL column into a list.
+//
+// A NULL column means the list was never configured and stays nil, which the
+// model reads as "everything allowed" — the behaviour every pre-ACL key must
+// keep. A stored `[]` decodes to a non-nil empty slice, which reads as "nothing
+// allowed": the two are deliberately different. A malformed value falls back to
+// nil rather than failing the request, because a broken ACL must not lock an
+// operator out of their own gateway.
+func decodeACLList(v sql.NullString) []string {
+	if !v.Valid || strings.TrimSpace(v.String) == "" {
+		return nil
+	}
+	var out []string
+	if err := json.Unmarshal([]byte(v.String), &out); err != nil {
+		log.Warn("db", "ignoring malformed ACL column", "value", v.String, "error", err)
+		return nil
+	}
+	// A JSON `[]` unmarshals to a non-nil empty slice; preserve that so it is
+	// distinguishable from NULL.
+	if out == nil {
+		out = []string{}
+	}
+	return out
 }
 
 // GetProviderConnectionByID retrieves a single provider connection by primary key.

@@ -1,6 +1,7 @@
 package db
 
 import (
+	"database/sql"
 	json "encoding/json/v2"
 	"fmt"
 	"sort"
@@ -622,7 +623,7 @@ func (r *Repo) DeleteCombo(id string) error {
 
 // GetAllApiKeys retrieves all API keys.
 func (r *Repo) GetAllApiKeys() ([]*models.APIKey, error) {
-	query := `SELECT id, key, name, machineId, isActive, createdAt FROM apiKeys ORDER BY createdAt DESC`
+	query := `SELECT id, key, name, machineId, isActive, createdAt, allowedProviders, allowedCombos, allowedKinds FROM apiKeys ORDER BY createdAt DESC`
 	rows, err := r.db.Query(query)
 	if err != nil {
 		return nil, fmt.Errorf("query api keys: %w", err)
@@ -632,13 +633,46 @@ func (r *Repo) GetAllApiKeys() ([]*models.APIKey, error) {
 	var keys []*models.APIKey
 	for rows.Next() {
 		var k models.APIKey
-		err := rows.Scan(&k.ID, &k.Key, &k.Name, &k.MachineID, &k.IsActive, &k.CreatedAt)
+		var allowedProviders, allowedCombos, allowedKinds sql.NullString
+		err := rows.Scan(&k.ID, &k.Key, &k.Name, &k.MachineID, &k.IsActive, &k.CreatedAt,
+			&allowedProviders, &allowedCombos, &allowedKinds)
 		if err != nil {
 			return nil, fmt.Errorf("scan api key: %w", err)
 		}
+		k.AllowedProviders = decodeACLList(allowedProviders)
+		k.AllowedCombos = decodeACLList(allowedCombos)
+		k.AllowedKinds = decodeACLList(allowedKinds)
 		keys = append(keys, &k)
 	}
 	return keys, rows.Err()
+}
+
+// UpdateApiKeyACL replaces a key's access lists.
+//
+// A nil slice clears the restriction (stored NULL = everything allowed); an
+// empty non-nil slice stores `[]` (nothing allowed). The caller passes nil for
+// any list it does not want to change.
+func (r *Repo) UpdateApiKeyACL(id string, providers, combos, kinds []string) error {
+	encode := func(v []string) any {
+		if v == nil {
+			return nil
+		}
+		b, err := json.Marshal(v)
+		if err != nil {
+			// A list that cannot be encoded is stored as "nothing allowed"
+			// rather than NULL, so a failed encode never silently widens access.
+			return "[]"
+		}
+		return string(b)
+	}
+	_, err := r.db.Exec(
+		"UPDATE apiKeys SET allowedProviders = ?, allowedCombos = ?, allowedKinds = ? WHERE id = ?",
+		encode(providers), encode(combos), encode(kinds), id,
+	)
+	if err != nil {
+		return fmt.Errorf("update api key acl: %w", err)
+	}
+	return nil
 }
 
 // CreateApiKeyWithDetails creates a new API key record.

@@ -55,6 +55,12 @@ func (h *ChatHandler) HandleChatCompletions(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	// Authorise before any upstream work: a key restricted away from this
+	// provider/combo/kind must not reach the network.
+	if enforceModelACL(w, r, modelInfo, reqBody.Model, "llm") {
+		return
+	}
+
 	ctx := handlerutil.WithSessionID(r.Context(), handlerutil.ExtractSessionID(r))
 
 	if len(modelInfo.ComboModels) > 0 {
@@ -131,6 +137,12 @@ func (h *ChatHandler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Error("chat", "resolve model failed", "error", err, "model", reqBody.Model)
 		handlerutil.WriteJSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	// Authorise before any upstream work: a key restricted away from this
+	// provider/combo/kind must not reach the network.
+	if enforceModelACL(w, r, modelInfo, reqBody.Model, "llm") {
 		return
 	}
 
