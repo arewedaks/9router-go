@@ -302,9 +302,15 @@ func (h *OAuthHandler) HandleOAuthKiroSocialExchange(w http.ResponseWriter, r *h
 	if data.RefreshToken != "" {
 		dataMap["refreshToken"] = data.RefreshToken
 	}
-	if data.ExpiresIn > 0 {
-		dataMap["expiresAt"] = time.Now().Add(time.Duration(data.ExpiresIn) * time.Second).UTC().Format(time.RFC3339)
+	// Kiro's poll may omit expiresIn. VansRouter falls back to an hour so the
+	// proactive-refresh path still has a deadline; without one the connection is
+	// only ever refreshed reactively, after a 401 has already failed a request.
+	expiresIn := data.ExpiresIn
+	if expiresIn <= 0 {
+		expiresIn = 3600
 	}
+	dataMap["expiresAt"] = time.Now().Add(time.Duration(expiresIn) * time.Second).UTC().Format(time.RFC3339)
+	dataMap["expiresIn"] = expiresIn
 
 	encoded, err := json.Marshal(dataMap)
 	if err != nil {

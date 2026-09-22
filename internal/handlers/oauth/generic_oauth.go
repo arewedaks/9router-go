@@ -18,6 +18,7 @@ package oauth
 // `oauth:` blocks.
 
 import (
+	"encoding/base64"
 	json "encoding/json/v2"
 	"fmt"
 	"io"
@@ -65,6 +66,18 @@ type oauthSpec struct {
 	// ExtraAuthParams adds provider-specific query params (iflow's loginMethod
 	// and type, for example).
 	ExtraAuthParams map[string]string
+	// RedirectParam overrides the query-param name carrying the callback URL.
+	// Empty means the OAuth2-standard "redirect_uri". iFlow wants "redirect".
+	RedirectParam string
+	// NonceParam, when set, adds a fresh random nonce under that param name.
+	NonceParam string
+	// FixedRedirect pins the callback URL to a value the provider has registered,
+	// ignoring the request's own host. xAI is registered for a specific loopback
+	// port, so any other value fails the token exchange.
+	FixedRedirect string
+	// BasicAuth sends the client credentials as an HTTP Basic Authorization
+	// header on the token exchange, in addition to the form fields.
+	BasicAuth bool
 	// PKCE selects S256 code_challenge handling.
 	PKCE bool
 	// ClientSecret, when set, is sent on the token exchange.
@@ -168,6 +181,11 @@ var oauthSpecs = map[string]oauthSpec{
 
 	// iFlow: plain authorization code with a client secret, plus two fixed
 	// query params that select the phone login method.
+	//
+	// Two details are not standard OAuth2 and both are load-bearing:
+	//   - the callback param is named `redirect`, not `redirect_uri`
+	//   - the token exchange requires HTTP Basic auth in addition to the
+	//     client_id/client_secret form fields
 	"iflow": {
 		Provider:     "iflow",
 		Kind:         flowAuthCode,
@@ -178,6 +196,12 @@ var oauthSpecs = map[string]oauthSpec{
 			"loginMethod": "phone",
 			"type":        "phone",
 		},
+		// RedirectParam names the query param carrying the callback URL when the
+		// provider does not accept the OAuth2-standard name.
+		RedirectParam: "redirect",
+		// BasicAuth sends client credentials as an Authorization header as well
+		// as in the body.
+		BasicAuth: true,
 	},
 
 	// GitLab Duo: PKCE against the user's GitLab host, which may be
@@ -192,8 +216,11 @@ var oauthSpecs = map[string]oauthSpec{
 	},
 
 	// xAI: PKCE with a fixed loopback redirect, since the client is registered
-	// with that exact URI. Discovery is skipped — the static endpoints are what
-	// discovery returns today.
+	// with that exact URI — a different one fails the token exchange. Discovery
+	// is skipped because the static endpoints are what discovery returns today.
+	//
+	// The Grok consent page also validates nonce/plan/referrer, which the CLI
+	// sends; omitting them risks a malformed-request rejection.
 	"xai": {
 		Provider:     "xai",
 		Kind:         flowAuthCode,
@@ -201,6 +228,16 @@ var oauthSpecs = map[string]oauthSpec{
 		TokenURL:     "https://auth.x.ai/oauth2/token",
 		Scopes:       []string{"openid", "profile", "email", "offline_access", "grok-cli:access", "api:access"},
 		PKCE:         true,
+		// FixedRedirect pins the registered loopback callback; the port is not
+		// negotiable with xAI.
+		FixedRedirect: "http://127.0.0.1:56121/callback",
+		ExtraAuthParams: map[string]string{
+			"plan":     "generic",
+			"referrer": "cli-proxy-api",
+		},
+		// NonceAuthParam adds a random nonce under this name. It is generated per
+		// request, so it cannot live in ExtraAuthParams.
+		NonceParam: "nonce",
 	},
 
 	// ---- import ----
@@ -528,21 +565,35 @@ func (h *OAuthHandler) startAuthCode(w http.ResponseWriter, r *http.Request, spe
 
 	redirectURI := strings.TrimSpace(r.URL.Query().Get("redirectUri"))
 	if redirectURI == "" {
-		redirectURI = "http://localhost:8080/callback"
+		// A provider with a registered callback pins it: any other value fails
+		// the token exchange, so the request's host must not override it.
+		if spec.FixedRedirect != "" {
+			redirectURI = spec.FixedRedirect
+		} else {
+			redirectURI = "http://localhost:8080/callback"
+		}
 	}
 
 	state := randomString(32)
 	q := url.Values{
 		"client_id":     {clientID},
 		"response_type": {"code"},
-		"redirect_uri":  {redirectURI},
 		"state":         {state},
 	}
+	// Most providers use the OAuth2-standard name; iFlow wants "redirect".
+	redirectParam := spec.RedirectParam
+	if redirectParam == "" {
+		redirectParam = "redirect_uri"
+	}
+	q.Set(redirectParam, redirectURI)
 	if len(spec.Scopes) > 0 {
 		q.Set("scope", strings.Join(spec.Scopes, " "))
 	}
 	for k, v := range spec.ExtraAuthParams {
 		q.Set(k, v)
+	}
+	if spec.NonceParam != "" {
+		q.Set(spec.NonceParam, randomString(32))
 	}
 
 	verifier := ""
@@ -705,6 +756,11 @@ func (h *OAuthHandler) exchangeAuthCode(w http.ResponseWriter, r *http.Request, 
 	tokenReq.Header.Set("Accept", "application/json")
 	for k, v := range spec.Headers {
 		tokenReq.Header.Set(k, v)
+	}
+	// iFlow requires the credentials as HTTP Basic auth in addition to the form
+	// fields; without the header its token endpoint rejects the exchange.
+	if spec.BasicAuth && clientSecret != "" {
+		tokenReq.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(clientID+":"+clientSecret)))
 	}
 
 	raw, status, err := doRequest(tokenReq)

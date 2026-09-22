@@ -3,6 +3,20 @@
 
 ## [Unreleased]
 
+### 🐛 Fixes
+
+**OAuth Audit Against VansRouter: Three Real Mismatches Fixed:**
+- `iflow` — the authorize URL used `redirect_uri` where iFlow expects `redirect`, and the token exchange omitted the HTTP Basic auth header iFlow requires. Either one alone breaks the login. New spec fields `RedirectParam` and `BasicAuth`.
+- `xai` — the authorize URL was missing `nonce`/`plan`/`referrer`, which the Grok consent page validates, and the redirect defaulted to `localhost:8080/callback` instead of xAI's registered loopback `http://127.0.0.1:56121/callback`. New spec fields `FixedRedirect` and `NonceParam`; a fixed redirect now overrides the request host, since xAI rejects an unregistered URI at token exchange.
+- `kiro` — a poll response without `expiresIn` left `expiresAt` unset, so the connection was only ever refreshed reactively after a 401. Falls back to an hour, matching VansRouter.
+
+**Kilo Code Sign-In Added:**
+- `internal/handlers/oauth/kilocode_oauth.go` — dedicated handler, because the flow fits neither generic shape: the initiate POST takes no body, and the poll carries its state in the HTTP status (202 pending, 403 denied, 410 expired, 200 approved). The org id is fetched from `/api/profile` for the chat path's `X-Kilocode-OrganizationID` header.
+
+Audited the rest against VansRouter and found no functional mismatch: cline, clinepass, codebuddy-cn, codebuddy-intl, github, kimi, grok-cli, claude, gitlab, cursor and codex match. Two deliberate divergences are documented in the handlers (GitHub's CLI identity is upgraded from VansRouter's pinned values; codebuddy sends two extra headers on the state call).
+
+One audit claim was rejected on evidence: Kimi's `X-Msh-*` headers and persistent `deviceId` were reported as breaking the flow, but a live test shows `device_authorization` returns 200 and the poll returns `authorization_pending` without them. They remain a fidelity gap worth closing, not a break.
+
 ### 🚀 Features & Upstream Parity
 
 **Generic OAuth Flows for 8 More Providers:**

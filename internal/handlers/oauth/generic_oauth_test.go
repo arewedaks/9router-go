@@ -223,3 +223,60 @@ func TestGenericFlowStore_RoundTrip(t *testing.T) {
 		t.Error("flow was returned twice; a replayed state must not work")
 	}
 }
+
+// iFlow's authorization endpoint wants the callback under "redirect", not the
+// OAuth2-standard "redirect_uri", and the token exchange needs HTTP Basic auth.
+// Both are load-bearing: the provider rejects the request without them.
+func TestIflowSpec_UsesRedirectParamAndBasicAuth(t *testing.T) {
+	spec, ok := specFor("iflow")
+	if !ok {
+		t.Fatal("iflow has no spec")
+	}
+	if spec.RedirectParam != "redirect" {
+		t.Errorf("RedirectParam = %q, want \"redirect\"", spec.RedirectParam)
+	}
+	if !spec.BasicAuth {
+		t.Error("iflow must send Basic auth on the token exchange")
+	}
+}
+
+// xAI's client is registered for a specific loopback callback, so the redirect
+// must be pinned rather than derived from the request host — a different URI
+// fails the token exchange.
+func TestXaiSpec_PinsRegisteredRedirectAndAuthParams(t *testing.T) {
+	spec, ok := specFor("xai")
+	if !ok {
+		t.Fatal("xai has no spec")
+	}
+	if spec.FixedRedirect != "http://127.0.0.1:56121/callback" {
+		t.Errorf("FixedRedirect = %q, want the registered loopback URI", spec.FixedRedirect)
+	}
+	if spec.ExtraAuthParams["plan"] != "generic" || spec.ExtraAuthParams["referrer"] != "cli-proxy-api" {
+		t.Errorf("xai extra params = %v, want plan=generic referrer=cli-proxy-api", spec.ExtraAuthParams)
+	}
+	if spec.NonceParam != "nonce" {
+		t.Errorf("NonceParam = %q, want nonce", spec.NonceParam)
+	}
+}
+
+// The fixed redirect must survive a request whose host differs: honouring the
+// host would send xAI a URI it has not registered.
+func TestStartAuthCode_FixedRedirectIgnoresRequestHost(t *testing.T) {
+	h := NewOAuthHandler(nil)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/api/oauth/xai/authorize", nil)
+	req.Host = "gateway.example.com:9999"
+	req.SetPathValue("provider", "xai")
+	h.HandleGenericAuthorize(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "redirect_uri=http%3A%2F%2F127.0.0.1%3A56121%2Fcallback") {
+		t.Errorf("redirect was not pinned to the registered URI: %s", body)
+	}
+	if strings.Contains(body, "9999") {
+		t.Errorf("request host leaked into the redirect: %s", body)
+	}
+}

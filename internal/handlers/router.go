@@ -142,6 +142,12 @@ func SetupRoutes(r interface {
 	r.Get("/api/oauth/freebuff/authorize", oauthH.HandleFreebuffAuthorize)
 	r.Post("/api/oauth/freebuff/exchange", oauthH.HandleFreebuffExchange)
 
+	// Kilo Code device flow. Its poll carries the state in the HTTP status
+	// (202/403/410/200) and its initiate takes no body, neither of which the
+	// generic spec shape can express, so it has a dedicated handler.
+	r.Get("/api/oauth/kilocode/authorize", oauthH.HandleKilocodeAuthorize)
+	r.Post("/api/oauth/kilocode/exchange", oauthH.HandleKilocodeExchange)
+
 	// Generic OAuth flows, driven by a spec table (kimi, grok-cli, claude,
 	// iflow, gitlab, xai, cursor, codex). Registered AFTER the specific routes
 	// above so a provider with a dedicated handler — Antigravity's loopback

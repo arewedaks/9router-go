@@ -3580,6 +3580,7 @@
       { ids: ["cline", "cl", "clinepass", "cp"], render: p => clineOAuthPanelHtml(p) },
       { ids: ["gemini-cli", "gc"], render: p => geminiCliOAuthPanelHtml(p) },
       { ids: ["kiro", "kr"], render: p => kiroOAuthPanelHtml(p) },
+      { ids: ["kilocode", "kc"], render: p => kilocodeOAuthPanelHtml(p) },
       { ids: ["freebuff", "fb"], render: p => freebuffOAuthPanelHtml(p) },
       // Providers whose flow is driven by the generic spec table on the server.
       { ids: ["kimi", "kimi-coding", "grok-cli", "gcli", "gb", "grok-build", "claude", "cc",
@@ -4630,6 +4631,104 @@
     }
   }
 
+
+  // ----------------------------------------------------------------
+  // Kilo Code — device flow where the device code doubles as the user code.
+  //
+  // The poll carries its state in the HTTP status, so this panel only needs to
+  // keep asking until the server stops answering "pending".
+  // ----------------------------------------------------------------
+  function kilocodeOAuthPanelHtml(providerId) {
+    return `
+      <div class="add-form oauth-form">
+        <div class="add-form-title"><span class="msym">passkey</span>Add via Kilo Code sign-in</div>
+        <div style="font-size:0.72rem; color:var(--muted); margin-bottom:8px;">
+          Click Sign in, approve in the tab that opens, and the account is added here automatically.
+        </div>
+        <div class="add-form-grid oauth-grid">
+          <div>
+            <label class="field-label">Account name (optional)</label>
+            <input type="text" id="kc-oauth-name" placeholder="auto-filled from Kilo Code">
+          </div>
+          <div style="display:flex; align-items:flex-end;">
+            <button class="btn btn-primary" id="kc-oauth-start" onclick="startKilocodeOAuth('${providerId}')">Sign in</button>
+          </div>
+        </div>
+        <div id="kc-oauth-step2" style="display:none; margin-top:10px;">
+          <div style="font-size:0.72rem; color:var(--muted);">
+            Enter this code if asked: <strong id="kc-oauth-usercode" style="color:var(--text);"></strong>.
+            <a id="kc-oauth-link" href="#" target="_blank" rel="noopener" style="color:var(--accent);">Open the sign-in page</a>
+            — this keeps polling on its own.
+          </div>
+        </div>
+        <div id="kc-oauth-msg" style="font-size:0.75rem; margin-top:8px; color:var(--muted);"></div>
+      </div>`;
+  }
+
+  let kilocodeOAuthCtx = null;
+
+  async function startKilocodeOAuth(providerId) {
+    const msg = document.getElementById("kc-oauth-msg");
+    msg.style.color = "var(--muted)";
+    msg.textContent = "Requesting a sign-in code…";
+    try {
+      const res = await api("/api/oauth/kilocode/authorize");
+      const data = await res.json();
+      if (!res.ok) {
+        msg.style.color = "var(--danger)";
+        msg.textContent = errorMessage(data, res.status);
+        return;
+      }
+      const flowId = (kilocodeOAuthCtx && kilocodeOAuthCtx.flowId || 0) + 1;
+      kilocodeOAuthCtx = { flowId, deviceCode: data.deviceCode };
+      document.getElementById("kc-oauth-step2").style.display = "block";
+      document.getElementById("kc-oauth-usercode").textContent = data.userCode || "";
+      const link = document.getElementById("kc-oauth-link");
+      if (link && data.authUrl) link.href = data.authUrl;
+      msg.textContent = "Waiting for you to approve the sign-in…";
+      if (data.authUrl) window.open(data.authUrl, "_blank", "noopener");
+      pollKilocodeConnection(providerId, flowId, data.interval || 3, data.expiresIn || 300);
+    } catch (e) {
+      msg.style.color = "var(--danger)";
+      msg.textContent = String(e);
+    }
+  }
+
+  async function pollKilocodeConnection(providerId, flowId, interval, expiresIn) {
+    const msg = document.getElementById("kc-oauth-msg");
+    const deadline = Date.now() + expiresIn * 1000;
+    while (Date.now() < deadline) {
+      await new Promise(res => setTimeout(res, interval * 1000));
+      if (!kilocodeOAuthCtx || kilocodeOAuthCtx.flowId !== flowId) return;
+      try {
+        const res = await api("/api/oauth/kilocode/exchange", {
+          method: "POST",
+          body: JSON.stringify({
+            deviceCode: kilocodeOAuthCtx.deviceCode,
+            name: (document.getElementById("kc-oauth-name") || {}).value || "",
+          }),
+        });
+        const data = await res.json();
+        if (res.ok && data.pending) continue;
+        if (!res.ok || !data.success) {
+          msg.style.color = "var(--danger)";
+          msg.textContent = errorMessage(data, res.status);
+          kilocodeOAuthCtx = null;
+          return;
+        }
+        msg.style.color = "var(--accent)";
+        msg.textContent = "Account added.";
+        kilocodeOAuthCtx = null;
+        document.getElementById("kc-oauth-step2").style.display = "none";
+        openProviderDetail(providerId);
+        return;
+      } catch (e) { /* keep polling */ }
+    }
+    if (kilocodeOAuthCtx && kilocodeOAuthCtx.flowId === flowId) {
+      msg.style.color = "var(--muted)";
+      msg.textContent = "Timed out. Click Sign in again.";
+    }
+  }
 
   // ----------------------------------------------------------------
   // Freebuff / Codebuff — fingerprint device login.
