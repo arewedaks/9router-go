@@ -142,6 +142,15 @@ func SetupRoutes(r interface {
 	r.Get("/api/oauth/freebuff/authorize", oauthH.HandleFreebuffAuthorize)
 	r.Post("/api/oauth/freebuff/exchange", oauthH.HandleFreebuffExchange)
 
+	// Generic OAuth flows, driven by a spec table (kimi, grok-cli, claude,
+	// iflow, gitlab, xai, cursor, codex). Registered AFTER the specific routes
+	// above so a provider with a dedicated handler — Antigravity's loopback
+	// callback, CodeBuddy's two regions — is never shadowed by the generic
+	// path. chi matches in registration order, so this ordering is load-bearing.
+	r.Get("/api/oauth/{provider}/authorize", oauthH.HandleGenericAuthorize)
+	r.Post("/api/oauth/{provider}/exchange", oauthH.HandleGenericExchange)
+	r.Get("/api/oauth/{provider}/flow", oauthH.HandleGenericFlowInfo)
+
 	// Live Console Logs Domain (dashboard "Monitor Console Log")
 	r.Get("/translator/console-logs", HandleConsoleLogsGet)
 	r.Get("/api/translator/console-logs", HandleConsoleLogsGet)

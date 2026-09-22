@@ -5,6 +5,25 @@
 
 ### 🚀 Features & Upstream Parity
 
+**Generic OAuth Flows for 8 More Providers:**
+- `internal/handlers/oauth/generic_oauth.go` — a spec table plus three handlers, replacing the "add a handler per provider" approach. VansRouter keeps every flow in one PROVIDERS map behind a catch-all route; this mirrors that shape. Flow kinds: `device_code` (poll until approved), `authorization_code` (consent URL + code exchange), `import_token` (paste a CLI credential).
+- Providers covered: **kimi**, **grok-cli** (device code); **claude**, **iflow**, **gitlab**, **xai** (authorization code); **cursor**, **codex** (import). Each spec is transcribed from VansRouter's `open-sse/providers/registry/*.js` `oauth:` block.
+- `internal/handlers/oauth/generic_flow.go` — PKCE verifier store shared by the code flows, one-shot per state.
+- `internal/providers/oauth.go` — added the missing client ids (kimi, grok-cli, claude, gitlab).
+- `internal/handlers/dashboard/ui/index.html` — the OAuth panel dispatch is now a table rather than a growing ternary chain, plus one generic panel that discovers its shape from `GET /api/oauth/{provider}/flow`. That endpoint exists so the panel can learn the flow kind **without** starting one — probing `/authorize` would mint a device code, which is a one-shot resource.
+- GitLab needs an operator-registered OAuth application, so `clientId`/`clientSecret` are accepted on both authorize and exchange, and the panel shows those fields when `flow` reports `needsApp`.
+
+Deliberately **not** covered, because their flows do not fit the generic shapes — a spec they cannot execute would be worse than none:
+- **qoder** — no device-code endpoint; the PKCE verifier, nonce and machine id are generated locally and become the poll identity
+- **kilocode** — POST to initiate then GET `{pollUrl}/{deviceCode}`, with the state in the HTTP status (202/403/410/200)
+- **zed** — not OAuth at all (RSA keypair callback, `<user_id> <token>` auth header)
+
+These keep the generic paste-credential form until they get a dedicated handler.
+
+Two providers were also **mislabeled as `oauth`** and are corrected to match VansRouter: `xiaomi-mimo` is an API-key provider, `mimo-free` needs no credential at all.
+
+Verified against live upstreams: kimi and grok-cli return real device codes and user codes, and an unapproved poll returns `{pending:true,error:"authorization_pending"}` for both. Claude, iflow, xai and GitLab build consent URLs with the right host, scopes, PKCE and extra params; GitLab also honours an operator-supplied base URL and client id. In the dashboard, kimi shows the device panel with a live user code, cursor shows the token/machine-id form, and GitLab shows the app-registration fields.
+
 **Four Providers Added, Claude-Format Upstreams Supported:**
 - `internal/providers/category.go` + `registry_models.go` + `aliases.go` — registered **AgentRouter** (freeTier, `$200` signup credits), **ZCode** (Z.ai GLM coding plan), **DeepInfra**, and **ZenMux**, with their model lists and aliases (`ar`, `zc`).
 - `internal/providers/providers.go` — new `FormatClaude` marker for providers whose upstream speaks the Anthropic Messages API without being Anthropic. AgentRouter and ZCode use it: their request body is converted to Messages format and the response translated back, but they do **not** inherit Anthropic OAuth or Claude-Code cloaking, since they are not Anthropic's host.

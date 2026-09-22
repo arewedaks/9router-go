@@ -3163,6 +3163,9 @@
         await loadAntigravityProfile();
       }
       renderProviderDetail(d);
+      // The generic OAuth panel discovers its own flow kind from the server, so
+      // it needs one probe after the markup exists.
+      initGenericOAuthPanel(d.provider);
     } catch (e) {
       box.innerHTML = `<div style="color:#ff7b72; padding:20px;">Error: ${escapeHtml(String(e))}</div>`;
     }
@@ -3561,25 +3564,30 @@
 
     // Connections tab — includes the "Add connection" form.
     //
-    // OAuth providers are added by signing in, not by pasting a key: Antigravity
-    // has a dedicated Google OAuth panel below, so the generic key/cookie form is
-    // redundant and just invites a broken credential the user can never fix.
-    // Suppress it whenever an OAuth panel is offered for this provider.
-    const isAntigravity = d.provider === "antigravity" || d.provider === "agy";
-    const isCodebuddy = d.provider === "codebuddy-cn" || d.provider === "cbcn"
-      || d.provider === "codebuddy-intl" || d.provider === "cbai";
-    const isGitHub = d.provider === "github" || d.provider === "gh" || d.provider === "copilot";
-    const isCline = d.provider === "cline" || d.provider === "cl" || d.provider === "clinepass" || d.provider === "cp";
-    const isGeminiCli = d.provider === "gemini-cli" || d.provider === "gc";
-    const isKiro = d.provider === "kiro" || d.provider === "kr";
-    const isFreebuff = d.provider === "freebuff" || d.provider === "fb";
-    const oauthPanel = isAntigravity ? oauthPanelHtml(d.provider)
-      : (isCodebuddy ? codebuddyOAuthPanelHtml(d.provider)
-      : (isGitHub ? githubOAuthPanelHtml()
-      : (isCline ? clineOAuthPanelHtml(d.provider)
-      : (isGeminiCli ? geminiCliOAuthPanelHtml(d.provider)
-      : (isKiro ? kiroOAuthPanelHtml(d.provider)
-      : (isFreebuff ? freebuffOAuthPanelHtml(d.provider) : ''))))));
+    // OAuth providers are added by signing in, not by pasting a key: a dedicated
+    // panel below replaces the generic key/cookie form, which would only invite
+    // a broken credential the user can never fix. Suppress it whenever a panel
+    // is offered for this provider.
+    //
+    // A table rather than a ternary chain: the chain had to be edited in one
+    // place and read in another every time a provider gained a panel, and the
+    // nesting depth grew with the count. Each entry lists the ids and aliases it
+    // answers to.
+    const OAUTH_PANELS = [
+      { ids: ["antigravity", "agy"], render: p => oauthPanelHtml(p) },
+      { ids: ["codebuddy-cn", "cbcn", "codebuddy-intl", "cbai"], render: p => codebuddyOAuthPanelHtml(p) },
+      { ids: ["github", "gh", "copilot"], render: () => githubOAuthPanelHtml() },
+      { ids: ["cline", "cl", "clinepass", "cp"], render: p => clineOAuthPanelHtml(p) },
+      { ids: ["gemini-cli", "gc"], render: p => geminiCliOAuthPanelHtml(p) },
+      { ids: ["kiro", "kr"], render: p => kiroOAuthPanelHtml(p) },
+      { ids: ["freebuff", "fb"], render: p => freebuffOAuthPanelHtml(p) },
+      // Providers whose flow is driven by the generic spec table on the server.
+      { ids: ["kimi", "kimi-coding", "grok-cli", "gcli", "gb", "grok-build", "claude", "cc",
+              "iflow", "if", "gitlab", "gl", "xai", "cursor", "cu", "codex", "cx"],
+        render: p => genericOAuthPanelHtml(p) },
+    ];
+    const panelEntry = OAUTH_PANELS.find(e => e.ids.includes(d.provider));
+    const oauthPanel = panelEntry ? panelEntry.render(d.provider) : '';
     // A compatible endpoint owns its own Add button on the node card, so the
     // toolbar must not offer a second one (upstream hides it for the same
     // reason: ConnectionsHeaderToolbar renders Add only when !isCompatible).
@@ -3751,7 +3759,7 @@
         <div style="flex:1; min-width:0;">
           <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
             <h2 class="section-title" style="margin:0;">${escapeHtml(d.displayName || d.provider)}</h2>
-            ${isAntigravity ? `<select class="profile-select profile-select-global" title="Antigravity client profile — applies to every account" onchange="setAntigravityProfile(this.value, this);">
+            ${(d.provider === "antigravity" || d.provider === "agy") ? `<select class="profile-select profile-select-global" title="Antigravity client profile — applies to every account" onchange="setAntigravityProfile(this.value, this);">
               <option value="ide" ${antigravityProfileValue() === 'ide' ? 'selected' : ''}>IDE</option>
               <option value="cli" ${antigravityProfileValue() === 'cli' ? 'selected' : ''}>CLI</option>
             </select>` : ''}
@@ -4728,6 +4736,286 @@
     if (freebuffOAuthCtx && freebuffOAuthCtx.flowId === flowId) {
       msg.style.color = "var(--muted)";
       msg.textContent = "Timed out. Click Sign in again.";
+    }
+  }
+
+  // ----------------------------------------------------------------
+  // Generic OAuth panel.
+  //
+  // The server owns the spec (endpoints, flow kind, scopes), so this panel asks
+  // it what to do rather than duplicating per-provider knowledge in the browser.
+  // Three shapes, matching the server's flow kinds:
+  //
+  //   device_code        — show a code/link, poll until approved
+  //   authorization_code — open a consent URL, paste the callback back
+  //   import_token       — paste a credential the CLI already holds
+  //
+  // The kind is discovered by calling /authorize: a device flow answers with a
+  // deviceCode, a code flow with an authUrl, and an import flow rejects the call
+  // (there is nothing to authorize) — which is what selects the paste form.
+  // ----------------------------------------------------------------
+  function genericOAuthPanelHtml(providerId) {
+    return `
+      <div class="add-form oauth-form" id="g-oauth-root">
+        <div class="add-form-title"><span class="msym">passkey</span>Add via ${escapeHtml(providerId)} sign-in</div>
+        <div id="g-oauth-intro" style="font-size:0.72rem; color:var(--muted); margin-bottom:8px;">
+          Checking how ${escapeHtml(providerId)} signs in…
+        </div>
+        <div class="add-form-grid oauth-grid" id="g-oauth-start-row" style="display:none;">
+          <div>
+            <label class="field-label">Account name (optional)</label>
+            <input type="text" id="g-oauth-name" placeholder="auto-filled from the provider">
+          </div>
+          <div style="display:flex; align-items:flex-end;">
+            <button class="btn btn-primary" id="g-oauth-start" onclick="startGenericOAuth('${providerId}')">Sign in</button>
+          </div>
+        </div>
+        <div id="g-oauth-device" style="display:none; margin-top:10px;">
+          <div style="font-size:0.72rem; color:var(--muted);">
+            Enter this code if asked: <strong id="g-oauth-usercode" style="color:var(--text);"></strong>.
+            <a id="g-oauth-link" href="#" target="_blank" rel="noopener" style="color:var(--accent);">Open the sign-in page</a>
+            — this keeps polling on its own.
+          </div>
+        </div>
+        <div id="g-oauth-paste" style="display:none; margin-top:10px;">
+          <label class="field-label" id="g-oauth-paste-label">Callback URL (or raw code)</label>
+          <div class="auth-add">
+            <input type="text" id="g-oauth-paste-input" placeholder="">
+            <button class="btn btn-primary" onclick="finishGenericOAuth('${providerId}')">Finish</button>
+          </div>
+        </div>
+        <div id="g-oauth-app" style="display:none; margin-top:10px;">
+          <label class="field-label">OAuth App Client ID</label>
+          <input type="text" id="g-oauth-client-id" placeholder="from the app you registered">
+          <label class="field-label" style="margin-top:8px;">OAuth App Client Secret</label>
+          <input type="password" id="g-oauth-client-secret" placeholder="leave blank for PKCE-only apps">
+        </div>
+        <div id="g-oauth-import" style="display:none; margin-top:10px;">
+          <label class="field-label">Access token</label>
+          <input type="password" id="g-oauth-token" placeholder="paste the CLI's access token">
+          <label class="field-label" style="margin-top:8px;">Machine ID (Cursor only)</label>
+          <input type="text" id="g-oauth-machine" placeholder="leave blank unless the provider asks for it">
+          <div style="margin-top:8px;">
+            <button class="btn btn-primary" onclick="submitGenericImport('${providerId}')">Add account</button>
+          </div>
+        </div>
+        <div id="g-oauth-msg" style="font-size:0.75rem; margin-top:8px; color:var(--muted);"></div>
+      </div>`;
+  }
+
+  // Pending generic flow. flowId guards against a stale poll loop writing into a
+  // panel that has since been re-rendered.
+  let genericOAuthCtx = null;
+
+  async function startGenericOAuth(providerId) {
+    const msg = document.getElementById("g-oauth-msg");
+    msg.style.color = "var(--muted)";
+    msg.textContent = "Requesting a sign-in link…";
+    try {
+      // A provider with no built-in OAuth application takes the operator's
+      // client id here; the others ignore the empty value.
+      const clientId = (document.getElementById("g-oauth-client-id") || {}).value || "";
+      const qs = clientId ? "?clientId=" + encodeURIComponent(clientId) : "";
+      const res = await api(`/api/oauth/${encodeURIComponent(providerId)}/authorize${qs}`);
+      const data = await res.json();
+      if (!res.ok) {
+        msg.style.color = "var(--danger)";
+        msg.textContent = errorMessage(data, res.status);
+        return;
+      }
+      const flowId = (genericOAuthCtx && genericOAuthCtx.flowId || 0) + 1;
+
+      if (data.deviceCode) {
+        // Device flow: show the code, open the page, poll.
+        genericOAuthCtx = { flowId, deviceCode: data.deviceCode };
+        document.getElementById("g-oauth-device").style.display = "block";
+        document.getElementById("g-oauth-usercode").textContent = data.userCode || "";
+        const link = document.getElementById("g-oauth-link");
+        if (link && data.authUrl) link.href = data.authUrl;
+        msg.textContent = "Waiting for you to approve the sign-in…";
+        if (data.authUrl) window.open(data.authUrl, "_blank", "noopener");
+        pollGenericDevice(providerId, flowId, data.interval || 5, data.expiresIn || 300);
+        return;
+      }
+
+      if (data.authUrl) {
+        // Authorization-code flow: open the consent page and ask for the
+        // callback back, since the redirect lands somewhere this server cannot
+        // serve (a loopback port on the operator's machine, or a custom scheme).
+        genericOAuthCtx = {
+          flowId,
+          state: data.state,
+          codeVerifier: data.codeVerifier,
+          redirectUri: data.redirectUri,
+          tokenUrl: data.tokenUrl,
+        };
+        document.getElementById("g-oauth-paste").style.display = "block";
+        msg.textContent = "Approve in the tab that opened, then paste the address bar URL below.";
+        window.open(data.authUrl, "_blank", "noopener");
+        return;
+      }
+
+      msg.style.color = "var(--danger)";
+      msg.textContent = "The provider returned no sign-in link.";
+    } catch (e) {
+      msg.style.color = "var(--danger)";
+      msg.textContent = String(e);
+    }
+  }
+
+  async function pollGenericDevice(providerId, flowId, interval, expiresIn) {
+    const msg = document.getElementById("g-oauth-msg");
+    const deadline = Date.now() + expiresIn * 1000;
+    let wait = interval;
+    while (Date.now() < deadline) {
+      await new Promise(res => setTimeout(res, wait * 1000));
+      if (!genericOAuthCtx || genericOAuthCtx.flowId !== flowId) return;
+      try {
+        const res = await api(`/api/oauth/${encodeURIComponent(providerId)}/exchange`, {
+          method: "POST",
+          body: JSON.stringify({ deviceCode: genericOAuthCtx.deviceCode }),
+        });
+        const data = await res.json();
+        if (res.ok && data.pending) {
+          // RFC 8628 requires backing off further once the server says so.
+          if (data.error === "slow_down") wait += 5;
+          continue;
+        }
+        if (!res.ok || !data.success) {
+          msg.style.color = "var(--danger)";
+          msg.textContent = errorMessage(data, res.status);
+          genericOAuthCtx = null;
+          return;
+        }
+        msg.style.color = "var(--accent)";
+        msg.textContent = "Account added.";
+        genericOAuthCtx = null;
+        openProviderDetail(providerId);
+        return;
+      } catch (e) { /* keep polling */ }
+    }
+    if (genericOAuthCtx && genericOAuthCtx.flowId === flowId) {
+      msg.style.color = "var(--muted)";
+      msg.textContent = "Timed out. Click Sign in again.";
+    }
+  }
+
+  async function finishGenericOAuth(providerId) {
+    const msg = document.getElementById("g-oauth-msg");
+    const input = document.getElementById("g-oauth-paste-input");
+    const raw = (input.value || "").trim();
+    if (!raw) {
+      msg.style.color = "var(--danger)";
+      msg.textContent = "Paste the callback URL or the code.";
+      return;
+    }
+    if (!genericOAuthCtx) {
+      msg.style.color = "var(--danger)";
+      msg.textContent = "Click Sign in first.";
+      return;
+    }
+
+    const body = {
+      state: genericOAuthCtx.state,
+      codeVerifier: genericOAuthCtx.codeVerifier,
+      redirectUri: genericOAuthCtx.redirectUri,
+      clientId: (document.getElementById("g-oauth-client-id") || {}).value || "",
+      clientSecret: (document.getElementById("g-oauth-client-secret") || {}).value || "",
+      name: (document.getElementById("g-oauth-name") || {}).value || "",
+    };
+    if (/^https?:\/\//i.test(raw)) { body.callbackUrl = raw; } else { body.code = raw; }
+
+    msg.style.color = "var(--muted)";
+    msg.textContent = "Exchanging code…";
+    try {
+      const res = await api(`/api/oauth/${encodeURIComponent(providerId)}/exchange`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        msg.style.color = "var(--danger)";
+        msg.textContent = errorMessage(data, res.status);
+        return;
+      }
+      msg.style.color = "var(--accent)";
+      msg.textContent = "Account added.";
+      genericOAuthCtx = null;
+      openProviderDetail(providerId);
+    } catch (e) {
+      msg.style.color = "var(--danger)";
+      msg.textContent = String(e);
+    }
+  }
+
+  async function submitGenericImport(providerId) {
+    const msg = document.getElementById("g-oauth-msg");
+    const token = (document.getElementById("g-oauth-token").value || "").trim();
+    if (!token) {
+      msg.style.color = "var(--danger)";
+      msg.textContent = "Paste the access token.";
+      return;
+    }
+    msg.style.color = "var(--muted)";
+    msg.textContent = "Saving…";
+    try {
+      const res = await api(`/api/oauth/${encodeURIComponent(providerId)}/exchange`, {
+        method: "POST",
+        body: JSON.stringify({
+          accessToken: token,
+          machineId: (document.getElementById("g-oauth-machine").value || "").trim(),
+          name: (document.getElementById("g-oauth-name") || {}).value || "",
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        msg.style.color = "var(--danger)";
+        msg.textContent = errorMessage(data, res.status);
+        return;
+      }
+      msg.style.color = "var(--accent)";
+      msg.textContent = "Account added.";
+      openProviderDetail(providerId);
+    } catch (e) {
+      msg.style.color = "var(--danger)";
+      msg.textContent = String(e);
+    }
+  }
+
+  // Probe the flow kind once the panel is on screen. The server reports the kind
+  // without starting a flow, so the panel can pick its shape before the operator
+  // commits to signing in.
+  async function initGenericOAuthPanel(providerId) {
+    const root = document.getElementById("g-oauth-root");
+    if (!root) return;
+    const intro = document.getElementById("g-oauth-intro");
+    const msg = document.getElementById("g-oauth-msg");
+    try {
+      const res = await api(`/api/oauth/${encodeURIComponent(providerId)}/flow`);
+      const data = await res.json();
+      if (!res.ok) {
+        msg.style.color = "var(--danger)";
+        msg.textContent = errorMessage(data, res.status);
+        return;
+      }
+      if (data.kind === "import_token") {
+        intro.textContent = data.hint || "Paste the credential your CLI stored.";
+        document.getElementById("g-oauth-import").style.display = "block";
+        return;
+      }
+      if (data.needsApp) {
+        // The provider has no built-in OAuth application, so the operator must
+        // supply the one they registered before signing in.
+        document.getElementById("g-oauth-app").style.display = "block";
+        intro.textContent = "Register an OAuth application with " + providerId +
+          ", set its redirect URI to http://localhost:8080/callback, then enter its client id below.";
+      } else {
+        intro.textContent = "Sign in with the account your " + providerId + " subscription uses.";
+      }
+      document.getElementById("g-oauth-start-row").style.display = "grid";
+    } catch (e) {
+      msg.style.color = "var(--danger)";
+      msg.textContent = String(e);
     }
   }
 

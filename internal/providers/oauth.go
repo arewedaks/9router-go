@@ -69,9 +69,34 @@ var KnownOAuthConfigs = map[string]OAuthClientConfig{
 		TokenURL:     "https://oauth2.googleapis.com/token",
 	},
 	"kimi-coding": {
-		ClientID:     envOr("KIMI_CODING_OAUTH_CLIENT_ID", ""),
+		ClientID:     envOr("KIMI_CODING_OAUTH_CLIENT_ID", "17e5f671-d194-4dfb-9706-5516cb48c098"),
 		ClientSecret: envOr("KIMI_CODING_OAUTH_CLIENT_SECRET", ""),
 		TokenURL:     "https://auth.kimi.com/api/oauth/token",
+	},
+	// kimi is the canonical id; kimi-coding is the legacy alias both point at
+	// the same Moonshot device flow.
+	"kimi": {
+		ClientID:     envOr("KIMI_CODING_OAUTH_CLIENT_ID", "17e5f671-d194-4dfb-9706-5516cb48c098"),
+		ClientSecret: envOr("KIMI_CODING_OAUTH_CLIENT_SECRET", ""),
+		TokenURL:     "https://auth.kimi.com/api/oauth/token",
+	},
+	"grok-cli": {
+		ClientID:     envOr("XAI_OAUTH_CLIENT_ID", "b1a00492-073a-47ea-816f-4c329264a828"),
+		ClientSecret: envOr("XAI_OAUTH_CLIENT_SECRET", ""),
+		TokenURL:     "https://auth.x.ai/oauth2/token",
+	},
+	// Claude Code subscription: PKCE public client, JSON token exchange.
+	"claude": {
+		ClientID:     envOr("CLAUDE_OAUTH_CLIENT_ID", "9d1c250a-e61b-44d9-88ed-5944d1962f5e"),
+		ClientSecret: envOr("CLAUDE_OAUTH_CLIENT_SECRET", ""),
+		TokenURL:     "https://api.anthropic.com/v1/oauth/token",
+	},
+	// GitLab Duo: PKCE against the user's GitLab host (self-hosted deployments
+	// pass their own base URL, so no default client id is meaningful).
+	"gitlab": {
+		ClientID:     envOr("GITLAB_OAUTH_CLIENT_ID", ""),
+		ClientSecret: envOr("GITLAB_OAUTH_CLIENT_SECRET", ""),
+		TokenURL:     "https://gitlab.com/oauth/token",
 	},
 	"qoder": {
 		ClientID:     envOr("QODER_OAUTH_CLIENT_ID", ""),
