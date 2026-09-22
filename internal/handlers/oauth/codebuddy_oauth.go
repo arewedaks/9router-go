@@ -67,6 +67,12 @@ type codebuddyConfig struct {
 const (
 	codebuddyCNBaseURL   = "https://copilot.tencent.com"
 	codebuddyIntlBaseURL = "https://www.codebuddy.ai"
+	// WorkBuddy is Tencent's office-agent product and speaks the same plugin
+	// auth protocol as CodeBuddy — same paths, same `?platform=` requirement,
+	// same 11217 pending code — so it is a third variant rather than a new flow.
+	// A CodeBuddy bearer token authenticates against it unchanged (verified), so
+	// the two share a backend lineage.
+	workbuddyBaseURL = "https://www.workbuddy.ai"
 	codebuddyPollTimeout = 10 * time.Minute
 )
 
@@ -103,6 +109,21 @@ func codebuddyConfigFor(providerID string) (codebuddyConfig, bool) {
 			UserAgent: "IDE/2.63.2 CodeBuddy/2.63.2",
 			IDEType:   "IDE",
 			Domain:    "www.codebuddy.ai",
+		}, true
+	case "workbuddy", "wb":
+		// Same plugin-auth protocol as the other two variants. The CLI platform
+		// is the one that answers 200 here (probed: platform=CLI and platform=ide
+		// both work, an absent platform is rejected with code 10001), and the
+		// domain header must be its own host.
+		return codebuddyConfig{
+			Provider:  "workbuddy",
+			BaseURL:   workbuddyBaseURL,
+			StateURL:  workbuddyBaseURL + "/v2/plugin/auth/state",
+			TokenURL:  workbuddyBaseURL + "/v2/plugin/auth/token",
+			Platform:  "CLI",
+			UserAgent: "CLI/2.63.2 WorkBuddy/2.63.2",
+			IDEType:   "CLI",
+			Domain:    "www.workbuddy.ai",
 		}, true
 	default:
 		return codebuddyConfig{}, false

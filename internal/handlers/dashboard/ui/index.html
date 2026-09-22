@@ -3575,7 +3575,7 @@
     // answers to.
     const OAUTH_PANELS = [
       { ids: ["antigravity", "agy"], render: p => oauthPanelHtml(p) },
-      { ids: ["codebuddy-cn", "cbcn", "codebuddy-intl", "cbai"], render: p => codebuddyOAuthPanelHtml(p) },
+      { ids: ["codebuddy-cn", "cbcn", "codebuddy-intl", "cbai", "workbuddy", "wb"], render: p => codebuddyOAuthPanelHtml(p) },
       { ids: ["github", "gh", "copilot"], render: () => githubOAuthPanelHtml() },
       { ids: ["cline", "cl", "clinepass", "cp"], render: p => clineOAuthPanelHtml(p) },
       { ids: ["gemini-cli", "gc"], render: p => geminiCliOAuthPanelHtml(p) },
@@ -5125,9 +5125,10 @@
   // two variants are stored under different provider names AND sign in against
   // different hosts (copilot.tencent.com vs www.codebuddy.ai).
   function codebuddyOAuthPanelHtml(providerId) {
+    const isWorkbuddy = providerId === "workbuddy" || providerId === "wb";
     const isIntl = providerId === "codebuddy-intl" || providerId === "cbai";
-    const label = isIntl ? "CodeBuddy (International)" : "CodeBuddy (Tencent CN)";
-    const host = isIntl ? "www.codebuddy.ai" : "copilot.tencent.com";
+    const label = isWorkbuddy ? "Tencent WorkBuddy" : (isIntl ? "CodeBuddy (International)" : "CodeBuddy (Tencent CN)");
+    const host = isWorkbuddy ? "www.workbuddy.ai" : (isIntl ? "www.codebuddy.ai" : "copilot.tencent.com");
     return `
       <div class="add-form oauth-form">
         <div class="add-form-title"><span class="msym">passkey</span>Add via CodeBuddy sign-in</div>

@@ -146,7 +146,7 @@ func isDiscoverableCodebuddyModel(modelID string) bool {
 // addresses either CodeBuddy variant.
 func isCodebuddyProvider(providerID string) bool {
 	switch strings.ToLower(strings.TrimSpace(providerID)) {
-	case "codebuddy-cn", "codebuddy-intl", "cbcn", "cbai":
+	case "codebuddy-cn", "codebuddy-intl", "cbcn", "cbai", "workbuddy", "wb":
 		return true
 	default:
 		return false

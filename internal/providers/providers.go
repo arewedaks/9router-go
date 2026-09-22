@@ -329,6 +329,19 @@ var KnownProviders = map[string]ProviderConfig{
 			"x-codebuddy-request": "1",
 		},
 	},
+	"workbuddy": {
+		BaseURL:    "https://www.workbuddy.ai/v2/chat/completions",
+		AuthHeader: "Authorization",
+		AuthScheme: "bearer",
+		StaticHeaders: map[string]string{
+			"User-Agent":          "CLI/2.108.1 WorkBuddy/2.108.1",
+			"X-Product":           "SaaS",
+			"X-IDE-Type":          "CLI",
+			"X-IDE-Name":          "CLI",
+			"x-requested-with":    "XMLHttpRequest",
+			"x-codebuddy-request": "1",
+		},
+	},
 	"gitlab": {
 		BaseURL:    "https://gitlab.com/api/v4/chat/completions",
 		AuthHeader: "Authorization",

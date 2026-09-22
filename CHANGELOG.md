@@ -15,6 +15,12 @@
 - `internal/handlers/dashboard/codebuddy_catalog_test.go` — the existing test expected `minimax-m2.7`, `deepseek-v4-pro` and `hy3-preview` to be present. All three now answer `11102` on a live account, so the expectation was stale and is replaced with the ids that actually serve.
 
 ### 🚀 Features & Upstream Parity
+**Tencent WorkBuddy Provider (OAuth & Models):**
+- `internal/handlers/oauth/codebuddy_oauth.go` — added `workbuddy` (alias `wb`) as a third variant alongside `codebuddy-cn` and `codebuddy-intl`. WorkBuddy is Tencent's office-agent product and speaks the identical plugin-auth device-authorization protocol (`/v2/plugin/auth/state?platform=CLI`, `/v2/plugin/auth/token`, pending code `11217`), sharing backend lineage — verified by authenticating against its chat endpoint using a live CodeBuddy bearer token.
+- `internal/providers/category.go`, `internal/providers/providers.go`, `internal/providers/registry_models.go`, `internal/providers/aliases.go` — registered provider card (icon `work`, `#0052D9`), base URL (`https://www.workbuddy.ai/v2/chat/completions`), short alias `wb`, and the 8 models verified against a live account.
+- `internal/proxy/executor/init.go` — registered `workbuddy` with `ForwardCodebuddyCN` (same SSE frame format, headers, and tool-call payload).
+- `internal/handlers/dashboard/ui/index.html` — wired the OAuth panel: opens sign-in link on `www.workbuddy.ai`, polls token, hides the wrong API-key form.
+
 
 **Kiro Model Import (live account catalogue):**
 - `internal/handlers/dashboard/kiro_catalog.go` — Kiro publishes the models an account may call through the CodeWhisperer control-plane call `AmazonCodeWhispererService.ListAvailableModels`. That is not an OpenAI-style `/models` route, so the generic fetcher could not reach it and Import previously reported "does not support models listing".
