@@ -62,15 +62,11 @@
       --glass-blur: 0px;
       --glass-shadow: none;
       /* Translucent top bar. Upstream's dashboard is translucent here and only
-         here — `bg-surface/60 backdrop-blur-xl` on the header
-         (src/shared/components/Header.js:230) with the panels left opaque. The
-         header is the one surface that scrolls over content, so the blur is
-         what keeps the page title and Sign out legible while rows pass under
-         it; a translucent card would just be low-contrast text. 60% alpha and
-         a 20px radius are upstream's numbers (its macOS vibrancy token is
-         `blur(20px)`, globals.css `.bg-vibrancy`). */
+         here — `bg-surface/60` on the header (src/shared/components/Header.js),
+         with the panels left opaque. The header is the one surface that scrolls
+         over content, so a see-through fill is what lets rows read as passing
+         beneath it; a translucent card would just be low-contrast text. */
       --header-bg: rgba(43, 43, 43, 0.6);
-      --header-blur: 20px;
       /* Page background: flat colour plus a faint 40px grid, taken from the
          upstream 9Router dashboard (src/app/globals.css `.landing-grid` +
          DashboardLayout's `landing-grid absolute inset-0 -z-10`). The grid is
@@ -572,13 +568,11 @@
     }
 
     header {
-      /* Translucent, matching upstream's `bg-surface/60 backdrop-blur-xl`.
-         The header is the only surface that content scrolls under, so it is
-         the only one that earns a blur. -webkit- first for Safari, which still
-         needs the prefixed form on older versions. */
+      /* Translucent, matching upstream's `bg-surface/60`. No backdrop-filter:
+         the blur was tried and dropped — it costs a GPU re-composite on every
+         scroll frame, and the 60% fill alone is enough to keep the title and
+         Sign out readable while rows pass under the bar. */
       background: var(--header-bg);
-      -webkit-backdrop-filter: blur(var(--header-blur));
-      backdrop-filter: blur(var(--header-blur));
       border-bottom: 1px solid var(--glass-border); padding: 12px 24px; display: flex; align-items: center; justify-content: space-between; gap: 12px; position: sticky; top: 0; z-index: 100; }
     .logo { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 1.15rem; color: #fff; }
     .badge { padding: 2px 8px; border-radius: 12px; font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px; display: inline-flex; align-items: center; gap: 4px; }
