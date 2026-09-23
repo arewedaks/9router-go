@@ -33,9 +33,9 @@ func TestScrollbarsAreThemed(t *testing.T) {
 	}
 
 	// The thumb must be tinted with the theme accent, not left neutral. A grey
-	// thumb on a warm page is the specific thing this replaced.
-	if !strings.Contains(ui, "rgba(255, 138, 42, 0.30)") &&
-		!strings.Contains(ui, "rgba(255, 138, 42, 0.3)") {
+	// thumb on a dark page is the specific thing this replaced.
+	if !strings.Contains(ui, "rgba(229, 106, 74, 0.30)") &&
+		!strings.Contains(ui, "rgba(229, 106, 74, 0.3)") {
 		t.Error("the scrollbar thumb is not tinted with the accent colour, so " +
 			"it does not match the theme")
 	}

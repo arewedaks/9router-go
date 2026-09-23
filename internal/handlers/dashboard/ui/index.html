@@ -14,19 +14,19 @@
   <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap" rel="stylesheet">
   <style>
     :root {
-      /* Warm palette, lifted to Material's surface-level model: each level is a
-         visibly lighter step so elevation reads from fill alone, without relying
-         on borders or shadows. The previous set sat at the very bottom of the
-         range (#0d0a07 page / #1a1310 panel), which on a real display read as
-         near-black mud with almost no separation between a card and the page. */
-      --bg: #1c1613;
-      --panel: #272020;
-      --panel-hover: #3a312d;
-      --border: #574941;
-      --text: #e6edf3;
-      --muted: #9aa4ae;
-      --primary: #ff8a2a;
-      --primary-dim: #5a3416;
+      /* Neutral charcoal palette, matching VansRouter dark (globals.css .dark):
+         page #1a1a1a, surfaces #262626/#303030, border #333333. Brand accent
+         is VansRouter terracotta #E56A4A; each surface level is a visibly
+         lighter step so elevation reads from fill alone, without relying
+         on borders or shadows. */
+      --bg: #1a1a1a;
+      --panel: #262626;
+      --panel-hover: #303030;
+      --border: #333333;
+      --text: #ededed;
+      --muted: #9ca3af;
+      --primary: #E56A4A;
+      --primary-dim: #7a2f1d;
       --accent: #238636;
       --danger: #da3633;
       --warning: #d29922;
@@ -55,10 +55,10 @@
          single edit here still retunes the whole look. To go back to glass,
          restore translucent values here and give --glass-blur a non-zero
          length; every rule reads these tokens. */
-      --glass: #2f2825;
-      --glass-strong: #3a312d;
-      --glass-border: #574941;
-      --glass-border-strong: #6d5b51;
+      --glass: #2b2b2b;
+      --glass-strong: #303030;
+      --glass-border: #333333;
+      --glass-border-strong: #3a3a3a;
       --glass-blur: 0px;
       --glass-shadow: none;
       /* Page background: flat colour plus a faint 40px grid, taken from the
@@ -67,12 +67,12 @@
          what keeps a flat theme from reading as a plain empty page; upstream
          dims it to 0.04 opacity in dark mode. The line is raised from 0.04 to
          0.06 because the lighter page now has less contrast for it to sit in. */
-      --grid-line: rgba(255, 176, 102, 0.06);
+      --grid-line: rgba(229, 106, 74, 0.06);
       --grid-size: 40px;
       /* Code and terminal panes step DOWN from the page rather than up: a
          monospace surface reading darker than its surroundings is the
          convention, and it separates log output from UI chrome at a glance. */
-      --code-bg: #14100e;
+      --code-bg: #141414;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif; }
     /* Flat colour plus a faint 40px grid. The grid is painted on the body
@@ -129,7 +129,7 @@
       background: transparent;
     }
     ::-webkit-scrollbar-thumb {
-      background: rgba(255, 138, 42, 0.30);
+      background: rgba(229, 106, 74, 0.30);
       border-radius: 999px;
       /* The transparent border plus background-clip insets the thumb inside
          the 10px channel so it never touches the edges. */
@@ -138,7 +138,7 @@
       transition: background 0.15s;
     }
     ::-webkit-scrollbar-thumb:hover {
-      background: rgba(255, 138, 42, 0.55);
+      background: rgba(229, 106, 74, 0.55);
       background-clip: content-box;
     }
     ::-webkit-scrollbar-thumb:active {
@@ -180,7 +180,7 @@
        black on some platforms, which reads as the bar disappearing. Keep it
        visible, just quieter than the active state. */
     ::-webkit-scrollbar-thumb:window-inactive {
-      background: rgba(255, 138, 42, 0.22);
+      background: rgba(229, 106, 74, 0.22);
       background-clip: content-box;
     }
 
@@ -193,7 +193,7 @@
     @supports not selector(::-webkit-scrollbar) {
       * {
         scrollbar-width: thin;
-        scrollbar-color: rgba(255, 138, 42, 0.42) transparent;
+        scrollbar-color: rgba(229, 106, 74, 0.42) transparent;
       }
     }
 
@@ -248,21 +248,21 @@
     /* Scoped to the sign-in form.
 
        .btn-primary is GitHub green (#238636), which was the action colour of
-       the old blue palette and is the one green left on a warm page. It is used
+       the old blue palette and is the one green left on a neutral page. It is used
        for Create Key / Add Provider / Save Settings, so it is not changed
        globally here — only the first button a visitor sees is re-tinted to the
        theme accent. */
     #login-form .login-submit {
-      background: linear-gradient(150deg, #ff9d47 0%, #ff8a2a 55%, #e0741c 100%);
-      border: 1px solid rgba(255, 160, 90, 0.45);
-      color: #24160c;
+      background: linear-gradient(150deg, #ea7855 0%, #E56A4A 55%, #cc5236 100%);
+      border: 1px solid rgba(229, 106, 74, 0.45);
+      color: #ffffff;
       font-weight: 700;
       /* Same bevel language as .brand-mark and the nav tiles: light top edge,
-         dark bottom edge, warm drop shadow. */
+         dark bottom edge, brand drop shadow. */
       box-shadow:
         0 1px 0 rgba(255, 235, 210, 0.45) inset,
-        0 -1px 0 rgba(90, 40, 0, 0.30) inset,
-        0 6px 18px rgba(255, 138, 42, 0.28);
+        0 -1px 0 rgba(77, 30, 18, 0.30) inset,
+        0 6px 18px rgba(229, 106, 74, 0.28);
       transition: filter 0.15s, transform 0.15s, box-shadow 0.15s;
     }
     #login-form .login-submit:hover:not(:disabled) {
@@ -270,16 +270,16 @@
       transform: translateY(-1px);
       box-shadow:
         0 1px 0 rgba(255, 235, 210, 0.55) inset,
-        0 -1px 0 rgba(90, 40, 0, 0.30) inset,
-        0 8px 24px rgba(255, 138, 42, 0.36);
+        0 -1px 0 rgba(77, 30, 18, 0.30) inset,
+        0 8px 24px rgba(229, 106, 74, 0.36);
     }
     #login-form .login-submit:active:not(:disabled) { transform: none; filter: brightness(0.97); }
     /* The lockout countdown disables the button, so it needs a readable disabled
        state rather than the default washed-out one. */
     #login-form .login-submit:disabled {
-      background: rgba(255, 138, 42, 0.18);
-      border-color: rgba(255, 138, 42, 0.28);
-      color: #c9a081;
+      background: rgba(229, 106, 74, 0.18);
+      border-color: rgba(229, 106, 74, 0.28);
+      color: #d3a08b;
       box-shadow: none;
       cursor: not-allowed;
     }
@@ -322,8 +322,8 @@
       display: inline-flex; align-items: center; justify-content: center;
       width: 34px; height: 34px; flex: 0 0 34px;
       border-radius: 10px;
-      background: linear-gradient(150deg, #2a1c12 0%, #17100a 100%);
-      border: 1px solid rgba(255, 138, 42, 0.32);
+      background: linear-gradient(150deg, #2a2a2a 0%, #1a1a1a 100%);
+      border: 1px solid rgba(229, 106, 74, 0.32);
       box-shadow:
         0 1px 0 rgba(255, 210, 160, 0.16) inset,
         0 4px 10px rgba(0, 0, 0, 0.45),
@@ -362,8 +362,8 @@
       display: inline-block; vertical-align: 1px;
       margin-left: 5px; padding: 1px 5px; border-radius: 5px;
       font-size: 0.6rem; font-weight: 700; letter-spacing: 0.6px;
-      color: #ffb066; background: rgba(255, 138, 42, 0.14);
-      border: 1px solid rgba(255, 138, 42, 0.34);
+      color: #f4b59c; background: rgba(229, 106, 74, 0.14);
+      border: 1px solid rgba(229, 106, 74, 0.34);
     }
     /* Rendered from the update check, so it shows the running build and not
        whatever the page was built with. Hidden until that fetch answers. */
@@ -377,11 +377,11 @@
     .update-pill {
       display: flex; align-items: center; gap: 8px; width: 100%; margin: 0 0 12px;
       padding: 8px 10px; border-radius: var(--radius); cursor: pointer;
-      background: var(--primary-dim); border: 1px solid var(--primary); color: #fff;
+      background: rgba(229, 106, 74, 0.14); border: 1px solid var(--primary); color: var(--primary);
       font-weight: 600; font-size: 0.82rem; text-align: left; transition: 0.15s;
     }
     .update-pill[hidden] { display: none; }
-    .update-pill:hover { background: var(--primary); color: #06121f; }
+    .update-pill:hover { background: var(--primary); color: #fff; }
     .update-pill.is-busy { cursor: progress; opacity: 0.8; }
     .update-dot {
       width: 8px; height: 8px; border-radius: 50%; flex: 0 0 8px;
@@ -423,7 +423,7 @@
       display: flex; align-items: center; gap: 10px; text-align: left; width: 100%;
     }
     .nav-btn:hover { color: var(--text); background: var(--panel-hover); }
-    .nav-btn.active { color: #fff; background: var(--primary-dim); box-shadow: inset 2px 0 0 var(--primary); }
+    .nav-btn.active { color: var(--primary); background: rgba(229, 106, 74, 0.10); box-shadow: inset 2px 0 0 var(--primary); }
     .nav-icon {
       /* Each entry gets a fixed-size tile so the labels start at the same x
          even when a glyph is narrower than its neighbours. Emoji are gone:
@@ -457,7 +457,7 @@
       background:
         linear-gradient(150deg,
           color-mix(in srgb, var(--tint) 26%, var(--panel)) 0%,
-          color-mix(in srgb, var(--tint) 10%, #140f0b) 100%);
+          color-mix(in srgb, var(--tint) 10%, #1a1a1a) 100%);
       border: 1px solid color-mix(in srgb, var(--tint) 34%, transparent);
       box-shadow:
         0 1px 0 rgba(255, 255, 255, 0.10) inset,
@@ -480,16 +480,16 @@
        tile. So the rail uses a small set of well-separated colours that the
        dashboard already owns, and repeats the last one rather than inventing a
        near-duplicate:
-         orange #ff8a2a (accent) · amber #d29922 (warning) ·
+         terracotta #E56A4A (brand) · amber #d29922 (warning) ·
          green  #3fb950 (status-ok) · cyan #22d3ee (live dot) ·
          slate  #8b949e (muted).
        Red is deliberately unused: it is the error colour everywhere else in
        the UI, and Console Log is not an error.
 
-       The hues climb from warm to cool down the rail (27 → 41 → 128 → 188),
+       The hues climb from warm to cool down the rail (12 → 41 → 128 → 188),
        then the Configuration group drops to slate so it reads as a separate
        group and keeps Settings visually quieter than the six live views. */
-    #nav-endpoint  .nav-icon { --tint: #ff8a2a; }  /* accent    — orange */
+    #nav-endpoint  .nav-icon { --tint: #E56A4A; }  /* brand     — terracotta */
     #nav-usage     .nav-icon { --tint: #d29922; }  /* warning   — amber  */
     #nav-providers .nav-icon { --tint: #3fb950; }  /* status-ok — green  */
     #nav-combos    .nav-icon { --tint: #22d3ee; }  /* live dot  — cyan   */
@@ -566,7 +566,7 @@
     
     /* Category Badges */
     .badge-oauth { background: #271052; color: #d2a8ff; border: 1px solid #8957e5; }
-    .badge-freeTier { background: #3a2412; color: #ffb066; border: 1px solid #b8834a; }
+    .badge-freeTier { background: #31231b; color: #f4b59c; border: 1px solid #a64027; }
     .badge-free { background: #10301c; color: #56d364; border: 1px solid #238636; }
     .badge-apikey { background: #3e2800; color: #e3b341; border: 1px solid #9e6a03; }
     .badge-webCookie { background: #3d1a2b; color: #ff9ec4; border: 1px solid #bf4b8a; }
@@ -574,11 +574,11 @@
 
     /* Expandable provider groups + account rows */
     .prov-group-row { background: var(--panel-hover); cursor: pointer; user-select: none; }
-    .prov-group-row:hover { background: #1f2937; }
+    .prov-group-row:hover { background: #3a3a3a; }
     .prov-group-row td { border-bottom: 1px solid var(--border); padding: 12px 14px; }
     .prov-chevron { display:inline-block; transition: transform 0.15s; color: var(--muted); font-size: 0.75rem; }
     .prov-chevron.open { transform: rotate(90deg); }
-    .prov-count-pill { background: #b8834a22; color: #ffb066; border: 1px solid #b8834a; border-radius: 999px; padding: 1px 9px; font-size: 0.72rem; font-weight: 600; }
+    .prov-count-pill { background: rgba(229,106,74,0.12); color: #f4b59c; border: 1px solid #a64027; border-radius: 999px; padding: 1px 9px; font-size: 0.72rem; font-weight: 600; }
     .acct-row td { background: var(--bg); padding: 8px 14px 8px 52px; font-size: 0.83rem; border-bottom: 1px dashed var(--border); }
     .acct-dot { display:inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 7px; }
     .acct-dot.on { background: #3fb950; box-shadow: 0 0 5px #3fb950; }
@@ -611,7 +611,7 @@
     .conn-actions { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; margin-left: auto; }
     .conn-test-bar { display: flex; align-items: center; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
     .conn-test-progress { font-size: 0.72rem; color: var(--muted); }
-    .acct-email { color: #e6edf3; font-weight: 500; }
+    .acct-email { color: #ededed; font-weight: 500; }
     .acct-meta { color: var(--muted); font-size: 0.75rem; }
     .acct-pill { border-radius: 4px; padding: 1px 6px; font-size: 0.68rem; font-weight: 600; }
     .acct-pill.ok { background: #13381e; color: #7ee787; }
@@ -651,7 +651,7 @@
     .filter-bar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
     .filter-btn { background: var(--panel); border: 1px solid var(--border); color: var(--muted); padding: 6px 14px; border-radius: 20px; font-size: 0.82rem; cursor: pointer; transition: 0.15s; display: inline-flex; align-items: center; gap: 6px; }
     .filter-btn:hover { color: #fff; border-color: var(--muted); }
-    .filter-btn.active { background: var(--primary-dim); color: #fff; border-color: var(--primary); font-weight: 600; }
+    .filter-btn.active { background: rgba(229, 106, 74, 0.14); color: var(--primary); border-color: var(--primary); font-weight: 600; }
     
     .btn { background: var(--panel-hover); border: 1px solid var(--border); color: var(--text); padding: 8px 14px; border-radius: var(--radius); cursor: pointer; font-size: 0.85rem; font-weight: 500; display: inline-flex; align-items: center; gap: 6px; transition: 0.15s; }
     .btn:hover { border-color: var(--muted); }
@@ -662,23 +662,22 @@
     
     .table-container { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); overflow-x: auto; }
     table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.88rem; }
-    th { background: #16202c; padding: 12px 16px; color: var(--muted); font-weight: 600; border-bottom: 1px solid var(--border); }
+    th { background: #242424; padding: 12px 16px; color: var(--muted); font-weight: 600; border-bottom: 1px solid var(--border); }
     td { padding: 12px 16px; border-bottom: 1px solid var(--border); vertical-align: middle; }
     tr:last-child td { border-bottom: none; }
     tr:hover td { background: var(--panel-hover); }
     
     .switch { position: relative; display: inline-block; width: 38px; height: 20px; }
     .switch input { opacity: 0; width: 0; height: 0; }
-    .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #2d3748; transition: .2s; border-radius: 20px; }
+    .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #3a3a3a; transition: .2s; border-radius: 20px; }
     .slider:before { position: absolute; content: ""; height: 14px; width: 14px; left: 3px; bottom: 3px; background-color: white; transition: .2s; border-radius: 50%; }
     input:checked + .slider { background-color: #238636; }
     input:checked + .slider:before { transform: translateX(18px); }
     /* The API-key switch is the one control on this page that weakens security
-       when off, so its ON state is the accent colour rather than green — the
-       same accent the rest of the warm theme uses for "is set". Its OFF state
-       is the alarm red instead of the neutral grey, so a glance at the endpoint
+       when off, so its ON state is the brand colour rather than green. Its
+       OFF state is the alarm red instead of the neutral grey, so a glance at the endpoint
        page shows an open proxy without reading the label. */
-    #require-apikey-toggle:checked + .slider { background-color: #ff8a2a; }
+    #require-apikey-toggle:checked + .slider { background-color: var(--primary); }
     #require-apikey-toggle:not(:checked) + .slider { background-color: #f85149; }
     
     /* Every field type the dashboard uses, not just text and password: the
@@ -726,7 +725,7 @@
     .form-group { margin-bottom: 14px; }
     .form-group label { display: block; font-size: 0.82rem; color: var(--muted); margin-bottom: 6px; }
     
-    .code-block { background: #16100a; border: 1px solid var(--border); border-radius: 6px; padding: 12px; font-family: monospace; font-size: 0.82rem; color: #ffb066; overflow-x: auto; white-space: pre-wrap; word-break: break-word; }
+    .code-block { background: #141414; border: 1px solid var(--border); border-radius: 6px; padding: 12px; font-family: monospace; font-size: 0.82rem; color: #f4b59c; overflow-x: auto; white-space: pre-wrap; word-break: break-word; }
 
     /* Endpoint & Key page */
     .badge-ok { background: #0d2818; color: #3fb950; border: 1px solid #238636; }
@@ -734,7 +733,7 @@
     .endpoint-rows { display: flex; flex-direction: column; gap: 8px; }
     .endpoint-row { display: flex; align-items: center; gap: 8px; }
     .endpoint-tag { font-family: monospace; font-size: 0.7rem; padding: 4px 8px; border-radius: 4px; min-width: 74px; text-align: center; background: var(--surface2); color: var(--muted); shrink: 0; flex: 0 0 auto; }
-    .endpoint-tag.active { background: rgba(255,138,42,0.14); color: #ffb066; }
+    .endpoint-tag.active { background: rgba(229,106,74,0.14); color: #f4b59c; }
     /* The value is read-only (filled by renderEndpointHost) and exists to be
      * selected and copied, so it is styled as a field but must not look like an
      * editable one. It previously inherited the browser default — a solid white
@@ -753,7 +752,7 @@
     .endpoint-security { display: grid; gap: 10px; }
     .endpoint-lock { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
     .endpoint-lock p { flex: 1 1 100%; margin: 0; font-size: 0.8rem; color: var(--muted); }
-    .endpoint-lock code { background: #16100a; border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; font-size: 0.78rem; color: #ffb066; }
+    .endpoint-lock code { background: #141414; border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; font-size: 0.78rem; color: #f4b59c; }
     .endpoint-warn { margin-top: 12px; padding: 10px 12px; border-radius: 6px; font-size: 0.82rem; background: rgba(210,153,34,0.1); border: 1px solid #9e6a03; color: #e3b341; }
     /* Remote-without-key is a different severity from the loopback-only state,
        so it gets its own treatment rather than the same amber box. */
@@ -761,7 +760,7 @@
     #require-apikey-msg { margin-top: 10px; font-size: 0.8rem; }
     #allow-remote-toggle:checked + .slider { background-color: #f85149; }
     .key-secret { display: flex; align-items: center; gap: 6px; }
-    .key-secret code { background: var(--bg); border: 1px solid var(--border); padding: 4px 8px; border-radius: 4px; color: #ffb066; font-size: 0.78rem; }
+    .key-secret code { background: var(--bg); border: 1px solid var(--border); padding: 4px 8px; border-radius: 4px; color: #f4b59c; font-size: 0.78rem; }
     .icon-btn { background: none; border: none; cursor: pointer; font-size: 0.85rem; padding: 2px 4px; border-radius: 4px; opacity: 0.65; }
     .icon-btn:hover { opacity: 1; background: rgba(255,255,255,0.06); }
     .row-paused { opacity: 0.55; }
@@ -769,7 +768,7 @@
 
     /* Generic chip. The border was #1f3554, a leftover navy from the blue
        palette that read as a cold seam on every chip after the theme moved to
-       warm orange. */
+       warm terracotta. */
     .tag { display: inline-block; background: var(--primary-dim); color: var(--primary); border: 1px solid var(--primary-dim); border-radius: 4px; padding: 2px 6px; font-size: 0.75rem; margin: 2px; }
 
     /* ----------------------------------------------------------------
@@ -817,7 +816,7 @@
       min-width: 0;
       font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
       font-size: 0.92rem; font-weight: 600;
-      color: #ffb066;
+      color: #f4b59c;
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
     .combo-card-strategy {
@@ -873,7 +872,7 @@
       border-color: var(--glass-border-strong);
       color: var(--text);
     }
-    .icon-btn-sm.is-edit:hover { color: var(--primary); border-color: rgba(255, 138, 42, 0.45); }
+    .icon-btn-sm.is-edit:hover { color: var(--primary); border-color: rgba(229, 106, 74, 0.45); }
     .icon-btn-sm.is-copy:hover { color: #3fb950; border-color: rgba(63, 185, 80, 0.45); }
     /* Delete is the destructive action, so it only turns red on hover: a red
        button sitting in every card would draw the eye to the wrong action. */
@@ -898,7 +897,7 @@
     /* ----------------------------------------------------------------
        Combo model chips
        ----------------------------------------------------------------
-       Every chip used to be the same orange with the full provider-qualified id
+       Every chip used to be the same brand colour with the full provider-qualified id
        (bm/nvidia/llama-3.3-nemotron-...), repeated provider segment included.
        That reads as a wall of identical text.
 
@@ -946,7 +945,7 @@
       min-width: 0;
       font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
       font-size: 0.70rem;
-      color: #ffb066;
+      color: #f4b59c;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
@@ -956,21 +955,21 @@
       display: inline-flex; align-items: center;
       padding: 2px 7px;
       border-radius: 7px;
-      background: rgba(255, 138, 42, 0.10);
-      border: 1px dashed rgba(255, 138, 42, 0.35);
+      background: rgba(229, 106, 74, 0.10);
+      border: 1px dashed rgba(229, 106, 74, 0.35);
       color: var(--primary);
       font-size: 0.70rem;
       font-weight: 600;
       cursor: pointer;
     }
-    .combo-model-more:hover { background: rgba(255, 138, 42, 0.18); }
+    .combo-model-more:hover { background: rgba(229, 106, 74, 0.18); }
     /* Combo editor: ordered model list with reorder / remove controls. */
     .combo-model-list { display: flex; flex-direction: column; gap: 6px; margin: 4px 0; }
     .combo-model-row { display: flex; align-items: center; gap: 6px; background: var(--panel-hover); border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; }
     .combo-model-idx { flex: 0 0 16px; color: var(--muted); font-size: 0.75rem; text-align: right; }
     /* min-width:0 is what lets a flex child shrink below its content width;
        without it a long model ID forces the row (and the modal) wider. */
-    .combo-model-name { flex: 1 1 auto; min-width: 0; font-family: monospace; font-size: 0.8rem; color: #ffb066; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .combo-model-name { flex: 1 1 auto; min-width: 0; font-family: monospace; font-size: 0.8rem; color: #f4b59c; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .combo-model-row .btn { flex: 0 0 auto; padding: 1px 7px; line-height: 1.4; }
     .combo-model-row .btn[disabled] { opacity: 0.3; cursor: default; }
     .combo-picker-list { max-height: 340px; overflow-y: auto; border: 1px solid var(--border); border-radius: 6px; }
@@ -1032,18 +1031,18 @@
        only muddies it. Keep the tint as a soft halo instead of a flat fill. */
     .prov-card-icon.has-logo { background: rgba(255,255,255,0.06) !important; border: 1px solid var(--border); }
     .prov-card-icon.has-logo img { width: 24px; height: 24px; object-fit: contain; }
-    .prov-card-title { font-size: 0.92rem; font-weight: 600; color: #e6edf3; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .prov-card-title { font-size: 0.92rem; font-weight: 600; color: #ededed; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     /* Sub-line under the provider name: the connection count, or the no-key
        notice. Muted so it reads as metadata rather than a second title. */
     .prov-card-sub { font-size: 0.74rem; color: var(--muted); line-height: 1.3; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .kind-chip { display: inline-flex; align-items: center; gap: 3px; background: #161b22; border: 1px solid var(--border); border-radius: 5px; padding: 2px 6px; font-size: 0.66rem; color: var(--muted); }
+    .kind-chip { display: inline-flex; align-items: center; gap: 3px; background: #242424; border: 1px solid var(--border); border-radius: 5px; padding: 2px 6px; font-size: 0.66rem; color: var(--muted); }
     .kind-chip .msym { font-size: 12px; }
     .risk-banner { background: #3d2b12; border: 1px solid #9e6a03; color: #e3b341; border-radius: 8px; padding: 8px 10px; font-size: 0.72rem; line-height: 1.4; margin-top: 10px; display: flex; gap: 7px; }
     .risk-banner .msym { font-size: 15px; flex-shrink: 0; }
     .prov-expand-body { flex-basis: 100%; margin-top: 12px; border-top: 1px solid var(--border); padding-top: 10px; }
     .prov-acct-line { display: flex; align-items: center; gap: 8px; padding: 6px 0; font-size: 0.78rem; border-bottom: 1px dashed var(--border); }
     .prov-acct-line:last-child { border-bottom: none; }
-    .prov-acct-line .em { color: #e6edf3; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .prov-acct-line .em { color: #ededed; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
     /* ---- Provider detail sub-page (mirrors /dashboard/providers/[id]) ---- */
     .detail-hero { display: flex; align-items: flex-start; gap: 14px; margin-bottom: 20px; }
@@ -1060,8 +1059,8 @@
     .hero-link .msym { font-size: 13px; }
     .detail-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 18px; overflow-x: auto; }
     .detail-tab { background: none; border: none; border-bottom: 2px solid transparent; color: var(--muted); padding: 9px 14px; font-size: 0.85rem; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
-    .detail-tab:hover { color: #e6edf3; }
-    .detail-tab.active { color: #e6edf3; border-bottom-color: var(--primary); font-weight: 600; }
+    .detail-tab:hover { color: #ededed; }
+    .detail-tab.active { color: #ededed; border-bottom-color: var(--primary); font-weight: 600; }
     .detail-tab .msym { font-size: 16px; }
 
     /* Quota panel: one card per account, one bar per credit package. */
@@ -1115,7 +1114,7 @@
     /* `.mid` is used both inside `.mnames` (model rows) and standalone on
        account rows; in both cases it must absorb the free space so the trailing
        controls are pushed to the right edge instead of hugging the label. */
-    .model-row .mid { flex: 1 1 auto; min-width: 40px; font-family: monospace; color: #e6edf3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .model-row .mid { flex: 1 1 auto; min-width: 40px; font-family: monospace; color: #ededed; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .model-row .msub { font-size: 0.68rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .mfree { flex: 0 0 auto; font-size: 0.62rem; font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase;
       color: #3fb950; background: rgba(63,185,80,0.12); border: 1px solid rgba(63,185,80,0.35); border-radius: 4px; padding: 1px 5px; }
@@ -1128,7 +1127,7 @@
 
     /* Inline add-forms on the provider detail page */
     .add-form { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px; margin-bottom: 14px; }
-    .add-form-title { font-size: 0.85rem; font-weight: 600; color: #e6edf3; display: flex; align-items: center; gap: 7px; margin-bottom: 11px; }
+    .add-form-title { font-size: 0.85rem; font-weight: 600; color: #ededed; display: flex; align-items: center; gap: 7px; margin-bottom: 11px; }
     .add-form-title .msym { font-size: 17px; color: var(--primary); }
     .add-form-grid { display: grid; grid-template-columns: 1fr; gap: 10px; }
     /* On a narrow screen the controls take the full second line and align to
@@ -1152,7 +1151,7 @@
 
     @media (min-width: 720px) { .oauth-grid { grid-template-columns: 1fr 1fr auto; align-items: end; } }
     .field-label { display: block; font-size: 0.72rem; color: var(--muted); margin-bottom: 5px; }
-    .add-form input, .add-form select { width: 100%; background: var(--glass); border: 1px solid var(--glass-border); border-radius: var(--radius-field); padding: 9px 12px; color: #e6edf3; font-size: 0.82rem; font-family: inherit; }
+    .add-form input, .add-form select { width: 100%; background: var(--glass); border: 1px solid var(--glass-border); border-radius: var(--radius-field); padding: 9px 12px; color: #ededed; font-size: 0.82rem; font-family: inherit; }
     .add-form input:focus, .add-form select:focus { outline: none; border-color: var(--primary); }
     .msg-ok { color: #3fb950 !important; }
     .msg-err { color: #ff7b72 !important; }
@@ -1191,7 +1190,7 @@
       flex: 1; min-width: 0;
       background: var(--glass); border: 1px solid var(--glass-border);
       border-radius: var(--radius-field); padding: 6px 10px;
-      color: #e6edf3; font-size: 0.78rem; font-family: inherit;
+      color: #ededed; font-size: 0.78rem; font-family: inherit;
     }
     .import-search:focus { outline: none; border-color: var(--primary); }
     .import-toolbar-count { flex: 0 0 auto; font-size: 0.75rem; color: var(--muted); white-space: nowrap; }
@@ -1218,7 +1217,7 @@
       border-bottom: 1px solid rgba(255,255,255,.04);
     }
     .picker-row:hover { background: rgba(255,255,255,.04); }
-    .picker-row[aria-selected="true"] { background: rgba(255,138,42,.14); }
+    .picker-row[aria-selected="true"] { background: rgba(229,106,74,.14); }
     .picker-row .picker-name { flex: 1; min-width: 0; overflow-wrap: break-word; }
     .picker-row .picker-alias {
       font-family: monospace; font-size: 0.7rem; color: var(--muted);
@@ -1245,7 +1244,7 @@
     .modal-foot { display: flex; align-items: center; gap: 8px; padding: 11px 15px; border-top: 1px solid var(--border); }
     .import-row { display: flex; align-items: center; gap: 10px; padding: 7px 4px; border-bottom: 1px solid var(--border); cursor: pointer; font-size: 0.82rem; }
     .import-row:hover { background: rgba(255,255,255,.03); }
-    .import-row .mid { font-family: monospace; color: #e6edf3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .import-row .mid { font-family: monospace; color: #ededed; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .import-row .mnames { flex: 1 1 auto; min-width: 90px; display: flex; flex-direction: column; gap: 1px; overflow: hidden; }
     .import-row .msub { font-size: 0.68rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .import-row input { accent-color: var(--primary); }
@@ -1265,7 +1264,7 @@
     .seg { display: inline-flex; align-items: center; gap: 2px; border: 1px solid var(--border); background: var(--bg); border-radius: var(--radius); padding: 3px; }
     .seg-btn { background: transparent; border: none; color: var(--muted); font-size: 0.82rem; font-weight: 500; padding: 5px 14px; border-radius: 6px; cursor: pointer; transition: 0.15s; }
     .seg-btn:hover { color: var(--text); background: var(--panel-hover); }
-    .seg-btn.active { background: var(--primary); color: #06101f; }
+    .seg-btn.active { background: var(--primary); color: #fff; }
     .seg-sm .seg-btn { font-size: 0.74rem; padding: 3px 10px; }
 
     .usage-cards { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin-bottom: 20px; }
@@ -1416,7 +1415,7 @@
     .usage-page-btns { display: flex; gap: 4px; align-items: center; }
     .usage-page-btn { background: var(--panel); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 4px 10px; font-size: 0.8rem; cursor: pointer; }
     .usage-page-btn:hover:not(:disabled) { border-color: var(--primary); }
-    .usage-page-btn.active { background: var(--primary); color: #06101f; border-color: var(--primary); }
+    .usage-page-btn.active { background: var(--primary); color: #fff; border-color: var(--primary); }
     .usage-page-btn:disabled { opacity: 0.4; cursor: default; }
 
     .usage-drawer-scrim { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.55); z-index: 400; }
@@ -3558,14 +3557,14 @@
       : `<span style="font-size:0.72rem; color:var(--muted);">spreads load across ${count} accounts</span>`;
     return `
       <div style="display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin-top:12px; padding:10px 12px; background:var(--panel-2,#15181d); border:1px solid var(--border); border-radius:8px;">
-        <span style="font-size:0.82rem; color:#e6edf3;">Round Robin</span>
+        <span style="font-size:0.82rem; color:#ededed;">Round Robin</span>
         <label class="switch" style="margin:0;">
           <input type="checkbox" ${on ? "checked" : ""} onchange="setAccountRoundRobin('${escapeHtml(d.provider)}', this.checked);">
           <span class="slider"></span>
         </label>
         ${on ? `<span style="font-size:0.78rem; color:var(--muted);">Sticky:</span>
           <input type="number" min="1" value="${sticky}" onchange="setAccountStickyLimit('${escapeHtml(d.provider)}', this.value);"
-            style="width:64px; padding:3px 6px; font-size:0.78rem; background:var(--bg); color:#e6edf3; border:1px solid var(--border); border-radius:6px;">
+            style="width:64px; padding:3px 6px; font-size:0.78rem; background:var(--bg); color:#ededed; border:1px solid var(--border); border-radius:6px;">
           <span style="font-size:0.72rem; color:var(--muted);">requests per account before switching</span>` : note}
       </div>`;
   }
@@ -3631,7 +3630,7 @@
       <div style="margin-top:14px;">
         <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:8px;">
           <div>
-            <div style="font-size:0.82rem; color:#e6edf3;">Eligible pools</div>
+            <div style="font-size:0.82rem; color:#ededed;">Eligible pools</div>
             <div style="font-size:0.7rem; color:var(--muted);">Leave all unchecked to use every active pool.</div>
           </div>
           <span class="prov-count-pill">${targets.length || (proxyPoolCache || []).length} / ${(proxyPoolCache || []).length}</span>
@@ -3653,7 +3652,7 @@
             <span class="msym">lan</span>
           </div>
           <div style="flex:1; min-width:0;">
-            <div style="font-size:0.85rem; color:#e6edf3;">Proxy Routing &amp; Strategy</div>
+            <div style="font-size:0.85rem; color:#ededed;">Proxy Routing &amp; Strategy</div>
             <div style="font-size:0.72rem; color:var(--muted);">This provider needs no credential, so exit routing is what you configure here.</div>
           </div>
         </div>
@@ -3866,7 +3865,7 @@
     currentModelAlias = (d.prefix && d.prefix.trim())
       || (d.aliases && d.aliases.length ? d.aliases[0] : null)
       || d.provider;
-    const color = d.color || "#ff8a2a";
+    const color = d.color || "#E56A4A";
     const icon = d.icon || "smart_toy";
 
     const aliases = (d.aliases && d.aliases.length)
@@ -3881,7 +3880,7 @@
       return `<div class="cap-item ${on ? 'on' : ''}">
         <span class="msym">${m.icon}</span>
         <div>
-          <div style="font-size:0.8rem; color:${on ? '#e6edf3' : 'var(--muted)'};">${escapeHtml(m.label)}</div>
+          <div style="font-size:0.8rem; color:${on ? '#ededed' : 'var(--muted)'};">${escapeHtml(m.label)}</div>
           <div style="font-size:0.68rem; color:var(--muted);">${on ? 'supported' : 'not declared'}</div>
         </div>
       </div>`;
@@ -6872,7 +6871,7 @@
 
     const resolved = providerLogoId(providerId);
     if (!resolved) {
-      return `<div class="${tile}" style="background:${o.color || "#ff8a2a"}">${glyphHtml}</div>`;
+      return `<div class="${tile}" style="background:${o.color || "#E56A4A"}">${glyphHtml}</div>`;
     }
 
     const ext = LOGO_PNG.has(resolved.file) ? "png" : "webp";
@@ -6968,7 +6967,7 @@
       accounts.sort((a, b) => (a.priority || 999) - (b.priority || 999));
       const head = accounts[0];
       const isOpen = !!expandedGroups[prov];
-      const color = head.color || "#ff8a2a";
+      const color = head.color || "#E56A4A";
       const icon = head.icon || "smart_toy";
 
       // Card is intentionally minimal: logo, title, connected-account count.
@@ -8132,7 +8131,7 @@
     const cards = [
       { title: "Total Requests", value: fmtNum(s.totalRequests), color: "" },
       { title: "Total Input Tokens", value: fmtNum(s.totalPromptTokens), color: "var(--primary)" },
-      { title: "Cached Tokens", value: fmtNum(s.totalCachedTokens), color: "#ffb066", sub: hitRate },
+      { title: "Cached Tokens", value: fmtNum(s.totalCachedTokens), color: "#f4b59c", sub: hitRate },
       { title: "Output Tokens", value: fmtNum(s.totalCompletionTokens), color: "#3fb950" },
       { title: "Est. Cost", value: "~" + fmtCost(s.totalCost), color: "var(--warning)", sub: "Estimated, not actual billing" },
     ];
