@@ -1063,6 +1063,26 @@
     .detail-tab:hover { color: #e6edf3; }
     .detail-tab.active { color: #e6edf3; border-bottom-color: var(--primary); font-weight: 600; }
     .detail-tab .msym { font-size: 16px; }
+
+    /* Quota panel: one card per account, one bar per credit package. */
+    .quota-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+    .quota-toolbar span { flex: 1; }
+    .quota-card { background: var(--glass); border: 1px solid var(--glass-border); border-radius: var(--radius); padding: 14px; margin-bottom: 10px; }
+    .quota-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+    .quota-conn { font-size: 0.85rem; font-weight: 600; color: var(--text); overflow-wrap: anywhere; }
+    .quota-plan { font-size: 0.68rem; color: var(--muted); background: var(--panel-hover); border: 1px solid var(--border); border-radius: 999px; padding: 1px 9px; }
+    .quota-msg { font-size: 0.78rem; color: var(--muted); }
+    .quota-empty { padding: 24px; text-align: center; font-size: 0.82rem; color: var(--muted); }
+    .quota-row + .quota-row { margin-top: 12px; }
+    .quota-label { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; font-size: 0.78rem; margin-bottom: 5px; flex-wrap: wrap; }
+    .quota-nums { font-family: monospace; font-size: 0.72rem; color: var(--muted); }
+    .quota-bar { height: 7px; background: var(--panel-hover); border: 1px solid var(--border); border-radius: 999px; overflow: hidden; }
+    .quota-fill { height: 100%; background: var(--accent); transition: width 0.3s ease; }
+    /* A nearly-spent allowance is the one thing this panel exists to surface,
+       so it changes colour rather than only its label. */
+    .quota-fill.warn { background: var(--warning); }
+    .quota-fill.crit { background: var(--danger); }
+    .quota-reset { font-size: 0.68rem; color: var(--muted); margin-top: 4px; }
     .cap-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
     .cap-item { background: var(--panel); border: 1px solid var(--border); border-radius: 9px; padding: 11px; display: flex; align-items: center; gap: 9px; }
     .cap-item .msym { font-size: 19px; color: var(--primary); }
@@ -3562,6 +3582,127 @@
     return `<a class="hero-link" href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer" title="${label}: ${escapeHtml(href)}"><span class="msym">open_in_new</span>${label}</a>`;
   }
 
+  // ----------------------------------------------------------------
+  // Quota panel
+  //
+  // Fetched lazily when the tab is first opened, not with the provider detail:
+  // every quota read is a live billing call to the provider, and most visits to
+  // this page are not about quota. The cache is keyed by provider so switching
+  // tabs does not re-request.
+  let quotaCache = {};   // providerId -> response
+  let quotaLoading = {};
+
+  function quotaPanelHtml(d) {
+    const cached = quotaCache[d.provider];
+    if (cached) return renderQuotaBody(d, cached);
+    if (quotaLoading[d.provider]) {
+      return `<div class="quota-empty">Loading quota…</div>`;
+    }
+    // Kick off the fetch; the tab re-renders when it resolves.
+    loadQuota(d.provider);
+    return `<div class="quota-empty">Loading quota…</div>`;
+  }
+
+  async function loadQuota(providerId) {
+    if (quotaLoading[providerId]) return;
+    quotaLoading[providerId] = true;
+    try {
+      const res = await api(`/api/dashboard/providers/${encodeURIComponent(providerId)}/quota`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      quotaCache[providerId] = await res.json();
+    } catch (e) {
+      quotaCache[providerId] = { error: String(e) };
+    } finally {
+      quotaLoading[providerId] = false;
+      // Only repaint if this provider's panel is the one on screen.
+      if (lastProviderDetail && lastProviderDetail.provider === providerId) {
+        const panel = document.getElementById("dt-quota");
+        if (panel) panel.innerHTML = renderQuotaBody(lastProviderDetail, quotaCache[providerId]);
+      }
+    }
+  }
+
+  function refreshQuota() {
+    const d = lastProviderDetail;
+    if (!d) return;
+    delete quotaCache[d.provider];
+    const panel = document.getElementById("dt-quota");
+    if (panel) panel.innerHTML = `<div class="quota-empty">Loading quota…</div>`;
+    loadQuota(d.provider);
+  }
+
+  function renderQuotaBody(d, data) {
+    if (!data || data.error) {
+      return `<div class="quota-empty">Could not load quota${data && data.error ? ": " + escapeHtml(data.error) : ""}.</div>`;
+    }
+    const conns = data.connections || [];
+    if (!conns.length) {
+      return `<div class="quota-empty">No accounts on this provider yet.</div>`;
+    }
+
+    const rows = conns.map(c => {
+      const head = `<div class="quota-head">
+        <span class="quota-conn">${escapeHtml(c.name || c.connectionId)}</span>
+        ${c.plan ? `<span class="quota-plan">${escapeHtml(c.plan)}</span>` : ""}
+      </div>`;
+
+      // A message is a normal outcome (unsupported provider, expired
+      // credential), so it renders where the bars would be rather than as an
+      // error.
+      if (c.message && !(c.quotas && Object.keys(c.quotas).length)) {
+        return `<div class="quota-card">${head}<div class="quota-msg">${escapeHtml(c.message)}</div></div>`;
+      }
+
+      const bars = Object.entries(c.quotas || {}).map(([label, q]) => {
+        const pct = q.total > 0 ? Math.min(100, (q.used / q.total) * 100) : 0;
+        // Three bands: a spent allowance is the thing worth noticing, so it is
+        // coloured, not just labelled.
+        const cls = pct >= 90 ? "crit" : (pct >= 70 ? "warn" : "");
+        const reset = q.resetAt ? relativeReset(q.resetAt) : "";
+        // A one-shot pack expires; a refill pack resets. Saying "Resets" for a
+        // bonus pack would promise a refill that never arrives.
+        const resetLabel = q.recurring ? "Resets" : "Expires";
+        const unit = q.unit ? ` ${escapeHtml(q.unit)}` : "";
+        return `<div class="quota-row">
+          <div class="quota-label">
+            <span>${escapeHtml(label)}</span>
+            <span class="quota-nums">${fmtQuotaNum(q.used)} / ${fmtQuotaNum(q.total)}${unit} (${pct.toFixed(0)}%)</span>
+          </div>
+          <div class="quota-bar"><div class="quota-fill ${cls}" style="width:${pct.toFixed(1)}%"></div></div>
+          ${reset ? `<div class="quota-reset">${resetLabel} ${escapeHtml(reset)}</div>` : ""}
+        </div>`;
+      }).join("");
+
+      return `<div class="quota-card">${head}${bars}</div>`;
+    }).join("");
+
+    return `<div class="quota-toolbar">
+        <span style="font-size:0.75rem; color:var(--muted);">Live balances from the provider's billing API.</span>
+        <button class="btn btn-sm" onclick="refreshQuota()">Refresh</button>
+      </div>${rows}`;
+  }
+
+  // fmtQuotaNum trims the provider's precise floats to something readable
+  // without pretending they are integers: 218.93999993 -> "218.94".
+  function fmtQuotaNum(n) {
+    if (typeof n !== "number" || !isFinite(n)) return "-";
+    return Number.isInteger(n) ? String(n) : n.toFixed(2);
+  }
+
+  // relativeReset renders an absolute reset time as "in 3h 20m" so the operator
+  // does not have to do date arithmetic against their own clock.
+  function relativeReset(iso) {
+    const t = new Date(iso);
+    if (isNaN(t.getTime())) return "";
+    const diffMs = t.getTime() - Date.now();
+    if (diffMs <= 0) return "now";
+    const mins = Math.floor(diffMs / 60000);
+    if (mins < 60) return `in ${mins}m`;
+    const hours = Math.floor(mins / 60);
+    if (hours < 24) return `in ${hours}h ${mins % 60}m`;
+    return `in ${Math.floor(hours / 24)}d ${hours % 24}h`;
+  }
+
   function renderProviderDetail(d) {
     lastProviderDetail = d;
     // The router addresses a model as "<alias>/<modelId>", where <alias> is the
@@ -3814,11 +3955,15 @@
       ${nodeHtml}
       <div class="detail-tabs">
         <button class="detail-tab ${activeDetailTab === 'conn' ? 'active' : ''}" onclick="showDetailTab(this,'conn')"><span class="msym">cable</span>Connections (${(d.connections||[]).length})</button>
+        <button class="detail-tab ${activeDetailTab === 'quota' ? 'active' : ''}" onclick="showDetailTab(this,'quota')"><span class="msym">data_usage</span>Quota</button>
         <button class="detail-tab ${activeDetailTab === 'caps' ? 'active' : ''}" onclick="showDetailTab(this,'caps')"><span class="msym">tune</span>Capabilities</button>
         <button class="detail-tab ${activeDetailTab === 'models' ? 'active' : ''}" onclick="showDetailTab(this,'models')"><span class="msym">neurology</span>Available Models (${(d.models||[]).length})</button>
         ${proxyTabBtn}
       </div>
       <div id="dt-conn" style="display:${activeDetailTab === 'conn' ? 'block' : 'none'};">${connsHtml}</div>
+      <div id="dt-quota" style="display:${activeDetailTab === 'quota' ? 'block' : 'none'};">
+        ${quotaPanelHtml(d)}
+      </div>
       <div id="dt-caps" style="display:${activeDetailTab === 'caps' ? 'block' : 'none'};">
         <div class="cap-grid">${capsHtml}</div>
         <div style="margin-top:16px; font-size:0.8rem; color:var(--muted);">
