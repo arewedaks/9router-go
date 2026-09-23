@@ -1158,6 +1158,45 @@
     .import-search:focus { outline: none; border-color: var(--primary); }
     .import-toolbar-count { flex: 0 0 auto; font-size: 0.75rem; color: var(--muted); white-space: nowrap; }
     .import-empty { padding: 18px 4px; text-align: center; font-size: 0.8rem; color: var(--muted); }
+    /* Add Provider picker: a scrollable list of providers grouped by category.
+       Replaces a native <select size=12>, whose option text could not carry a
+       second line (name + alias) or the category colour. */
+    .provider-picker-list {
+      border: 1px solid var(--glass-border); border-radius: var(--radius);
+      background: var(--glass); max-height: 46vh; overflow-y: auto;
+      overscroll-behavior: contain;
+    }
+    .picker-group-head {
+      position: sticky; top: 0; z-index: 1;
+      display: flex; align-items: center; gap: 7px;
+      padding: 7px 12px; font-size: 0.7rem; font-weight: 600;
+      letter-spacing: .04em; text-transform: uppercase; color: var(--muted);
+      background: var(--glass-strong); border-bottom: 1px solid var(--border);
+    }
+    .picker-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .picker-row {
+      display: flex; align-items: center; gap: 9px;
+      padding: 8px 12px; cursor: pointer; font-size: 0.82rem;
+      border-bottom: 1px solid rgba(255,255,255,.04);
+    }
+    .picker-row:hover { background: rgba(255,255,255,.04); }
+    .picker-row[aria-selected="true"] { background: rgba(255,138,42,.14); }
+    .picker-row .picker-name { flex: 1; min-width: 0; overflow-wrap: break-word; }
+    .picker-row .picker-alias {
+      font-family: monospace; font-size: 0.7rem; color: var(--muted);
+      background: var(--panel-hover); border: 1px solid var(--border);
+      border-radius: 4px; padding: 1px 6px; flex-shrink: 0;
+    }
+    /* Badges are secondary to the name: on a narrow row they are dropped rather
+       than squeezing it into a mid-word break ("Antigravit/y"). */
+    .picker-row .picker-kind { font-size: 0.66rem; color: var(--muted); flex-shrink: 0; }
+    @media (max-width: 520px) {
+      .picker-row .picker-kind { display: none; }
+    }
+    .picker-row .picker-deprecated {
+      font-size: 0.62rem; color: #f59e0b; border: 1px solid rgba(245,158,11,.35);
+      border-radius: 4px; padding: 0 5px; flex-shrink: 0;
+    }
     /* On a narrow screen the toolbar cannot hold the field and three controls
        on one line, so the search takes the full width above them. */
     @media (max-width: 520px) {
@@ -2242,7 +2281,7 @@
 
 <!-- ADD PROVIDER PICKER — select a provider, then go to its detail page to add accounts -->
 <div class="modal-overlay" id="provider-modal">
-  <div class="modal-box" style="max-width:480px;">
+  <div class="modal-box" style="max-width:560px;">
     <div class="section-header" style="margin-bottom: 16px;">
       <h3 style="font-size: 1.1rem; color: #fff;" id="provider-modal-title">Add Provider</h3>
       <button class="btn btn-sm" onclick="closeModal('provider-modal')">✕</button>
@@ -2250,55 +2289,14 @@
     <div style="font-size:0.78rem; color:var(--muted); margin-bottom:12px;">
       Select a provider to add. You'll configure accounts and credentials on the next page.
     </div>
-    <div class="form-group">
-      <label>Provider Type</label>
-      <select id="p-provider" size="12" style="width:100%; height:auto; padding:0; border-radius:var(--radius);" ondblclick="pickProvider()">
-        <optgroup label="🟣 OAuth & CLI Tools (Session / Auth Token)">
-          <option value="antigravity">Google Antigravity (ag)</option>
-          <option value="github">GitHub Copilot (gh)</option>
-          <option value="claude">Claude Code CLI (cc)</option>
-          <option value="codex">OpenAI Codex CLI (cx)</option>
-          <option value="gemini-cli">Google Gemini CLI (gc)</option>
-          <option value="cline">Cline VSCode (cl)</option>
-          <option value="kiro">Kiro AI (kr)</option>
-          <option value="iflow">iFlow AI (if)</option>
-          <option value="qwen">Qwen Code (qw)</option>
-          <option value="codebuddy-intl">CodeBuddy International (cbai)</option>
-          <option value="codebuddy-cn">CodeBuddy CN (cbcn)</option>
-          <option value="workbuddy">Tencent WorkBuddy (wb)</option>
-        </optgroup>
-        <optgroup label="🔵 Cloud AI APIs (API Key)">
-          <option value="openrouter">OpenRouter (or)</option>
-          <option value="nvidia">NVIDIA NIM (nv)</option>
-          <option value="openai">OpenAI Direct (oa)</option>
-          <option value="anthropic">Anthropic Claude (ant)</option>
-          <option value="gemini">Google Gemini API (gemini)</option>
-          <option value="deepseek">DeepSeek Direct (ds)</option>
-          <option value="groq">Groq LPU (gq)</option>
-          <option value="cerebras">Cerebras CS-3 (cb)</option>
-          <option value="cloudflare-ai">Cloudflare Workers AI (cf)</option>
-          <option value="together">Together AI (tg)</option>
-          <option value="fireworks">Fireworks AI (fw)</option>
-          <option value="mistral">Mistral AI (mistral)</option>
-          <option value="glm">Zhipu GLM (glm)</option>
-          <option value="kimi">Moonshot Kimi (km)</option>
-          <option value="minimax">MiniMax (mm)</option>
-        </optgroup>
-        <optgroup label="🟢 Custom & Self-Hosted Endpoints">
-          <option value="openai-compatible">Custom OpenAI-Compatible (Ollama, vLLM, LiteLLM, Relays)</option>
-        </optgroup>
-        <optgroup label="🟠 Media, Voice & Tools">
-          <option value="elevenlabs">ElevenLabs TTS</option>
-          <option value="deepgram">DeepGram STT</option>
-          <option value="jina-ai">Jina Reader & Search</option>
-          <option value="fal-ai">Fal.ai Media</option>
-        </optgroup>
-      </select>
-    </div>
+    <input type="text" id="p-provider-search" class="import-search" style="width:100%; margin-bottom:10px;"
+           placeholder="Search provider, alias, or id..." autocomplete="off"
+           oninput="filterProviderPicker(this.value)">
+    <div id="p-provider-list" class="provider-picker-list" role="listbox" aria-label="Provider type"></div>
     <div id="provider-picker-msg" style="font-size:0.75rem; margin-top:4px; color:var(--muted); display:none;"></div>
     <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px;">
       <button class="btn" onclick="closeModal('provider-modal')">Cancel</button>
-      <button class="btn btn-primary" onclick="pickProvider()">Add & Configure →</button>
+      <button class="btn btn-primary" onclick="pickProvider()">Add &amp; Configure →</button>
     </div>
   </div>
 </div>
@@ -6910,21 +6908,114 @@
     } catch(e) { alert(e.message); }
   }
 
-  function openAddProviderModal() {
-    const sel = document.getElementById("p-provider");
-    sel.selectedIndex = -1; // nothing pre-selected
+  // ----------------------------------------------------------------
+  // Add Provider picker
+  //
+  // Built from /api/dashboard/providers/catalog rather than a hardcoded
+  // <option> list. The old list carried 30 of the 128 registered providers and
+  // its groups had drifted from the registry: kimi and kiro were listed as
+  // API-key/OAuth when the backend classes them oauth/free, gemini, nvidia,
+  // openrouter and cloudflare-ai were listed as API-key when they are freeTier,
+  // and qwen was offered although no such provider is registered. Deriving the
+  // list means the picker cannot drift again.
+  let pickerCatalog = null;
+  let pickerSelection = "";
+  let pickerQuery = "";
+
+  // Order matches the provider page sections so the two views agree.
+  const PICKER_GROUPS = [
+    { key: "oauth",     label: "OAuth & CLI Tools (Session / Auth Token)", dot: "#3b82f6" },
+    { key: "freeTier",  label: "Free Tier & Free Credits",                dot: "#22c55e" },
+    { key: "apikey",    label: "API Key Providers",                       dot: "#eab308" },
+    { key: "webCookie", label: "Web Session Cookie",                      dot: "#a855f7" },
+    { key: "custom",    label: "Custom & Self-Hosted Endpoints",          dot: "#14b8a6" },
+  ];
+
+  async function openAddProviderModal() {
     const msg = document.getElementById("provider-picker-msg");
     msg.style.display = "none";
     msg.textContent = "";
+    pickerSelection = "";
+    pickerQuery = "";
+    const search = document.getElementById("p-provider-search");
+    if (search) search.value = "";
     document.getElementById("provider-modal").classList.add("active");
+
+    if (!pickerCatalog) {
+      try {
+        const res = await api("/api/dashboard/providers/catalog");
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        pickerCatalog = await res.json();
+      } catch (e) {
+        const list = document.getElementById("p-provider-list");
+        if (list) list.innerHTML = `<div class="import-empty">Could not load the provider catalogue: ${escapeHtml(String(e))}</div>`;
+        return;
+      }
+    }
+    renderProviderPicker();
+  }
+
+  function renderProviderPicker() {
+    const list = document.getElementById("p-provider-list");
+    if (!list || !pickerCatalog) return;
+    const q = pickerQuery.toLowerCase().trim();
+
+    const matches = p => {
+      if (!q) return true;
+      return (p.id || "").toLowerCase().includes(q) ||
+             (p.name || "").toLowerCase().includes(q) ||
+             (p.alias || "").toLowerCase().includes(q);
+    };
+
+    let html = "";
+    let shown = 0;
+    for (const g of PICKER_GROUPS) {
+      // "free" is a separate backend category that the provider page folds into
+      // Free Tier; do the same here so a free provider is not invisible.
+      const group = (pickerCatalog[g.key] || []).concat(g.key === "freeTier" ? (pickerCatalog.free || []) : []);
+      const rows = group.filter(matches).sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id));
+      if (!rows.length) continue;
+      shown += rows.length;
+      html += `<div class="picker-group-head"><span class="picker-dot" style="background:${g.dot}"></span>${escapeHtml(g.label)} <span style="opacity:.7">${rows.length}</span></div>`;
+      html += rows.map(p => {
+        const kinds = (p.serviceKinds || []).join(", ");
+        return `<div class="picker-row" role="option" data-id="${escapeHtml(p.id)}"
+                     aria-selected="${p.id === pickerSelection}"
+                     onclick="selectPickerProvider('${escapeHtml(p.id)}')"
+                     ondblclick="pickProvider()">
+          <span class="picker-name">${escapeHtml(p.name || p.id)}</span>
+          ${kinds ? `<span class="picker-kind">${escapeHtml(kinds)}</span>` : ""}
+          ${p.deprecated ? `<span class="picker-deprecated" title="Kept for existing accounts; a risk notice is shown on its page">deprecated</span>` : ""}
+          ${p.alias && p.alias !== p.id ? `<span class="picker-alias">${escapeHtml(p.alias)}</span>` : ""}
+        </div>`;
+      }).join("");
+    }
+
+    if (!shown) {
+      html = `<div class="import-empty">No provider matches that search.</div>`;
+    }
+    list.innerHTML = html;
+  }
+
+  function filterProviderPicker(query) {
+    pickerQuery = query || "";
+    renderProviderPicker();
+  }
+
+  function selectPickerProvider(id) {
+    pickerSelection = id;
+    document.querySelectorAll("#p-provider-list .picker-row").forEach(row => {
+      row.setAttribute("aria-selected", String(row.dataset.id === id));
+    });
+    const msg = document.getElementById("provider-picker-msg");
+    msg.style.display = "none";
   }
 
   // pickProvider: open the provider's detail page, where accounts are added via
   // OAuth or API key. No row is written here — the provider appears in the grid
   // only once it owns a real connection, so an abandoned pick leaves no trace.
   function pickProvider() {
-    const provider = document.getElementById("p-provider").value;
-    if (!provider) {
+    if (!pickerSelection) {
       const msg = document.getElementById("provider-picker-msg");
       msg.style.display = "";
       msg.style.color = "var(--danger)";
@@ -6932,7 +7023,7 @@
       return;
     }
     closeModal("provider-modal");
-    openProviderDetail(provider);
+    openProviderDetail(pickerSelection);
   }
 
   async function loadCombos() {
