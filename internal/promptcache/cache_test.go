@@ -58,3 +58,71 @@ func TestCache_LRUAndTTL(t *testing.T) {
 		t.Errorf("expected k1 to be expired after TTL")
 	}
 }
+
+// HashRequest must be deterministic for a given input. It previously was not:
+// the messages were decoded into []map[string]any and re-marshalled, and since
+// Go randomises map iteration (and json/v2 does not sort object keys) the same
+// body produced two different digests about 15% of the time. The cache then
+// missed on requests that should have hit, silently defeating the feature.
+//
+// 200 iterations is enough to catch it: the original implementation produced
+// both hashes within a handful of calls.
+func TestHashRequest_DeterministicAcrossRepeatedCalls(t *testing.T) {
+	body := []byte(`{"model":"m","messages":[{"role":"user","content":"Hello world"}]}`)
+
+	seen := map[string]int{}
+	for i := 0; i < 200; i++ {
+		h, ok := HashRequest("m", body)
+		if !ok {
+			t.Fatal("HashRequest failed")
+		}
+		seen[h]++
+	}
+	if len(seen) != 1 {
+		t.Fatalf("HashRequest produced %d distinct hashes for one input: %v", len(seen), seen)
+	}
+}
+
+// A body with no messages cannot be cached; returning a hash for it would let
+// every malformed request collide onto a single entry.
+func TestHashRequest_RejectsBodyWithoutMessages(t *testing.T) {
+	if _, ok := HashRequest("m", []byte(`{"model":"m"}`)); ok {
+		t.Error("expected no hash for a body without messages")
+	}
+}
+
+// Fields that change the answer must change the digest; fields that do not are
+// deliberately excluded so they cannot split the cache.
+func TestHashRequest_SensitiveToAnswerAffectingFields(t *testing.T) {
+	base := `{"model":"m","messages":[{"role":"user","content":"hi"}]}`
+
+	variants := map[string]string{
+		"different temperature": `{"model":"m","messages":[{"role":"user","content":"hi"}],"temperature":0.9}`,
+		"different tools":       `{"model":"m","messages":[{"role":"user","content":"hi"}],"tools":[{"type":"function"}]}`,
+		"different system":      `{"model":"m","messages":[{"role":"user","content":"hi"}],"system":"be terse"}`,
+		"different messages":    `{"model":"m","messages":[{"role":"user","content":"bye"}]}`,
+	}
+
+	baseHash, ok := HashRequest("m", []byte(base))
+	if !ok {
+		t.Fatal("base hash failed")
+	}
+	for name, body := range variants {
+		got, ok := HashRequest("m", []byte(body))
+		if !ok {
+			t.Fatalf("%s: hash failed", name)
+		}
+		if got == baseHash {
+			t.Errorf("%s produced the same hash as the base request; the cache would serve a wrong answer", name)
+		}
+	}
+
+	// An ignored field must NOT split the cache.
+	withIgnored, ok := HashRequest("m", []byte(`{"model":"m","messages":[{"role":"user","content":"hi"}],"stream":true,"user":"abc"}`))
+	if !ok {
+		t.Fatal("ignored-field hash failed")
+	}
+	if withIgnored != baseHash {
+		t.Error("stream/user changed the hash; these do not affect the answer and should share a cache entry")
+	}
+}
