@@ -648,6 +648,12 @@
       padding: 18px;
       box-shadow: var(--glass-shadow);
     }
+    /* A card with no chrome at all: no fill, no border, no padding. Used by the
+       topology panel, where the graph's own bordered container is the frame.
+       Upstream does the same — ProviderTopology is placed straight into the grid
+       with no Card around it, so there is exactly one border, not two nested
+       ones. The page grid then runs behind the label and the graph alike. */
+    .card-ghost { background: transparent; border: none; padding: 0; box-shadow: none; }
     .card h3 { font-size: 0.82rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
     .card .stat-val { font-size: 2rem; font-weight: 700; color: #fff; }
     .card .stat-sub { font-size: 0.8rem; color: var(--muted); margin-top: 4px; }
@@ -1072,7 +1078,7 @@
     .hero-link { display: inline-flex; align-items: center; gap: 3px; font-size: 0.72rem; font-weight: 500;
       color: var(--primary); text-decoration: none; border: 1px solid var(--border); border-radius: 999px;
       padding: 2px 9px; white-space: nowrap; transition: border-color 0.15s, background 0.15s; }
-    .hero-link:hover { border-color: var(--primary); background: rgba(56,139,253,0.1); }
+    .hero-link:hover { border-color: var(--primary); background: rgba(229,106,74,0.1); }
     .hero-link .msym { font-size: 13px; }
     .detail-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 18px; overflow-x: auto; }
     .detail-tab { background: none; border: none; border-bottom: 2px solid transparent; color: var(--muted); padding: 9px 14px; font-size: 0.85rem; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
@@ -1320,8 +1326,19 @@
     .usage-empty { height: 100%; min-height: 180px; display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 0.85rem; }
 
     /* Provider topology: a hand-rolled SVG "web" with the router at the centre
-       and one node per provider on a surrounding ellipse. */
-    .usage-topology { position: relative; height: 320px; width: 100%; min-width: 0; overflow: hidden; }
+       and one node per provider on a surrounding ellipse.
+
+       The panel is transparent and carries only a hairline border, matching
+       upstream's container (`rounded-lg border border-border bg-bg-subtle/30`
+       in ProviderTopology.js — bg-subtle is not defined in their @theme, so it
+       paints nothing). The 40px page grid therefore runs through the graph
+       instead of stopping at a panel edge, which is what makes it read as
+       being wired into the page rather than pasted on a card. No blur: a
+       backdrop-filter re-composites on every scroll frame for no gain here. */
+    .usage-topology {
+      position: relative; height: 320px; width: 100%; min-width: 0; overflow: hidden;
+      border: 1px solid var(--border); border-radius: 10px;
+    }
     @media (min-width: 640px) { .usage-topology { height: 420px; } }
     .usage-topology svg { display: block; width: 100%; height: 100%; cursor: grab; touch-action: none; }
     .usage-topology svg.grabbing { cursor: grabbing; }
@@ -1353,12 +1370,31 @@
     }
     .topo-core { stroke-dasharray: 8 6; animation: topo-dash 0.22s linear infinite; }
     .topo-spark { filter: drop-shadow(0 0 3px #e0f2fe); }
-    .topo-node-box { transition: filter 0.3s, stroke 0.3s; }
+    .topo-node-box {
+      transition: filter 0.3s, stroke 0.3s;
+      /* The panel behind the graph is transparent, so the tiles carry their own
+         depth: without this the opaque fills read as flat cut-outs lying on the
+         page grid. */
+      filter: drop-shadow(0 2px 5px rgba(0, 0, 0, 0.55));
+    }
     .topo-node-box.is-active { animation: topo-node-glow 0.75s ease-in-out infinite; }
     @keyframes topo-node-glow {
       0%, 100% { filter: drop-shadow(0 0 4px currentColor); }
       50% { filter: drop-shadow(0 0 12px currentColor); }
     }
+    /* Concentric rings behind the router. Two static circles give the centre a
+       sense of reach — the mesh reads as radiating from the hub rather than as
+       spokes that happen to meet in the middle. Deliberately not animated: the
+       beams already carry the motion, and a third animation here would compete
+       with them. */
+    .topo-halo-ring { fill: none; stroke: var(--primary); }
+    .topo-halo-ring.r1 { opacity: 0.30; }
+    .topo-halo-ring.r2 { opacity: 0.15; }
+    /* The hub is the one element that should outrank the tiles around it, so it
+       gets the brand gradient (upstream's router core is a gradient fill too:
+       `bg-gradient-to-br from-primary/30 via-yellow-400/20 to-cyan-400/25`)
+       instead of a flat fill. */
+    .topo-router-box { filter: drop-shadow(0 3px 10px rgba(229, 106, 74, 0.35)); }
     .topo-router-box.powering { animation: topo-router-pulse 0.75s ease-in-out infinite; }
     @keyframes topo-router-pulse {
       0%, 100% { filter: drop-shadow(0 0 6px #fde047); }
@@ -1371,11 +1407,16 @@
       0%, 100% { text-shadow: 0 0 6px #fde047, 0 0 12px #22d3ee; }
       50% { text-shadow: 0 0 10px #fff, 0 0 18px #facc15; }
     }
-    .topo-zoom-btns { position: absolute; left: 10px; bottom: 10px; display: flex; flex-direction: column; gap: 2px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--panel); }
-    .topo-zoom-btns button { background: var(--panel); border: none; color: var(--text); width: 30px; height: 26px; font-size: 0.9rem; cursor: pointer; }
-    .topo-zoom-btns button:hover { background: var(--panel-hover); }
-    .topo-legend { position: absolute; right: 10px; bottom: 10px; display: flex; flex-direction: column; gap: 4px; font-size: 0.68rem; color: var(--muted); background: rgba(9,13,19,0.75); border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; }
-    .topo-legend i { display: inline-block; width: 16px; height: 2px; margin-right: 6px; vertical-align: middle; }
+    /* Zoom stack and legend float over the graph, so they get a translucent
+       dark fill rather than an opaque --panel: an opaque chip on a transparent
+       panel reads as a hole punched in the page. */
+    .topo-zoom-btns { position: absolute; left: 10px; bottom: 10px; display: flex; flex-direction: column; gap: 2px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: rgba(26,26,26,0.82); backdrop-filter: none; }
+    .topo-zoom-btns button { background: transparent; border: none; color: var(--text); width: 30px; height: 26px; font-size: 0.9rem; cursor: pointer; transition: background 0.15s, color 0.15s; }
+    .topo-zoom-btns button:hover { background: rgba(229,106,74,0.16); color: var(--primary); }
+    .topo-legend { position: absolute; right: 10px; bottom: 10px; display: flex; flex-direction: column; gap: 4px; font-size: 0.68rem; color: var(--muted); background: rgba(26,26,26,0.82); border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; }
+    /* The swatches are 2px lines, so they are inset from the label by a fixed
+       margin; a flex gap would not move them, they are inline elements. */
+    .topo-legend i { display: inline-block; width: 16px; height: 2px; margin-right: 6px; vertical-align: middle; border-radius: 1px; }
 
     .usage-section-label { font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); }
     /* The card is the grid's right-hand column and shares its height with the
@@ -1403,12 +1444,12 @@
     .usage-select:focus { outline: none; border-color: var(--primary); }
 
     .usage-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; text-align: left; }
-    .usage-table thead { background: rgba(35,47,62,0.3); }
+    .usage-table thead { background: rgba(255,255,255,0.03); }
     .usage-table th { padding: 10px 16px; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); font-weight: 600; white-space: nowrap; }
     .usage-table tbody tr { border-bottom: 1px solid var(--border); }
     .usage-table tbody tr.usage-summary { cursor: pointer; }
-    .usage-table tbody tr.usage-summary:hover { background: rgba(35,47,62,0.4); }
-    .usage-table tbody tr.usage-detail-row td { background: rgba(9,13,19,0.6); font-size: 0.8rem; }
+    .usage-table tbody tr.usage-summary:hover { background: rgba(255,255,255,0.04); }
+    .usage-table tbody tr.usage-detail-row td { background: rgba(20,20,20,0.6); font-size: 0.8rem; }
     .usage-table td { padding: 10px 16px; }
     .usage-table .num { text-align: right; font-variant-numeric: tabular-nums; }
     .usage-chevron { display: inline-block; transition: transform 0.15s; color: var(--muted); }
@@ -1737,7 +1778,7 @@
       <div class="usage-cards" id="usage-cards"></div>
 
       <div class="usage-two-col">
-        <div class="card" style="display:flex; flex-direction:column; gap:10px;">
+        <div class="card card-ghost" style="display:flex; flex-direction:column; gap:10px;">
           <div class="section-header" style="margin:0;">
             <span class="usage-section-label">Provider Topology</span>
             <div class="seg seg-sm" id="usage-topo-mode">
@@ -8509,11 +8550,13 @@
     const rw = 132, rh = 46;
     const powering = activeSet.size > 0;
     nodes += `<g class="topo-node">`;
-    nodes += `<rect class="topo-router-box ${powering ? "powering" : ""}" x="${(cx - rw / 2).toFixed(1)}" y="${(cy - rh / 2).toFixed(1)}" width="${rw}" height="${rh}" rx="12" fill="var(--primary-dim)" stroke="${powering ? "#fde047" : "var(--primary)"}" stroke-width="2"/>`;
-    nodes += `<text class="topo-router-label${powering ? " is-powering" : ""}" x="${(cx - 18).toFixed(1)}" y="${(cy + 5).toFixed(1)}" font-size="14" font-weight="700" fill="${powering ? "#fde047" : "var(--primary)"}" text-anchor="middle">9Router</text>`;
+    nodes += `<rect class="topo-router-box ${powering ? "powering" : ""}" x="${(cx - rw / 2).toFixed(1)}" y="${(cy - rh / 2).toFixed(1)}" width="${rw}" height="${rh}" rx="12" fill="url(#topo-hub-grad)" stroke="${powering ? "#fde047" : "var(--primary)"}" stroke-width="2"/>`;
+    // The hub fill is a brand gradient, so the label must be white — the old
+    // terracotta-on-flat-fill is now terracotta-on-terracotta and disappears.
+    nodes += `<text class="topo-router-label${powering ? " is-powering" : ""}" x="${(cx - 18).toFixed(1)}" y="${(cy + 5).toFixed(1)}" font-size="14" font-weight="700" fill="${powering ? "#fde047" : "#fff"}" text-anchor="middle">9Router</text>`;
     if (powering) {
       nodes += `<rect x="${(cx + 30).toFixed(1)}" y="${(cy - 9).toFixed(1)}" width="30" height="18" rx="9" fill="#fde047"/>`;
-      nodes += `<text x="${(cx + 45).toFixed(1)}" y="${(cy + 4).toFixed(1)}" font-size="11" font-weight="700" fill="#06101f" text-anchor="middle">${activeSet.size}</text>`;
+      nodes += `<text x="${(cx + 45).toFixed(1)}" y="${(cy + 4).toFixed(1)}" font-size="11" font-weight="700" fill="#1a1a1a" text-anchor="middle">${activeSet.size}</text>`;
     }
     nodes += `<title>9Router</title></g>`;
 
@@ -8531,10 +8574,22 @@
         + `</filter>`;
     }).join("");
 
+    // Hub fill: brand terracotta deepening to near-black, lit from the
+    // top-left like every other tile in the dashboard.
+    const hubGrad = `<linearGradient id="topo-hub-grad" x1="0" y1="0" x2="1" y2="1">`
+      + `<stop offset="0%" stop-color="#f4b59c"/>`
+      + `<stop offset="45%" stop-color="var(--primary)"/>`
+      + `<stop offset="100%" stop-color="#7a2f1d"/>`
+      + `</linearGradient>`;
+
     el.innerHTML = `
       <svg viewBox="0 0 ${Math.round(vbW)} ${Math.round(vbH)}" role="img" aria-label="Provider topology">
-        <defs>${beamFilters}</defs>
+        <defs>${beamFilters}${hubGrad}</defs>
         <g id="topo-viewport" transform="translate(${usageState.topoView.x},${usageState.topoView.y}) scale(${usageState.topoView.k})">
+          <g id="topo-rings">
+            <circle class="topo-halo-ring r1" cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${(Math.min(rx, ry) * 0.34).toFixed(1)}" stroke-width="1.5"/>
+            <circle class="topo-halo-ring r2" cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${(Math.min(rx, ry) * 0.62).toFixed(1)}" stroke-width="1"/>
+          </g>
           <g id="topo-edges">${edges}</g>
           <g id="topo-nodes">${nodes}</g>
         </g>

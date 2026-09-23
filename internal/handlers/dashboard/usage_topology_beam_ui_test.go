@@ -58,8 +58,9 @@ func TestTopologyBeamUsesAnimatedTurbulenceFilter(t *testing.T) {
 		}
 	}
 	// The filter must live in <defs>, not inside the edge loop: one filter per
-	// edge would multiply the number of animated filter regions.
-	if !strings.Contains(ui, "<defs>${beamFilters}</defs>") {
+	// edge would multiply the number of animated filter regions. Other defs
+	// (the hub gradient) may follow the filters, so match the opening only.
+	if !strings.Contains(ui, "<defs>${beamFilters}") {
 		t.Error("beam filters are not hoisted into <defs>")
 	}
 	if !strings.Contains(ui, "const beamFilters = providers.map") {

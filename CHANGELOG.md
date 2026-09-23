@@ -42,6 +42,23 @@ Covered providers: `codebuddy-cn`, `codebuddy-intl`, `workbuddy` (shared Tencent
 
 ### 🐛 Fixes
 
+**Dashboard Palette Retuned to VansRouter Neutrals:**
+- `internal/handlers/dashboard/ui/index.html` — the surface ladder was a warm brown (`#1c1613`/`#272020`/`#574941`) left over from the pre-flat theme, while the accent had already moved to terracotta. Page/panel/border are now upstream's dark neutrals (`#1a1a1a`/`#262626`/`#333333`) and the accent is `#E56A4A`/`#f4b59c`, matching `globals.css` `.dark`. Active nav, filter chips and the update pill became translucent brand tints — a solid terracotta block failed contrast against white text. The logo SVG keeps its original orange.
+
+**Top Bar Is Translucent Again:**
+- `internal/handlers/dashboard/ui/index.html` — upstream is translucent in exactly one place: the header (`bg-surface/60`, `Header.js`), with panels left opaque. Ported as a `--header-bg: rgba(43,43,43,0.6)` token. No `backdrop-filter`: the blur was tried and dropped, since it forces a GPU re-composite on every scroll frame and the 60% fill alone keeps the title and Sign out readable.
+
+**Logo Was Not Aligned With the Nav Icons:**
+- `internal/handlers/dashboard/ui/index.html` — the brand mark was a 34px tile at a 12px inset while every nav icon is a 26px tile at 22px (`.nav-btn`'s 10px padding), so the logo sat 6px left of the icons and the wordmark started 2px off the nav labels. The mark now uses the nav tile size and a matching inset; measured live, mark and icon both land at `x=22, w=26`, and both text columns at `x=58`.
+
+**Stale Blue From the Pre-Flat Palette:**
+- `internal/handlers/dashboard/ui/index.html` — four rules still carried the old GitHub-blue/navy values after the retune: `.topo-legend` (`rgba(9,13,19,0.75)`), the usage detail row (`rgba(9,13,19,0.6)`), the usage table head and summary hover (`rgba(35,47,62,…)`), and `.hero-link:hover` (`rgba(56,139,253,0.1)`). All now use the neutral/brand tokens. These were missed by a hex-only sweep, which is why the rgba forms survived the first pass.
+
+**Provider Topology Panel Was Opaque:**
+- `internal/handlers/dashboard/ui/index.html` — the panel is now transparent with a single hairline border, matching upstream's container (`rounded-lg border border-border bg-bg-subtle/30` in `ProviderTopology.js`; `bg-subtle` is not defined in their `@theme`, so it paints nothing). Upstream places the component straight into the grid with no `Card` wrapper, so `.card-ghost` drops the outer border too — otherwise the panel drew two nested rectangles. The 40px page grid now runs behind the graph.
+
+  Polished for a transparent background: node tiles carry a drop shadow so they no longer read as flat cut-outs on the grid; two static concentric rings sit behind the hub, which is now a brand gradient (upstream's core is a gradient too) instead of a flat fill. The hub label switched from terracotta to white, because terracotta text on a terracotta gradient disappeared — the gradient change is what made the old colour unreadable. Zoom controls and legend use a translucent fill rather than opaque `--panel`, which read as holes punched in the page.
+
 **Prompt Cache Key Was Non-Deterministic (silently defeating the feature):**
 - `internal/promptcache/cache.go` — `HashRequest` decoded the messages into `[]map[string]any` and re-marshalled them. Go randomises map iteration and `json/v2` does not sort object keys, so the SAME request body produced TWO different digests: measured 2 distinct hashes over 200 calls, split roughly 15/85. The cache key is the lookup key, so a request landing on the minority branch could never match the entry it had just written — prompt caching missed on a share of requests. Fields are now hashed from their raw JSON bytes, which preserves the client's own key order; a body with no messages is rejected rather than hashed to an empty payload every malformed request would collide onto. Surfaced by an intermittently failing test that was reporting a real bug, not being flaky.
 
