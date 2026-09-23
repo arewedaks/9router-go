@@ -648,12 +648,6 @@
       padding: 18px;
       box-shadow: var(--glass-shadow);
     }
-    /* A card with no chrome at all: no fill, no border, no padding. Used by the
-       topology panel, where the graph's own bordered container is the frame.
-       Upstream does the same — ProviderTopology is placed straight into the grid
-       with no Card around it, so there is exactly one border, not two nested
-       ones. The page grid then runs behind the label and the graph alike. */
-    .card-ghost { background: transparent; border: none; padding: 0; box-shadow: none; }
     .card h3 { font-size: 0.82rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
     .card .stat-val { font-size: 2rem; font-weight: 700; color: #fff; }
     .card .stat-sub { font-size: 0.8rem; color: var(--muted); margin-top: 4px; }
@@ -1317,9 +1311,14 @@
 
     /* Wider right column: a 1fr track squeezed the model id, the token pair and
        the relative time into the same horizontal space, so everything was
-       tight. See .usage-recent below for the row-count this buys. */
-    .usage-two-col { display: grid; grid-template-columns: minmax(0, 3fr) minmax(360px, 2fr); gap: 12px; align-items: stretch; }
-    @media (max-width: 1024px) { .usage-two-col { grid-template-columns: minmax(0, 1fr); } }
+       tight. See .usage-recent below for the row-count this buys.
+
+       Two rows — label, then panel — so both labels share one row and both
+       panels start on the same line and stretch to the same bottom, whatever
+       the label rows' individual heights (the topology header also carries the
+       All/Used toggle). Row gap matches the old label→panel spacing. */
+    .usage-two-col { display: grid; grid-template-columns: minmax(0, 3fr) minmax(360px, 2fr); grid-template-areas: "topo-h recent-h" "topo-b recent-b"; column-gap: 12px; row-gap: 10px; align-items: stretch; }
+    @media (max-width: 1024px) { .usage-two-col { grid-template-columns: minmax(0, 1fr); grid-template-areas: "topo-h" "topo-b" "recent-h" "recent-b"; } }
 
     .usage-chart { position: relative; height: 220px; width: 100%; }
     .usage-chart svg { display: block; width: 100%; height: 100%; }
@@ -1339,7 +1338,11 @@
       position: relative; height: 320px; width: 100%; min-width: 0; overflow: hidden;
       border: 1px solid var(--border); border-radius: 10px;
     }
-    @media (min-width: 640px) { .usage-topology { height: 420px; } }
+    /* height:auto lets the panel stretch to its grid row — the row is as tall
+       as the Recent Requests card beside it — while 420px stays the floor when
+       the list is short. The SVG viewBox tracks the provider count, not the
+       element box, so scaling with the container needs no re-render. */
+    @media (min-width: 640px) { .usage-topology { height: auto; min-height: 420px; } }
     .usage-topology svg { display: block; width: 100%; height: 100%; cursor: grab; touch-action: none; }
     .usage-topology svg.grabbing { cursor: grabbing; }
     .topo-edge { stroke-linecap: round; fill: none; }
@@ -1446,6 +1449,9 @@
     .usage-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; text-align: left; }
     .usage-table thead { background: rgba(255,255,255,0.03); }
     .usage-table th { padding: 10px 16px; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); font-weight: 600; white-space: nowrap; }
+    .usage-table th[data-sort] { cursor: pointer; }
+    .usage-table th[data-sort]:hover, .usage-table th.sort-on { color: #fff; }
+    .usage-table .sort-ind { font-size: 0.6em; margin-left: 3px; }
     .usage-table tbody tr { border-bottom: 1px solid var(--border); }
     .usage-table tbody tr.usage-summary { cursor: pointer; }
     .usage-table tbody tr.usage-summary:hover { background: rgba(255,255,255,0.04); }
@@ -1777,20 +1783,23 @@
     <div id="usage-overview-pane">
       <div class="usage-cards" id="usage-cards"></div>
 
+      <!-- Four siblings on a 2×2 areas grid (label row, panel row): both
+           labels land in the same row and both panels stretch to the same
+           bottom edge. Nested per-column cards could never align, because each
+           column sized its own label row independently. -->
       <div class="usage-two-col">
-        <div class="card card-ghost" style="display:flex; flex-direction:column; gap:10px;">
-          <div class="section-header" style="margin:0;">
-            <span class="usage-section-label">Provider Topology</span>
-            <div class="seg seg-sm" id="usage-topo-mode">
-              <button class="seg-btn active" data-tmode="all" onclick="setTopologyMode('all')">All</button>
-              <button class="seg-btn" data-tmode="used" onclick="setTopologyMode('used')">Used</button>
-            </div>
+        <div class="section-header" style="margin:0; grid-area:topo-h;">
+          <span class="usage-section-label">Provider Topology</span>
+          <div class="seg seg-sm" id="usage-topo-mode">
+            <button class="seg-btn active" data-tmode="all" onclick="setTopologyMode('all')">All</button>
+            <button class="seg-btn" data-tmode="used" onclick="setTopologyMode('used')">Used</button>
           </div>
-          <div id="usage-topology" class="usage-topology"><div class="usage-empty">Loading…</div></div>
         </div>
-
-        <div class="card" style="display:flex; flex-direction:column; gap:10px; min-height:0;">
+        <div class="section-header" style="margin:0; grid-area:recent-h;">
           <span class="usage-section-label">Recent Requests</span>
+        </div>
+        <div id="usage-topology" class="usage-topology" style="grid-area:topo-b;"><div class="usage-empty">Loading…</div></div>
+        <div class="card" style="display:flex; flex-direction:column; min-height:0; grid-area:recent-b;">
           <div id="usage-recent" class="usage-recent"></div>
         </div>
       </div>
@@ -7976,10 +7985,9 @@
     tab: "overview",
     period: "today",
     chartMode: "tokens",
+    sort: null,
     table: "model",
     viewMode: "costs",
-    sortBy: "rawModel",
-    sortOrder: "asc",
     expanded: new Set(),
     stats: null,
     chart: null,
@@ -8723,20 +8731,28 @@
       ? [{ key: "promptTokens", label: "Input Tokens" }, { key: "completionTokens", label: "Output Tokens" }, { key: "totalTokens", label: "Total Tokens" }]
       : [{ key: "inputCost", label: "Input Cost" }, { key: "outputCost", label: "Output Cost" }, { key: "totalCost", label: "Total Cost" }];
 
-    // Header: first column + the view's own columns + the three value columns.
-    let headers = [cfg.firstCol];
-    cfg.summary.forEach(f => headers.push(f === "provider" ? "Provider" : f === "requests" ? "Requests" : f === "lastUsed" ? "Last Used" : f === "rawModel" ? "Model" : f));
-    valueCols.forEach(v => headers.push(v.label));
+    // Header: group column + the view's own columns + the three value columns.
+    const cols = [{ key: "__group", label: cfg.firstCol }];
+    cfg.summary.forEach(f => cols.push({ key: f, label: f === "provider" ? "Provider" : f === "requests" ? "Requests" : f === "lastUsed" ? "Last Used" : f === "rawModel" ? "Model" : f }));
+    valueCols.forEach(v => cols.push({ key: v.key, label: v.label }));
 
-    head.innerHTML = `<tr>${headers.map((h, i) => `<th class="${i >= headers.length - 3 ? "num" : ""}">${escapeHtml(h)}</th>`).join("")}</tr>`;
+    let st = usageState.sort;
+    if (st && !cols.some(c => c.key === st.key)) { usageState.sort = null; st = null; } // column left with the view mode
+    head.onclick = onUsageSortClick;
+    head.innerHTML = `<tr>${cols.map((c, i) => {
+      const on = st && st.key === c.key;
+      const cls = `${i >= cols.length - 3 ? "num" : ""}${on ? " sort-on" : ""}`;
+      return `<th data-sort="${c.key}" class="${cls}">${escapeHtml(c.label)}<span class="sort-ind">${on ? (st.dir > 0 ? "▲" : "▼") : ""}</span></th>`;
+    }).join("")}</tr>`;
 
     if (groups.size === 0) {
-      body.innerHTML = `<tr><td colspan="${headers.length}" class="usage-empty">${escapeHtml(cfg.empty)}</td></tr>`;
+      body.innerHTML = `<tr><td colspan="${cols.length}" class="usage-empty">${escapeHtml(cfg.empty)}</td></tr>`;
       return;
     }
 
-    let html = "";
-    Array.from(groups.entries()).forEach(([gk, items]) => {
+    // Aggregate before sorting: the comparator reads the totals, and sorting
+    // rendered rows would detach expanded detail rows from their group.
+    const rows = Array.from(groups.entries()).map(([gk, items]) => {
       const totals = { requests: 0, promptTokens: 0, completionTokens: 0, totalTokens: 0, cost: 0 };
       items.forEach(it => {
         totals.requests += it.requests || 0;
@@ -8751,9 +8767,14 @@
         ? totals.cost * (totals.promptTokens / (totals.promptTokens + totals.completionTokens)) : 0;
       totals.outputCost = totals.cost - totals.inputCost;
       totals.totalCost = totals.cost;
-
-      const open = usageState.expanded.has(gk);
       const latest = items.reduce((acc, it) => (it.lastUsed > acc ? it.lastUsed : acc), "");
+      return { gk, items, totals, latest };
+    });
+    if (st && st.key) rows.sort((a, b) => usageSortCmp(usageSortVal(a, st.key), usageSortVal(b, st.key)) * st.dir);
+
+    let html = "";
+    rows.forEach(({ gk, items, totals, latest }) => {
+      const open = usageState.expanded.has(gk);
 
       html += `<tr class="usage-summary" data-usage-group="${escapeHtml(gk)}">` +
         `<td><span class="usage-chevron ${open ? "open" : ""}">▶</span> <span class="usage-group-key">${escapeHtml(gk)}</span></td>`;
@@ -8798,6 +8819,31 @@
     const row = ev.target.closest("tr.usage-summary");
     if (!row || !row.dataset.usageGroup) return;
     toggleUsageGroup(row.dataset.usageGroup);
+  }
+
+  // Clicking a header sorts by that column; clicking again flips the direction.
+  // Counters open biggest-first, text columns open A-Z.
+  const USAGE_SORT_DESC = new Set(["requests", "promptTokens", "completionTokens", "totalTokens", "inputCost", "outputCost", "totalCost"]);
+
+  function onUsageSortClick(ev) {
+    const th = ev.target.closest("th[data-sort]");
+    if (!th) return;
+    const key = th.dataset.sort;
+    const cur = usageState.sort;
+    usageState.sort = cur && cur.key === key ? { key, dir: -cur.dir } : { key, dir: USAGE_SORT_DESC.has(key) ? -1 : 1 };
+    renderUsageTable();
+  }
+
+  function usageSortVal(row, key) {
+    if (key === "__group") return row.gk;
+    if (key === "rawModel") return row.items[0].rawModel || "";
+    if (key === "provider") return row.items[0].provider || "";
+    if (key === "lastUsed") return row.latest; // ISO 8601: lexicographic == chronological
+    return row.totals[key] || 0;
+  }
+
+  function usageSortCmp(a, b) {
+    return typeof a === "number" && typeof b === "number" ? a - b : String(a).localeCompare(String(b));
   }
 
   // usageValue maps a column key onto a bucket field, accounting for the two
