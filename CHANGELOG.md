@@ -5,6 +5,17 @@
 
 ### 🚀 Features & Upstream Parity
 
+**Resource Card (process CPU/RAM and host memory on Console Log):**
+- `internal/sysmetrics/` — reads Linux `/proc` directly instead of adding a dependency: process CPU from `/proc/self/stat`, resident set from `/proc/self/statm`, host memory from `/proc/meminfo`. Build-tagged; non-Linux reports `Supported=false` and the card says so rather than showing a best-effort number the operator cannot verify.
+- `internal/handlers/consolelog.go` — `GET /api/system/metrics`, added to the session-cookie allowlist the console-log routes already use.
+- `internal/handlers/dashboard/ui/index.html` — a Resources card at the top of the Console Log page: process CPU, resident RAM, Go heap, goroutines, host RAM available/total and uptime, polled every 5s while the page is open.
+- `internal/handlers/router.go` — registered the route.
+
+Three judgement calls carried in the code comments:
+- CPU is a delta against the previous sample, not a since-start average. A since-start number flattens every spike and draws a flat line on a long-running server, which is exactly what an operator does not need. The first sample reports 0 and the card says "a percentage needs two readings" rather than showing a misleading 0.0%.
+- "RAM left" is `MemAvailable`, not `MemFree`. `MemFree` excludes page cache, so a healthy machine that has read many files reports almost no free memory and reads as nearly full.
+- Polling runs only while the Console Log page is open, sharing the log stream's lifecycle: a background poll would burn battery for a number nobody is looking at.
+
 **Live Quota Tracker (provider Quota tab):**
 - `internal/quotatracker/` — port of upstream's `open-sse/services/usage.js`: a per-provider handler returning `{ plan, quotas: { "<label>": { used, total, resetAt, unlimited, recurring } } }`, so the two dashboards stay comparable and handlers can be ported one at a time.
 - `internal/handlers/dashboard/quota_handler.go` — `GET /api/dashboard/providers/{id}/quota`, bound by connection id so the UI attaches each balance to the exact row. Reads are sequential: the endpoints are per-account and rate-limited.
