@@ -3,10 +3,13 @@ package proxy
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
+	"syscall"
 )
 
 // UpstreamError captures a non-200 upstream response.
@@ -45,16 +48,21 @@ func (e *UpstreamError) Error() string {
 
 // DoRequest sends an HTTP POST to url with body and auth, returns the raw response.
 // Caller must close resp.Body.
+//
+// One replay is attempted when the first attempt dies on a connection-level
+// error. That is the signature of a keep-alive socket the peer closed while it
+// sat idle in the pool: the write fails with EOF/reset before any response
+// exists. net/http replays only idempotent requests, and everything this
+// package sends is a POST, so the replay has to be explicit here. It is safe
+// precisely because no response was received — either the request never
+// reached the peer, or its reply was lost — and a dead pooled connection is by
+// far the common case. Retries are bounded to those connection errors, so a
+// request the upstream actually answered is never sent twice.
 func DoRequest(ctx context.Context, client *http.Client, method, url string, headers map[string]string, body []byte) (*http.Response, error) {
-	req, err := http.NewRequestWithContext(ctx, method, url, bytes.NewReader(body))
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
+	resp, err := doRequestOnce(ctx, client, method, url, headers, body)
+	if err != nil && retryableConnError(err) {
+		resp, err = doRequestOnce(ctx, client, method, url, headers, body)
 	}
-	req.Header.Set("Content-Type", "application/json")
-	for k, v := range headers {
-		req.Header.Set(k, v)
-	}
-	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("upstream request: %w", err)
 	}
@@ -67,5 +75,38 @@ func DoRequest(ctx context.Context, client *http.Client, method, url string, hea
 		return nil, &UpstreamError{StatusCode: resp.StatusCode, Body: errBody}
 	}
 	return resp, nil
+}
+
+// doRequestOnce performs a single upstream attempt.
+func doRequestOnce(ctx context.Context, client *http.Client, method, url string, headers map[string]string, body []byte) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, method, url, bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	return client.Do(req)
+}
+
+// retryableConnError reports whether err is a connection-level failure that
+// occurred before the upstream produced any response. A canceled or expired
+// context is deliberately excluded: the caller asked to stop, so replaying
+// would work against it.
+func retryableConnError(err error) bool {
+	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) ||
+		errors.Is(err, net.ErrClosed) || errors.Is(err, syscall.ECONNRESET) ||
+		errors.Is(err, syscall.EPIPE) {
+		return true
+	}
+	// HTTP/2 reports the pool-invalidation cases as text rather than sentinel
+	// errors, so the message is the only signal available.
+	msg := err.Error()
+	return strings.Contains(msg, "http2: server sent GOAWAY") ||
+		strings.Contains(msg, "connection reset by peer")
 }
 
