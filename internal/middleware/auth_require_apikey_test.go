@@ -12,13 +12,16 @@ import (
 // settingsBlob builds a minimal settings row. Only the keys under test are
 // written, so the row stays a realistic stand-in for a migrated VansRouter blob
 // rather than a fully-populated one.
-func settingsBlob(requireAPIKey, allowRemote *bool) string {
+func settingsBlob(requireAPIKey, allowRemote, requireLogin *bool) string {
 	blob := `{"rtkEnabled": true`
 	if requireAPIKey != nil {
 		blob += fmt.Sprintf(`, "requireApiKey": %t`, *requireAPIKey)
 	}
 	if allowRemote != nil {
 		blob += fmt.Sprintf(`, "allowRemoteNoApiKey": %t`, *allowRemote)
+	}
+	if requireLogin != nil {
+		blob += fmt.Sprintf(`, "requireLogin": %t`, *requireLogin)
 	}
 	return blob + "}"
 }
@@ -27,7 +30,7 @@ func settingsBlob(requireAPIKey, allowRemote *bool) string {
 //
 // setupTestDB only creates apiKeys, so the settings table is created here rather
 // than widening the shared helper for the whole package.
-func seedSettings(t *testing.T, repo *db.Repo, requireAPIKey, allowRemote *bool) {
+func seedSettings(t *testing.T, repo *db.Repo, requireAPIKey, allowRemote, requireLogin *bool) {
 	t.Helper()
 	if _, err := repo.RawDB().Exec(
 		`CREATE TABLE IF NOT EXISTS settings (id INTEGER PRIMARY KEY, data TEXT)`); err != nil {
@@ -35,7 +38,7 @@ func seedSettings(t *testing.T, repo *db.Repo, requireAPIKey, allowRemote *bool)
 	}
 	if _, err := repo.RawDB().Exec(
 		`INSERT INTO settings (id, data) VALUES (1, ?) ON CONFLICT(id) DO UPDATE SET data = excluded.data`,
-		settingsBlob(requireAPIKey, allowRemote)); err != nil {
+		settingsBlob(requireAPIKey, allowRemote, requireLogin)); err != nil {
 		t.Fatalf("seed settings: %v", err)
 	}
 }
@@ -66,7 +69,7 @@ func TestRequireAPIKeyOffIsLoopbackOnlyByDefault(t *testing.T) {
 	repo := db.NewRepo(database)
 
 	off := false
-	seedSettings(t, repo, &off, nil)
+	seedSettings(t, repo, &off, nil, nil)
 	mw := RequireApiKeyUnlessDisabled(repo, nil)
 
 	if got := engineRequestFrom(t, mw, loopbackAddr); got != http.StatusOK {
@@ -87,7 +90,7 @@ func TestAllowRemoteNoApiKeyOpensTheEngine(t *testing.T) {
 
 	off := false
 	on := true
-	seedSettings(t, repo, &off, &on)
+	seedSettings(t, repo, &off, &on, nil)
 	mw := RequireApiKeyUnlessDisabled(repo, nil)
 
 	if got := engineRequestFrom(t, mw, remoteAddr); got != http.StatusOK {
@@ -103,7 +106,7 @@ func TestAllowRemoteIsInertWhileKeyRequired(t *testing.T) {
 	repo := db.NewRepo(database)
 
 	on := true
-	seedSettings(t, repo, &on, &on)
+	seedSettings(t, repo, &on, &on, nil)
 	mw := RequireApiKeyUnlessDisabled(repo, nil)
 
 	for _, addr := range []string{loopbackAddr, remoteAddr} {
@@ -122,7 +125,7 @@ func TestLoopbackCannotBeSpoofedWithForwardingHeaders(t *testing.T) {
 	repo := db.NewRepo(database)
 
 	off := false
-	seedSettings(t, repo, &off, nil)
+	seedSettings(t, repo, &off, nil, nil)
 	mw := RequireApiKeyUnlessDisabled(repo, nil)
 
 	for _, h := range []struct{ name, value string }{
@@ -150,7 +153,7 @@ func TestAbsentFlagsRequireKey(t *testing.T) {
 	defer cleanup()
 	repo := db.NewRepo(database)
 
-	seedSettings(t, repo, nil, nil)
+	seedSettings(t, repo, nil, nil, nil)
 	mw := RequireApiKeyUnlessDisabled(repo, nil)
 
 	for _, addr := range []string{loopbackAddr, remoteAddr} {
@@ -168,7 +171,7 @@ func TestLoopbackAddressParsing(t *testing.T) {
 	repo := db.NewRepo(database)
 
 	off := false
-	seedSettings(t, repo, &off, nil)
+	seedSettings(t, repo, &off, nil, nil)
 	mw := RequireApiKeyUnlessDisabled(repo, nil)
 
 	for _, tc := range []struct {
@@ -197,7 +200,7 @@ func TestFlagsAreReadPerRequest(t *testing.T) {
 	repo := db.NewRepo(database)
 
 	off := false
-	seedSettings(t, repo, &off, nil)
+	seedSettings(t, repo, &off, nil, nil)
 
 	// One middleware instance for the whole test: this is what a live router
 	// holds, so a captured value would show up as a stale result below.
@@ -209,14 +212,14 @@ func TestFlagsAreReadPerRequest(t *testing.T) {
 
 	// Turning the remote flag on widens access with no restart.
 	on := true
-	seedSettings(t, repo, &off, &on)
+	seedSettings(t, repo, &off, &on, nil)
 	if got := engineRequestFrom(t, mw, remoteAddr); got != http.StatusOK {
 		t.Fatalf("remote status = %d, want 200 after enabling allowRemoteNoApiKey; "+
 			"the middleware appears to have cached the value", got)
 	}
 
 	// Turning the key requirement back on closes it again.
-	seedSettings(t, repo, &on, &on)
+	seedSettings(t, repo, &on, &on, nil)
 	if got := engineRequestFrom(t, mw, remoteAddr); got != http.StatusUnauthorized {
 		t.Fatalf("remote status = %d, want 401 after re-enabling requireApiKey", got)
 	}
@@ -231,7 +234,7 @@ func TestFlagsFailClosedOnRepoError(t *testing.T) {
 
 	off := false
 	on := true
-	seedSettings(t, repo, &off, &on)
+	seedSettings(t, repo, &off, &on, nil)
 
 	// Confirm the open path first, so the assertion below cannot pass merely
 	// because the gate never opens.
@@ -248,4 +251,92 @@ func TestFlagsFailClosedOnRepoError(t *testing.T) {
 	}
 }
 
-func boolPtr(b bool) *bool { return &b }
+// requestFrom sends a bare GET to path with no credential at all, from the
+// given peer address, and returns the status.
+func requestFrom(t *testing.T, mw func(http.Handler) http.Handler, path, remoteAddr string) int {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, path, nil)
+	if remoteAddr != "" {
+		req.RemoteAddr = remoteAddr
+	}
+	rec := httptest.NewRecorder()
+	mw(okMarkerHandler()).ServeHTTP(rec, req)
+	return rec.Code
+}
+
+// With login disabled the dashboard is served to anyone who can reach it, so
+// the browser-facing endpoints the dashboard calls must not demand a credential
+// the page was never asked to obtain. Reported as: the Console Log resource
+// card showed "Could not read resource metrics: HTTP 401" while the rest of the
+// dashboard worked, because requireApiKey was on and the browser held no
+// session cookie (login disabled means none is ever issued).
+func TestLoginDisabledOpensDashboardPaths(t *testing.T) {
+	database, cleanup := setupTestDB(t)
+	defer cleanup()
+	repo := db.NewRepo(database)
+
+	on := true
+	seedSettings(t, repo, &on, nil, new(false))
+	mw := RequireApiKeyUnlessDisabled(repo, func(string) bool { return false },
+		"/api/usage/", "/api/system/", "/api/translator/")
+
+	// A remote caller, so the loopback rule cannot be what let it through.
+	for _, path := range []string{"/api/system/metrics", "/api/usage/stats"} {
+		if got := requestFrom(t, mw, path, remoteAddr); got != http.StatusOK {
+			t.Errorf("%s: status = %d, want 200 with login disabled", path, got)
+		}
+	}
+}
+
+// Login disabled must not open the engine surface. Only the declared
+// browser-facing paths are affected, so a key is still required for /v1.
+func TestLoginDisabledKeepsEngineGuarded(t *testing.T) {
+	database, cleanup := setupTestDB(t)
+	defer cleanup()
+	repo := db.NewRepo(database)
+
+	on := true
+	seedSettings(t, repo, &on, nil, new(false))
+	mw := RequireApiKeyUnlessDisabled(repo, func(string) bool { return false },
+		"/api/usage/", "/api/system/", "/api/translator/")
+
+	for _, addr := range []string{loopbackAddr, remoteAddr} {
+		if got := engineRequestFrom(t, mw, addr); got != http.StatusUnauthorized {
+			t.Errorf("status from %s = %d, want 401; login being disabled must not "+
+				"turn the model proxy into an open endpoint", addr, got)
+		}
+	}
+}
+
+// With login required, the dashboard paths keep their cookie-or-key gate. This
+// is the pre-existing behaviour the bypass must not weaken.
+func TestLoginRequiredKeepsDashboardPathsGuarded(t *testing.T) {
+	database, cleanup := setupTestDB(t)
+	defer cleanup()
+	repo := db.NewRepo(database)
+
+	on := true
+	seedSettings(t, repo, &on, nil, nil)
+	mw := RequireApiKeyUnlessDisabled(repo, func(string) bool { return false },
+		"/api/usage/", "/api/system/", "/api/translator/")
+
+	if got := requestFrom(t, mw, "/api/system/metrics", remoteAddr); got != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401 while login is required and no cookie is sent", got)
+	}
+}
+
+// A caller that declares no browser-facing paths gets no bypass: an empty list
+// means "every path" in sessionPathAllowed, which would open the engine.
+func TestLoginDisabledWithoutPathListStillGuards(t *testing.T) {
+	database, cleanup := setupTestDB(t)
+	defer cleanup()
+	repo := db.NewRepo(database)
+
+	on := true
+	seedSettings(t, repo, &on, nil, new(false))
+	mw := RequireApiKeyUnlessDisabled(repo, func(string) bool { return false })
+
+	if got := engineRequestFrom(t, mw, loopbackAddr); got != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401 when no session paths are declared", got)
+	}
+}

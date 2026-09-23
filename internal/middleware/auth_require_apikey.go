@@ -28,6 +28,16 @@ import (
 //
 // A settings read failure also fails closed — a database error must not be the
 // thing that silently exposes the proxy.
+//
+// With login disabled (requireLogin=false) the dashboard is open: the session
+// group serves /dashboard and /api/dashboard/* to an anonymous caller. The
+// browser-facing endpoints the dashboard also calls live in THIS group instead
+// (/api/usage/stats, /api/system/metrics, the console-log routes), and gating
+// them on a session cookie the browser was never asked to obtain left half the
+// page answering 401 — the Console Log resource card reported "Could not read
+// resource metrics: HTTP 401" while the rest of the dashboard worked. So the
+// same switch opens those paths here too. The engine surface is untouched: it
+// is not on sessionPaths, so it keeps requiring a key.
 func RequireApiKeyUnlessDisabled(repo *db.Repo, verifySession func(token string) bool, sessionPaths ...string) func(http.Handler) http.Handler {
 	guarded := RequireApiKeyWithSession(repo, verifySession, sessionPaths...)
 
@@ -35,7 +45,8 @@ func RequireApiKeyUnlessDisabled(repo *db.Repo, verifySession func(token string)
 		guardedNext := guarded(next)
 
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if required, remoteOK := apiKeyPolicy(repo); !required {
+			required, remoteOK, loginDisabled := apiKeyPolicy(repo)
+			if !required {
 				// The main switch is off. Without the second flag only a client
 				// on this machine may skip the key, so an operator who turns the
 				// switch off to test locally does not also publish the proxy.
@@ -44,17 +55,24 @@ func RequireApiKeyUnlessDisabled(repo *db.Repo, verifySession func(token string)
 					return
 				}
 			}
+			// The path list must be non-empty here: an empty list means "every
+			// path", which on this middleware is the engine surface. A caller
+			// that declares no browser-facing paths gets no bypass.
+			if loginDisabled && len(sessionPaths) > 0 && sessionPathAllowed(r.URL.Path, sessionPaths) {
+				next.ServeHTTP(w, r)
+				return
+			}
 			guardedNext.ServeHTTP(w, r)
 		})
 	}
 }
 
-// apiKeyPolicy reports (requireApiKey, allowRemoteNoApiKey). Both default to the
-// stricter value on absence and on any read error.
-func apiKeyPolicy(repo *db.Repo) (required bool, remoteOK bool) {
+// apiKeyPolicy reports (requireApiKey, allowRemoteNoApiKey, loginDisabled).
+// Every field defaults to the stricter value on absence and on any read error.
+func apiKeyPolicy(repo *db.Repo) (required bool, remoteOK bool, loginDisabled bool) {
 	s, err := repo.GetSettings()
 	if err != nil || s == nil {
-		return true, false
+		return true, false, false
 	}
 	if s.RequireAPIKey != nil && !*s.RequireAPIKey {
 		required = false
@@ -62,7 +80,8 @@ func apiKeyPolicy(repo *db.Repo) (required bool, remoteOK bool) {
 		required = true
 	}
 	remoteOK = s.AllowRemoteNoApiKey != nil && *s.AllowRemoteNoApiKey
-	return required, remoteOK
+	loginDisabled = s.RequireLogin != nil && !*s.RequireLogin
+	return required, remoteOK, loginDisabled
 }
 
 // isLoopbackRequest reports whether the request came from this machine.
