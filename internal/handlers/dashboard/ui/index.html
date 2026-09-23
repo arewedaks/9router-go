@@ -36,33 +36,34 @@
       --radius-field: 14px;
 
       /* ----------------------------------------------------------------
-         Glassmorphism layer
+         Surface layer — FLAT
          ----------------------------------------------------------------
-         Surfaces move from opaque fills to translucent ones over a fixed
-         gradient backdrop. Every rule below reads these four variables, so the
-         whole look can be retuned (or turned flat) from here.
+         Surfaces are opaque fills separated by 1px borders and spacing, with
+         no blur, no translucency and no drop shadow. This replaced a
+         glassmorphism layer: the translucent panels over a radial-gradient
+         backdrop were low-contrast (text sat on a busy, slightly varying
+         background), and every surface paid for a backdrop-filter, which
+         forces the GPU to re-composite on each scroll.
 
-         --glass-blur is the expensive part: backdrop-filter forces the GPU to
-         re-composite each surface on every scroll. It is declared once so the
-         reduced-transparency media query and the low-power fallback further
-         down can both neutralise it in one place. */
-      --glass: rgba(255, 255, 255, 0.045);
-      --glass-strong: rgba(255, 255, 255, 0.075);
-      --glass-border: rgba(255, 255, 255, 0.09);
-      --glass-border-strong: rgba(255, 255, 255, 0.14);
-      --glass-blur: 14px;
-      --glass-shadow: 0 6px 22px rgba(0, 0, 0, 0.28);
-      /* The page backdrop the glass sits on. Radial blooms give the blur
-         something to diffuse; a flat colour would leave it invisible. */
-      --bg-backdrop:
-        radial-gradient(900px 600px at 12% -8%, rgba(255, 138, 42, 0.17), transparent 60%),
-        radial-gradient(800px 520px at 92% 4%, rgba(168, 96, 42, 0.16), transparent 58%),
-        radial-gradient(700px 700px at 50% 108%, rgba(196, 122, 44, 0.10), transparent 62%),
-        linear-gradient(168deg, #14100b 0%, #0d0a07 45%, #120d09 100%);
+         The variable names are kept so the ~46 call sites need no edit, and a
+         single edit here still retunes the whole look. To go back to glass,
+         restore translucent values here and give --glass-blur a non-zero
+         length; every rule reads these tokens. */
+      --glass: #16110d;
+      --glass-strong: #1c1611;
+      --glass-border: #2b211a;
+      --glass-border-strong: #3a2c22;
+      --glass-blur: 0px;
+      --glass-shadow: none;
+      /* A flat page needs no backdrop for the blur to sample, and the gradient
+         was part of the glass look. One solid colour, edge to edge. */
+      --bg-backdrop: #0d0a07;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif; }
-    /* The gradient is fixed to the viewport so it does not scroll away, and
-       so backdrop-filter has a stable layer to sample. */
+    /* A single flat colour behind everything. The gradient and its fixed
+       attachment existed so the glass surfaces had something to diffuse; with
+       no blur there is nothing to sample and the gradient only added visual
+       noise behind the content. */
     body {
       background-color: var(--bg);
       background-image: var(--bg-backdrop);
@@ -79,8 +80,6 @@
     .glass {
       background: var(--glass);
       border: 1px solid var(--glass-border);
-      -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(150%);
-      backdrop-filter: blur(var(--glass-blur)) saturate(150%);
       box-shadow: var(--glass-shadow);
     }
 
@@ -209,9 +208,7 @@
       border: 1px solid var(--glass-border-strong);
       border-radius: 14px;
       padding: 28px 26px 22px;
-      -webkit-backdrop-filter: blur(20px) saturate(160%);
-      backdrop-filter: blur(20px) saturate(160%);
-      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+      box-shadow: var(--glass-shadow);
     }
     /* Wordmark under the mark on the sign-in card. The login screen has the
        room the rail does not, so the name is set larger here as the heading. */
@@ -285,8 +282,6 @@
     .sidebar {
       width: 232px; flex: 0 0 232px;
       background: var(--glass);
-      -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(150%);
-      backdrop-filter: blur(var(--glass-blur)) saturate(150%);
       border-right: 1px solid var(--glass-border);
       display: flex; flex-direction: column; padding: 16px 12px;
       position: sticky; top: 0; height: 100vh;
@@ -527,10 +522,10 @@
         position: fixed; left: 0; top: 0; z-index: 150;
         transform: translateX(-100%);
         transition: transform 0.2s ease;
-        background: rgba(20, 14, 10, 0.94);
-        -webkit-backdrop-filter: blur(18px) saturate(150%);
-        backdrop-filter: blur(18px) saturate(150%);
-        box-shadow: 0 0 30px rgba(0, 0, 0, 0.55);
+        /* Opaque, not translucent: the drawer slides over page content, and a
+           see-through rail made the labels hard to read while it animated. */
+        background: var(--panel);
+        box-shadow: var(--glass-shadow);
         width: 264px; flex: 0 0 264px;
       }
       .sidebar.open { transform: translateX(0); }
@@ -539,8 +534,6 @@
 
     header {
       background: var(--glass);
-      -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(150%);
-      backdrop-filter: blur(var(--glass-blur)) saturate(150%);
       border-bottom: 1px solid var(--glass-border); padding: 12px 24px; display: flex; align-items: center; justify-content: space-between; gap: 12px; position: sticky; top: 0; z-index: 100; }
     .logo { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 1.15rem; color: #fff; }
     .badge { padding: 2px 8px; border-radius: 12px; font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px; display: inline-flex; align-items: center; gap: 4px; }
@@ -614,8 +607,6 @@
       border: 1px solid var(--glass-border);
       border-radius: var(--radius);
       padding: 18px;
-      -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(150%);
-      backdrop-filter: blur(var(--glass-blur)) saturate(150%);
       box-shadow: var(--glass-shadow);
     }
     .card h3 { font-size: 0.82rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
@@ -682,12 +673,10 @@
       font-size: 0.88rem;
       width: 100%;
       outline: none;
-      -webkit-backdrop-filter: blur(8px);
-      backdrop-filter: blur(8px);
     }
-    /* The dropdown list itself is rendered by the OS and ignores backdrop-filter;
-     * without an opaque option background the items are unreadable on some
-     * platforms. */
+    /* The dropdown list is rendered by the OS and does not inherit the flat
+     * surface colour; without an explicit option background the items are
+     * unreadable on some platforms. */
     select option { background: #1a1310; color: var(--text); }
     input::placeholder, textarea::placeholder { color: var(--muted); }
     input:focus, select:focus, textarea:focus { border-color: var(--primary); }
@@ -696,7 +685,7 @@
     input[type="number"]::-webkit-outer-spin-button,
     input[type="number"]::-webkit-inner-spin-button { opacity: 0.55; }
     
-    .modal-overlay { position: fixed; inset: 0; background: rgba(4, 8, 14, 0.62); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); display: none; align-items: center; justify-content: center; z-index: 1000; padding: 16px; }
+    .modal-overlay { position: fixed; inset: 0; background: rgba(4, 8, 14, 0.72); display: none; align-items: center; justify-content: center; z-index: 1000; padding: 16px; }
     .modal-overlay.active { display: flex; }
     .modal-box {
       background: var(--glass-strong);
@@ -710,9 +699,7 @@
       max-height: 86vh;
       max-height: 86dvh;
       overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain;
-      -webkit-backdrop-filter: blur(20px) saturate(160%);
-      backdrop-filter: blur(20px) saturate(160%);
-      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+      box-shadow: var(--glass-shadow);
     }
     .form-group { margin-bottom: 14px; }
     .form-group label { display: block; font-size: 0.82rem; color: var(--muted); margin-bottom: 6px; }
@@ -795,8 +782,6 @@
       border-radius: var(--radius);
       padding: 14px;
       min-width: 0;
-      -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(150%);
-      backdrop-filter: blur(var(--glass-blur)) saturate(150%);
       transition: border-color 0.15s, transform 0.15s;
     }
     .combo-card:hover { border-color: var(--glass-border-strong); transform: translateY(-1px); }
@@ -1140,9 +1125,7 @@
          overscroll-behavior keeps a flick at the end of a form from scrolling
          the page behind the overlay. */
       overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain;
-      -webkit-backdrop-filter: blur(20px) saturate(160%);
-      backdrop-filter: blur(20px) saturate(160%);
-      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+      box-shadow: var(--glass-shadow);
     }
     .modal-head { display: flex; align-items: center; gap: 9px; padding: 13px 15px; border-bottom: 1px solid var(--border); font-size: 0.88rem; }
     .modal-toolbar { display: flex; align-items: center; gap: 8px; padding: 9px 15px; border-bottom: 1px solid var(--border); }
@@ -1240,46 +1223,14 @@
     @keyframes usage-live { 0% { box-shadow: 0 0 0 0 rgba(34,197,94,0.55); } 70% { box-shadow: 0 0 0 6px rgba(34,197,94,0); } 100% { box-shadow: 0 0 0 0 rgba(34,197,94,0); } }
     @media (prefers-reduced-motion: reduce) { .usage-updated:not(:empty)::before { animation: none; } }
 
-    /* ----------------------------------------------------------------
-       Glass fallbacks
-       ----------------------------------------------------------------
-       Translucency is a preference, and blur is a cost. Two cases opt out:
-
-       1. prefers-reduced-transparency — an accessibility setting people turn
-          on because translucency makes text hard to read. The look degrades to
-          solid surfaces, which is what they asked for.
-       2. prefers-reduced-motion — blur is not motion, but the setting signals a
-          low-capability or battery-sensitive device, and backdrop-filter is the
-          most expensive thing on this page.
-
-       A browser without backdrop-filter support (older Firefox) is handled by
-       @supports below: it would otherwise render translucent panels with no
-       blur, leaving text over a busy gradient. */
-    @media (prefers-reduced-transparency: reduce), (prefers-reduced-motion: reduce) {
-      :root {
-        --glass: var(--panel);
-        --glass-strong: var(--panel);
-        --glass-border: var(--border);
-        --glass-border-strong: var(--border);
-        --glass-blur: 0px;
-        --glass-shadow: none;
-        --bg-backdrop: linear-gradient(168deg, #14100b 0%, #0d0a07 100%);
-      }
-      .card, .sidebar, header, .modal-box, .model-row, .prov-card,
-      .modal-overlay {
-        -webkit-backdrop-filter: none;
-        backdrop-filter: none;
-      }
-    }
-
-    /* No backdrop-filter: keep the gradient but make the surfaces opaque enough
-       to read against it. */
-    @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-      :root {
-        --glass: rgba(18, 24, 32, 0.92);
-        --glass-strong: rgba(18, 24, 32, 0.96);
-      }
-    }
+    /* The theme is flat: surfaces are already opaque, there is no backdrop
+       filter to neutralise, and no gradient for translucent panels to sit on.
+       The two glass fallbacks that used to live here are gone with it:
+         - prefers-reduced-transparency / prefers-reduced-motion forced solid
+           surfaces, which is now the default.
+         - @supports not (backdrop-filter) raised surface opacity for browsers
+           without blur support; with no blur anywhere it had nothing to fix.
+       The prefers-reduced-motion query above is still needed for animations. */
     @media (max-width: 1024px) { .usage-cards { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
     @media (max-width: 640px) { .usage-cards { grid-template-columns: repeat(1, minmax(0, 1fr)); } }
     .usage-card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 16px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
