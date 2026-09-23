@@ -519,6 +519,11 @@ func extractErrorText(body []byte) string {
 			} `json:"details"`
 		} `json:"error"`
 		Message string `json:"message"`
+		// CodeBuddy answers with {"code":N,"msg":"..."} rather than the OpenAI
+		// {"error":{"message":"..."}} shape. Without this field every CodeBuddy
+		// failure classified as empty text, so the quota-exhaustion rules could
+		// never match and a spent budget was treated as a 2-second throttle.
+		Msg string `json:"msg"`
 	}
 	if err := json.Unmarshal(body, &parsed); err == nil {
 		var parts []string
@@ -526,6 +531,8 @@ func extractErrorText(body []byte) string {
 			parts = append(parts, parsed.Error.Message)
 		} else if parsed.Message != "" {
 			parts = append(parts, parsed.Message)
+		} else if parsed.Msg != "" {
+			parts = append(parts, parsed.Msg)
 		}
 		if parsed.Error.Status != "" {
 			parts = append(parts, parsed.Error.Status)
@@ -558,10 +565,70 @@ func extractErrorText(body []byte) string {
 
 var resetsInRegex = regexp.MustCompile(`(?i)resets?\s+in\s+([0-9hms\.]+)`)
 
+// resetAtRegex matches an ABSOLUTE reset stamp, which is how CodeBuddy reports
+// a rate limit: "your usage will reset at 2026-09-23 10:37:27 UTC+8". The
+// offset may be "UTC+8", "UTC+08:00" or absent, in which case the time is
+// treated as UTC.
+var resetAtRegex = regexp.MustCompile(`(?i)reset\s+at\s+(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2})(?:\s*UTC\s*([+-]\d{1,2}(?::\d{2})?))?`)
+
 const (
 	minResetCooldown = 5 * time.Second
 	maxResetCooldown = 2 * time.Hour
 )
+
+// parseResetTimestamp converts a matched absolute stamp into a duration from
+// now, clamped like every other reset source so a clock skew cannot produce a
+// negative lock.
+func parseResetTimestamp(matches []string) (time.Duration, bool) {
+	if len(matches) < 3 {
+		return 0, false
+	}
+	stamp := matches[1] + " " + matches[2]
+
+	loc := time.UTC
+	if len(matches) > 3 && matches[3] != "" {
+		if offsetSec, ok := parseUTCOffset(matches[3]); ok {
+			loc = time.FixedZone("", offsetSec)
+		}
+	}
+
+	resetAt, err := time.ParseInLocation("2006-01-02 15:04:05", stamp, loc)
+	if err != nil {
+		return 0, false
+	}
+	return clampResetDuration(time.Until(resetAt)), true
+}
+
+// parseUTCOffset converts the offset out of a "UTC+8" / "UTC+08:00" suffix into
+// seconds. The hour is deliberately not zero-padded: Tencent writes "+8", and
+// handing that to time.Parse as "-07:00" fails, which silently left the stamp
+// read as UTC and the cooldown at the 2-hour ceiling instead of the real reset.
+func parseUTCOffset(offset string) (int, bool) {
+	if len(offset) < 2 {
+		return 0, false
+	}
+	sign := 1
+	switch offset[0] {
+	case '+':
+	case '-':
+		sign = -1
+	default:
+		return 0, false
+	}
+
+	hourStr, minStr, hasMin := strings.Cut(offset[1:], ":")
+	hours, err := strconv.Atoi(hourStr)
+	if err != nil {
+		return 0, false
+	}
+	minutes := 0
+	if hasMin {
+		if minutes, err = strconv.Atoi(minStr); err != nil {
+			return 0, false
+		}
+	}
+	return sign * (hours*3600 + minutes*60), true
+}
 
 // extractResetDuration attempts to extract a structured reset duration from an error payload.
 // It parses:
@@ -601,7 +668,16 @@ func extractResetDuration(body []byte) (time.Duration, bool) {
 		}
 	}
 
-	// 2. Fallback regex on raw body string
+	// 2. Absolute reset stamp ("reset at 2026-09-23 10:37:27 UTC+8"), the form
+	//    CodeBuddy uses. Checked before the relative pattern because a body may
+	//    carry both and the absolute one is authoritative.
+	if matches := resetAtRegex.FindStringSubmatch(string(body)); matches != nil {
+		if dur, ok := parseResetTimestamp(matches); ok {
+			return dur, true
+		}
+	}
+
+	// 3. Fallback regex on raw body string
 	if matches := resetsInRegex.FindSubmatch(body); len(matches) > 1 {
 		raw := strings.TrimRight(string(matches[1]), ".")
 		if dur, err := time.ParseDuration(raw); err == nil && dur > 0 {

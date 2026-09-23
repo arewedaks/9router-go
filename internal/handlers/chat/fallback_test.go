@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"9router/proxy/internal/db"
+	"9router/proxy/internal/providers"
 	"9router/proxy/internal/tokensaver"
 )
 
@@ -341,5 +342,38 @@ func TestExtractErrorText_CloudflareHTML(t *testing.T) {
 	got := extractErrorText(htmlBody)
 	if !strings.Contains(got, "Cloudflare WAF challenge") {
 		t.Errorf("expected Cloudflare WAF challenge in error text, got %q", got)
+	}
+}
+
+// CodeBuddy reports failures as {"code":N,"msg":"..."}, which is not the OpenAI
+// {"error":{"message":"..."}} shape. The text was therefore always empty, so no
+// quota rule could match and a spent model quota was retried on the 2-second
+// backoff floor.
+func TestExtractErrorText_CodebuddyMsgField(t *testing.T) {
+	body := []byte(`{"code":6004,"msg":"usage exceeds frequency limit, but don't worry, your usage will reset at 2026-09-23 10:37:27 UTC+8","requestId":"x"}`)
+
+	got := extractErrorText(body)
+	if got == "" {
+		t.Fatal("CodeBuddy msg field was not read; quota classification cannot work")
+	}
+	if !strings.Contains(got, "frequency limit") {
+		t.Errorf("error text %q should carry the upstream wording", got)
+	}
+}
+
+// The same body must now classify as an exhausted quota rather than a
+// transient 429, so the account is parked for the stated reset instead of
+// being retried seconds later.
+func TestClassifyError_CodebuddyFrequencyLimitIsQuota(t *testing.T) {
+	body := []byte(`{"code":6004,"msg":"usage exceeds frequency limit, but don't worry, your usage will reset at 2026-09-23 10:37:27 UTC+8"}`)
+	text := extractErrorText(body)
+
+	if !providers.LooksLikeQuotaExhausted(text) {
+		t.Fatalf("error text %q did not read as a spent quota", text)
+	}
+
+	got := providers.ClassifyError(429, text, 0)
+	if got.CooldownMs < 60_000 {
+		t.Errorf("cooldown = %d ms; a spent quota must not use the seconds-scale backoff", got.CooldownMs)
 	}
 }

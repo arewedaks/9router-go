@@ -74,6 +74,11 @@ var quotaExhaustedPatterns = []string{
 	"billing required",
 	"payment required",
 	"balance=0",
+	// CodeBuddy words a spent model quota as a frequency limit and states when
+	// it resets: "usage exceeds frequency limit ... reset at <timestamp>". It is
+	// not a transient throttle, so it belongs with the exhausted budgets rather
+	// than the 2-second backoff floor.
+	"frequency limit",
 }
 
 // LooksLikeQuotaExhausted reports whether an error body reads as a spent
@@ -107,6 +112,7 @@ var ErrorRules = []ErrorRule{
 	{Text: "quota exceeded", CooldownMs: QuotaExhaustedCooldownMs, Quota: true},
 	{Text: "insufficient quota", CooldownMs: QuotaExhaustedCooldownMs, Quota: true},
 	{Text: "monthly limit", CooldownMs: QuotaExhaustedCooldownMs, Quota: true},
+	{Text: "frequency limit", CooldownMs: QuotaExhaustedCooldownMs, Quota: true},
 	{Text: "payment required", CooldownMs: QuotaExhaustedCooldownMs, Quota: true},
 
 	// --- Text-based rules (checked first, order = priority) ---
