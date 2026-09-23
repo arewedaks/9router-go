@@ -3,7 +3,50 @@
 
 ## [Unreleased]
 
+### 🚀 Features & Upstream Parity
+
+**Live Quota Tracker (provider Quota tab):**
+- `internal/quotatracker/` — port of upstream's `open-sse/services/usage.js`: a per-provider handler returning `{ plan, quotas: { "<label>": { used, total, resetAt, unlimited, recurring } } }`, so the two dashboards stay comparable and handlers can be ported one at a time.
+- `internal/handlers/dashboard/quota_handler.go` — `GET /api/dashboard/providers/{id}/quota`, bound by connection id so the UI attaches each balance to the exact row. Reads are sequential: the endpoints are per-account and rate-limited.
+- `internal/providers/providers.go` — `ProviderConfig.UsageURL`, mirroring upstream's `transport.usage.url`. CodeBuddy bills from `/v2/billing/meter/get-user-resource`, not the chat route, so the tracker cannot derive it.
+- `internal/handlers/dashboard/ui/index.html` — a Quota tab on the provider page, fetched lazily (every read is a live billing call) with a per-provider cache and a Refresh that drops it. Bars change colour at 70% and 90%, because a nearly-spent allowance is what this panel exists to surface.
+
+Two rules carried over from upstream, both load-bearing:
+- Refill packs and bonus packs must not be merged. A refill pack rolls into a new cycle long before the resource expires (`CycleEndTime << DeductionEndTime`) and reports `recurring: true`, so the UI says "Resets in". A bonus pack ends exactly at expiry and reports `recurring: false`, so it says "Expires in". Reporting the latter as recurring would promise a refill that never arrives.
+- A provider with no handler reports a message instead of being probed: the tracker never sends auth headers to a host that has no quota API.
+
+Covered providers: `codebuddy-cn`, `codebuddy-intl`, `workbuddy` (shared Tencent billing payload). Verified against live accounts — two CodeBuddy accounts and one WorkBuddy account, all returning real balances.
+
+**Add Provider Picker Rebuilt From the Registry:**
+- `internal/handlers/dashboard/ui/index.html` — the picker was a hardcoded `<select>` listing 30 of the 128 registered providers, and its groups had drifted from the registry: `kimi` was listed API Key but is `oauth`, `kiro` OAuth but is `free`, and `gemini`/`nvidia`/`openrouter`/`cloudflare-ai` API Key but are `freeTier`. `qwen` was offered although no such provider is registered. Deriving the list from `/api/dashboard/providers/catalog` means it cannot drift again. Added a search field matching id, display name and alias (typing `cbai` finds CodeBuddy).
+
+**Flat Surface Theme (replaces glassmorphism):**
+- `internal/handlers/dashboard/ui/index.html` — translucent white surfaces over a radial-gradient backdrop read at low contrast (text sat on a background that varied across the page), and every surface carried a `backdrop-filter`, which forces the GPU to re-composite on each scroll. Surfaces are now opaque fills separated by 1px borders with no blur, no translucency and no shadow, and the palette follows Material's surface-level model so elevation reads from fill alone.
+- Removed rather than left dormant: 10 `backdrop-filter` declaration pairs, the three hardcoded blurs that bypassed the token, and the `prefers-reduced-transparency` / `@supports not (backdrop-filter)` fallback blocks — both existed only to neutralise glass, and forcing opaque surfaces is now the default.
+- Page background is a flat colour plus a faint 40px grid, taken from upstream's `.landing-grid` (`src/app/globals.css` + `DashboardLayout`). Painted on the body rather than an `inset:0` overlay, because this shell scrolls the document and an overlay would cover only the first viewport.
+- Measured after: zero elements compute a non-none `backdrop-filter` on any page; text contrast on a card surface 12.25:1 (body) and 5.72:1 (muted), both above WCAG AA.
+
+**Search Box in the Import Models Modal:**
+- `internal/handlers/dashboard/ui/index.html` — filters by model id and upstream name, case-insensitively, with the count switching to "N of M match" and an explicit empty state. Select all / Select none apply to the VISIBLE rows only: ticking hidden ones would import far more than the operator could see, which is the failure mode a filtered bulk action invites.
+
 ### 🐛 Fixes
+
+**Prompt Cache Key Was Non-Deterministic (silently defeating the feature):**
+- `internal/promptcache/cache.go` — `HashRequest` decoded the messages into `[]map[string]any` and re-marshalled them. Go randomises map iteration and `json/v2` does not sort object keys, so the SAME request body produced TWO different digests: measured 2 distinct hashes over 200 calls, split roughly 15/85. The cache key is the lookup key, so a request landing on the minority branch could never match the entry it had just written — prompt caching missed on a share of requests. Fields are now hashed from their raw JSON bytes, which preserves the client's own key order; a body with no messages is rejected rather than hashed to an empty payload every malformed request would collide onto. Surfaced by an intermittently failing test that was reporting a real bug, not being flaky.
+
+**CodeBuddy Rate Limit Was Treated as a 2-Second Throttle:**
+- `internal/handlers/chat/fallback.go` — three linked defects. `extractErrorText` read `error.message` and `message` but not `msg`, the field CodeBuddy actually uses (`{"code":6004,"msg":"..."}`), so the error text was always empty and no classification rule could match. `resetsInRegex` only understood the relative form (`"resets in 2h"`), while CodeBuddy states an absolute stamp (`"reset at 2026-09-23 10:37:27 UTC+8"`). Adding absolute support was not enough: the offset hour is not zero-padded (`"+8"`), and feeding that to `time.Parse` as `"-07:00"` fails silently, leaving the stamp read as UTC and the cooldown pinned to the 2-hour clamp.
+- `internal/providers/errorclassify.go` — `frequency limit` joins the quota-exhaustion patterns: a spent model quota is not a transient throttle.
+- Observed before `cooldown_s=2` against an upstream reset two hours out; after, `cooldown_s=929`, matching `10:37:27 UTC+8`.
+
+**Provider Page Layout on Narrow Screens:**
+- `internal/handlers/dashboard/ui/index.html` — the Compatible Endpoints header put two `flex-shrink:0` buttons on the same row as the title, so they took all 312px of a 342px header and `.prov-section-text` collapsed to a ZERO-width column: the title and blurb wrapped one character per line and were painted behind the buttons. Under 640px the header now wraps and the actions take their own line. The toolbar's search field was pinned to an inline `width:220px`, which squeezed "+ Add Provider" onto two lines; it is now a flex item that shrinks, with the 220px width restored at ≥720px.
+
+**Modal Content Was Unreachable on a Phone:**
+- `internal/handlers/dashboard/ui/index.html` — `.modal-box` was `overflow:hidden` with no internal scroll container. Most modals are a flat list of form groups with no `.modal-body` wrapper, so on a 375×667 phone the Add Compatible Provider form needed 863px and left Advanced Settings, the verify row and the Add/Cancel buttons unreachable with nothing able to scroll. The box now scrolls its own content, with `86dvh` so the mobile URL bar is accounted for.
+
+**Test Hygiene:**
+- `internal/handlers/chat/reset_duration_test.go` — the absolute-reset test hardcoded `2026-09-23 10:37:27 UTC+8`, which was two hours ahead when written and became a past timestamp as the clock advanced; a past stamp is correctly clamped, so the assertion failed for a reason unrelated to the parser. The stamp is now generated relative to now.
 
 **CodeBuddy Model Catalogue Corrected Against a Live Account:**
 - `internal/handlers/dashboard/codebuddy_catalog.go` — probed every catalogued model against a live `codebuddy-intl` account (one request each) and corrected the catalogue. `deepseek-v4.1-flash` was missing and works; fourteen ids the gateway answers with `11102` ("model is not available") are now retired so Import stops offering models that always fail. Import went from 24 entries to the 8 that actually serve.
