@@ -14,17 +14,19 @@
   <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap" rel="stylesheet">
   <style>
     :root {
-      /* Warm palette: near-black with a brown cast rather than blue, so the
-         orange backdrops read as part of the surface instead of sitting on top
-         of a cold page. */
-      --bg: #0d0a07;
-      --panel: #1a1310;
-      --panel-hover: #241a14;
-      --border: #3a2a1d;
+      /* Warm palette, lifted to Material's surface-level model: each level is a
+         visibly lighter step so elevation reads from fill alone, without relying
+         on borders or shadows. The previous set sat at the very bottom of the
+         range (#0d0a07 page / #1a1310 panel), which on a real display read as
+         near-black mud with almost no separation between a card and the page. */
+      --bg: #1c1613;
+      --panel: #272020;
+      --panel-hover: #3a312d;
+      --border: #574941;
       --text: #e6edf3;
-      --muted: #8b949e;
+      --muted: #9aa4ae;
       --primary: #ff8a2a;
-      --primary-dim: #4a2a12;
+      --primary-dim: #5a3416;
       --accent: #238636;
       --danger: #da3633;
       --warning: #d29922;
@@ -36,7 +38,7 @@
       --radius-field: 14px;
 
       /* ----------------------------------------------------------------
-         Surface layer — FLAT
+         Surface layer — FLAT, Material elevation
          ----------------------------------------------------------------
          Surfaces are opaque fills separated by 1px borders and spacing, with
          no blur, no translucency and no drop shadow. This replaced a
@@ -45,25 +47,32 @@
          background), and every surface paid for a backdrop-filter, which
          forces the GPU to re-composite on each scroll.
 
+         --glass is the base surface and --glass-strong the raised one; they
+         are one step above --panel and --panel-hover so a card, a modal and a
+         dropdown stay distinguishable when nested.
+
          The variable names are kept so the ~46 call sites need no edit, and a
          single edit here still retunes the whole look. To go back to glass,
          restore translucent values here and give --glass-blur a non-zero
          length; every rule reads these tokens. */
-      --glass: #16110d;
-      --glass-strong: #1c1611;
-      --glass-border: #2b211a;
-      --glass-border-strong: #3a2c22;
+      --glass: #2f2825;
+      --glass-strong: #3a312d;
+      --glass-border: #574941;
+      --glass-border-strong: #6d5b51;
       --glass-blur: 0px;
       --glass-shadow: none;
       /* Page background: flat colour plus a faint 40px grid, taken from the
          upstream 9Router dashboard (src/app/globals.css `.landing-grid` +
          DashboardLayout's `landing-grid absolute inset-0 -z-10`). The grid is
          what keeps a flat theme from reading as a plain empty page; upstream
-         dims it to 0.04 opacity in dark mode, which is what --grid-opacity
-         carries. --grid-line is the accent at that opacity, so the grid stays a
-         single recolourable token rather than a literal in the gradient. */
-      --grid-line: rgba(255, 138, 42, 0.04);
+         dims it to 0.04 opacity in dark mode. The line is raised from 0.04 to
+         0.06 because the lighter page now has less contrast for it to sit in. */
+      --grid-line: rgba(255, 176, 102, 0.06);
       --grid-size: 40px;
+      /* Code and terminal panes step DOWN from the page rather than up: a
+         monospace surface reading darker than its surroundings is the
+         convention, and it separates log output from UI chrome at a glance. */
+      --code-bg: #14100e;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif; }
     /* Flat colour plus a faint 40px grid. The grid is painted on the body
@@ -447,7 +456,7 @@
          tiles look like one family. */
       background:
         linear-gradient(150deg,
-          color-mix(in srgb, var(--tint) 26%, #1a1310) 0%,
+          color-mix(in srgb, var(--tint) 26%, var(--panel)) 0%,
           color-mix(in srgb, var(--tint) 10%, #140f0b) 100%);
       border: 1px solid color-mix(in srgb, var(--tint) 34%, transparent);
       box-shadow:
@@ -557,7 +566,7 @@
     
     /* Category Badges */
     .badge-oauth { background: #271052; color: #d2a8ff; border: 1px solid #8957e5; }
-    .badge-freeTier { background: #3a2412; color: #ffb066; border: 1px solid #a86a2c; }
+    .badge-freeTier { background: #3a2412; color: #ffb066; border: 1px solid #b8834a; }
     .badge-free { background: #10301c; color: #56d364; border: 1px solid #238636; }
     .badge-apikey { background: #3e2800; color: #e3b341; border: 1px solid #9e6a03; }
     .badge-webCookie { background: #3d1a2b; color: #ff9ec4; border: 1px solid #bf4b8a; }
@@ -569,7 +578,7 @@
     .prov-group-row td { border-bottom: 1px solid var(--border); padding: 12px 14px; }
     .prov-chevron { display:inline-block; transition: transform 0.15s; color: var(--muted); font-size: 0.75rem; }
     .prov-chevron.open { transform: rotate(90deg); }
-    .prov-count-pill { background: #a86a2c22; color: #ffb066; border: 1px solid #a86a2c; border-radius: 999px; padding: 1px 9px; font-size: 0.72rem; font-weight: 600; }
+    .prov-count-pill { background: #b8834a22; color: #ffb066; border: 1px solid #b8834a; border-radius: 999px; padding: 1px 9px; font-size: 0.72rem; font-weight: 600; }
     .acct-row td { background: var(--bg); padding: 8px 14px 8px 52px; font-size: 0.83rem; border-bottom: 1px dashed var(--border); }
     .acct-dot { display:inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 7px; }
     .acct-dot.on { background: #3fb950; box-shadow: 0 0 5px #3fb950; }
@@ -690,7 +699,7 @@
     /* The dropdown list is rendered by the OS and does not inherit the flat
      * surface colour; without an explicit option background the items are
      * unreadable on some platforms. */
-    select option { background: #1a1310; color: var(--text); }
+    select option { background: var(--panel); color: var(--text); }
     input::placeholder, textarea::placeholder { color: var(--muted); }
     input:focus, select:focus, textarea:focus { border-color: var(--primary); }
     /* Number spinners are near-invisible on a dark field. */
@@ -752,7 +761,7 @@
     #require-apikey-msg { margin-top: 10px; font-size: 0.8rem; }
     #allow-remote-toggle:checked + .slider { background-color: #f85149; }
     .key-secret { display: flex; align-items: center; gap: 6px; }
-    .key-secret code { background: #0d0a07; border: 1px solid var(--border); padding: 4px 8px; border-radius: 4px; color: #ffb066; font-size: 0.78rem; }
+    .key-secret code { background: var(--bg); border: 1px solid var(--border); padding: 4px 8px; border-radius: 4px; color: #ffb066; font-size: 0.78rem; }
     .icon-btn { background: none; border: none; cursor: pointer; font-size: 0.85rem; padding: 2px 4px; border-radius: 4px; opacity: 0.65; }
     .icon-btn:hover { opacity: 1; background: rgba(255,255,255,0.06); }
     .row-paused { opacity: 0.55; }
@@ -1392,7 +1401,7 @@
     .usage-drawer details > div { padding: 0 12px 12px; }
 
     .console-terminal {
-      background: #0d0a07;
+      background: var(--code-bg);
       border: 1px solid var(--border);
       border-radius: var(--radius);
       padding: 12px;
