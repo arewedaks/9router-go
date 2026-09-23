@@ -9,6 +9,7 @@ import (
 	"9router/proxy/internal/handlerutil"
 	"9router/proxy/internal/log"
 	"9router/proxy/internal/resilience"
+	"9router/proxy/internal/sysmetrics"
 	"9router/proxy/internal/tracing"
 )
 
@@ -133,4 +134,22 @@ func HandleConsoleLogsStream(w http.ResponseWriter, r *http.Request) {
 			flusher.Flush()
 		}
 	}
+}
+
+// HandleSystemMetrics reports this process's CPU and memory use plus the host's
+// memory, for the resource card on the Console Log page.
+//
+// The first call of a process returns cpuPercent 0 because a percentage needs
+// two samples to difference; the client polls, so the second call onward is
+// meaningful. That is stated in the payload via Supported rather than hidden.
+func HandleSystemMetrics(w http.ResponseWriter, r *http.Request) {
+	sample := sysmetrics.Read()
+	payload := map[string]any{
+		"success": true,
+		"metrics": sample,
+	}
+	if load, ok := sysmetrics.HostLoadAverage(); ok {
+		payload["hostLoad1"] = load
+	}
+	handlerutil.WriteJSON(w, http.StatusOK, payload)
 }

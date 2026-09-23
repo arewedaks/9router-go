@@ -1083,6 +1083,19 @@
     .quota-fill.warn { background: var(--warning); }
     .quota-fill.crit { background: var(--danger); }
     .quota-reset { font-size: 0.68rem; color: var(--muted); margin-top: 4px; }
+    /* Resource card on the Console Log page: one tile per metric. */
+    .res-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; }
+    .res-empty { grid-column: 1 / -1; padding: 20px; text-align: center; font-size: 0.82rem; color: var(--muted); }
+    .res-tile { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 11px 13px; min-width: 0; }
+    .res-tile-label { font-size: 0.68rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin-bottom: 5px; display: flex; align-items: center; gap: 5px; }
+    .res-tile-value { font-size: 1.25rem; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+    .res-tile-sub { font-size: 0.68rem; color: var(--muted); margin-top: 3px; }
+    .res-bar { height: 6px; background: var(--panel-hover); border: 1px solid var(--border); border-radius: 999px; overflow: hidden; margin-top: 7px; }
+    .res-bar-fill { height: 100%; background: var(--accent); transition: width 0.4s ease; }
+    /* Same bands as the quota bars: a nearly-full resource is the reading that
+       matters, so it is coloured rather than left to the number. */
+    .res-bar-fill.warn { background: var(--warning); }
+    .res-bar-fill.crit { background: var(--danger); }
     .cap-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
     .cap-item { background: var(--panel); border: 1px solid var(--border); border-radius: 9px; padding: 11px; display: flex; align-items: center; gap: 9px; }
     .cap-item .msym { font-size: 19px; color: var(--primary); }
@@ -2115,6 +2128,21 @@
 
   <!-- CONSOLE LOG TAB -->
   <div id="tab-console" class="tab-pane">
+    <div class="card" style="padding: 16px; margin-bottom: 12px;">
+      <div class="card-head" style="margin-bottom:12px;">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <h2 style="margin:0;font-size:1.1rem;display:flex;align-items:center;gap:8px;">
+            <span><span class="msym" style="font-size:17px;">monitor_heart</span> Resources</span>
+          </h2>
+          <span id="res-status-badge" class="badge badge-idle">● Connecting...</span>
+        </div>
+        <span id="res-updated" style="font-size:0.72rem;color:var(--muted);font-variant-numeric:tabular-nums;"></span>
+      </div>
+      <div id="res-grid" class="res-grid">
+        <div class="res-empty">Loading resource metrics…</div>
+      </div>
+    </div>
+
     <div class="card" style="padding: 16px;">
       <div class="card-head" style="flex-wrap:wrap;gap:12px;margin-bottom:12px;">
         <div style="display:flex;align-items:center;gap:10px;">
@@ -2834,6 +2862,7 @@
 
   function startConsoleLogs() {
     if (consoleEventSource) return;
+    startResourcePolling();
     const statusBadge = document.getElementById("console-status-badge");
     if (statusBadge) {
       statusBadge.textContent = "● Connecting...";
@@ -2890,11 +2919,136 @@
       consoleEventSource.close();
       consoleEventSource = null;
     }
+    stopResourcePolling();
     const statusBadge = document.getElementById("console-status-badge");
     if (statusBadge) {
       statusBadge.textContent = "● Paused";
       statusBadge.className = "badge badge-idle";
     }
+  }
+
+  // ----------------------------------------------------------------
+  // Resource card (CPU / RAM for this process, RAM left on the host)
+  //
+  // Polled only while the Console Log page is open: a background poll would
+  // burn battery and provider quota for a number nobody is looking at. CPU is a
+  // delta between two samples, so the first reading is always 0 and the card
+  // says so rather than showing a misleading 0.0%.
+  let resourceTimer = null;
+  const RESOURCE_POLL_MS = 5000;
+
+  function startResourcePolling() {
+    if (resourceTimer) return;
+    fetchResourceMetrics();
+    resourceTimer = setInterval(fetchResourceMetrics, RESOURCE_POLL_MS);
+  }
+
+  function stopResourcePolling() {
+    if (resourceTimer) {
+      clearInterval(resourceTimer);
+      resourceTimer = null;
+    }
+  }
+
+  async function fetchResourceMetrics() {
+    const grid = document.getElementById("res-grid");
+    if (!grid) return;
+    try {
+      const res = await api("/api/system/metrics");
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      renderResourceMetrics(grid, data.metrics, data.hostLoad1);
+      const badge = document.getElementById("res-status-badge");
+      if (badge) {
+        badge.textContent = "● Live";
+        badge.className = "badge badge-ok";
+      }
+      const stamp = document.getElementById("res-updated");
+      if (stamp) stamp.textContent = "updated " + new Date().toLocaleTimeString();
+    } catch (e) {
+      const badge = document.getElementById("res-status-badge");
+      if (badge) {
+        badge.textContent = "● Unavailable";
+        badge.className = "badge badge-err";
+      }
+      grid.innerHTML = `<div class="res-empty">Could not read resource metrics: ${escapeHtml(String(e))}</div>`;
+    }
+  }
+
+  function renderResourceMetrics(grid, m, hostLoad1) {
+    if (!m) {
+      grid.innerHTML = `<div class="res-empty">No metrics returned.</div>`;
+      return;
+    }
+    if (!m.supported) {
+      // Saying "not available" beats showing a number with no basis.
+      grid.innerHTML = `<div class="res-empty">Process metrics are only available on Linux builds.</div>`;
+      return;
+    }
+
+    const bar = (pct) => {
+      const cls = pct >= 90 ? "crit" : (pct >= 70 ? "warn" : "");
+      return `<div class="res-bar"><div class="res-bar-fill ${cls}" style="width:${Math.min(100, pct).toFixed(1)}%"></div></div>`;
+    };
+
+    // CPU: a share of one core, so it can exceed 100 on a multi-core host.
+    // A first sample has no previous reading to difference against.
+    const cpuSub = m.cpuPercent > 0
+      ? `${m.numCpu} cores available · user ${fmtSeconds(m.cpuUserSeconds)} / sys ${fmtSeconds(m.cpuSysSeconds)}`
+      : "first sample — a percentage needs two readings";
+
+    const hostPct = m.hostUsedPercent || 0;
+    const hostSub = m.hostTotalBytes
+      ? `of ${fmtBytes(m.hostTotalBytes)} total · ${fmtBytes(m.hostAvailableBytes)} available`
+      : "host memory unavailable";
+
+    grid.innerHTML = `
+      <div class="res-tile">
+        <div class="res-tile-label"><span class="msym" style="font-size:14px;">speed</span>CPU</div>
+        <div class="res-tile-value">${m.cpuPercent.toFixed(1)}%</div>
+        ${bar(m.cpuPercent)}
+        <div class="res-tile-sub">${escapeHtml(cpuSub)}</div>
+      </div>
+      <div class="res-tile">
+        <div class="res-tile-label"><span class="msym" style="font-size:14px;">memory</span>Process RAM</div>
+        <div class="res-tile-value">${fmtBytes(m.rssBytes)}</div>
+        <div class="res-tile-sub">Go heap ${fmtBytes(m.heapBytes)} · ${m.goroutines} goroutines</div>
+      </div>
+      <div class="res-tile">
+        <div class="res-tile-label"><span class="msym" style="font-size:14px;">storage</span>RAM Left</div>
+        <div class="res-tile-value">${fmtBytes(m.hostAvailableBytes)}</div>
+        ${bar(hostPct)}
+        <div class="res-tile-sub">${escapeHtml(hostSub)}</div>
+      </div>
+      <div class="res-tile">
+        <div class="res-tile-label"><span class="msym" style="font-size:14px;">schedule</span>Uptime</div>
+        <div class="res-tile-value">${fmtDuration(m.uptimeSeconds)}</div>
+        <div class="res-tile-sub">${typeof hostLoad1 === "number" ? `host load (1m) ${hostLoad1.toFixed(2)}` : "process uptime"}</div>
+      </div>`;
+  }
+
+  function fmtBytes(n) {
+    if (typeof n !== "number" || !isFinite(n) || n <= 0) return "0 B";
+    const units = ["B", "KiB", "MiB", "GiB", "TiB"];
+    let i = 0, v = n;
+    while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+    return (v >= 100 || i === 0 ? v.toFixed(0) : v.toFixed(1)) + " " + units[i];
+  }
+
+  function fmtDuration(seconds) {
+    if (typeof seconds !== "number" || !isFinite(seconds) || seconds < 0) return "-";
+    const s = Math.floor(seconds);
+    const d = Math.floor(s / 86400);
+    const h = Math.floor((s % 86400) / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    if (d > 0) return `${d}d ${h}h`;
+    if (h > 0) return `${h}h ${m}m`;
+    if (m > 0) return `${m}m ${s % 60}s`;
+    return `${s}s`;
+  }
+
+  function fmtSeconds(v) {
+    return typeof v === "number" && isFinite(v) ? `${v.toFixed(1)}s` : "-";
   }
 
   // ----------------------------------------------------------------

@@ -164,6 +164,8 @@ func SetupRoutes(r interface {
 	r.Delete("/api/translator/console-logs", HandleConsoleLogsDelete)
 	r.Get("/translator/console-logs/stream", HandleConsoleLogsStream)
 	r.Get("/api/translator/console-logs/stream", HandleConsoleLogsStream)
+	// Process/host resource sample for the Console Log resource card.
+	r.Get("/api/system/metrics", HandleSystemMetrics)
 
 	// Usage Real-time SSE Stream & Stats Domain (dashboard topology animation + recent requests)
 	r.Get("/usage/stream", HandleUsageStream(repo))
@@ -260,6 +262,10 @@ func SetupServerRouter(r chi.Router, repo *db.Repo, ts *TokenSaverConfig) {
 		// keep working with an API key exactly as before.
 		r.Use(middleware.RequireApiKeyUnlessDisabled(repo, dashH.VerifySession,
 			"/api/oauth/", "/api/dashboard/", "/api/translator/", "/translator/", "/usage/", "/api/usage/",
+			// Process/host resource sample for the Console Log card. Like the
+			// console-log routes above it, this is read by a password-logged-in
+			// browser that holds only the httpOnly session cookie.
+			"/api/system/",
 			// The dashboard's model pickers read the catalog to build combo and
 			// provider model lists. A password-logged-in browser holds only the
 			// httpOnly session cookie, so without these the picker calls the
