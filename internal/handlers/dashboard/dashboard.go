@@ -146,6 +146,8 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 		dr.Post("/providers/{id}/models", h.HandleAddModel)
 		dr.Get("/providers/{id}/models", h.HandleImportModels)
 		dr.Delete("/providers/{id}/models", h.HandleRemoveModel)
+		// Live credit/quota balances per account (upstream getUsageForProvider).
+		dr.Get("/providers/{id}/quota", h.HandleProviderQuota)
 
 		// Model test (ping) — mirrors upstream POST /api/models/test and
 		// POST /api/providers/[id]/test-models.

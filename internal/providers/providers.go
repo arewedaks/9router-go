@@ -22,6 +22,12 @@ type ProviderConfig struct {
 	VoicesURL     string            // override /audio/voices listing endpoint
 	FetchURL      string            // override /web/fetch endpoint (Jina, Firecrawl, etc.)
 	FetchMethod   string            // HTTP method for fetch: GET or POST (default POST)
+	// UsageURL is the provider's quota/credit endpoint, when it differs from the
+	// chat gateway. Mirrors upstream's `transport.usage.url`: CodeBuddy bills
+	// from /v2/billing/meter/get-user-resource, not from the chat route, so the
+	// quota tracker cannot derive it. Empty means "no quota API" and the tracker
+	// reports that instead of guessing a path.
+	UsageURL string
 }
 
 // FormatClaude marks a provider whose upstream speaks the Anthropic Messages
@@ -305,6 +311,7 @@ var KnownProviders = map[string]ProviderConfig{
 	},
 	"codebuddy-cn": {
 		BaseURL:    "https://copilot.tencent.com/v2/chat/completions",
+		UsageURL:   "https://copilot.tencent.com/v2/billing/meter/get-user-resource",
 		AuthHeader: "Authorization",
 		AuthScheme: "bearer",
 		StaticHeaders: map[string]string{
@@ -318,6 +325,7 @@ var KnownProviders = map[string]ProviderConfig{
 	},
 	"codebuddy-intl": {
 		BaseURL:    "https://www.codebuddy.ai/v2/chat/completions",
+		UsageURL:   "https://www.codebuddy.ai/v2/billing/meter/get-user-resource",
 		AuthHeader: "Authorization",
 		AuthScheme: "bearer",
 		StaticHeaders: map[string]string{
@@ -331,6 +339,7 @@ var KnownProviders = map[string]ProviderConfig{
 	},
 	"workbuddy": {
 		BaseURL:    "https://www.workbuddy.ai/v2/chat/completions",
+		UsageURL:   "https://www.workbuddy.ai/v2/billing/meter/get-user-resource",
 		AuthHeader: "Authorization",
 		AuthScheme: "bearer",
 		StaticHeaders: map[string]string{
