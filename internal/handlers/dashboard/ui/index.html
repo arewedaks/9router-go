@@ -693,6 +693,13 @@
       border: 1px solid var(--glass-border-strong);
       border-radius: var(--radius);
       max-width: 540px; width: 100%; padding: 24px;
+      /* Keep the box inside the viewport and let it scroll. A modal taller than
+         the screen (Add Compatible Provider on a phone) otherwise loses its
+         footer buttons with no way to reach them. dvh, not vh, so the mobile
+         URL bar is accounted for; the vh line is the fallback. */
+      max-height: 86vh;
+      max-height: 86dvh;
+      overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain;
       -webkit-backdrop-filter: blur(20px) saturate(160%);
       backdrop-filter: blur(20px) saturate(160%);
       box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
@@ -1099,7 +1106,21 @@
       border: 1px solid var(--glass-border-strong);
       border-radius: 12px;
       width: 100%; max-width: 560px; max-height: 86vh;
-      display: flex; flex-direction: column; overflow: hidden;
+      /* dvh tracks the mobile URL bar; vh above is the fallback for browsers
+         without it, where 86vh can exceed the visible area and push the footer
+         buttons below the fold. */
+      max-height: 86dvh;
+      display: flex; flex-direction: column;
+      /* The box scrolls its own content. Most modals are a flat list of form
+         groups with no .modal-body wrapper, so overflow:hidden clipped them:
+         on a 375x667 phone the Add Compatible Provider form needed 863px, which
+         left Advanced Settings, the verify row and the Add/Cancel buttons
+         unreachable with nothing able to scroll.
+         The import modal is unaffected — its .modal-body has flex:1 and
+         overflow-y:auto, so it absorbs the overflow and the box never scrolls.
+         overscroll-behavior keeps a flick at the end of a form from scrolling
+         the page behind the overlay. */
+      overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain;
       -webkit-backdrop-filter: blur(20px) saturate(160%);
       backdrop-filter: blur(20px) saturate(160%);
       box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
@@ -1107,6 +1128,23 @@
     .modal-head { display: flex; align-items: center; gap: 9px; padding: 13px 15px; border-bottom: 1px solid var(--border); font-size: 0.88rem; }
     .modal-toolbar { display: flex; align-items: center; gap: 8px; padding: 9px 15px; border-bottom: 1px solid var(--border); }
     .modal-toolbar span { flex: 1; }
+    /* The search field takes the space the count label used to own, so the
+       count is given flex:none to stay beside it rather than stretching. */
+    .import-search {
+      flex: 1; min-width: 0;
+      background: var(--glass); border: 1px solid var(--glass-border);
+      border-radius: var(--radius-field); padding: 6px 10px;
+      color: #e6edf3; font-size: 0.78rem; font-family: inherit;
+    }
+    .import-search:focus { outline: none; border-color: var(--primary); }
+    .import-toolbar-count { flex: 0 0 auto; font-size: 0.75rem; color: var(--muted); white-space: nowrap; }
+    .import-empty { padding: 18px 4px; text-align: center; font-size: 0.8rem; color: var(--muted); }
+    /* On a narrow screen the toolbar cannot hold the field and three controls
+       on one line, so the search takes the full width above them. */
+    @media (max-width: 520px) {
+      .modal-toolbar { flex-wrap: wrap; }
+      .import-search { flex: 1 1 100%; }
+    }
     .modal-body { overflow-y: auto; padding: 8px 15px; flex: 1; }
     .modal-foot { display: flex; align-items: center; gap: 8px; padding: 11px 15px; border-top: 1px solid var(--border); }
     .import-row { display: flex; align-items: center; gap: 10px; padding: 7px 4px; border-bottom: 1px solid var(--border); cursor: pointer; font-size: 0.82rem; }
@@ -4182,11 +4220,17 @@
           <button class="btn btn-sm" onclick="closeImportModal()">✕</button>
         </div>
         <div class="modal-toolbar">
-          <span style="font-size:0.75rem; color:var(--muted);">${models.length} available</span>
+          <input type="text" id="import-search" class="import-search"
+                 placeholder="Search model id or name..." autocomplete="off"
+                 oninput="filterImportRows(this.value)">
+          <span class="import-toolbar-count" id="import-count">${models.length} available</span>
           <button class="btn btn-sm" onclick="toggleAllImport(true)">Select all</button>
           <button class="btn btn-sm" onclick="toggleAllImport(false)">Select none</button>
         </div>
-        <div class="modal-body">${rows}</div>
+        <div class="modal-body">
+          <div id="import-empty" class="import-empty" style="display:none;">No model matches that search.</div>
+          ${rows}
+        </div>
         <div class="modal-foot">
           <div id="import-modal-msg" style="flex:1; font-size:0.75rem; color:var(--muted);"></div>
           <button class="btn" onclick="closeImportModal()">Cancel</button>
@@ -4196,8 +4240,39 @@
     modal.classList.add("active");
   }
 
+  // Filters the model list by id or upstream name. Rows are hidden rather than
+  // removed: the checkbox index is bound to importState.models, so rebuilding
+  // the list would break the mapping between a checkbox and its model.
+  function filterImportRows(query) {
+    const q = (query || "").toLowerCase().trim();
+    let shown = 0;
+    document.querySelectorAll("#import-modal .import-row").forEach(row => {
+      const text = row.textContent.toLowerCase();
+      const match = !q || text.includes(q);
+      row.style.display = match ? "" : "none";
+      if (match) shown++;
+    });
+
+    const count = document.getElementById("import-count");
+    if (count) {
+      const total = importState.models.length;
+      count.textContent = q ? `${shown} of ${total} match` : `${total} available`;
+    }
+
+    // A query that matches nothing must not read as "nothing to import": say so.
+    const empty = document.getElementById("import-empty");
+    if (empty) empty.style.display = shown === 0 ? "" : "none";
+  }
+
+  // Select all / none applies to the VISIBLE rows when a filter is active.
+  // Otherwise a search followed by "Select all" would silently tick the hidden
+  // rows too, and importing far more than the operator could see.
   function toggleAllImport(checked) {
-    document.querySelectorAll(".import-cb").forEach(cb => { cb.checked = checked; });
+    document.querySelectorAll("#import-modal .import-row").forEach(row => {
+      if (row.style.display === "none") return;
+      const cb = row.querySelector(".import-cb");
+      if (cb) cb.checked = checked;
+    });
   }
 
   function closeImportModal() {
