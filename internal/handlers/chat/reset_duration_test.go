@@ -10,8 +10,15 @@ import (
 // relative "resets in 2h" the parser was written for. Missing it left the
 // account locked for the 2s backoff floor while the upstream said hours, so
 // every following request walked straight back into the same 429.
+//
+// The stamp is generated relative to now rather than hardcoded: a literal date
+// silently becomes a past timestamp as the clock advances, and the assertion
+// then fails for a reason that has nothing to do with the parser.
 func TestExtractResetDuration_CodebuddyAbsoluteTimestamp(t *testing.T) {
-	body := []byte(`{"code":6004,"msg":"usage exceeds frequency limit, but don't worry, your usage will reset at 2026-09-23 10:37:27 UTC+8, alternatively, you can switch to the other models to continue using it.","requestId":"fc9efb08-42b4-4021-a846-193561f199a7"}`)
+	resetAt := time.Now().In(time.FixedZone("UTC+8", 8*3600)).Add(2 * time.Hour)
+	body := []byte(`{"code":6004,"msg":"usage exceeds frequency limit, but don't worry, your usage will reset at ` +
+		resetAt.Format("2006-01-02 15:04:05") +
+		` UTC+8, alternatively, you can switch to the other models to continue using it.","requestId":"fc9efb08-42b4-4021-a846-193561f199a7"}`)
 
 	got, ok := extractResetDuration(body)
 	if !ok {
@@ -22,6 +29,12 @@ func TestExtractResetDuration_CodebuddyAbsoluteTimestamp(t *testing.T) {
 	}
 	if got > maxResetCooldown {
 		t.Errorf("duration = %v, want <= %v (clamped)", got, maxResetCooldown)
+	}
+	// Two hours out is exactly the clamp ceiling, so assert the value is close
+	// to what was written rather than merely non-trivial: a dropped UTC offset
+	// would still land inside the window by accident.
+	if got < 90*time.Minute {
+		t.Errorf("duration = %v, want ~2h; a much smaller value means the offset was mishandled", got)
 	}
 }
 
