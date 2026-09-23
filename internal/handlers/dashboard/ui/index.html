@@ -16,7 +16,7 @@
     :root {
       /* Warm palette: near-black with a brown cast rather than blue, so the
          orange backdrops read as part of the surface instead of sitting on top
-         of a cold page. Keep these in step with --bg-backdrop below. */
+         of a cold page. */
       --bg: #0d0a07;
       --panel: #1a1310;
       --panel-hover: #241a14;
@@ -55,21 +55,29 @@
       --glass-border-strong: #3a2c22;
       --glass-blur: 0px;
       --glass-shadow: none;
-      /* A flat page needs no backdrop for the blur to sample, and the gradient
-         was part of the glass look. One solid colour, edge to edge. */
-      --bg-backdrop: #0d0a07;
+      /* Page background: flat colour plus a faint 40px grid, taken from the
+         upstream 9Router dashboard (src/app/globals.css `.landing-grid` +
+         DashboardLayout's `landing-grid absolute inset-0 -z-10`). The grid is
+         what keeps a flat theme from reading as a plain empty page; upstream
+         dims it to 0.04 opacity in dark mode, which is what --grid-opacity
+         carries. --grid-line is the accent at that opacity, so the grid stays a
+         single recolourable token rather than a literal in the gradient. */
+      --grid-line: rgba(255, 138, 42, 0.04);
+      --grid-size: 40px;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif; }
-    /* A single flat colour behind everything. The gradient and its fixed
-       attachment existed so the glass surfaces had something to diffuse; with
-       no blur there is nothing to sample and the gradient only added visual
-       noise behind the content. */
+    /* Flat colour plus a faint 40px grid. The grid is painted on the body
+       itself rather than an absolutely-positioned overlay (upstream's approach)
+       because this shell scrolls the document: an inset:0 overlay would only
+       cover the first viewport, leaving the grid stopping partway down a long
+       page. background-attachment: fixed keeps it aligned while scrolling. */
     body {
       background-color: var(--bg);
-      background-image: var(--bg-backdrop);
+      background-image:
+        linear-gradient(to right, var(--grid-line) 1px, transparent 1px),
+        linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px);
+      background-size: var(--grid-size) var(--grid-size);
       background-attachment: fixed;
-      background-repeat: no-repeat;
-      background-size: cover;
       color: var(--text);
       min-height: 100vh;
       display: flex;
@@ -189,9 +197,14 @@
       position: fixed; inset: 0; z-index: 2000;
       display: flex; align-items: center; justify-content: center;
       padding: 20px;
-      /* Opaque, not translucent: this must not let the shell show through. */
+      /* Opaque, not translucent: this must not let the shell show through.
+         Same flat colour + grid as the body so the two do not read as
+         different products. */
       background-color: var(--bg);
-      background-image: var(--bg-backdrop);
+      background-image:
+        linear-gradient(to right, var(--grid-line) 1px, transparent 1px),
+        linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px);
+      background-size: var(--grid-size) var(--grid-size);
       background-attachment: fixed;
       overflow-y: auto;
     }
