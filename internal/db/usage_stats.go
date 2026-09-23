@@ -55,7 +55,7 @@ func (r *Repo) accumulateDaily(stats *UsageStats, days int, connNames, nodeNames
 		now := time.Now()
 		y, m, d := now.Date()
 		start := time.Date(y, m, d, 0, 0, 0, 0, now.Location()).AddDate(0, 0, -(days - 1))
-		fromKey = dateKeyFor(start)
+		fromKey = DateKey(start)
 	}
 
 	dayDocs, err := r.GetUsageDailyRange(fromKey, "")
@@ -463,7 +463,7 @@ func (r *Repo) GetUsageChart(period string, now time.Time) ([]UsagePoint, error)
 		}
 	}
 
-	dayDocs, err := r.GetUsageDailyRange(dateKeyFor(now.AddDate(0, 0, -(bucketCount-1))), "")
+	dayDocs, err := r.GetUsageDailyRange(DateKey(now.AddDate(0, 0, -(bucketCount-1))), "")
 	if err != nil {
 		return nil, err
 	}
@@ -471,7 +471,7 @@ func (r *Repo) GetUsageChart(period string, now time.Time) ([]UsagePoint, error)
 	out := make([]UsagePoint, 0, bucketCount)
 	for i := 0; i < bucketCount; i++ {
 		d := now.AddDate(0, 0, -(bucketCount - 1 - i))
-		key := dateKeyFor(d)
+		key := DateKey(d)
 		doc := dayDocs[key]
 		out = append(out, UsagePoint{
 			Label:  d.Format("Jan 2"),

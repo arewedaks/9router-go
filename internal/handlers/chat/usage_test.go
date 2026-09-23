@@ -4,8 +4,10 @@ import (
 	json "encoding/json/v2"
 	"strings"
 	"testing"
+	"time"
 
 	"9router/proxy/internal/constants"
+	"9router/proxy/internal/db"
 	"9router/proxy/internal/translator"
 )
 
@@ -263,4 +265,36 @@ func buildRequestBody(msgs []translator.OpenAIMessage) []byte {
 	}
 	b, _ := json.Marshal(req)
 	return b
+}
+
+// The daily rollup is read back through PeriodCutoff("today"), which opens at
+// local midnight. Keying the write by UTC date instead filed today's requests
+// into yesterday's key for the seven hours after local midnight on UTC+7, so
+// the dashboard showed an empty day.
+func TestUpsertDailyUsageFilesIntoTheLocalDay(t *testing.T) {
+	sqlDB, cleanup := setupChatTestDB(t)
+	defer cleanup()
+
+	h := &ChatHandler{Repo: db.NewRepo(sqlDB)}
+
+	// 03:00 local: the local date has rolled over, the UTC date has not.
+	loc := time.FixedZone("UTC+7", 7*3600)
+	at := time.Date(2026, time.September, 23, 3, 0, 0, 0, loc)
+	if utcDay := at.UTC().Format("2006-01-02"); utcDay == "2026-09-23" {
+		t.Fatalf("instant does not straddle the date boundary: UTC day is %q", utcDay)
+	}
+
+	// at's local day, spelled out so the check does not rest on the very
+	// function whose zone it is verifying.
+	localKey := "2026-09-23"
+
+	h.upsertDailyUsage("deepseek", "test-model", "/v1/chat/completions", "conn-1", "", 10, 5, 0, 0.1, at)
+
+	data, err := h.Repo.GetUsageDaily(localKey)
+	if err != nil {
+		t.Fatalf("no rollup under local day %q: %v", localKey, err)
+	}
+	if want := `"requests":1`; !strings.Contains(data, want) {
+		t.Errorf("rollup for %s = %s, want %s counted on the local day", localKey, data, want)
+	}
 }

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"9router/proxy/internal/constants"
+	"9router/proxy/internal/db"
 	"9router/proxy/internal/pricing"
 	"9router/proxy/internal/translator"
 	"9router/proxy/internal/usagetracker"
@@ -90,7 +91,8 @@ func (h *ChatHandler) logUsage(info *UsageLogInfo, usage *translator.OpenAIUsage
 		log.Error("usage", "insert request detail failed", "error", err)
 	}
 
-	h.upsertDailyUsage(info.Provider, info.Model, info.Endpoint, info.ConnectionID, info.APIKey, usage.PromptTokens, usage.CompletionTokens, cachedTokens, cost)
+	// time.Now(), not the UTC `now` above: the rollup is keyed by local day.
+	h.upsertDailyUsage(info.Provider, info.Model, info.Endpoint, info.ConnectionID, info.APIKey, usage.PromptTokens, usage.CompletionTokens, cachedTokens, cost, time.Now())
 
 	usagetracker.GetTracker().PushRecent(usagetracker.RecentRequest{
 		Timestamp:        now.Format(time.RFC3339),
@@ -144,11 +146,15 @@ func extractContent(content any) string {
 }
 
 // upsertDailyUsage reads the existing daily aggregate, merges new tokens, and upserts.
-func (h *ChatHandler) upsertDailyUsage(provider, model, endpoint, connectionID, apiKey string, promptTokens, completionTokens, cachedTokens int, cost float64) {
+// at is the instant whose local day the request belongs to; the key comes from
+// db.DateKey so it names the same day PeriodCutoff("today") opens.
+func (h *ChatHandler) upsertDailyUsage(provider, model, endpoint, connectionID, apiKey string, promptTokens, completionTokens, cachedTokens int, cost float64, at time.Time) {
 	dailyUsageMu.Lock()
 	defer dailyUsageMu.Unlock()
 
-	dateKey := time.Now().UTC().Format("2006-01-02")
+	// The rollup key must name the same day PeriodCutoff("today") opens, or the
+	// dashboard reads a window the writer has not filled yet.
+	dateKey := db.DateKey(at)
 	existing, _ := h.Repo.GetUsageDaily(dateKey)
 
 	data := parseDailyData(existing)

@@ -48,7 +48,7 @@ func (r *Repo) rawExec(t *testing.T, q string, args ...any) {
 	}
 }
 
-func dateKey(t time.Time) string { return dateKeyFor(t) }
+func dateKey(t time.Time) string { return DateKey(t) }
 
 func TestUsagePeriodDays(t *testing.T) {
 	cases := []struct {

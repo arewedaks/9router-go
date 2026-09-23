@@ -381,8 +381,17 @@ func PeriodCutoff(period string, now time.Time) time.Time {
 	}
 }
 
-// dateKeyFor formats a time as the YYYY-MM-DD key used by usageDaily.
-func dateKeyFor(t time.Time) string {
+// DateKey formats a time as the YYYY-MM-DD key used by usageDaily.
+//
+// The key follows t's own location, which is what makes the daily rollup
+// agree with PeriodCutoff("today") — both then name the day that starts at
+// local midnight. Keying on UTC instead splits every local day: a writer
+// filing by UTC date and a reader opening the window at local midnight agree
+// for 17 hours and disagree for the rest, and between local midnight and
+// local 07:00 (UTC+7) today's bucket reads zero while the request counts land
+// in yesterday's key. The daily writer calls this rather than formatting its
+// own key.
+func DateKey(t time.Time) string {
 	return fmt.Sprintf("%04d-%02d-%02d", t.Year(), int(t.Month()), t.Day())
 }
 
