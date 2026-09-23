@@ -312,16 +312,23 @@
       display: flex; align-items: center; gap: 10px;
       font-weight: 700; font-size: 1.05rem; color: #fff;
       /* Top padding is small because .traffic-lights now sits above this block
-         and already supplies the gap from the top edge. */
-      padding: 0 0 18px;
+         and already supplies the gap from the top edge.
+
+         The 10px left inset matches .nav-btn's horizontal padding, so the logo
+         tile and the nav tiles below it share one column: same left edge, same
+         26px tile, same gap to the label. Without it the mark sat 6px left of
+         every nav icon and the wordmark started 2px off the nav labels. */
+      padding: 0 0 18px 10px;
     }
     /* Raised tile holding the mark. "Timbul" is done with a light top edge and
        a dark drop shadow rather than a heavier blur, so it stays crisp next to
        the flat glass surfaces around it. */
     .brand-mark {
       display: inline-flex; align-items: center; justify-content: center;
-      width: 34px; height: 34px; flex: 0 0 34px;
-      border-radius: 10px;
+      /* Same 26px tile and 8px radius as .nav-icon, so the logo and the nav
+         icons below it read as one column rather than two sizes. */
+      width: 26px; height: 26px; flex: 0 0 26px;
+      border-radius: 8px;
       background: linear-gradient(150deg, #2a2a2a 0%, #1a1a1a 100%);
       border: 1px solid rgba(229, 106, 74, 0.32);
       box-shadow:
@@ -1519,9 +1526,9 @@
     <span class="brand-mark" aria-hidden="true">
       <!-- Spider web (the router mesh) with the router node at its centre.
            Eight rays, then two full rings of silk joining every ray, so the web
-           reads as a web at 24px instead of as a starburst. The centre dot is
+           reads as a web at 20px instead of as a starburst. The centre dot is
            the routing hop every request passes through. -->
-      <svg width="24" height="24" viewBox="0 0 28 28" fill="none">
+      <svg width="20" height="20" viewBox="0 0 28 28" fill="none">
         <g stroke="#ff8a2a" stroke-width="1.3" stroke-linecap="round">
           <path d="M14 2.2v23.6M2.2 14h23.6M5.6 5.6l16.8 16.8M22.4 5.6L5.6 22.4" opacity="0.9" />
           <circle cx="14" cy="14" r="4.6" opacity="0.62" fill="none" />
