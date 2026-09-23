@@ -624,6 +624,16 @@
     
     .section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 12px; }
     .section-title { font-size: 1.25rem; font-weight: 600; }
+    /* Provider page toolbar: a fixed 220px field left the Add button squeezed
+       onto two lines on a phone. The field now flexes and the button keeps its
+       label on one line. */
+    .prov-toolbar { display: flex; gap: 8px; flex: 1 1 100%; min-width: 0; }
+    .prov-toolbar-search { flex: 1 1 auto; min-width: 0; }
+    .prov-toolbar-add { flex: 0 0 auto; white-space: nowrap; }
+    @media (min-width: 720px) {
+      .prov-toolbar { flex: 0 1 auto; }
+      .prov-toolbar-search { width: 220px; flex: 0 1 220px; }
+    }
     
     .filter-bar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
     .filter-btn { background: var(--panel); border: 1px solid var(--border); color: var(--muted); padding: 6px 14px; border-radius: 20px; font-size: 0.82rem; cursor: pointer; transition: 0.15s; display: inline-flex; align-items: center; gap: 6px; }
@@ -983,6 +993,15 @@
     /* Section actions (e.g. the Compatible Endpoints "+ Add" buttons) are pinned
        to the right so they never depend on how wide the title/blurb happens to be. */
     .prov-section-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; margin-left: auto; }
+    /* On a phone the two Compatible buttons are wider than the whole header, and
+       flex-shrink:0 let them take every pixel: the title/blurb collapsed to a
+       zero-width column and were drawn behind the buttons. Wrapping puts the
+       actions on their own line so the text keeps the full width. */
+    @media (max-width: 640px) {
+      .prov-section-head { flex-wrap: wrap; }
+      .prov-section-actions { margin-left: 0; flex: 1 1 100%; flex-wrap: wrap; }
+      .prov-section-actions .btn { flex: 1 1 auto; justify-content: center; }
+    }
     .hint-text { font-size: 0.78rem; color: var(--muted); margin-top: 3px; line-height: 1.35; }
     .field-error { font-size: 0.78rem; color: #f85149; margin-top: 3px; }
     .advanced-toggle { display: flex; align-items: center; gap: 5px; background: none; border: none; color: var(--muted); font-size: 0.82rem; cursor: pointer; padding: 2px 0; font-family: inherit; }
@@ -1780,9 +1799,9 @@
         <h2 class="section-title">Provider Connections</h2>
         <p style="font-size: 0.85rem; color: var(--muted);">Upstream AI accounts organized strictly by functional category</p>
       </div>
-      <div style="display: flex; gap: 8px;">
-        <input type="text" id="provider-search" placeholder="Search provider or name..." oninput="filterProviders()" style="width: 220px;">
-        <button class="btn btn-primary" onclick="openAddProviderModal()">+ Add Provider</button>
+      <div class="prov-toolbar">
+        <input type="text" id="provider-search" class="prov-toolbar-search" placeholder="Search provider or name..." oninput="filterProviders()">
+        <button class="btn btn-primary prov-toolbar-add" onclick="openAddProviderModal()">+ Add Provider</button>
       </div>
     </div>
 
