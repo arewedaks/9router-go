@@ -266,6 +266,10 @@ func SetupServerRouter(r chi.Router, repo *db.Repo, ts *TokenSaverConfig) {
 			// console-log routes above it, this is read by a password-logged-in
 			// browser that holds only the httpOnly session cookie.
 			"/api/system/",
+			// Headroom lifecycle + dashboard proxy. The Token Saver page drives
+			// start/stop/extras from the browser, which holds only the session
+			// cookie — without this the status badge and every button 401.
+			"/headroom/",
 			// The dashboard's model pickers read the catalog to build combo and
 			// provider model lists. A password-logged-in browser holds only the
 			// httpOnly session cookie, so without these the picker calls the

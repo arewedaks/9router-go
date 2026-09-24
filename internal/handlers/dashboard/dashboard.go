@@ -25,6 +25,7 @@ import (
 	"9router/proxy/internal/models"
 	"9router/proxy/internal/providers"
 	proxoauth "9router/proxy/internal/proxy/oauth"
+	"9router/proxy/internal/tokensaver"
 )
 
 // ui/* already descends into subdirectories, so it would embed ui/providers
@@ -1704,7 +1705,19 @@ func (h *Handler) HandleGetSettings(w http.ResponseWriter, r *http.Request) {
 		"ponytailEnabled":       h.tokenSaver.PonytailEnabled(),
 		"ponytailLevel":         h.tokenSaver.PonytailLevel(),
 		"injectionGuardEnabled": h.tokenSaver.InjectionGuardEnabled(),
-		"autoUpdate":            s.AutoUpdate,
+		// Headroom is an optional external proxy; the UI needs its switch, URL,
+		// timeout and extras so the card can render without a second request.
+		"headroomEnabled":              h.tokenSaver.HeadroomEnabled(),
+		"headroomUrl":                  h.tokenSaver.HeadroomURL(),
+		"headroomTimeoutMs":            h.tokenSaver.HeadroomTimeoutMs(),
+		"headroomCodeAware":            h.tokenSaver.HeadroomCodeAware(),
+		"headroomKompress":             h.tokenSaver.HeadroomKompress(),
+		"headroomCompressUserMessages": h.tokenSaver.HeadroomCompressUserMessages(),
+		// The level vocabularies the server accepts, so the dropdowns cannot
+		// drift from what GetCavemanPrompt/GetPonytailPrompt understand.
+		"cavemanLevels":  tokensaver.CavemanLevels,
+		"ponytailLevels": tokensaver.PonytailLevels,
+		"autoUpdate":     s.AutoUpdate,
 		// The provider-wide Antigravity client identity. Normalized to a concrete
 		// value so the UI dropdown always has a valid selection to render.
 		"antigravityClientProfile": string(providers.NormalizeAntigravityClientProfile(s.AntigravityClientProfile)),
@@ -1789,6 +1802,14 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		PonytailLevel         *string `json:"ponytailLevel"`
 		InjectionGuardEnabled *bool   `json:"injectionGuardEnabled"`
 		AutoUpdate            *bool   `json:"autoUpdate"`
+		// Headroom is the optional external compression proxy. The URL and
+		// timeout are accepted here so the Token Saver page saves in one request.
+		HeadroomEnabled        *bool   `json:"headroomEnabled"`
+		HeadroomUrl            *string `json:"headroomUrl"`
+		HeadroomTimeoutMs      *int    `json:"headroomTimeoutMs"`
+		HeadroomCodeAware      *bool   `json:"headroomCodeAware"`
+		HeadroomKompress       *bool   `json:"headroomKompress"`
+		HeadroomCompressUserMs *bool   `json:"headroomCompressUserMessages"`
 		// AntigravityClientProfile is the provider-wide client identity. Accepted
 		// here as well so the settings form can save everything in one request.
 		AntigravityClientProfile *string `json:"antigravityClientProfile"`
@@ -1821,23 +1842,74 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		h.tokenSaver.SetRTK(*req.RTKEnabled)
 		s.RTKEnabled = *req.RTKEnabled
 	}
-	if req.CavemanEnabled != nil {
-		lvl := h.tokenSaver.CavemanLevel()
-		if req.CavemanLevel != nil && *req.CavemanLevel != "" {
-			lvl = *req.CavemanLevel
+	// The switch and the level are independent fields: the UI sends the level
+	// alone when the operator picks an intensity, and requiring the enable flag
+	// alongside it would silently drop that choice.
+	if req.CavemanLevel != nil && *req.CavemanLevel != "" {
+		if !tokensaver.ValidLevel(*req.CavemanLevel, tokensaver.CavemanLevels) {
+			handlerutil.WriteJSONError(w, http.StatusBadRequest,
+				`cavemanLevel must be one of: lite, full, ultra`)
+			return
 		}
-		h.tokenSaver.SetCaveman(*req.CavemanEnabled, lvl)
-		s.CavemanEnabled = *req.CavemanEnabled
+		lvl := tokensaver.NormalizeLevel(*req.CavemanLevel, tokensaver.CavemanLevels)
+		h.tokenSaver.SetCaveman(h.tokenSaver.CavemanEnabled(), lvl)
 		s.CavemanLevel = lvl
 	}
-	if req.PonytailEnabled != nil {
-		lvl := h.tokenSaver.PonytailLevel()
-		if req.PonytailLevel != nil && *req.PonytailLevel != "" {
-			lvl = *req.PonytailLevel
+	if req.CavemanEnabled != nil {
+		h.tokenSaver.SetCaveman(*req.CavemanEnabled, h.tokenSaver.CavemanLevel())
+		s.CavemanEnabled = *req.CavemanEnabled
+		s.CavemanLevel = h.tokenSaver.CavemanLevel()
+	}
+	if req.PonytailLevel != nil && *req.PonytailLevel != "" {
+		if !tokensaver.ValidLevel(*req.PonytailLevel, tokensaver.PonytailLevels) {
+			handlerutil.WriteJSONError(w, http.StatusBadRequest,
+				`ponytailLevel must be one of: lite, full, ultra`)
+			return
 		}
-		h.tokenSaver.SetPonytail(*req.PonytailEnabled, lvl)
-		s.PonytailEnabled = *req.PonytailEnabled
+		lvl := tokensaver.NormalizeLevel(*req.PonytailLevel, tokensaver.PonytailLevels)
+		h.tokenSaver.SetPonytail(h.tokenSaver.PonytailEnabled(), lvl)
 		s.PonytailLevel = lvl
+	}
+	if req.PonytailEnabled != nil {
+		h.tokenSaver.SetPonytail(*req.PonytailEnabled, h.tokenSaver.PonytailLevel())
+		s.PonytailEnabled = *req.PonytailEnabled
+		s.PonytailLevel = h.tokenSaver.PonytailLevel()
+	}
+	if req.HeadroomEnabled != nil || req.HeadroomUrl != nil || req.HeadroomTimeoutMs != nil {
+		enabled := h.tokenSaver.HeadroomEnabled()
+		if req.HeadroomEnabled != nil {
+			enabled = *req.HeadroomEnabled
+		}
+		url := h.tokenSaver.HeadroomURL()
+		if req.HeadroomUrl != nil && strings.TrimSpace(*req.HeadroomUrl) != "" {
+			url = strings.TrimSpace(*req.HeadroomUrl)
+		}
+		timeout := h.tokenSaver.HeadroomTimeoutMs()
+		if req.HeadroomTimeoutMs != nil && *req.HeadroomTimeoutMs > 0 {
+			timeout = *req.HeadroomTimeoutMs
+		}
+		h.tokenSaver.SetHeadroom(enabled, url, timeout)
+		s.HeadroomEnabled = enabled
+		s.HeadroomUrl = url
+		s.HeadroomTimeoutMs = timeout
+	}
+	if req.HeadroomCodeAware != nil || req.HeadroomKompress != nil || req.HeadroomCompressUserMs != nil {
+		code := h.tokenSaver.HeadroomCodeAware()
+		if req.HeadroomCodeAware != nil {
+			code = *req.HeadroomCodeAware
+		}
+		kompress := h.tokenSaver.HeadroomKompress()
+		if req.HeadroomKompress != nil {
+			kompress = *req.HeadroomKompress
+		}
+		compressUser := h.tokenSaver.HeadroomCompressUserMessages()
+		if req.HeadroomCompressUserMs != nil {
+			compressUser = *req.HeadroomCompressUserMs
+		}
+		h.tokenSaver.SetHeadroomFlags(code, kompress, compressUser)
+		s.HeadroomCodeAware = code
+		s.HeadroomKompress = kompress
+		s.HeadroomCompressUM = compressUser
 	}
 	if req.InjectionGuardEnabled != nil {
 		h.tokenSaver.SetInjectionGuard(*req.InjectionGuardEnabled)

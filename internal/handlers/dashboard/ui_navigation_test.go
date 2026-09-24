@@ -202,17 +202,71 @@ func TestUISettingsPageHasPasswordControls(t *testing.T) {
 	}
 }
 
-// TestUISettingsKeepsTokenOptimization makes sure folding Token Savers into
-// Settings did not drop any of the four toggles or their level selectors.
-func TestUISettingsKeepsTokenOptimization(t *testing.T) {
+// TestUITokenSaverPageHasEveryControl pins the Token Saver page's contract:
+// every stage the pipeline runs must have a control, each control must be wired
+// to a handler, and the page must be reachable from the sidebar and the hash
+// router. A stage without a control is a setting only a database edit can
+// change, which is how the Headroom switch went missing before.
+func TestUITokenSaverPageHasEveryControl(t *testing.T) {
 	ui := readEmbeddedUI(t)
-	for _, id := range []string{"saver-rtk", "saver-caveman", "saver-caveman-level", "saver-ponytail", "saver-ponytail-level", "saver-guard"} {
+
+	for _, id := range []string{
+		"saver-rtk",
+		"saver-caveman", "saver-caveman-levels",
+		"saver-ponytail", "saver-ponytail-levels",
+		"saver-guard",
+		"saver-headroom", "saver-headroom-url", "saver-headroom-timeout",
+		"headroom-status", "headroom-manage-btn", "headroom-compress-user",
+	} {
 		if !strings.Contains(ui, `id="`+id+`"`) {
-			t.Errorf("token saver control %q was lost in the move", id)
+			t.Errorf("token saver control %q is missing", id)
 		}
 	}
-	if !strings.Contains(ui, "function loadSettings()") {
-		t.Error("loadSettings() is missing; the settings pane would render empty")
+
+	for _, fn := range []string{
+		"function loadTokenSaver()",
+		"function renderTokenSaver()",
+		"function onTokenSaverToggle(",
+		"function onLevelChange(",
+		"function onHeadroomToggle(",
+		"function refreshHeadroomStatus(",
+		"function headroomAction(",
+	} {
+		if !strings.Contains(ui, fn) {
+			t.Errorf("token saver handler %q is missing", fn)
+		}
+	}
+
+	// The page has to be reachable: a nav button, a pane, and an entry in both
+	// the runtime hash list and the pre-paint one (which is a separate copy and
+	// would otherwise flash the wrong pane on refresh).
+	if !strings.Contains(ui, `id="nav-token-saver"`) {
+		t.Error("no sidebar button for the Token Saver page")
+	}
+	if !strings.Contains(ui, `id="tab-token-saver"`) {
+		t.Error("no pane for the Token Saver page")
+	}
+	if !strings.Contains(ui, `if (tabId === "token-saver") loadTokenSaver();`) {
+		t.Error("switchTab does not load the Token Saver page")
+	}
+	if n := strings.Count(ui, `"token-saver"`); n < 4 {
+		t.Errorf(`"token-saver" appears %d times; the nav, both hash lists and the title table must know it`, n)
+	}
+}
+
+// The level pickers must be built from the vocabulary the server reports, not a
+// hardcoded list — that is what kept the old dropdowns offering "light" and
+// "compact" for levels the prompt lookup never had.
+func TestUILevelPickersComeFromServer(t *testing.T) {
+	ui := readEmbeddedUI(t)
+
+	if !strings.Contains(ui, "s.cavemanLevels") || !strings.Contains(ui, "s.ponytailLevels") {
+		t.Error("the level pickers do not read the server's level vocabulary")
+	}
+	for _, stale := range []string{`value="light"`, `value="medium"`, `value="compact"`} {
+		if strings.Contains(ui, stale) {
+			t.Errorf("the removed level option %s is still in the markup", stale)
+		}
 	}
 }
 

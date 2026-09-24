@@ -169,6 +169,11 @@ func (h *Handler) reloadAfterImport() {
 	h.tokenSaver.SetRTK(s.RTKEnabled)
 	h.tokenSaver.SetCaveman(s.CavemanEnabled, s.CavemanLevel)
 	h.tokenSaver.SetPonytail(s.PonytailEnabled, s.PonytailLevel)
+	// Headroom is persisted, so a restored backup must move its runtime state too
+	// — otherwise the card would show one setting and the request path use another
+	// until the next restart.
+	h.tokenSaver.SetHeadroom(s.HeadroomEnabled, s.HeadroomUrl, s.HeadroomTimeoutMs)
+	h.tokenSaver.SetHeadroomFlags(s.HeadroomCodeAware, s.HeadroomKompress, s.HeadroomCompressUM)
 }
 
 // backupTimestamp turns the RFC3339 export time into a filename-safe stamp.

@@ -153,9 +153,11 @@ type SettingsData struct {
 	PonytailEnabled    bool                        `json:"ponytailEnabled"`
 	PonytailLevel      string                      `json:"ponytailLevel"`
 	HeadroomUrl        string                      `json:"headroomUrl"`
+	HeadroomEnabled    bool                        `json:"headroomEnabled"`
 	HeadroomCodeAware  bool                        `json:"headroomCodeAware"`
 	HeadroomKompress   bool                        `json:"headroomKompress"`
 	HeadroomTimeoutMs  int                         `json:"headroomTimeoutMs"`
+	HeadroomCompressUM bool                        `json:"headroomCompressUserMessages"`
 	AutoUpdate         bool                        `json:"autoUpdate"`
 	ProviderStrategies map[string]ProviderStrategy `json:"providerStrategies,omitempty"`
 
@@ -222,24 +224,26 @@ type SettingsData struct {
 // knownSettingsKeys lists every key represented by a typed SettingsData field.
 // Anything else found in the stored blob is preserved in Extra.
 var knownSettingsKeys = map[string]bool{
-	"rtkEnabled":               true,
-	"cavemanEnabled":           true,
-	"cavemanLevel":             true,
-	"ponytailEnabled":          true,
-	"ponytailLevel":            true,
-	"headroomUrl":              true,
-	"headroomCodeAware":        true,
-	"headroomKompress":         true,
-	"headroomTimeoutMs":        true,
-	"autoUpdate":               true,
-	"providerStrategies":       true,
-	"antigravityClientProfile": true,
-	"trustProxy":               true,
-	"authCookieSecure":         true,
-	"password":                 true,
-	"requireLogin":             true,
-	"requireApiKey":            true,
-	"allowRemoteNoApiKey":      true,
+	"rtkEnabled":                   true,
+	"cavemanEnabled":               true,
+	"cavemanLevel":                 true,
+	"ponytailEnabled":              true,
+	"ponytailLevel":                true,
+	"headroomUrl":                  true,
+	"headroomEnabled":              true,
+	"headroomCodeAware":            true,
+	"headroomKompress":             true,
+	"headroomTimeoutMs":            true,
+	"headroomCompressUserMessages": true,
+	"autoUpdate":                   true,
+	"providerStrategies":           true,
+	"antigravityClientProfile":     true,
+	"trustProxy":                   true,
+	"authCookieSecure":             true,
+	"password":                     true,
+	"requireLogin":                 true,
+	"requireApiKey":                true,
+	"allowRemoteNoApiKey":          true,
 }
 
 // MarshalJSON writes the typed fields followed by the preserved passthrough
@@ -258,9 +262,11 @@ func (s SettingsData) MarshalJSON() ([]byte, error) {
 	out["ponytailEnabled"] = s.PonytailEnabled
 	out["ponytailLevel"] = s.PonytailLevel
 	out["headroomUrl"] = s.HeadroomUrl
+	out["headroomEnabled"] = s.HeadroomEnabled
 	out["headroomCodeAware"] = s.HeadroomCodeAware
 	out["headroomKompress"] = s.HeadroomKompress
 	out["headroomTimeoutMs"] = s.HeadroomTimeoutMs
+	out["headroomCompressUserMessages"] = s.HeadroomCompressUM
 	out["autoUpdate"] = s.AutoUpdate
 
 	// The named optional fields are omitted when nil so an absent value keeps
@@ -302,6 +308,7 @@ func DefaultSettings() *SettingsData {
 		PonytailEnabled:   false,
 		PonytailLevel:     "full",
 		HeadroomUrl:       "http://localhost:8787",
+		HeadroomEnabled:   false,
 		HeadroomKompress:  true,
 		HeadroomTimeoutMs: 3000,
 		AutoUpdate:        false,
@@ -340,11 +347,17 @@ func (r *Repo) GetSettings() (*SettingsData, error) {
 	if v := handlerutil.GetString(raw, "headroomUrl"); v != "" {
 		s.HeadroomUrl = v
 	}
+	if v, ok := raw["headroomEnabled"].(bool); ok {
+		s.HeadroomEnabled = v
+	}
 	if v, ok := raw["headroomCodeAware"].(bool); ok {
 		s.HeadroomCodeAware = v
 	}
 	if v, ok := raw["headroomKompress"].(bool); ok {
 		s.HeadroomKompress = v
+	}
+	if v, ok := raw["headroomCompressUserMessages"].(bool); ok {
+		s.HeadroomCompressUM = v
 	}
 	if v, ok := raw["headroomTimeoutMs"].(float64); ok && v > 0 {
 		s.HeadroomTimeoutMs = int(v)

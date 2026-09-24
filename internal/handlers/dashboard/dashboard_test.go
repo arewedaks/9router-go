@@ -184,8 +184,9 @@ func TestDashboardCombosAndSettings(t *testing.T) {
 		t.Fatalf("get settings failed: %d", w.Code)
 	}
 
-	// Update settings
-	updatePayload := `{"rtkEnabled":true,"cavemanEnabled":true,"cavemanLevel":"medium"}`
+	// Update settings. The level must be one the prompt lookup understands:
+	// an unknown value is now rejected rather than silently stored.
+	updatePayload := `{"rtkEnabled":true,"cavemanEnabled":true,"cavemanLevel":"full"}`
 	req = httptest.NewRequest("POST", "/api/dashboard/settings", bytes.NewBufferString(updatePayload))
 	w = httptest.NewRecorder()
 	r.ServeHTTP(w, req)

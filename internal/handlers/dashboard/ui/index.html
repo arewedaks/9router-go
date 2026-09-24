@@ -507,6 +507,7 @@
     #nav-providers .nav-icon { --tint: #3fb950; }  /* status-ok — green  */
     #nav-combos    .nav-icon { --tint: #22d3ee; }  /* live dot  — cyan   */
     #nav-console   .nav-icon { --tint: #3fb950; }  /* status-ok — green  */
+    #nav-token-saver .nav-icon { --tint: #d29922; } /* warning  — amber  */
     #nav-settings  .nav-icon { --tint: #8b949e; }  /* muted     — slate  */
 
     .nav-btn:hover .nav-icon {
@@ -641,6 +642,22 @@
     .tab-pane.active { display: block; }
     
     .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-bottom: 24px; }
+    /* Token Saver layout. Five cards of very different heights. In three columns
+       the tall Headroom card lands beside two short ones, and the row height it
+       sets leaves those two mostly empty; pairing the cards by height and giving
+       Headroom a full-width row of its own keeps every row tight, and the default
+       stretch makes the two cards in a row share a height. */
+    .ts-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-bottom: 16px; }
+    .ts-grid > .card { display: flex; flex-direction: column; }
+    .ts-grid .ts-wide { grid-column: 1 / -1; }
+    @media (max-width: 700px) {
+      .ts-grid { grid-template-columns: minmax(0, 1fr); }
+    }
+    /* Pushes a trailing badge to the bottom of its card, so badges line up
+       across a row instead of floating mid-card at different offsets. */
+    .ts-grid .ts-foot { margin-top: auto; padding-top: 12px; }
+    .ts-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    @media (max-width: 700px) { .ts-fields { grid-template-columns: minmax(0, 1fr); } }
     .card {
       background: var(--glass);
       border: 1px solid var(--glass-border);
@@ -674,6 +691,11 @@
     .btn:hover { border-color: var(--muted); }
     .btn-primary { background: #238636; border-color: #2ea043; color: #fff; }
     .btn-primary:hover { background: #2ea043; }
+    /* A disabled control must look disabled: the Headroom lifecycle buttons are
+       disabled by state (not installed, not running), and a button that looks
+       pressable but does nothing reads as a bug. */
+    .btn:disabled, .btn[disabled] { opacity: 0.4; cursor: not-allowed; }
+    .btn:disabled:hover, .btn[disabled]:hover { filter: none; }
     .btn-danger { background: var(--danger); border-color: #f85149; color: #fff; }
     .btn-sm { padding: 4px 8px; font-size: 0.78rem; }
     
@@ -1274,6 +1296,21 @@
     .settings-msg.ok { color: #56d364; }
     .settings-msg.err { color: #f85149; }
 
+    /* Segmented level picker. A <select> would hide the three options behind a
+       click and make the active level invisible at a glance; the whole point of
+       these controls is which intensity is currently in force. */
+    .seg-group { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+    .seg-btn {
+      padding: 5px 12px; font-size: 0.78rem; font-weight: 500; cursor: pointer;
+      background: transparent; color: var(--muted);
+      border: 1px solid var(--border); border-radius: 6px;
+      transition: background .15s, color .15s, border-color .15s;
+    }
+    .seg-btn:hover { background: var(--glass); color: var(--text); }
+    .seg-btn.active { background: var(--primary); border-color: var(--primary); color: #fff; }
+    .seg-btn:disabled { opacity: .45; cursor: not-allowed; }
+    .btn-sm { padding: 4px 10px; font-size: 0.78rem; }
+
     /* ----------------------------------------------------------------
        Usage page. Layout mirrors the upstream /dashboard/usage page:
        a card row, a chart + recent-requests row, then a grouped table.
@@ -1619,6 +1656,7 @@
     <button class="nav-btn" id="nav-console" onclick="navigateTab('console')"><span class="nav-icon">terminal</span> Console Log</button>
 
     <div class="nav-group-label">Configuration</div>
+    <button class="nav-btn" id="nav-token-saver" onclick="navigateTab('token-saver')"><span class="nav-icon">savings</span> Token Saver</button>
     <button class="nav-btn" id="nav-settings" onclick="navigateTab('settings')"><span class="nav-icon">settings</span> Settings</button>
   </nav>
 </aside>
@@ -1955,9 +1993,9 @@
     <div class="section-header">
       <div>
         <h2 class="section-title">Settings</h2>
-        <p style="font-size: 0.85rem; color: var(--muted);">Dashboard credentials and token optimization pipeline</p>
+        <p style="font-size: 0.85rem; color: var(--muted);">Dashboard credentials, backup and reverse-proxy configuration</p>
       </div>
-      <button class="btn btn-primary" onclick="saveTokenSaverSettings()">💾 Save Settings</button>
+      <button class="btn btn-primary" onclick="saveProxySettings()">💾 Save Proxy Settings</button>
     </div>
 
     <!-- SECURITY -->
@@ -2124,72 +2162,119 @@
       </div>
     </div>
 
-    <!-- TOKEN OPTIMIZATION -->
-    <h3 class="settings-group-title"><span class="msym" style="font-size:17px;">bolt</span> Token Optimization</h3>
-    <p style="font-size: 0.85rem; color: var(--muted); margin: -6px 0 14px;">Intelligent token reduction pipeline saving 60-90% bandwidth</p>
+  </div>
 
-    <div class="grid">
-      <div class="card">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-          <h3 style="margin:0; font-size:1rem; color: #fff;">🦀 RTK (Rust Token Killer)</h3>
-          <label class="switch">
-            <input type="checkbox" id="saver-rtk">
-            <span class="slider"></span>
-          </label>
-        </div>
-        <p style="font-size: 0.85rem; color: var(--muted); margin-bottom: 12px;">Pre-filters build errors, compiler logs, git diffs, and package manifests to eliminate token spam.</p>
-        <span class="badge badge-dim">60-90% Token Reduction</span>
-      </div>
-
-      <div class="card">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-          <h3 style="margin:0; font-size:1rem; color: #fff;">🦴 Caveman Compression</h3>
-          <label class="switch">
-            <input type="checkbox" id="saver-caveman">
-            <span class="slider"></span>
-          </label>
-        </div>
-        <p style="font-size: 0.85rem; color: var(--muted); margin-bottom: 12px;">Compresses verbose multi-turn system prompts and natural language into dense semantic tokens.</p>
-        <div class="form-group" style="margin:0;">
-          <label>Compression Level</label>
-          <select id="saver-caveman-level">
-            <option value="light">Light (Gentle pruning)</option>
-            <option value="medium">Medium (Standard)</option>
-            <option value="full" selected>Full (Maximum compression)</option>
-          </select>
-        </div>
-      </div>
-
-      <div class="card">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-          <h3 style="margin:0; font-size:1rem; color: #fff;">✂️ Ponytail Simplifier</h3>
-          <label class="switch">
-            <input type="checkbox" id="saver-ponytail">
-            <span class="slider"></span>
-          </label>
-        </div>
-        <p style="font-size: 0.85rem; color: var(--muted); margin-bottom: 12px;">Strips excessive boilerplate, preamble, and conversational fluff from model reasoning and output.</p>
-        <div class="form-group" style="margin:0;">
-          <label>Simplification Level</label>
-          <select id="saver-ponytail-level">
-            <option value="compact">Compact (Slight trim)</option>
-            <option value="full" selected>Full (Strict zero-fluff)</option>
-          </select>
-        </div>
-      </div>
-
-      <div class="card">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-          <h3 style="margin:0; font-size:1rem; color: #fff;">🛡️ Prompt Injection Guard</h3>
-          <label class="switch">
-            <input type="checkbox" id="saver-guard">
-            <span class="slider"></span>
-          </label>
-        </div>
-        <p style="font-size: 0.85rem; color: var(--muted); margin-bottom: 12px;">Active semantic scanner that filters out adversarial system prompt extraction attempts.</p>
-        <span class="badge badge-green">Hardened</span>
+  <!-- TOKEN SAVER TAB -->
+  <div id="tab-token-saver" class="tab-pane">
+    <div class="section-header" style="margin-bottom:16px;">
+      <div>
+        <h2 class="section-title">Token Saver</h2>
+        <p style="font-size:0.85rem;color:var(--muted);margin-top:4px;">
+          Compress what goes in (RTK, Headroom) and what comes out (Caveman, Ponytail).
+          Send <code>X-9Router-Token-Saver: off</code> to skip all of it for one request.
+        </p>
       </div>
     </div>
+
+    <div class="ts-grid">
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+          <h3 style="margin:0;font-size:1rem;color:#fff;">🦀 RTK (Rust Token Killer)</h3>
+          <label class="switch">
+            <input type="checkbox" id="saver-rtk" onchange="onTokenSaverToggle('rtk', this.checked)">
+            <span class="slider"></span>
+          </label>
+        </div>
+        <p style="font-size:0.85rem;color:var(--muted);margin-bottom:12px;">
+          Compresses tool output (<code>git diff</code>, <code>grep</code>, <code>ls</code>,
+          <code>tree</code>, log dumps) in place before the request leaves the proxy.
+        </p>
+        <div class="ts-foot"><span class="badge badge-dim">20-40% fewer input tokens</span></div>
+      </div>
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+          <h3 style="margin:0;font-size:1rem;color:#fff;">🦴 Caveman</h3>
+          <label class="switch">
+            <input type="checkbox" id="saver-caveman" onchange="onTokenSaverToggle('caveman', this.checked)">
+            <span class="slider"></span>
+          </label>
+        </div>
+        <p style="font-size:0.85rem;color:var(--muted);margin-bottom:12px;">
+          Injects a terse-style system prompt: technical substance stays exact, filler goes.
+        </p>
+        <div class="form-group ts-foot" style="margin:0;">
+          <label>Level</label>
+          <div class="seg-group" id="saver-caveman-levels"></div>
+        </div>
+      </div>
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+          <h3 style="margin:0;font-size:1rem;color:#fff;">✂️ Ponytail</h3>
+          <label class="switch">
+            <input type="checkbox" id="saver-ponytail" onchange="onTokenSaverToggle('ponytail', this.checked)">
+            <span class="slider"></span>
+          </label>
+        </div>
+        <p style="font-size:0.85rem;color:var(--muted);margin-bottom:12px;">
+          Biases the model toward minimal code: YAGNI first, stdlib over dependencies,
+          deletion over addition.
+        </p>
+        <div class="form-group ts-foot" style="margin:0;">
+          <label>Level</label>
+          <div class="seg-group" id="saver-ponytail-levels"></div>
+        </div>
+      </div>
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+          <h3 style="margin:0;font-size:1rem;color:#fff;">🛡️ Prompt Injection Guard</h3>
+          <label class="switch">
+            <input type="checkbox" id="saver-guard" onchange="onTokenSaverToggle('guard', this.checked)">
+            <span class="slider"></span>
+          </label>
+        </div>
+        <p style="font-size:0.85rem;color:var(--muted);margin-bottom:12px;">
+          Flags adversarial system-prompt extraction attempts in the console log.
+          Tag only — a flagged request is never blocked.
+        </p>
+        <div class="ts-foot"><span class="badge badge-green">Hardened</span></div>
+      </div>
+      <div class="card ts-wide">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+          <h3 style="margin:0;font-size:1rem;color:#fff;">🧠 Headroom</h3>
+          <label class="switch">
+            <input type="checkbox" id="saver-headroom" onchange="onHeadroomToggle(this.checked)">
+            <span class="slider"></span>
+          </label>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+          <span id="headroom-status" class="badge badge-idle">Checking…</span>
+          <button class="btn btn-sm" id="headroom-manage-btn" onclick="openHeadroomModal()">Setup</button>
+        </div>
+        <p style="font-size:0.85rem;color:var(--muted);margin-bottom:10px;">
+          Optional external proxy. Sends the conversation to <code>/v1/compress</code>
+          before routing, so long histories shrink without changing the client.
+        </p>
+        <!-- Two fields side by side: the card spans the full row, so stacking
+             them would leave the right half empty. -->
+        <div class="ts-fields">
+          <div class="form-group" style="margin:0;">
+            <label>Proxy URL</label>
+            <input type="text" id="saver-headroom-url" placeholder="http://localhost:8787"
+                   onchange="onHeadroomUrlChange(this.value)">
+          </div>
+          <div class="form-group" style="margin:0;">
+            <label>Timeout (ms)</label>
+            <input type="number" id="saver-headroom-timeout" min="100" step="100" placeholder="3000"
+                   onchange="onHeadroomTimeoutChange(this.value)">
+          </div>
+        </div>
+        <p class="ts-foot" style="font-size:0.75rem;color:var(--muted);">
+          Fail-open: an unreachable or slow proxy costs the request its compression, never its success.
+        </p>
+      </div>
+    </div>
+
+    <div id="token-saver-msg" class="settings-msg" style="margin-top:12px;"></div>
   </div>
 
   <!-- CONSOLE LOG TAB -->
@@ -2260,7 +2345,7 @@
     (function () {
       var raw = (location.hash || "").replace(/^#/, "");
       var parts = raw.split("/").filter(Boolean).map(decodeURIComponent);
-      var tabs = ["endpoint", "usage", "providers", "combos", "console", "settings"];
+      var tabs = ["endpoint", "usage", "providers", "combos", "console", "token-saver", "settings"];
       var pane = null, nav = null;
       if (parts[0] === "provider" && parts[1]) {
         pane = document.getElementById("tab-provider-detail");
@@ -2646,6 +2731,57 @@
   </div>
 </div>
 
+<!-- HEADROOM MODAL -->
+<div class="modal-overlay" id="headroom-modal">
+  <div class="modal-box" style="max-width: 620px;">
+    <div class="section-header" style="margin-bottom: 16px;">
+      <h3 style="font-size: 1.1rem; color: #fff;">Headroom</h3>
+      <button class="btn btn-sm" onclick="closeModal('headroom-modal')">✕</button>
+    </div>
+
+    <div id="headroom-detail" style="font-size:0.85rem;color:var(--muted);margin-bottom:14px;">
+      Checking status…
+    </div>
+
+    <div id="headroom-extras-block" style="display:none;margin-bottom:14px;">
+      <label style="font-size:0.8rem;color:var(--muted);">Compression extras</label>
+      <div id="headroom-extras" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;"></div>
+      <p style="font-size:0.75rem;color:var(--muted);margin-top:8px;">
+        <code>[code]</code> adds tree-sitter AST compression for code.
+        <code>[ml]</code> adds the Kompress-v2 model for prose (~1 GB).
+        The base install is <code>[proxy]</code>.
+      </p>
+    </div>
+
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+      <button class="btn btn-primary btn-sm" id="headroom-start-btn" onclick="headroomAction('start')">Start proxy</button>
+      <button class="btn btn-sm" id="headroom-restart-btn" onclick="headroomAction('restart')">Restart</button>
+      <button class="btn btn-sm" id="headroom-stop-btn" onclick="headroomAction('stop')">Stop</button>
+      <a class="btn btn-sm" id="headroom-open-btn" href="/headroom/proxy/" target="_blank" rel="noopener">Open dashboard</a>
+    </div>
+
+    <label style="font-size:0.8rem;color:var(--muted);">Enable user-message compression</label>
+    <div style="display:flex;align-items:center;gap:10px;margin:6px 0 14px;">
+      <label class="switch">
+        <input type="checkbox" id="headroom-compress-user" onchange="onHeadroomCompressUser(this.checked)">
+        <span class="slider"></span>
+      </label>
+      <span style="font-size:0.78rem;color:var(--muted);">
+        Off by default: rewriting what the operator typed is a bigger surprise than compressing tool output.
+      </span>
+    </div>
+
+    <div id="headroom-msg" class="settings-msg"></div>
+    <pre id="headroom-log" style="display:none;max-height:160px;overflow:auto;background:var(--panel);
+         border:1px solid var(--border);border-radius:6px;padding:8px;font-size:0.7rem;
+         white-space:pre-wrap;color:var(--muted);"></pre>
+
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px;">
+      <button class="btn" onclick="closeModal('headroom-modal')">Close</button>
+    </div>
+  </div>
+</div>
+
 <script>
   // Dashboard login state. Password only: the dashboard used to accept a client
   // API key here as well, which made a key meant for /v1/* into a dashboard
@@ -2732,12 +2868,12 @@
   //
   // Shape: `#endpoint`, `#providers`, `#combos`, `#console`, `#settings`,
   // or `#provider/<id>` / `#provider/<id>/<subtab>` for a provider detail page.
-  const HASH_TABS = ["endpoint", "usage", "providers", "combos", "console", "settings"];
+  const HASH_TABS = ["endpoint", "usage", "providers", "combos", "console", "token-saver", "settings"];
 
   // Page titles shown in the top bar, keyed by tab id.
   const TAB_TITLES = {
     endpoint: "Endpoint & Key", usage: "Usage", providers: "Providers", combos: "Combos",
-    console: "Console Log", settings: "Settings",
+    console: "Console Log", "token-saver": "Token Saver", settings: "Settings",
     "provider-detail": "Provider Detail",
   };
 
@@ -2787,6 +2923,7 @@
     if (tabId === "combos") loadCombos();
     if (tabId === "console") startConsoleLogs();
     else stopConsoleLogs();
+    if (tabId === "token-saver") loadTokenSaver();
     if (tabId === "settings") loadSettings();
   }
 
@@ -7827,12 +7964,8 @@
       if (!res.ok) return;
       const s = await res.json();
       providerStrategies = s.providerStrategies || {};
-      document.getElementById("saver-rtk").checked = !!s.rtkEnabled;
-      document.getElementById("saver-caveman").checked = !!s.cavemanEnabled;
-      document.getElementById("saver-caveman-level").value = s.cavemanLevel || "full";
-      document.getElementById("saver-ponytail").checked = !!s.ponytailEnabled;
-      document.getElementById("saver-ponytail-level").value = s.ponytailLevel || "full";
-      document.getElementById("saver-guard").checked = !!s.injectionGuardEnabled;
+      // The token saver switches moved to their own page (loadTokenSaver);
+      // re-reading them here would fight that page's state.
       applyProxySettingsToUI(s);
     } catch(e) {
       console.error(e);
@@ -7929,31 +8062,276 @@
     }
   }
 
-  async function saveTokenSaverSettings() {
-    const payload = {
-      rtkEnabled: document.getElementById("saver-rtk").checked,
-      cavemanEnabled: document.getElementById("saver-caveman").checked,
-      cavemanLevel: document.getElementById("saver-caveman-level").value,
-      ponytailEnabled: document.getElementById("saver-ponytail").checked,
-      ponytailLevel: document.getElementById("saver-ponytail-level").value,
-      injectionGuardEnabled: document.getElementById("saver-guard").checked,
-      // Included so the single header Save button never silently drops the
-      // Cloudflare card, which is part of the same settings blob.
-      trustProxy: document.getElementById("set-trust-proxy").checked,
-      authCookieSecure: document.getElementById("set-cookie-secure").checked
+  // ----------------------------------------------------------------
+  // Token Saver page
+  // ----------------------------------------------------------------
+  // The pipeline has four independent stages and an external proxy with its own
+  // lifecycle, so this page reads its whole state from /api/dashboard/settings
+  // and patches one field at a time. Every control saves on change rather than
+  // behind a Save button: a toggle that appears applied but is not is worse than
+  // no toggle, and the reference behaves the same way.
+  let tokenSaverState = {
+    rtkEnabled: true,
+    cavemanEnabled: false,
+    cavemanLevel: "full",
+    ponytailEnabled: false,
+    ponytailLevel: "full",
+    injectionGuardEnabled: true,
+    headroomEnabled: false,
+    headroomUrl: "http://localhost:8787",
+    headroomTimeoutMs: 3000,
+    headroomCompressUserMessages: false,
+    cavemanLevels: ["lite", "full", "ultra"],
+    ponytailLevels: ["lite", "full", "ultra"],
+  };
+  let headroomStatus = null;
+
+  const LEVEL_LABELS = {
+    lite: "Lite",
+    full: "Full",
+    ultra: "Ultra",
+  };
+  const LEVEL_HINTS = {
+    caveman: {
+      lite: "Drop filler, keep grammar",
+      full: "Drop articles, fragments OK",
+      ultra: "Telegraphic, max compression",
+    },
+    ponytail: {
+      lite: "Build what's asked, name the lazier option",
+      full: "Ladder enforced: stdlib and native first",
+      ultra: "YAGNI extremist, deletion before addition",
+    },
+  };
+
+  function tokenSaverMsg(text, ok) {
+    const el = document.getElementById("token-saver-msg");
+    if (!el) return;
+    el.textContent = text || "";
+    el.className = "settings-msg" + (text ? (ok ? " ok" : " err") : "");
+  }
+
+  // renderLevelPicker draws the segmented control for one prompt style. Buttons
+  // are rebuilt on every load so the active level always reflects the server,
+  // not whatever the last click assumed.
+  function renderLevelPicker(kind) {
+    const host = document.getElementById(kind === "caveman" ? "saver-caveman-levels" : "saver-ponytail-levels");
+    if (!host) return;
+    const levels = kind === "caveman" ? tokenSaverState.cavemanLevels : tokenSaverState.ponytailLevels;
+    const active = kind === "caveman" ? tokenSaverState.cavemanLevel : tokenSaverState.ponytailLevel;
+    const enabled = kind === "caveman" ? tokenSaverState.cavemanEnabled : tokenSaverState.ponytailEnabled;
+    host.innerHTML = "";
+    levels.forEach(function (lvl) {
+      const btn = document.createElement("button");
+      btn.className = "seg-btn" + (lvl === active ? " active" : "");
+      btn.textContent = LEVEL_LABELS[lvl] || lvl;
+      btn.title = (LEVEL_HINTS[kind] && LEVEL_HINTS[kind][lvl]) || "";
+      btn.disabled = !enabled;
+      btn.onclick = function () { onLevelChange(kind, lvl); };
+      host.appendChild(btn);
+    });
+  }
+
+  async function loadTokenSaver() {
+    try {
+      const res = await api("/api/dashboard/settings");
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const s = await res.json();
+      tokenSaverState = Object.assign(tokenSaverState, {
+        rtkEnabled: !!s.rtkEnabled,
+        cavemanEnabled: !!s.cavemanEnabled,
+        cavemanLevel: s.cavemanLevel || "full",
+        ponytailEnabled: !!s.ponytailEnabled,
+        ponytailLevel: s.ponytailLevel || "full",
+        injectionGuardEnabled: !!s.injectionGuardEnabled,
+        headroomEnabled: !!s.headroomEnabled,
+        headroomUrl: s.headroomUrl || "http://localhost:8787",
+        headroomTimeoutMs: s.headroomTimeoutMs || 3000,
+        headroomCompressUserMessages: !!s.headroomCompressUserMessages,
+        cavemanLevels: Array.isArray(s.cavemanLevels) ? s.cavemanLevels : tokenSaverState.cavemanLevels,
+        ponytailLevels: Array.isArray(s.ponytailLevels) ? s.ponytailLevels : tokenSaverState.ponytailLevels,
+      });
+      renderTokenSaver();
+      refreshHeadroomStatus();
+    } catch (e) {
+      tokenSaverMsg("Could not load token saver settings: " + e.message, false);
+    }
+  }
+
+  function renderTokenSaver() {
+    const set = function (id, val) {
+      const el = document.getElementById(id);
+      if (el) el.checked = !!val;
     };
+    set("saver-rtk", tokenSaverState.rtkEnabled);
+    set("saver-caveman", tokenSaverState.cavemanEnabled);
+    set("saver-ponytail", tokenSaverState.ponytailEnabled);
+    set("saver-guard", tokenSaverState.injectionGuardEnabled);
+    set("saver-headroom", tokenSaverState.headroomEnabled);
+    const url = document.getElementById("saver-headroom-url");
+    if (url) url.value = tokenSaverState.headroomUrl;
+    const timeout = document.getElementById("saver-headroom-timeout");
+    if (timeout) timeout.value = tokenSaverState.headroomTimeoutMs;
+    renderLevelPicker("caveman");
+    renderLevelPicker("ponytail");
+  }
+
+  // patchTokenSaver sends one field and re-reads the server's answer. Re-reading
+  // rather than trusting the local guess keeps the UI honest when the server
+  // normalizes a value (an alias level, a rejected URL).
+  async function patchTokenSaver(patch, okMsg) {
     try {
       const res = await api("/api/dashboard/settings", {
         method: "POST",
-        body: JSON.stringify(payload)
+        body: JSON.stringify(patch),
       });
-      if (!res.ok) throw new Error(await res.text());
-      alert("Token optimization settings updated successfully.");
-      loadSettings();
-    } catch(e) {
-      alert("Failed to save settings: " + e.message);
+      if (!res.ok) {
+        let msg = "HTTP " + res.status;
+        try {
+          const body = await res.json();
+          msg = errorMessage(body, res.status);
+        } catch (_) { /* keep the status */ }
+        throw new Error(msg);
+      }
+      tokenSaverMsg(okMsg || "Saved.", true);
+      await loadTokenSaver();
+    } catch (e) {
+      tokenSaverMsg("Save failed: " + e.message, false);
+      // Re-read so a failed write cannot leave the control showing the value the
+      // operator picked but the server refused.
+      await loadTokenSaver();
     }
   }
+
+  function onTokenSaverToggle(which, value) {
+    const patch = {};
+    if (which === "rtk") patch.rtkEnabled = value;
+    if (which === "caveman") patch.cavemanEnabled = value;
+    if (which === "ponytail") patch.ponytailEnabled = value;
+    if (which === "guard") patch.injectionGuardEnabled = value;
+    patchTokenSaver(patch, which + (value ? " enabled." : " disabled."));
+  }
+
+  function onLevelChange(kind, level) {
+    const patch = {};
+    if (kind === "caveman") patch.cavemanLevel = level;
+    if (kind === "ponytail") patch.ponytailLevel = level;
+    patchTokenSaver(patch, kind + " level: " + level + ".");
+  }
+
+  function onHeadroomToggle(value) {
+    patchTokenSaver({ headroomEnabled: value }, value ? "Headroom enabled." : "Headroom disabled.");
+  }
+
+  function onHeadroomUrlChange(value) {
+    const next = (value || "").trim() || "http://localhost:8787";
+    patchTokenSaver({ headroomUrl: next }, "Headroom URL updated.");
+  }
+
+  function onHeadroomTimeoutChange(value) {
+    const ms = Math.round(Number(value));
+    const next = Number.isFinite(ms) && ms > 0 ? ms : 3000;
+    patchTokenSaver({ headroomTimeoutMs: next }, "Headroom timeout updated.");
+  }
+
+  function onHeadroomCompressUser(value) {
+    patchTokenSaver({ headroomCompressUserMessages: value },
+      value ? "User-message compression enabled." : "User-message compression disabled.");
+  }
+
+  function headroomStatusLabel(st) {
+    if (!st) return "Checking…";
+    if (st.loading) return "Checking…";
+    if (st.running) return "Running";
+    if (st.localUrl === false) return "External";
+    return st.installed ? "Stopped" : "Not installed";
+  }
+
+  async function refreshHeadroomStatus() {
+    const badge = document.getElementById("headroom-status");
+    if (badge) { badge.textContent = "Checking…"; badge.className = "badge badge-idle"; }
+    try {
+      const res = await api("/headroom/status");
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      headroomStatus = await res.json();
+    } catch (e) {
+      headroomStatus = { loading: false, error: e.message };
+    }
+    const st = headroomStatus;
+    if (badge) {
+      badge.textContent = headroomStatusLabel(st);
+      badge.className = "badge " + (st && st.running ? "badge-green" : "badge-dim");
+    }
+    const manage = document.getElementById("headroom-manage-btn");
+    if (manage) manage.textContent = st && st.running ? "Manage" : "Setup";
+    renderHeadroomModal();
+  }
+
+  function renderHeadroomModal() {
+    const detail = document.getElementById("headroom-detail");
+    const st = headroomStatus || {};
+    if (detail) {
+      const bits = [];
+      bits.push(st.running ? "Proxy is answering /health." : "Proxy is not answering /health.");
+      if (st.path) bits.push("CLI: " + st.path);
+      if (st.version) bits.push("version " + st.version);
+      if (st.python) bits.push("python: " + st.python);
+      if (st.error) bits.push("status check failed: " + st.error);
+      if (st.localUrl === false) bits.push("External URL: start and stop it outside 9Router.");
+      detail.textContent = bits.join(" · ");
+    }
+    const startBtn = document.getElementById("headroom-start-btn");
+    const restartBtn = document.getElementById("headroom-restart-btn");
+    const stopBtn = document.getElementById("headroom-stop-btn");
+    if (startBtn) startBtn.disabled = !(st.canStart && !st.running);
+    if (restartBtn) restartBtn.disabled = !(st.canStart && st.running);
+    if (stopBtn) stopBtn.disabled = !(st.running && st.localUrl !== false);
+
+    const compressUser = document.getElementById("headroom-compress-user");
+    if (compressUser) compressUser.checked = !!tokenSaverState.headroomCompressUserMessages;
+
+    const block = document.getElementById("headroom-extras-block");
+    const host = document.getElementById("headroom-extras");
+    if (block && host) {
+      if (st.installed) {
+        block.style.display = "";
+        host.innerHTML = "";
+        const installedExtras = st.extras || {};
+        ["code", "ml"].forEach(function (extra) {
+          const on = !!installedExtras[extra];
+          const chip = document.createElement("span");
+          chip.className = "badge " + (on ? "badge-green" : "badge-dim");
+          chip.textContent = "[" + extra + "]" + (on ? " installed" : " not installed");
+          host.appendChild(chip);
+        });
+      } else {
+        block.style.display = "none";
+      }
+    }
+  }
+
+  function openHeadroomModal() {
+    const modal = document.getElementById("headroom-modal");
+    if (modal) modal.classList.add("active");
+    refreshHeadroomStatus();
+  }
+
+  async function headroomAction(action) {
+    const msg = document.getElementById("headroom-msg");
+    const log = document.getElementById("headroom-log");
+    if (msg) { msg.textContent = ""; msg.className = "settings-msg"; }
+    if (log) { log.style.display = "none"; log.textContent = ""; }
+    try {
+      const res = await api("/headroom/" + action, { method: "POST" });
+      const data = await res.json().catch(function () { return {}; });
+      if (!res.ok) throw new Error(errorMessage(data, res.status));
+      if (msg) { msg.textContent = "Headroom " + action + " ok."; msg.className = "settings-msg ok"; }
+    } catch (e) {
+      if (msg) { msg.textContent = "Headroom " + action + " failed: " + e.message; msg.className = "settings-msg err"; }
+    }
+    await refreshHeadroomStatus();
+  }
+
 
   function escapeHtml(str) {
     if (!str) return "";
