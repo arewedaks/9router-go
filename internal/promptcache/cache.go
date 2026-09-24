@@ -4,8 +4,8 @@ import (
 	"container/list"
 	"crypto/sha256"
 	"encoding/hex"
-	json "encoding/json/v2"
 	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"sync"
 	"time"
 )
@@ -23,48 +23,118 @@ type Entry struct {
 }
 
 // Cache is a thread-safe, memory-bounded LRU cache for prompt responses.
+//
+// Bounded in BYTES, not just in entries. The entry count alone is not a memory
+// bound: with a 5 MB per-response cap, 1000 entries can hold 5 GB, and a
+// production deployment reached 194 MB of retained response bodies — 92% of the
+// process heap — while serving a 0.5% hit rate. The byte budget is what makes
+// the footprint predictable on a small VPS.
 type Cache struct {
-	mu       sync.RWMutex
-	capacity int
-	ttl      time.Duration
-	items    map[string]*list.Element
-	evict    *list.List
-	hits     uint64
-	misses   uint64
+	mu            sync.RWMutex
+	capacity      int
+	maxBytes      int64
+	maxEntryBytes int64
+	bytes         int64
+	ttl           time.Duration
+	items         map[string]*list.Element
+	evict         *list.List
+	hits          uint64
+	misses        uint64
+	lastSweep     time.Time
 }
+
+// DefaultMaxBytes caps how much response data the cache may retain.
+//
+// Sized for the smallest host this proxy is expected to run on (~1 GB): the
+// cache is an optimisation for repeated prompts, so it must not be able to
+// crowd out the process it lives in. A deployment with a 0.5% hit rate keeps
+// paying this cost for nothing, which is the argument for keeping it small.
+const DefaultMaxBytes int64 = 16 << 20 // 16 MiB
+
+// DefaultMaxEntryBytes caps a single cached response.
+//
+// A response larger than this is unlikely to repeat verbatim, so storing it
+// mostly buys the memory growth this budget exists to prevent. The writer that
+// buffers responses reads this limit so the two cannot disagree.
+const DefaultMaxEntryBytes int64 = 512 << 10 // 512 KiB
+
+// sweepInterval bounds how often Set walks the list looking for expired
+// entries. Sweeping on every write would add a 1000-node walk to every request;
+// once a minute keeps an expired entry from lingering indefinitely on an idle
+// server without measuring on the hot path.
+const sweepInterval = time.Minute
 
 // Config configures the prompt cache.
 type Config struct {
-	Enabled  bool          `json:"enabled"`
-	Capacity int           `json:"capacity"`
-	TTL      time.Duration `json:"ttl"`
+	Enabled       bool          `json:"enabled"`
+	Capacity      int           `json:"capacity"`
+	TTL           time.Duration `json:"ttl"`
+	MaxBytes      int64         `json:"maxBytes"`
+	MaxEntryBytes int64         `json:"maxEntryBytes"`
 }
 
 // DefaultConfig returns safe, low-overhead defaults.
 func DefaultConfig() Config {
 	return Config{
-		Enabled:  true,
-		Capacity: 500,
-		TTL:      15 * time.Minute,
+		Enabled:       true,
+		Capacity:      500,
+		TTL:           15 * time.Minute,
+		MaxBytes:      DefaultMaxBytes,
+		MaxEntryBytes: DefaultMaxEntryBytes,
 	}
 }
 
-// New creates a new prompt cache with the specified capacity and TTL.
+// New creates a cache with the given entry capacity and TTL, using the default
+// byte budget. Callers that need explicit limits use NewWithConfig.
 func New(capacity int, ttl time.Duration) *Cache {
-	if capacity <= 0 {
-		capacity = 500
+	return NewWithConfig(Config{Capacity: capacity, TTL: ttl})
+}
+
+// NewWithConfig creates a cache from an explicit config, filling in defaults for
+// any limit left unset.
+func NewWithConfig(cfg Config) *Cache {
+	if cfg.Capacity <= 0 {
+		cfg.Capacity = 500
 	}
-	if ttl <= 0 {
-		ttl = 15 * time.Minute
+	if cfg.TTL <= 0 {
+		cfg.TTL = 15 * time.Minute
+	}
+	if cfg.MaxBytes <= 0 {
+		cfg.MaxBytes = DefaultMaxBytes
+	}
+	if cfg.MaxEntryBytes <= 0 {
+		cfg.MaxEntryBytes = DefaultMaxEntryBytes
+	}
+	// A per-entry cap above the total budget would let one response evict the
+	// whole cache; clamp it so the two limits cannot contradict each other.
+	if cfg.MaxEntryBytes > cfg.MaxBytes {
+		cfg.MaxEntryBytes = cfg.MaxBytes
 	}
 	return &Cache{
-		capacity: capacity,
-		ttl:      ttl,
-		items:    make(map[string]*list.Element),
-		evict:    list.New(),
+		capacity:      cfg.Capacity,
+		maxBytes:      cfg.MaxBytes,
+		maxEntryBytes: cfg.MaxEntryBytes,
+		ttl:           cfg.TTL,
+		items:         make(map[string]*list.Element),
+		evict:         list.New(),
+		lastSweep:     time.Now(),
 	}
 }
 
+// MaxEntryBytes reports the largest response this cache will store. The writer
+// that buffers responses uses it as its own cap.
+func (c *Cache) MaxEntryBytes() int64 {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.maxEntryBytesLocked()
+}
+
+func (c *Cache) maxEntryBytesLocked() int64 {
+	if c.maxEntryBytes <= 0 {
+		return DefaultMaxEntryBytes
+	}
+	return c.maxEntryBytes
+}
 
 // HashRequest calculates a deterministic SHA-256 hash for the given request payload.
 //
@@ -144,6 +214,10 @@ func (c *Cache) Get(key string) (*Entry, bool) {
 }
 
 // Set adds or updates an entry in the cache.
+//
+// A body larger than the per-entry cap is rejected rather than stored: one huge
+// response would otherwise evict every useful entry to make room for data that
+// is unlikely to repeat.
 func (c *Cache) Set(key string, model, contentType string, statusCode int, body []byte, isStream bool) {
 	if key == "" || len(body) == 0 {
 		return
@@ -152,11 +226,19 @@ func (c *Cache) Set(key string, model, contentType string, statusCode int, body 
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	size := int64(len(body))
+	if size > c.maxEntryBytesLocked() {
+		return
+	}
+
 	now := time.Now()
+	c.sweepExpiredLocked(now)
+
 	// Update existing
 	if elem, ok := c.items[key]; ok {
 		c.evict.MoveToFront(elem)
 		entry := elem.Value.(*Entry)
+		c.bytes += size - int64(len(entry.Body))
 		entry.Model = model
 		entry.ContentType = contentType
 		entry.StatusCode = statusCode
@@ -164,12 +246,8 @@ func (c *Cache) Set(key string, model, contentType string, statusCode int, body 
 		entry.IsStream = isStream
 		entry.CreatedAt = now
 		entry.ExpiresAt = now.Add(c.ttl)
+		c.enforceBudgetLocked()
 		return
-	}
-
-	// Evict oldest if full
-	for c.evict.Len() >= c.capacity {
-		c.evictOldest()
 	}
 
 	entry := &Entry{
@@ -185,6 +263,49 @@ func (c *Cache) Set(key string, model, contentType string, statusCode int, body 
 
 	elem := c.evict.PushFront(entry)
 	c.items[key] = elem
+	c.bytes += size
+
+	c.enforceBudgetLocked()
+}
+
+// enforceBudgetLocked evicts least-recently-used entries until both the entry
+// count and the byte budget fit. Must be called with the lock held.
+func (c *Cache) enforceBudgetLocked() {
+	for c.evict.Len() > c.capacity || c.bytes > c.maxBytes {
+		// Guard against evicting past an empty list: the byte total can only
+		// exceed the budget while something is stored, so this cannot spin.
+		if c.evict.Len() == 0 {
+			c.bytes = 0
+			return
+		}
+		c.evictOldest()
+	}
+}
+
+// sweepExpiredLocked drops entries past their TTL, walking from the back
+// (least recently used) and stopping at the first live entry.
+//
+// This is what makes the TTL a real bound rather than a filter on reads: with
+// eviction driven only by capacity, an idle server holds every entry until new
+// traffic pushes it out, so a burst of large responses pins memory for as long
+// as nothing else arrives. The walk is bounded by sweepInterval so it does not
+// run on every write.
+func (c *Cache) sweepExpiredLocked(now time.Time) {
+	if now.Sub(c.lastSweep) < sweepInterval {
+		return
+	}
+	c.lastSweep = now
+	for {
+		elem := c.evict.Back()
+		if elem == nil {
+			return
+		}
+		entry := elem.Value.(*Entry)
+		if now.Before(entry.ExpiresAt) {
+			return
+		}
+		c.evictElement(elem)
+	}
 }
 
 // Clear flushes all entries from the cache.
@@ -193,6 +314,7 @@ func (c *Cache) Clear() {
 	defer c.mu.Unlock()
 	c.items = make(map[string]*list.Element)
 	c.evict.Init()
+	c.bytes = 0
 }
 
 // Stats returns the current cache metrics.
@@ -200,6 +322,15 @@ func (c *Cache) Stats() (len int, hits, misses uint64) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.evict.Len(), c.hits, c.misses
+}
+
+// StatsDetail returns the metrics the dashboard reports, including the byte
+// footprint. Without the byte count an operator cannot tell a cache holding a
+// few small entries from one holding the process's whole heap.
+func (c *Cache) StatsDetail() (entries int, bytes int64, maxBytes int64, hits, misses uint64) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.evict.Len(), c.bytes, c.maxBytes, c.hits, c.misses
 }
 
 func (c *Cache) evictOldest() {
@@ -213,4 +344,8 @@ func (c *Cache) evictElement(elem *list.Element) {
 	c.evict.Remove(elem)
 	entry := elem.Value.(*Entry)
 	delete(c.items, entry.Key)
+	c.bytes -= int64(len(entry.Body))
+	if c.bytes < 0 {
+		c.bytes = 0
+	}
 }

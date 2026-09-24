@@ -10,10 +10,10 @@ import (
 	"9router/proxy/internal/db"
 	"9router/proxy/internal/handlers/shared"
 	"9router/proxy/internal/log"
+	"9router/proxy/internal/promptcache"
 	"9router/proxy/internal/providers"
 	"9router/proxy/internal/proxy/executor"
 	"9router/proxy/internal/proxy/oauth"
-	"9router/proxy/internal/promptcache"
 )
 
 // NewChatHandler creates a ChatHandler with the given repository and a streaming-capable HTTP client.
@@ -37,8 +37,18 @@ func NewChatHandler(repo *db.Repo, ts ...*shared.TokenSaverConfig) *ChatHandler 
 			Transport: transport,
 			Timeout:   0, // no timeout for streaming support
 		},
-		TokenSaver:  cfg,
-		PromptCache: promptcache.New(1000, 15*time.Minute),
+		TokenSaver: cfg,
+		// The cache is bounded in bytes (see promptcache.DefaultMaxBytes), so the
+		// entry count is only a secondary limit: it keeps the LRU list itself
+		// small, not the memory. A production deployment reached 194 MB of
+		// retained bodies — 92% of its heap — at a 0.5% hit rate, which is the
+		// cost this budget exists to cap.
+		PromptCache: promptcache.NewWithConfig(promptcache.Config{
+			Capacity:      500,
+			TTL:           15 * time.Minute,
+			MaxBytes:      promptcache.DefaultMaxBytes,
+			MaxEntryBytes: promptcache.DefaultMaxEntryBytes,
+		}),
 		stickyState: make(map[string]*comboStickyState),
 	}
 }
@@ -218,34 +228,34 @@ func (h *ChatHandler) resolveModel(modelStr string) (*ModelInfo, error) {
 	if h.Repo != nil {
 		aliasTarget, err := h.Repo.GetModelAlias(modelStr)
 		if err == nil && aliasTarget != "" {
-		if strings.Contains(aliasTarget, "/") {
-			parts := strings.SplitN(aliasTarget, "/", 2)
-			prefix := parts[0]
-			model := parts[1]
+			if strings.Contains(aliasTarget, "/") {
+				parts := strings.SplitN(aliasTarget, "/", 2)
+				prefix := parts[0]
+				model := parts[1]
 
-			if info := h.resolvePrefixProvider(prefix, model); info != nil {
-				return info, nil
-			}
-
-			provider := resolveProviderAlias(prefix)
-			if provider != prefix {
-				if info := h.resolvePrefixProvider(provider, model); info != nil {
+				if info := h.resolvePrefixProvider(prefix, model); info != nil {
 					return info, nil
 				}
-				if h.Repo != nil {
-					if node, _, err := h.Repo.GetProviderNodeByPrefix(prefix); err == nil && node != nil {
-						conns, _ := h.Repo.GetProviderConnections(provider, true)
-						if len(conns) == 0 {
-							return &ModelInfo{Provider: node.ID, Model: model}, nil
+
+				provider := resolveProviderAlias(prefix)
+				if provider != prefix {
+					if info := h.resolvePrefixProvider(provider, model); info != nil {
+						return info, nil
+					}
+					if h.Repo != nil {
+						if node, _, err := h.Repo.GetProviderNodeByPrefix(prefix); err == nil && node != nil {
+							conns, _ := h.Repo.GetProviderConnections(provider, true)
+							if len(conns) == 0 {
+								return &ModelInfo{Provider: node.ID, Model: model}, nil
+							}
 						}
 					}
 				}
+				return &ModelInfo{
+					Provider: provider,
+					Model:    model,
+				}, nil
 			}
-			return &ModelInfo{
-				Provider: provider,
-				Model:    model,
-			}, nil
-		}
 		}
 	}
 
@@ -253,27 +263,27 @@ func (h *ChatHandler) resolveModel(modelStr string) (*ModelInfo, error) {
 	if h.Repo != nil {
 		combo, err := h.Repo.GetComboByName(modelStr)
 		if err == nil && combo != nil && combo.Models != "" {
-		var modelStrings []string
-		if err := json.Unmarshal([]byte(combo.Models), &modelStrings); err == nil && len(modelStrings) > 0 {
-			// Flatten nested combos into concrete leaves so rotation covers
-			// every reachable model (a nested combo entry used to collapse to
-			// its first leaf, so combo-wombo -> free-tier never rotated).
-			flattened, flatErr := h.flattenComboModels(modelStrings)
-			if flatErr != nil {
-				return nil, flatErr
-			}
-			if len(flattened) > 0 {
-				firstInfo := h.resolveModelEntry(flattened[0])
-				if firstInfo == nil {
-					firstInfo, _ = h.resolveModel(flattened[0])
+			var modelStrings []string
+			if err := json.Unmarshal([]byte(combo.Models), &modelStrings); err == nil && len(modelStrings) > 0 {
+				// Flatten nested combos into concrete leaves so rotation covers
+				// every reachable model (a nested combo entry used to collapse to
+				// its first leaf, so combo-wombo -> free-tier never rotated).
+				flattened, flatErr := h.flattenComboModels(modelStrings)
+				if flatErr != nil {
+					return nil, flatErr
 				}
-				if firstInfo != nil {
-					firstInfo.ComboModels = flattened
-					firstInfo.Strategy = combo.Strategy
-					return firstInfo, nil
+				if len(flattened) > 0 {
+					firstInfo := h.resolveModelEntry(flattened[0])
+					if firstInfo == nil {
+						firstInfo, _ = h.resolveModel(flattened[0])
+					}
+					if firstInfo != nil {
+						firstInfo.ComboModels = flattened
+						firstInfo.Strategy = combo.Strategy
+						return firstInfo, nil
+					}
 				}
 			}
-		}
 		}
 	}
 

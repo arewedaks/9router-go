@@ -90,11 +90,22 @@ func (c *cachingResponseWriter) Write(b []byte) (int, error) {
 	if c.contentType == "" {
 		c.contentType = c.ResponseWriter.Header().Get("Content-Type")
 	}
-	// Only buffer successful 2xx responses up to a reasonable bound (e.g. 5MB)
-	if c.statusCode >= 200 && c.statusCode < 300 && c.buf.Len()+len(b) <= 5*1024*1024 {
+	// Buffer successful 2xx responses up to the cache's own per-entry cap, so
+	// the buffer and the cache cannot disagree about what fits. Anything larger
+	// is streamed through and simply not cached.
+	if c.statusCode >= 200 && c.statusCode < 300 && int64(c.buf.Len()+len(b)) <= c.maxEntryBytes() {
 		c.buf.Write(b)
 	}
 	return c.ResponseWriter.Write(b)
+}
+
+// maxEntryBytes reports the cache's per-entry limit. A nil cache (or one built
+// without a limit) falls back to the package default rather than to no limit.
+func (c *cachingResponseWriter) maxEntryBytes() int64 {
+	if c.cache == nil {
+		return promptcache.DefaultMaxEntryBytes
+	}
+	return c.cache.MaxEntryBytes()
 }
 
 func (c *cachingResponseWriter) Flush() {
@@ -116,28 +127,32 @@ func (c *cachingResponseWriter) Finalize() {
 
 // HandleCacheStats returns the current statistics of the in-memory prompt cache.
 func (h *ChatHandler) HandleCacheStats(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
 	if h.PromptCache == nil {
-		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"enabled":false}`))
 		return
 	}
 
-	count, hits, misses := h.PromptCache.Stats()
+	entries, bytes, maxBytes, hits, misses := h.PromptCache.StatsDetail()
 	total := hits + misses
 	var hitRatio float64
 	if total > 0 {
 		hitRatio = float64(hits) / float64(total) * 100.0
 	}
 
+	// bytes/maxBytes are reported because the entry count alone cannot tell an
+	// operator whether the cache is holding a few small responses or most of the
+	// process heap — the failure this endpoint exists to make visible.
 	resp := map[string]any{
 		"enabled":  true,
-		"count":    count,
+		"count":    entries,
+		"bytes":    bytes,
+		"maxBytes": maxBytes,
 		"hits":     hits,
 		"misses":   misses,
 		"hitRate":  fmt.Sprintf("%.1f%%", hitRatio),
 	}
 
-	w.Header().Set("Content-Type", "application/json")
 	data, _ := json.Marshal(resp)
 	w.Write(data)
 }

@@ -126,3 +126,111 @@ func TestHashRequest_SensitiveToAnswerAffectingFields(t *testing.T) {
 		t.Error("stream/user changed the hash; these do not affect the answer and should share a cache entry")
 	}
 }
+
+// The entry count is not a memory bound. A production deployment reached 194 MB
+// of retained response bodies — 92% of the process heap — with the cache "full"
+// at its entry limit and a 0.5% hit rate. The byte budget is what makes the
+// footprint predictable, so it is asserted directly.
+func TestCacheEnforcesByteBudget(t *testing.T) {
+	c := NewWithConfig(Config{Capacity: 1000, TTL: time.Minute, MaxBytes: 1000, MaxEntryBytes: 400})
+
+	for i := 0; i < 10; i++ {
+		c.Set(string(rune('a'+i)), "m", "text/plain", 200, make([]byte, 300), false)
+	}
+
+	_, bytes, maxBytes, _, _ := c.StatsDetail()
+	if bytes > maxBytes {
+		t.Errorf("retained %d bytes with a %d byte budget", bytes, maxBytes)
+	}
+	if entries, _, _, _, _ := c.StatsDetail(); entries > 3 {
+		t.Errorf("retained %d entries of 300 bytes under a 1000 byte budget", entries)
+	}
+}
+
+// A response larger than the per-entry cap must be rejected outright: storing it
+// would evict every useful entry to make room for data unlikely to repeat.
+func TestCacheRejectsOversizedEntry(t *testing.T) {
+	c := NewWithConfig(Config{Capacity: 10, TTL: time.Minute, MaxBytes: 1 << 20, MaxEntryBytes: 100})
+
+	c.Set("small", "m", "text/plain", 200, make([]byte, 50), false)
+	c.Set("huge", "m", "text/plain", 200, make([]byte, 500), false)
+
+	if _, ok := c.Get("huge"); ok {
+		t.Error("an entry above the per-entry cap was stored")
+	}
+	if _, ok := c.Get("small"); !ok {
+		t.Error("the oversized entry evicted a valid one")
+	}
+}
+
+// Replacing an entry has to correct the byte total, or the budget would drift
+// upward on every update and eventually evict a cache that is mostly empty.
+func TestCacheByteTotalTracksReplacement(t *testing.T) {
+	c := NewWithConfig(Config{Capacity: 10, TTL: time.Minute, MaxBytes: 1 << 20, MaxEntryBytes: 1 << 20})
+
+	c.Set("k", "m", "text/plain", 200, make([]byte, 1000), false)
+	_, afterFirst, _, _, _ := c.StatsDetail()
+
+	c.Set("k", "m", "text/plain", 200, make([]byte, 100), false)
+	entries, afterReplace, _, _, _ := c.StatsDetail()
+
+	if entries != 1 {
+		t.Fatalf("entries = %d, want 1", entries)
+	}
+	if afterReplace != afterFirst-900 {
+		t.Errorf("bytes = %d after replacing 1000 with 100 (was %d), want %d",
+			afterReplace, afterFirst, afterFirst-900)
+	}
+}
+
+// Expired entries must be released by the cache itself, not only when a lookup
+// happens to hit them. Eviction driven purely by capacity pins memory on an idle
+// server: nothing arrives to push the old entries out.
+func TestCacheSweepsExpiredEntries(t *testing.T) {
+	c := NewWithConfig(Config{Capacity: 1000, TTL: 20 * time.Millisecond, MaxBytes: 1 << 20, MaxEntryBytes: 1 << 20})
+
+	for i := 0; i < 5; i++ {
+		c.Set(string(rune('a'+i)), "m", "text/plain", 200, make([]byte, 100), false)
+	}
+	time.Sleep(30 * time.Millisecond)
+
+	// Force the sweep window open: the interval exists so a write does not walk
+	// the list on every request.
+	c.mu.Lock()
+	c.lastSweep = time.Now().Add(-2 * sweepInterval)
+	c.mu.Unlock()
+
+	c.Set("fresh", "m", "text/plain", 200, make([]byte, 100), false)
+
+	entries, bytes, _, _, _ := c.StatsDetail()
+	if entries != 1 {
+		t.Errorf("entries = %d after a sweep, want only the fresh one", entries)
+	}
+	if bytes != 100 {
+		t.Errorf("bytes = %d after a sweep, want 100", bytes)
+	}
+}
+
+// Clear must reset the byte total, or a cleared cache would still report a full
+// budget and evict the first entry written after it.
+func TestCacheClearResetsBytes(t *testing.T) {
+	c := NewWithConfig(Config{Capacity: 10, TTL: time.Minute, MaxBytes: 1 << 20, MaxEntryBytes: 1 << 20})
+	c.Set("k", "m", "text/plain", 200, make([]byte, 500), false)
+	c.Clear()
+
+	if _, bytes, _, _, _ := c.StatsDetail(); bytes != 0 {
+		t.Errorf("bytes = %d after Clear, want 0", bytes)
+	}
+	if entries, _, _, _, _ := c.StatsDetail(); entries != 0 {
+		t.Errorf("entries = %d after Clear, want 0", entries)
+	}
+}
+
+// A per-entry cap above the total budget would let one response evict the whole
+// cache, so the two limits are reconciled at construction.
+func TestCacheClampsEntryCapToBudget(t *testing.T) {
+	c := NewWithConfig(Config{Capacity: 10, TTL: time.Minute, MaxBytes: 1000, MaxEntryBytes: 1 << 20})
+	if got := c.MaxEntryBytes(); got > 1000 {
+		t.Errorf("MaxEntryBytes() = %d, want it clamped to the 1000 byte budget", got)
+	}
+}
