@@ -265,20 +265,39 @@ Each SSE stream is wrapped with a `StallReader` (6-minute timeout by default).
 ## Token Savers
 
 Reduce token usage on routed LLM traffic. Each saver is independently toggleable
-via CLI flag or environment variable (CLI flag overrides env).
+via CLI flag or environment variable (CLI flag overrides env), and all four are
+also editable from the dashboard's **Token Saver** page.
 
 | Saver | CLI flag | Env var | Default | Effect |
 |-------|----------|---------|---------|--------|
 | RTK | `--rtk` | `RTK_ENABLED` | **on** | Content-aware compression of tool/tool_result messages (git diff, logs, grep, tree) |
+| Headroom | — | — | off | Sends the conversation to an external proxy's `/v1/compress` before routing |
 | Caveman | `--caveman` | `CAVEMAN_ENABLED` | off | Injects terse-output system prompt (~65% fewer output tokens) |
 | Ponytail | `--ponytail` | `PONYTAIL_ENABLED` | off | Injects lazy-senior-dev prompt biasing minimal code |
 
+Caveman and Ponytail each take a level — `lite`, `full` (default) or `ultra` —
+set from the Token Saver page. Legacy `light`/`medium`/`compact` values in an
+existing database keep working.
+
+Headroom is an optional sidecar. Install and run it from the Token Saver page
+(Manage → Start), or point the URL at one you run yourself; an unreachable or
+slow proxy costs the request its compression, never its success.
+
 ```bash
-# All savers on
+# All built-in savers on
 ./9router-go --rtk --caveman --ponytail
 ```
 
 > RTK is on by default. Disable with `RTK_ENABLED=false` or `--rtk=false`.
+
+### Per-request bypass
+
+Send `X-9Router-Token-Saver: off` to skip every saver for one request, leaving
+the global settings alone:
+
+```bash
+curl -H 'X-9Router-Token-Saver: off' http://localhost:20128/v1/chat/completions ...
+```
 
 ## Environment Variables
 
