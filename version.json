@@ -1,5 +1,5 @@
 {
   "latestVersion": "1.8.42",
   "downloadUrl": "https://github.com/arewedaks/9router-go/releases/latest",
-  "releaseNotes": "- docs: record the token saver parity work and the cache memory fix (204911f)\n- feat(dashboard): a Token Saver page with live Headroom management (fa36b4a)\n- feat(tokensaver): headroom compression, per-request bypass, real levels (341fd93)\n- fix(promptcache): bound the cache in bytes, not just entries (cea7523)\n- chore(release): version.json -> v1.8.41 (1ca4db7)\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
+  "releaseNotes": "- chore: bump version to 1.8.42 (214771e)\n- docs: record the token saver parity work and the cache memory fix (204911f)\n- feat(dashboard): a Token Saver page with live Headroom management (fa36b4a)\n- feat(tokensaver): headroom compression, per-request bypass, real levels (341fd93)\n- fix(promptcache): bound the cache in bytes, not just entries (cea7523)\n- chore(release): version.json -> v1.8.41 (1ca4db7)\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
 }
