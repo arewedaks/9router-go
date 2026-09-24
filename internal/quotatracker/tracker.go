@@ -13,8 +13,8 @@ package quotatracker
 import (
 	"bytes"
 	"context"
-	json "encoding/json/v2"
 	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"fmt"
 	"io"
 	"net/http"
@@ -38,6 +38,10 @@ type Quota struct {
 	// Unit is the provider's own unit ("credit", "tokens", "requests") so the UI
 	// does not have to guess what the numbers mean.
 	Unit string `json:"unit,omitempty"`
+	// DisplayName is the provider's own label for this allowance. The map key is
+	// the stable identifier (a model id, "gemini_weekly"), which is not always
+	// readable; the UI prefers this when present and falls back to the key.
+	DisplayName string `json:"displayName,omitempty"`
 }
 
 // Result is the outcome for one connection. Exactly one of Message or Quotas is
@@ -61,6 +65,20 @@ type Credentials struct {
 	// connections of different providers are fetched concurrently, and a shared
 	// mutable endpoint would send one provider's request to another's host.
 	UsageURL string
+	// ProjectID is the Google Cloud project an Antigravity connection is bound
+	// to. The quota RPCs address it explicitly, and an account that has never
+	// been onboarded has none — which changes what the API is willing to report.
+	ProjectID string
+	// SubscriptionURL is the endpoint that answers which plan a connection is on.
+	// Antigravity needs it to tell a free account from a paid one: the two expose
+	// different windows, and reading a free account's per-model numbers as a 5h
+	// allowance reports a limit that does not exist.
+	SubscriptionURL string
+	// ClientProfile is the official client identity to present (Antigravity's
+	// ide|cli). It is not cosmetic: the backend answers the catalogue RPC with a
+	// different model set per profile, so a quota call that ignores it reports a
+	// different number of models than the picker the operator is looking at.
+	ClientProfile string
 }
 
 // Handler fetches quota for one provider.
@@ -73,6 +91,8 @@ var registry = map[string]Handler{
 	"codebuddy-cn":   fetchCodeBuddy,
 	"codebuddy-intl": fetchCodeBuddy,
 	"workbuddy":      fetchCodeBuddy,
+	"antigravity":    fetchAntigravity,
+	"antigravity-go": fetchAntigravity,
 }
 
 // Supported reports whether a provider has a quota handler.

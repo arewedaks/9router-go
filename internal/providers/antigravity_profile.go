@@ -73,6 +73,10 @@ func IsAntigravityClientProfile(v any) bool {
 	}
 }
 
+// String returns the stored form of the profile. Quota callers carry it as a
+// plain string so the tracker package does not have to import providers.
+func (p AntigravityClientProfile) String() string { return string(p) }
+
 // AntigravityUserAgent returns the User-Agent header for the given profile.
 //
 // ide → antigravity/ide/<ver> darwin/arm64

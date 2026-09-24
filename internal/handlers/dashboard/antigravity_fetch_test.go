@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"9router/proxy/internal/providers"
 )
 
 // liveFixture is a trimmed copy of a real /v1internal:fetchAvailableModels
@@ -65,8 +67,8 @@ func TestIsDiscoverableAntigravityModel(t *testing.T) {
 		{"", false},
 	}
 	for _, c := range cases {
-		if got := isDiscoverableAntigravityModel(c.id); got != c.want {
-			t.Errorf("isDiscoverableAntigravityModel(%q) = %v, want %v", c.id, got, c.want)
+		if got := providers.IsDiscoverableAntigravityModel(c.id); got != c.want {
+			t.Errorf("providers.IsDiscoverableAntigravityModel(%q) = %v, want %v", c.id, got, c.want)
 		}
 	}
 }
@@ -151,7 +153,7 @@ func TestAntigravityStaticModels_AllDiscoverable(t *testing.T) {
 		t.Fatal("static catalogue is empty")
 	}
 	for _, m := range models {
-		if !isDiscoverableAntigravityModel(m.ID) {
+		if !providers.IsDiscoverableAntigravityModel(m.ID) {
 			t.Errorf("static catalogue contains non-discoverable id %q", m.ID)
 		}
 		if m.Name == "" {

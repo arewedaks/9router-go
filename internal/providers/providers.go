@@ -28,6 +28,13 @@ type ProviderConfig struct {
 	// quota tracker cannot derive it. Empty means "no quota API" and the tracker
 	// reports that instead of guessing a path.
 	UsageURL string
+
+	// SubscriptionURL answers which plan a connection is on. Only providers
+	// whose quota shape depends on the tier need it: Antigravity's free accounts
+	// expose no 5h window, so reading their per-model numbers as one reports a
+	// limit that does not exist. Empty means "tier is unknown, assume the
+	// conservative reading".
+	SubscriptionURL string
 }
 
 // FormatClaude marks a provider whose upstream speaks the Anthropic Messages
@@ -158,6 +165,11 @@ var KnownProviders = map[string]ProviderConfig{
 		AuthHeader: "Authorization",
 		AuthScheme: "bearer",
 		Format:     "gemini-native",
+		// The quota RPCs live on cloudcode-pa, not on the chat host above.
+		// fetchAvailableModels answers per-model remaining fractions and
+		// retrieveUserQuotaSummary the weekly/5h buckets.
+		UsageURL:        "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+		SubscriptionURL: "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist",
 	},
 	"github": {
 		BaseURL:    "https://api.githubcopilot.com/chat/completions",

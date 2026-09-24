@@ -1106,7 +1106,19 @@
     .quota-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
     .quota-toolbar span { flex: 1; }
     .quota-card { background: var(--glass); border: 1px solid var(--glass-border); border-radius: var(--radius); padding: 14px; margin-bottom: 10px; }
-    .quota-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+    /* The account header is a disclosure control. Seven accounts x fifteen rows
+       is a 6000px column, so an operator comparing accounts has to scroll past
+       every row of the one above. Collapsing to the header makes the comparison
+       the default view; the account with something spent opens expanded. */
+    .quota-head { display: flex; align-items: center; gap: 8px; margin-bottom: 0; flex-wrap: wrap; width: 100%;
+      background: none; border: 0; padding: 0; font: inherit; text-align: left; cursor: pointer; color: inherit; }
+    .quota-head[aria-expanded="true"] { margin-bottom: 10px; }
+    .quota-caret { color: var(--muted); font-size: 0.7rem; transition: transform .15s; display: inline-block; }
+    .quota-head[aria-expanded="true"] .quota-caret { transform: rotate(90deg); }
+    .quota-body[hidden] { display: none; }
+    /* One line of context stays visible while collapsed, so a closed account
+       still says whether anything is close to running out. */
+    .quota-summary { font-size: 0.72rem; color: var(--muted); margin-left: auto; font-variant-numeric: tabular-nums; }
     .quota-conn { font-size: 0.85rem; font-weight: 600; color: var(--text); overflow-wrap: anywhere; }
     .quota-plan { font-size: 0.68rem; color: var(--muted); background: var(--panel-hover); border: 1px solid var(--border); border-radius: 999px; padding: 1px 9px; }
     .quota-msg { font-size: 0.78rem; color: var(--muted); }
@@ -3998,23 +4010,40 @@
     }
 
     const rows = conns.map(c => {
-      const head = `<div class="quota-head">
+      const entries = quotaRows(c.quotas);
+      // The worst allowance decides the summary line and the default state: an
+      // account with something nearly spent is the one worth opening.
+      const worst = entries.reduce((max, [, q]) => {
+        const p = q.total > 0 ? (q.used / q.total) * 100 : 0;
+        return p > max.pct ? { pct: p, label: q.displayName || "" } : max;
+      }, { pct: 0, label: "" });
+      const summary = worst.pct > 0
+        ? `${Math.round(worst.pct)}% used${worst.label ? " · " + escapeHtml(worst.label) : ""}`
+        : "unused";
+      const expanded = worst.pct >= 50;
+      const head = `<button type="button" class="quota-head" aria-expanded="${expanded}"
+          onclick="toggleQuotaCard(this)">
+        <span class="quota-caret">▶</span>
         <span class="quota-conn">${escapeHtml(c.name || c.connectionId)}</span>
         ${c.plan ? `<span class="quota-plan">${escapeHtml(c.plan)}</span>` : ""}
-      </div>`;
+        <span class="quota-summary">${summary}</span>
+      </button>`;
 
       // A message is a normal outcome (unsupported provider, expired
       // credential), so it renders where the bars would be rather than as an
       // error.
       if (c.message && !(c.quotas && Object.keys(c.quotas).length)) {
-        return `<div class="quota-card">${head}<div class="quota-msg">${escapeHtml(c.message)}</div></div>`;
+        return `<div class="quota-card">${head}<div class="quota-body"><div class="quota-msg">${escapeHtml(c.message)}</div></div></div>`;
       }
 
-      const bars = Object.entries(c.quotas || {}).map(([label, q]) => {
-        const pct = q.total > 0 ? Math.min(100, (q.used / q.total) * 100) : 0;
-        // Three bands: a spent allowance is the thing worth noticing, so it is
-        // coloured, not just labelled.
-        const cls = pct >= 90 ? "crit" : (pct >= 70 ? "warn" : "");
+      const bars = entries.map(([label, q]) => {
+        const usedPct = q.total > 0 ? Math.min(100, (q.used / q.total) * 100) : 0;
+        // The bar shows what is LEFT, not what is spent. Drawn as usage, a
+        // healthy account with nothing consumed rendered an empty bar, which
+        // reads as "no quota" — the opposite of the truth. Colour still tracks
+        // pressure, so the bar is green when healthy and red when nearly spent.
+        const leftPct = 100 - usedPct;
+        const cls = usedPct >= 90 ? "crit" : (usedPct >= 70 ? "warn" : "");
         const reset = q.resetAt ? relativeReset(q.resetAt) : "";
         // A one-shot pack expires; a refill pack resets. Saying "Resets" for a
         // bonus pack would promise a refill that never arrives.
@@ -4022,21 +4051,56 @@
         const unit = q.unit ? ` ${escapeHtml(q.unit)}` : "";
         return `<div class="quota-row">
           <div class="quota-label">
-            <span>${escapeHtml(label)}</span>
-            <span class="quota-nums">${fmtQuotaNum(q.used)} / ${fmtQuotaNum(q.total)}${unit} (${pct.toFixed(0)}%)</span>
+            <span>${escapeHtml(q.displayName || label)}</span>
+            <span class="quota-nums">${fmtQuotaNum(q.used)} / ${fmtQuotaNum(q.total)}${unit} (${leftPct.toFixed(0)}% left)</span>
           </div>
-          <div class="quota-bar"><div class="quota-fill ${cls}" style="width:${pct.toFixed(1)}%"></div></div>
+          <div class="quota-bar"><div class="quota-fill ${cls}" style="width:${leftPct.toFixed(1)}%"></div></div>
           ${reset ? `<div class="quota-reset">${resetLabel} ${escapeHtml(reset)}</div>` : ""}
         </div>`;
       }).join("");
 
-      return `<div class="quota-card">${head}${bars}</div>`;
+      return `<div class="quota-card">${head}<div class="quota-body"${expanded ? "" : " hidden"}>${bars}</div></div>`;
     }).join("");
 
     return `<div class="quota-toolbar">
         <span style="font-size:0.75rem; color:var(--muted);">Live balances from the provider's billing API.</span>
         <button class="btn btn-sm" onclick="refreshQuota()">Refresh</button>
       </div>${rows}`;
+  }
+
+  function toggleQuotaCard(btn) {
+    const expanded = btn.getAttribute("aria-expanded") === "true";
+    btn.setAttribute("aria-expanded", expanded ? "false" : "true");
+    const body = btn.parentElement.querySelector(".quota-body");
+    if (body) body.hidden = expanded;
+  }
+
+  // quotaRows orders a connection's allowances so the panel reads the same way
+  // every time it is opened.
+  //
+  // The provider sends an object, and the Go side marshals it from a map, so the
+  // JSON key order is randomised per request. Rendering it as-received made the
+  // list reshuffle on every Refresh, which reads as the numbers changing when
+  // only their positions did.
+  //
+  // Order: family windows first (weekly then 5h — the rows that explain a
+  // blocked account), then per-model rows grouped by family, then anything else.
+  // Ties break alphabetically so the result is fully deterministic.
+  function quotaRows(quotas) {
+    const rank = (k) => {
+      if (/_weekly$/.test(k)) return 0;
+      if (/_session$/.test(k)) return 1;
+      if (/^gemini-/.test(k)) return 2;
+      if (/^claude-/.test(k)) return 3;
+      if (/^gpt-/.test(k)) return 4;
+      return 5;
+    };
+    return Object.entries(quotas || {}).sort((a, b) => {
+      const ra = rank(a[0]), rb = rank(b[0]);
+      if (ra !== rb) return ra - rb;
+      const la = a[1].displayName || a[0], lb = b[1].displayName || b[0];
+      return la.localeCompare(lb);
+    });
   }
 
   // fmtQuotaNum trims the provider's precise floats to something readable
@@ -4340,9 +4404,12 @@
     }
     document.querySelectorAll(".detail-tab").forEach(b => b.classList.remove("active"));
     btn.classList.add("active");
-    ["dt-conn", "dt-caps", "dt-models", "dt-proxy"].forEach(id => {
-      const el = document.getElementById(id);
-      if (el) el.style.display = "none";
+    // Hide every panel, discovered from the DOM rather than listed by hand. A
+    // hardcoded list is how dt-quota came to leak: it was added to the markup
+    // and the tab bar but not here, so switching tabs left the quota rows
+    // rendered underneath whatever tab was opened next.
+    document.querySelectorAll('[id^="dt-"]').forEach(el => {
+      el.style.display = "none";
     });
     const target = document.getElementById("dt-" + which);
     if (target) target.style.display = "block";
@@ -5353,7 +5420,12 @@
       freebuffOAuthCtx = {
         fingerprintId: data.fingerprintId,
         fingerprintHash: data.fingerprintHash,
+        // expiresAt is the SERVER's code expiry (~1h) and is forwarded verbatim
+        // to the status RPC, which is asked about the code it issued. The poll
+        // loop must not run that long: the CLI gives up after 5 minutes, and a
+        // loop that outlives the operator's attention just burns requests.
         expiresAt: data.expiresAt,
+        deadline: Date.now() + (data.pollTimeoutMs || 300000),
         flowId,
       };
       document.getElementById("fb-oauth-step2").style.display = "block";
@@ -5362,16 +5434,16 @@
       msg.style.color = "var(--muted)";
       msg.textContent = "Waiting for you to sign in…";
       if (data.authUrl) window.open(data.authUrl, "_blank", "noopener");
-      pollFreebuffConnection(providerId, flowId, data.pollIntervalMs || 5000, data.expiresAt);
+      pollFreebuffConnection(providerId, flowId, data.pollIntervalMs || 5000, freebuffOAuthCtx.deadline);
     } catch (e) {
       msg.style.color = "var(--danger)";
       msg.textContent = String(e);
     }
   }
 
-  async function pollFreebuffConnection(providerId, flowId, intervalMs, expiresAt) {
+  async function pollFreebuffConnection(providerId, flowId, intervalMs, deadline) {
     const msg = document.getElementById("fb-oauth-msg");
-    const deadline = expiresAt || (Date.now() + 300000);
+    if (!deadline) deadline = Date.now() + 300000;
     while (Date.now() < deadline) {
       await new Promise(res => setTimeout(res, intervalMs));
       if (!freebuffOAuthCtx || freebuffOAuthCtx.flowId !== flowId) return;

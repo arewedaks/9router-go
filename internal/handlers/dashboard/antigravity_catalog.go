@@ -49,7 +49,7 @@ var antigravityStaticCatalog = []antigravityStaticModel{
 func antigravityStaticModels() []UpstreamModel {
 	out := make([]UpstreamModel, 0, len(antigravityStaticCatalog))
 	for _, m := range antigravityStaticCatalog {
-		if !isDiscoverableAntigravityModel(m.ID) {
+		if !providers.IsDiscoverableAntigravityModel(m.ID) {
 			continue
 		}
 		out = append(out, UpstreamModel{

@@ -3,19 +3,27 @@ package oauth
 // Freebuff / Codebuff CLI login (fingerprint device flow — NOT OAuth2).
 //
 // Ported from VansRouter's src/lib/oauth/providers/freebuff.js. The official
-// Freebuff CLI authenticates with a browser handshake rather than a redirect:
+// Codebuff CLI authenticates with a browser handshake rather than a redirect:
 //
 //  1. POST {loginHost}/api/auth/cli/code {fingerprintId}
 //     → { fingerprintId, fingerprintHash, loginUrl, expiresAt }
-//     The server echoes the request host into loginUrl, so the call MUST go to
-//     freebuff.com — www.codebuff.com would return a link the CLI does not
-//     recognise.
 //  2. Operator opens loginUrl and signs in.
 //  3. GET {loginHost}/api/auth/cli/status?fingerprintId=..&fingerprintHash=..&expiresAt=..
 //     → { user: { id, email, name, authToken } } once authorised.
 //
 // The resulting user.authToken is the Bearer credential for the OpenAI-
-// compatible endpoint on www.codebuff.com (same backend, different host).
+// compatible endpoint on the SAME host.
+//
+// The host is www.codebuff.com, and getting it wrong is silent: freebuff.com is
+// a separate consumer product with its own OAuth application
+// (GitHub client_id Ov23liBmPZjygPRVpLQs against Ov23liw1KEfqvhsQV2Mc here) and
+// no /api/v1 at all — it answers 404 where this one answers 401 "Invalid
+// Codebuff API key". Its /api/auth/cli/code still returns 200 with a loginUrl,
+// so a flow pointed there looks healthy, sends the operator to a real sign-in
+// page, and then polls forever: the auth_code belongs to an account on the
+// other service, so this host's status RPC never binds it. Verified against the
+// released CLI (codebuff 1.0.688), whose base URL is
+// https://www.codebuff.com — the reverse of what this file used to claim.
 //
 // The handshake is stateless server-side: the fingerprint triple rides in the
 // dashboard's poll request, so this works headless.
@@ -34,15 +42,20 @@ import (
 )
 
 const (
-	// freebuffLoginHost is the login-flow host. It must stay freebuff.com: the
-	// server builds loginUrl from the host it was called on.
-	freebuffLoginHost = "https://freebuff.com"
+	// freebuffLoginHost is the login-flow host, matching the released CLI's base
+	// URL. The server builds loginUrl from the host it was called on, so a wrong
+	// host yields a real sign-in page for the WRONG service and a poll that never
+	// resolves.
+	freebuffLoginHost = "https://www.codebuff.com"
 
 	freebuffLoginCodePath   = "/api/auth/cli/code"
 	freebuffLoginStatusPath = "/api/auth/cli/status"
 
-	// The CLI identifies itself by version on every handshake call.
-	freebuffCLIVersion = "codebuff-cli/0.0.138"
+	// freebuffUserAgent names the client on handshake calls. The released CLI
+	// sends no User-Agent here and the backend does not validate one, so this is
+	// only for intermediaries that reject a missing header. Kept at the released
+	// version rather than an invented one.
+	freebuffUserAgent = "codebuff-cli/1.0.688"
 
 	// Mirrors the CLI's 5-minute polling deadline (oauthTimeoutMs).
 	freebuffLoginTimeout = 5 * time.Minute
@@ -57,7 +70,11 @@ var freebuffLoginBase = freebuffLoginHost
 // Returns { authUrl, fingerprintId, fingerprintHash, expiresAt } — the
 // dashboard opens authUrl and polls /exchange with the same triple.
 func (h *OAuthHandler) HandleFreebuffAuthorize(w http.ResponseWriter, r *http.Request) {
-	fingerprintID := randomString(32)
+	// The released CLI names its fingerprint "codebuff-cli-<8>" (or an
+	// "enhanced-<sha256>" derived from machine ids). The backend accepted a bare
+	// random string too, but sending the shape the client actually sends avoids
+	// depending on that leniency.
+	fingerprintID := "codebuff-cli-" + randomString(8)
 
 	body, err := json.Marshal(map[string]any{"fingerprintId": fingerprintID})
 	if err != nil {
@@ -72,7 +89,7 @@ func (h *OAuthHandler) HandleFreebuffAuthorize(w http.ResponseWriter, r *http.Re
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", freebuffCLIVersion)
+	req.Header.Set("User-Agent", freebuffUserAgent)
 
 	client := &http.Client{Timeout: 20 * time.Second}
 	resp, err := client.Do(req)
@@ -114,10 +131,12 @@ func (h *OAuthHandler) HandleFreebuffAuthorize(w http.ResponseWriter, r *http.Re
 		parsed.FingerprintID = fingerprintID
 	}
 
-	// Server codes live ~1h but the CLI stops polling after 5 minutes; clamp so
-	// the dashboard does not hammer the status endpoint for an hour.
+	// Pass the server's expiry through unchanged: the status RPC is asked about
+	// the code this host issued, and the CLI forwards the value it was given.
+	// The 5-minute CLI deadline bounds the POLL LOOP, not this field, so the
+	// dashboard gets it separately as pollTimeoutMs.
 	expiresAt := parsed.ExpiresAt
-	if expiresAt == 0 || expiresAt-time.Now().UnixMilli() > int64(freebuffLoginTimeout/time.Millisecond) {
+	if expiresAt == 0 {
 		expiresAt = time.Now().Add(freebuffLoginTimeout).UnixMilli()
 	}
 
@@ -127,6 +146,7 @@ func (h *OAuthHandler) HandleFreebuffAuthorize(w http.ResponseWriter, r *http.Re
 		"fingerprintHash": parsed.FingerprintHash,
 		"expiresAt":       expiresAt,
 		"pollIntervalMs":  5000,
+		"pollTimeoutMs":   int64(freebuffLoginTimeout / time.Millisecond),
 	})
 }
 
@@ -174,7 +194,7 @@ func (h *OAuthHandler) HandleFreebuffExchange(w http.ResponseWriter, r *http.Req
 		return
 	}
 	statusReq.Header.Set("Accept", "application/json")
-	statusReq.Header.Set("User-Agent", freebuffCLIVersion)
+	statusReq.Header.Set("User-Agent", freebuffUserAgent)
 
 	client := &http.Client{Timeout: 20 * time.Second}
 	resp, err := client.Do(statusReq)

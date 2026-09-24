@@ -11,8 +11,10 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"9router/proxy/internal/handlerutil"
+	"9router/proxy/internal/log"
 	"9router/proxy/internal/models"
 	"9router/proxy/internal/providers"
+	"9router/proxy/internal/proxy/oauth"
 	"9router/proxy/internal/quotatracker"
 )
 
@@ -23,12 +25,12 @@ const quotaFetchTimeout = 20 * time.Second
 // quotaConnectionResult is one connection's quota, bound by id so the UI
 // attaches it to the exact row rather than a list position.
 type quotaConnectionResult struct {
-	ConnectionID string                      `json:"connectionId"`
-	Provider     string                      `json:"provider"`
-	Name         string                      `json:"name,omitempty"`
-	Plan         string                      `json:"plan,omitempty"`
+	ConnectionID string                        `json:"connectionId"`
+	Provider     string                        `json:"provider"`
+	Name         string                        `json:"name,omitempty"`
+	Plan         string                        `json:"plan,omitempty"`
 	Quotas       map[string]quotatracker.Quota `json:"quotas,omitempty"`
-	Message      string                      `json:"message,omitempty"`
+	Message      string                        `json:"message,omitempty"`
 }
 
 // HandleProviderQuota returns the live credit/quota balances for every
@@ -63,6 +65,16 @@ func (h *Handler) HandleProviderQuota(w http.ResponseWriter, r *http.Request) {
 	// and this is an operator-initiated read of a handful of rows, not a hot
 	// path. Probing them in parallel is how an account gets throttled.
 	client := &http.Client{Timeout: quotaFetchTimeout}
+
+	// The client profile is a provider-wide setting, so it is read once here
+	// rather than per connection: a stale per-account value could disagree with
+	// what routing actually sends, and the catalogue RPC answers a different
+	// model set per profile.
+	profile := ""
+	if settings, err := h.repo.GetSettings(); err == nil && settings != nil {
+		profile = providers.NormalizeAntigravityClientProfile(settings.AntigravityClientProfile).String()
+	}
+
 	out := make([]quotaConnectionResult, 0, len(conns))
 	for _, c := range conns {
 		entry := quotaConnectionResult{
@@ -77,6 +89,27 @@ func (h *Handler) HandleProviderQuota(w http.ResponseWriter, r *http.Request) {
 			out = append(out, entry)
 			continue
 		}
+
+		// Refresh an expired credential before asking. Google's quota RPCs
+		// answer a stale access token with an empty or 401 response rather than
+		// a useful error, so a panel that skipped this would report "no quota"
+		// for every account whose token had lapsed — indistinguishable from a
+		// healthy account with nothing left.
+		//
+		// This mirrors the reference implementation, whose usage route calls
+		// refreshAndUpdateCredentials() before dispatching to the provider
+		// handler. A refresh failure is not fatal: the request proceeds with the
+		// stored token and the RPC's own status decides the outcome.
+		refreshedToken, projectID, _, refreshErr := oauth.RefreshStoredConnection(ctx, h.repo, client, c.ID, false)
+		if refreshErr != nil {
+			log.Warn("quota", "token refresh failed", "conn", c.ID[:min(8, len(c.ID))], "error", refreshErr)
+		} else if refreshedToken != "" {
+			creds.AccessToken = refreshedToken
+		}
+		if creds.ProjectID == "" && projectID != "" {
+			creds.ProjectID = projectID
+		}
+		creds.ClientProfile = profile
 
 		res, err := quotatracker.Fetch(ctx, client, creds)
 		if err != nil {
@@ -103,6 +136,7 @@ func quotaCredentialsFor(c *models.ProviderConnection) (quotatracker.Credentials
 	var data struct {
 		APIKey      string `json:"apiKey"`
 		AccessToken string `json:"accessToken"`
+		ProjectID   string `json:"projectId"`
 	}
 	if c.Data != "" {
 		_ = json.Unmarshal([]byte(c.Data), &data)
@@ -118,10 +152,12 @@ func quotaCredentialsFor(c *models.ProviderConnection) (quotatracker.Credentials
 	creds := quotatracker.Credentials{
 		Provider:    c.Provider,
 		AccessToken: token,
+		ProjectID:   data.ProjectID,
 	}
 	if cfg, ok := providers.KnownProviders[c.Provider]; ok {
 		creds.StaticHeader = cfg.StaticHeaders
 		creds.UsageURL = cfg.UsageURL
+		creds.SubscriptionURL = cfg.SubscriptionURL
 	}
 	return creds, true
 }

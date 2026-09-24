@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 // withFreebuffBase points the handler at a test server for the duration of the
@@ -46,8 +47,8 @@ func TestHandleFreebuffAuthorize_ReturnsLoginURL(t *testing.T) {
 	if gotMethod != http.MethodPost {
 		t.Errorf("method = %q, want POST", gotMethod)
 	}
-	if gotUA != freebuffCLIVersion {
-		t.Errorf("User-Agent = %q, want %q", gotUA, freebuffCLIVersion)
+	if gotUA != freebuffUserAgent {
+		t.Errorf("User-Agent = %q, want %q", gotUA, freebuffUserAgent)
 	}
 	if !strings.Contains(gotBody, "fingerprintId") {
 		t.Errorf("body %q does not carry a fingerprintId", gotBody)
@@ -128,5 +129,68 @@ func TestHandleFreebuffExchange_MissingFingerprint(t *testing.T) {
 	h.HandleFreebuffExchange(rec, req)
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400", rec.Code)
+	}
+}
+
+// TestFreebuffHandshakeTargetsCodebuffHost guards the login host.
+//
+// freebuff.com is a separate consumer product: it answers the cli/code RPC with
+// 200 and a real loginUrl, so a flow pointed there looks healthy end to end, but
+// its OAuth application differs from the CLI's and it has no /api/v1 — the
+// auth_code therefore belongs to an account on the other service and this host's
+// status RPC never binds it, leaving the dashboard polling until it times out.
+// The released CLI (codebuff 1.0.688) uses https://www.codebuff.com.
+func TestFreebuffHandshakeTargetsCodebuffHost(t *testing.T) {
+	if freebuffLoginHost != "https://www.codebuff.com" {
+		t.Errorf("login host = %q, want https://www.codebuff.com", freebuffLoginHost)
+	}
+	if strings.Contains(freebuffLoginHost, "//freebuff.com") {
+		t.Error("freebuff.com cannot bind a CLI auth_code; it is a different service")
+	}
+
+	const serverExpiry = int64(1790264896378)
+	var gotFingerprint string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		buf := make([]byte, 512)
+		n, _ := r.Body.Read(buf)
+		var body struct {
+			FingerprintID string `json:"fingerprintId"`
+		}
+		_ = json.Unmarshal(buf[:n], &body)
+		gotFingerprint = body.FingerprintID
+		_, _ = w.Write([]byte(`{"fingerprintId":"FP1","fingerprintHash":"HASH1","loginUrl":"https://www.codebuff.com/login?auth_code=ABC","expiresAt":1790264896378}`))
+	}))
+	defer srv.Close()
+	withFreebuffBase(t, srv.URL)
+
+	h := NewOAuthHandler(nil)
+	rec := httptest.NewRecorder()
+	h.HandleFreebuffAuthorize(rec, httptest.NewRequest("GET", "/api/oauth/freebuff/authorize", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+
+	// The fingerprint must carry the shape the released client sends, since the
+	// backend's acceptance of a bare random string is undocumented leniency.
+	if !strings.HasPrefix(gotFingerprint, "codebuff-cli-") {
+		t.Errorf("fingerprintId = %q, want the codebuff-cli- prefix", gotFingerprint)
+	}
+
+	var resp struct {
+		ExpiresAt     int64 `json:"expiresAt"`
+		PollTimeoutMs int64 `json:"pollTimeoutMs"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	// The server's expiry must be forwarded, not replaced by the poll deadline:
+	// the status RPC is asked about the code the server issued.
+	if resp.ExpiresAt != serverExpiry {
+		t.Errorf("expiresAt = %d, want the server value %d", resp.ExpiresAt, serverExpiry)
+	}
+	// The poll bound is reported separately so the dashboard can stop early
+	// instead of hammering the status endpoint for an hour.
+	if resp.PollTimeoutMs != int64(freebuffLoginTimeout/time.Millisecond) {
+		t.Errorf("pollTimeoutMs = %d, want %d", resp.PollTimeoutMs, freebuffLoginTimeout/time.Millisecond)
 	}
 }

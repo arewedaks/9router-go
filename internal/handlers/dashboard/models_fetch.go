@@ -196,6 +196,18 @@ func (h *Handler) fetchUpstreamModels(providerID, data string, timeout time.Dura
 		return h.fetchAntigravityModels(canonical, data, timeout)
 	}
 
+	// Freebuff / Codebuff has no /models route either (404 on every candidate),
+	// so it too is served from a local catalogue — see freebuff_catalog.go.
+	// Without this a connected account imported zero models and the UI said
+	// "does not support models listing".
+	if isFreebuffProvider(canonical) || isFreebuffProvider(providerID) {
+		return &ModelFetchResult{
+			Provider:  canonical,
+			Models:    freebuffStaticModels(),
+			Supported: true,
+		}, nil
+	}
+
 	// CodeBuddy (both variants) has no /models route at all, so it can only be
 	// served from a local catalogue — see codebuddy_catalog.go. Handle it before
 	// the generic registry lookup, which has no entry for it and would otherwise

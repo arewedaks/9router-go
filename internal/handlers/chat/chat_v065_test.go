@@ -191,9 +191,11 @@ func TestAntigravityQuota_StrikeReassert(t *testing.T) {
 	antigravityQuotaBaseURL = srv.URL
 	defer func() { antigravityQuotaBaseURL = oldURL }()
 
-	// 3 consecutive 429s with optimistic quota should trigger strike block
+	// 3 consecutive explicit-quota 429s with optimistic quota should trigger
+	// strike block. The marker matters: a generic 429 no longer strikes
+	// (decolua/9router#4197), so a bare error string would never block.
 	for i := 0; i < 3; i++ {
-		res := HandleAntigravityQuotaError(context.Background(), srv.Client(), connID, 429, model, "token", "proj")
+		res := HandleAntigravityQuotaError(context.Background(), srv.Client(), connID, 429, model, "token", "proj", "RATE_LIMIT_EXCEEDED")
 		t.Logf("strike %d: res=%v", i+1, res)
 		if i < 2 && res != nil {
 			t.Fatalf("expected nil for first 2 strikes, got %v", *res)

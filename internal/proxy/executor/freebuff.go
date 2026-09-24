@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -19,12 +20,12 @@ import (
 )
 
 const (
-	freebuffSessionPath     = "/api/v1/freebuff/session"
-	freebuffRunPath         = "/api/v1/agent-runs"
-	freebuffSystemMarker    = "You are Buffy, the strategic coding assistant."
-	freebuffCLIUserAgent    = "codebuff-cli/0.0.138"
-	freebuffChatUserAgent   = "ai-sdk/openai-compatible/1.0/codebuff"
-	freebuffSessionTTL      = 60 * time.Minute
+	freebuffSessionPath   = "/api/v1/freebuff/session"
+	freebuffRunPath       = "/api/v1/agent-runs"
+	freebuffSystemMarker  = "You are Buffy, the strategic coding assistant."
+	freebuffCLIUserAgent  = "codebuff-cli/0.0.138"
+	freebuffChatUserAgent = "ai-sdk/openai-compatible/1.0/codebuff"
+	freebuffSessionTTL    = 60 * time.Minute
 )
 
 var freebuffRootAgentByModel = map[string]string{
@@ -53,6 +54,21 @@ var (
 	freebuffSessionMu    sync.RWMutex
 	freebuffSessionCache = make(map[string]*freebuffSession) // key: token::model
 )
+
+// FreebuffSupportedModels returns the model ids this executor can route, sorted.
+//
+// Exported so the dashboard's Import catalogue can be validated against it: the
+// two lists describe the same capability, and a model offered in Import but
+// missing from the root-agent map fails on the first request. Keeping them in
+// sync is enforced by a test rather than by review.
+func FreebuffSupportedModels() []string {
+	out := make([]string, 0, len(freebuffRootAgentByModel))
+	for model := range freebuffRootAgentByModel {
+		out = append(out, model)
+	}
+	sort.Strings(out)
+	return out
+}
 
 func rootAgentIdForModel(model string) string {
 	if root, ok := freebuffRootAgentByModel[model]; ok {

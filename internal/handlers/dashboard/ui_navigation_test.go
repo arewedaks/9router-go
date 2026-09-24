@@ -782,12 +782,19 @@ func TestUIProxyTabGatedOnNoConnection(t *testing.T) {
 // away from it would leave the panel visible.
 func TestUIProxyPanelRegisteredInTabSwitcher(t *testing.T) {
 	body := readEmbeddedUI(t)
-	if !strings.Contains(body, `"dt-proxy"`) {
+	// The panel must exist in the markup.
+	if !regexp.MustCompile(`id="dt-proxy"`).MatchString(body) {
 		t.Fatal("the Proxy panel id dt-proxy must exist")
 	}
-	idx := strings.Index(body, `["dt-conn", "dt-caps", "dt-models", "dt-proxy"]`)
-	if idx == -1 {
-		t.Error("showDetailTab must include dt-proxy in the panels it hides")
+	// It must be hidden by the switcher. Asserted as "the switcher hides the
+	// whole dt- family" rather than "the switcher contains this literal id":
+	// the previous form pinned a hand-written array, and that array was the bug
+	// — it omitted dt-quota, so the quota panel leaked onto other tabs. Any
+	// id-list assertion has the same failure mode, so the property under test is
+	// the DOM-derived selector, not membership of a list.
+	switcher := functionBody(t, body, "function showDetailTab(")
+	if !strings.Contains(switcher, `[id^="dt-"]`) {
+		t.Errorf("showDetailTab must hide every dt- panel, got:\n%s", switcher)
 	}
 }
 

@@ -47,69 +47,10 @@ var antigravityDiscoveryHosts = []string{
 // (AntigravityUserAgent), which knows about the ide|cli client profiles.
 const antigravityUserAgent = "antigravity/ide/2.11.0 darwin/arm64"
 
-// antigravityNonChatModelIDs are catalogue entries that are not user-callable
-// chat models (image/TTS/tab-preview surfaces). Mirrors
-// ANTIGRAVITY_NON_CHAT_MODEL_IDS.
-var antigravityNonChatModelIDs = map[string]bool{
-	"gemini-3-pro-image-preview":   true,
-	"gemini-3.1-flash-image":       true,
-	"gemini-3.1-flash-tts-preview": true,
-	"gemini-2.5-flash-preview-tts": true,
-	"tab_flash_lite_preview":       true,
-	"tab_jump_flash_lite_preview":  true,
-}
-
-// antigravityRetiredModelIDs are ids the upstream still advertises but which
-// now return 400/404. Mirrors ANTIGRAVITY_RETIRED_MODEL_IDS.
-var antigravityRetiredModelIDs = map[string]bool{
-	"gemini-3-pro-preview":                    true,
-	"gemini-3.1-pro":                          true,
-	"gemini-3.6-flash-high":                   true,
-	"gemini-3.6-flash-medium":                 true,
-	"gemini-3.6-flash-low":                    true,
-	"gemini-3-flash-agent":                    true,
-	"gemini-3.5-flash":                        true,
-	"gemini-3.5-flash-extra-low":              true,
-	"gemini-3.5-flash-low":                    true,
-	"gemini-3.5-flash-high":                   true,
-	"gemini-3.5-flash-medium":                 true,
-	"gemini-3.5-flash-preview":                true,
-	"gemini-2.5-pro":                          true,
-	"gemini-2.5-flash-thinking":               true,
-	"gemini-2.5-flash":                        true,
-	"gemini-2.5-flash-lite":                   true,
-	"gemini-2.5-computer-use-preview-10-2025": true,
-}
-
-// isDiscoverableAntigravityModel reports whether a catalogue id is a
-// user-callable chat model. Mirrors isDiscoverableAntigravityModelId: reject
-// empty ids, the non-chat blocklist, the retired blocklist, the "chat_*" /
-// "tab_*" internal slots, and ids matching the non-chat suffix pattern.
-func isDiscoverableAntigravityModel(modelID string) bool {
-	id := strings.TrimSpace(modelID)
-	if id == "" {
-		return false
-	}
-	if antigravityNonChatModelIDs[id] || antigravityRetiredModelIDs[id] {
-		return false
-	}
-	// Internal chat slots the backend reserves (e.g. chat_20706).
-	if strings.HasPrefix(id, "chat_") || strings.HasPrefix(id, "tab_") {
-		return false
-	}
-	// Non-chat surfaces by name: image/imagen/audio/tts/embedding/video/veo.
-	lower := strings.ToLower(id)
-	for _, token := range []string{"image", "imagen", "audio", "tts", "embedding", "embed", "video", "veo"} {
-		if lower == token ||
-			strings.HasPrefix(lower, token+"-") ||
-			strings.HasSuffix(lower, "-"+token) ||
-			strings.Contains(lower, "-"+token+"-") {
-			return false
-		}
-	}
-	return true
-}
-
+// The catalogue filter (non-chat blocklists + IsDiscoverableAntigravityModel)
+// lives in internal/providers so the quota tracker and the model picker share
+// one definition. A second copy is how the quota panel came to report seven
+// fewer models than the picker offered.
 // antigravityDiscoveryPayload is the normalised shape we extract from either
 // envelope form.
 type antigravityDiscoveryPayload struct {
@@ -141,7 +82,7 @@ func normalizeAntigravityModels(raw []byte) []UpstreamModel {
 	if len(entries) > 0 {
 		out := make([]UpstreamModel, 0, len(entries))
 		for id, entry := range entries {
-			if entry.IsInternal || !isDiscoverableAntigravityModel(id) {
+			if entry.IsInternal || !providers.IsDiscoverableAntigravityModel(id) {
 				continue
 			}
 			label := antigravityFriendlyName(id, firstNonEmpty(entry.DisplayName, entry.Name))
@@ -164,7 +105,7 @@ func normalizeAntigravityModels(raw []byte) []UpstreamModel {
 	out := make([]UpstreamModel, 0, len(arr.Models))
 	for _, item := range arr.Models {
 		id := firstString(item, "id", "model", "name")
-		if id == "" || !isDiscoverableAntigravityModel(id) {
+		if id == "" || !providers.IsDiscoverableAntigravityModel(id) {
 			continue
 		}
 		if v, ok := item["isInternal"].(bool); ok && v {
