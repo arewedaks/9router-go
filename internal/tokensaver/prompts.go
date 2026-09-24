@@ -30,14 +30,15 @@ const (
 )
 
 // GetCavemanPrompt returns the caveman system prompt for the specified level.
+// Aliases and unknown values resolve through NormalizeLevel, so a database
+// written by the older Go dashboard ("light"/"medium") still selects a prompt
+// instead of silently landing on the default.
 func GetCavemanPrompt(level string) string {
-	switch level {
+	switch NormalizeLevel(level, CavemanLevels) {
 	case "lite":
 		return CavemanLite
 	case "ultra":
 		return CavemanUltra
-	case "full":
-		return CavemanFull
 	default:
 		return CavemanFull
 	}
@@ -45,13 +46,11 @@ func GetCavemanPrompt(level string) string {
 
 // GetPonytailPrompt returns the ponytail system prompt for the specified level.
 func GetPonytailPrompt(level string) string {
-	switch level {
+	switch NormalizeLevel(level, PonytailLevels) {
 	case "lite":
 		return PonytailLite
 	case "ultra":
 		return PonytailUltra
-	case "full":
-		return PonytailFull
 	default:
 		return PonytailFull
 	}

@@ -283,7 +283,7 @@ func (h *ChatHandler) tryForwardWithConnection(
 	// providers to OpenAI format before reaching here, so the endpoint alone
 	// would wrongly inject a top-level "system" that upstream ignores.
 	claudeNative := (isAnthropic || providerCfg.IsClaudeFormat()) && (endpoint == "/v1/v1/messages" || endpoint == "/v1/messages")
-	pipedBody := h.applyTokenSavers(body, claudeNative)
+	pipedBody := h.applyTokenSavers(ctx, body, claudeNative, model)
 	var claudeToolMap map[string]string
 	// A Claude-format provider needs the same Messages-shaped body as Anthropic's
 	// own host, but none of the Claude-Code credential handling below (it is not
@@ -468,12 +468,21 @@ func isClientCanceled(ctx context.Context, err error) bool {
 	return strings.Contains(errStr, "context canceled") || strings.Contains(errStr, "client closed")
 }
 
-// applyTokenSavers runs RTK compression and prompt injection on the request body.
+// applyTokenSavers runs the token-saving pipeline on the request body:
+// prompt-injection scan, RTK compression, Headroom compression, then the
+// Caveman and Ponytail system-prompt injections.
+//
 // claudeNative indicates the body is in Claude Messages format (endpoint
 // /v1/messages): system prompts must go to the top-level "system" field —
 // a role:"system" message is rejected by the Anthropic API.
+//
+// A per-request X-9Router-Token-Saver: off (carried on ctx) skips everything.
 // false from compress/inject means nothing changed (or unparseable) — keep original, not a failure.
-func (h *ChatHandler) applyTokenSavers(body []byte, claudeNative bool) []byte {
+func (h *ChatHandler) applyTokenSavers(ctx context.Context, body []byte, claudeNative bool, model string) []byte {
+	if tokensaver.BypassRequested(ctx) {
+		return body
+	}
+
 	// Prompt-injection guard: tag (never block) flagged user content. Early
 	// detection here means operators can see abuse before it reaches upstream.
 	// Toggle via settings.injectionGuardEnabled (off bypasses the scan).
@@ -487,6 +496,13 @@ func (h *ChatHandler) applyTokenSavers(body []byte, claudeNative bool) []byte {
 		if next, did := tokensaver.CompressMessages(out); did {
 			out = next
 		}
+	}
+	// Headroom runs after RTK and before the prompt injections, matching the
+	// reference order: it rewrites the conversation, while the injections append
+	// to it. Compressing after injection would let the proxy shorten the very
+	// style prompt the operator asked for.
+	if h.TokenSaver.HeadroomEnabled() {
+		out = h.compressWithHeadroom(ctx, out, claudeNative, model)
 	}
 	inject := tokensaver.InjectSystemPrompt
 	if claudeNative {
@@ -505,6 +521,77 @@ func (h *ChatHandler) applyTokenSavers(body []byte, claudeNative bool) []byte {
 		}
 	}
 	return out
+}
+
+// compressWithHeadroom sends the conversation to the external Headroom proxy
+// and returns the compressed body, or the original when the proxy is absent,
+// slow, or answers something unexpected.
+//
+// Fail-open on every error path: Headroom is an optional sidecar, so an
+// unreachable proxy must cost a request its compression, not its success.
+//
+// Only the OpenAI `messages` shape is sent directly. A Claude-format body is
+// translated to that shape and back, which is what the reference does too —
+// /v1/compress only understands chat messages, and handing it a Messages
+// payload would have it rewrite tool_use blocks it cannot see.
+func (h *ChatHandler) compressWithHeadroom(ctx context.Context, body []byte, claudeNative bool, model string) []byte {
+	var parsed map[string]any
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return body
+	}
+
+	// Responses-API bodies hold items (reasoning, function_call) that are not
+	// chat messages. Rewriting them without a round-trip translator corrupts the
+	// payload, so this shape is left alone rather than half-converted.
+	if _, isResponses := parsed["input"].([]any); isResponses && parsed["messages"] == nil {
+		log.Debug("headroom", "skipped: responses-API input is not chat messages")
+		return body
+	}
+
+	working := body
+	if claudeNative {
+		converted, err := translator.TranslateClaudeToOpenAI(body)
+		if err != nil {
+			log.Warn("headroom", "skipped: Claude body did not translate", "error", err)
+			return body
+		}
+		working = converted
+	}
+
+	var msgs map[string]any
+	if err := json.Unmarshal(working, &msgs); err != nil {
+		return body
+	}
+	key, ok := tokensaver.MessageKey(msgs)
+	if !ok {
+		log.Debug("headroom", "skipped: no messages[] to compress")
+		return body
+	}
+	original, _ := msgs[key].([]any)
+
+	compressed, stats, err := tokensaver.CompressWithHeadroom(ctx, h.Client, original, tokensaver.HeadroomOptions{
+		BaseURL:              h.TokenSaver.HeadroomURL(),
+		Model:                model,
+		TimeoutMs:            h.TokenSaver.HeadroomTimeoutMs(),
+		CompressUserMessages: h.TokenSaver.HeadroomCompressUserMessages(),
+	})
+	if err != nil {
+		log.Warn("headroom", "skipped", "reason", err, "url", h.TokenSaver.HeadroomURL())
+		return body
+	}
+	log.Info("headroom", tokensaver.FormatHeadroomLog(stats))
+
+	msgs[key] = compressed
+	rewritten, err := json.Marshal(msgs)
+	if err != nil {
+		return body
+	}
+	if !claudeNative {
+		return rewritten
+	}
+	// Back to Messages format, so the Claude-native upstream still receives the
+	// shape it expects.
+	return executor.EnsureClaudeMessages(rewritten, model)
 }
 
 // extractErrorText attempts to extract a human-readable error message from an upstream error JSON body.

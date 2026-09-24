@@ -33,7 +33,7 @@ func TestApplyTokenSavers_AllOff(t *testing.T) {
 	defer cleanup()
 
 	body := []byte(`{"messages":[{"role":"user","content":"hello"}]}`)
-	got := h.applyTokenSavers(body, false)
+	got := h.applyTokenSavers(context.Background(), body, false, "test-model")
 	if string(got) != string(body) {
 		t.Errorf("expected unchanged body when all token savers off")
 	}
@@ -60,7 +60,7 @@ func TestApplyTokenSavers_RTKOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal body: %v", err)
 	}
-	got := h.applyTokenSavers(body, false)
+	got := h.applyTokenSavers(context.Background(), body, false, "test-model")
 	if string(got) == string(body) {
 		t.Errorf("expected RTK to modify body")
 	}
@@ -72,7 +72,7 @@ func TestApplyTokenSavers_CavemanInjects(t *testing.T) {
 	h.TokenSaver.SetCaveman(true)
 
 	body := []byte(`{"messages":[{"role":"user","content":"hi"}]}`)
-	got := h.applyTokenSavers(body, false)
+	got := h.applyTokenSavers(context.Background(), body, false, "test-model")
 	// Caveman prompt text should now appear in the system message.
 	if !strings.Contains(string(got), "terse") && !strings.Contains(string(got), "caveman") {
 		t.Errorf("expected caveman prompt injected, got %s", got)
@@ -85,9 +85,139 @@ func TestApplyTokenSavers_PonytailInjects(t *testing.T) {
 	h.TokenSaver.SetPonytail(true)
 
 	body := []byte(`{"messages":[{"role":"user","content":"hi"}]}`)
-	got := h.applyTokenSavers(body, false)
+	got := h.applyTokenSavers(context.Background(), body, false, "test-model")
 	if !strings.Contains(string(got), tokensaver.PonytailPrompt[:20]) {
 		t.Errorf("expected ponytail prompt injected, got %s", got)
+	}
+}
+
+// The bypass header must skip every stage, not just the first one. RTK, both
+// prompt styles and the injection scan are enabled here so a stage that ignored
+// the bypass would show up as a modified body.
+func TestApplyTokenSavers_BypassSkipsEveryStage(t *testing.T) {
+	h, cleanup := setupHandlerForForward(t)
+	defer cleanup()
+	h.TokenSaver.SetRTK(true)
+	h.TokenSaver.SetCaveman(true)
+	h.TokenSaver.SetPonytail(true)
+	h.TokenSaver.SetInjectionGuard(true)
+
+	toolOutput := strings.Repeat("fatal: something went wrong\n", 60)
+	body, err := json.Marshal(map[string]any{
+		"messages": []any{
+			map[string]any{"role": "user", "content": "run it"},
+			map[string]any{"role": "tool", "content": toolOutput},
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	// Precondition: without the bypass the body really is rewritten, so the
+	// assertion below cannot pass just because nothing ever fires.
+	changed := h.applyTokenSavers(context.Background(), body, false, "test-model")
+	if string(changed) == string(body) {
+		t.Fatal("precondition failed: the savers did not modify the body at all")
+	}
+
+	bypassed := tokensaver.WithBypass(context.Background(), "off")
+	if got := h.applyTokenSavers(bypassed, body, false, "test-model"); string(got) != string(body) {
+		t.Errorf("bypass did not preserve the body:\n in = %s\nout = %s", body, got)
+	}
+}
+
+// The header value is matched case-insensitively, and any other value leaves
+// the pipeline running.
+func TestApplyTokenSavers_BypassHeaderValue(t *testing.T) {
+	h, cleanup := setupHandlerForForward(t)
+	defer cleanup()
+	h.TokenSaver.SetCaveman(true)
+
+	body := []byte(`{"messages":[{"role":"user","content":"hi"}]}`)
+
+	for _, tc := range []struct {
+		value string
+		want  bool // true = body left untouched
+	}{
+		{"off", true},
+		{"OFF", true},
+		{"Off", true},
+		{"on", false},
+		{"", false},
+	} {
+		ctx := tokensaver.WithBypass(context.Background(), tc.value)
+		got := h.applyTokenSavers(ctx, body, false, "test-model")
+		untouched := string(got) == string(body)
+		if untouched != tc.want {
+			t.Errorf("header %q: untouched = %v, want %v", tc.value, untouched, tc.want)
+		}
+	}
+}
+
+// With Headroom enabled the pipeline posts the conversation to the proxy and
+// keeps the compressed messages.
+func TestApplyTokenSavers_HeadroomCompresses(t *testing.T) {
+	h, cleanup := setupHandlerForForward(t)
+	defer cleanup()
+
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"messages":[{"role":"user","content":"compressed"}],"tokens_before":500,"tokens_after":10,"tokens_saved":490}`))
+	}))
+	defer srv.Close()
+
+	h.TokenSaver.SetHeadroom(true, srv.URL, 2000)
+	// The saver uses the handler's own client; point it at the test server's
+	// transport so the request reaches the httptest listener.
+	h.Client = srv.Client()
+
+	body := []byte(`{"messages":[{"role":"user","content":"a very long conversation"}]}`)
+	got := h.applyTokenSavers(context.Background(), body, false, "test-model")
+
+	if gotPath != "/v1/compress" {
+		t.Errorf("proxy path = %q, want /v1/compress", gotPath)
+	}
+	if !strings.Contains(string(got), "compressed") {
+		t.Errorf("compressed content missing from body: %s", got)
+	}
+}
+
+// A dead Headroom proxy must leave the request body alone. Fail-open is the
+// whole reason the integration is safe to enable.
+func TestApplyTokenSavers_HeadroomFailureKeepsBody(t *testing.T) {
+	h, cleanup := setupHandlerForForward(t)
+	defer cleanup()
+
+	// Nothing is listening on this port; the call must fail and be swallowed.
+	h.TokenSaver.SetHeadroom(true, "http://127.0.0.1:1", 200)
+
+	body := []byte(`{"messages":[{"role":"user","content":"hello"}]}`)
+	if got := h.applyTokenSavers(context.Background(), body, false, "test-model"); string(got) != string(body) {
+		t.Errorf("an unreachable proxy changed the body:\n in = %s\nout = %s", body, got)
+	}
+}
+
+// Headroom is skipped when it is off, even if a URL is configured.
+func TestApplyTokenSavers_HeadroomOffByDefault(t *testing.T) {
+	h, cleanup := setupHandlerForForward(t)
+	defer cleanup()
+
+	var called bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		_, _ = w.Write([]byte(`{"messages":[]}`))
+	}))
+	defer srv.Close()
+
+	h.Client = srv.Client()
+	h.TokenSaver.SetHeadroom(false, srv.URL, 2000)
+
+	body := []byte(`{"messages":[{"role":"user","content":"hello"}]}`)
+	h.applyTokenSavers(context.Background(), body, false, "test-model")
+	if called {
+		t.Error("the proxy was contacted while Headroom was disabled")
 	}
 }
 

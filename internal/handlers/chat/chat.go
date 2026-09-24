@@ -16,10 +16,11 @@ import (
 	"9router/proxy/internal/handlerutil"
 	"9router/proxy/internal/log"
 	"9router/proxy/internal/models"
+	"9router/proxy/internal/promptcache"
 	"9router/proxy/internal/providers"
+	"9router/proxy/internal/tokensaver"
 	"9router/proxy/internal/translator"
 	"9router/proxy/internal/updater"
-	"9router/proxy/internal/promptcache"
 )
 
 // HandleChatCompletions handles POST /v1/chat/completions (OpenAI format requests).
@@ -63,6 +64,9 @@ func (h *ChatHandler) HandleChatCompletions(w http.ResponseWriter, r *http.Reque
 	}
 
 	ctx := handlerutil.WithSessionID(r.Context(), handlerutil.ExtractSessionID(r))
+	// Per-request token-saver opt-out, decided once at the HTTP boundary so the
+	// decision travels with the request instead of being re-read per stage.
+	ctx = tokensaver.WithBypass(ctx, r.Header.Get(tokensaver.BypassHeader))
 
 	if len(modelInfo.ComboModels) > 0 {
 		if modelInfo.Strategy == "fusion" {
@@ -186,6 +190,8 @@ func (h *ChatHandler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 	}
 	workingBody["stream"] = reqBody.Stream
 	ctx := handlerutil.WithSessionID(r.Context(), handlerutil.ExtractSessionID(r))
+	// Per-request token-saver opt-out, decided once at the HTTP boundary.
+	ctx = tokensaver.WithBypass(ctx, r.Header.Get(tokensaver.BypassHeader))
 	// Store requested model for streaming echo (PR #3693) and for [1m] marker handling
 	ctx = translator.WithRequestedModel(ctx, stripModelContextMarker(reqBody.Model))
 

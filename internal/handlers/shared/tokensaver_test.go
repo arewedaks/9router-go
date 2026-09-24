@@ -101,3 +101,71 @@ func TestInjectionGuardToggle(t *testing.T) {
 		t.Error("expected guard re-enabled after SetInjectionGuard(true)")
 	}
 }
+
+// A database written by the older Go dashboard stores "light"/"medium" for
+// caveman and "compact" for ponytail. The startup path feeds those straight into
+// SetCaveman/SetPonytail, so they have to come out as a level the prompt lookup
+// understands — otherwise the operator's saved style silently changes on upgrade.
+func TestSetLevelsNormalizeLegacyAliases(t *testing.T) {
+	c := NewTokenSaverConfig(false, false, false)
+
+	c.SetCaveman(true, "medium")
+	if got := c.CavemanLevel(); got != "full" {
+		t.Errorf("SetCaveman(medium) stored %q, want full", got)
+	}
+	c.SetCaveman(true, "light")
+	if got := c.CavemanLevel(); got != "lite" {
+		t.Errorf("SetCaveman(light) stored %q, want lite", got)
+	}
+	c.SetPonytail(true, "compact")
+	if got := c.PonytailLevel(); got != "full" {
+		t.Errorf("SetPonytail(compact) stored %q, want full", got)
+	}
+	c.SetPonytail(true, "nonsense")
+	if got := c.PonytailLevel(); got != "full" {
+		t.Errorf("an unknown level stored %q, want the full default", got)
+	}
+}
+
+// An empty level argument must leave the stored level alone: a toggle that only
+// flips the switch must not reset the intensity the operator chose.
+func TestSetLevelWithoutArgumentKeepsLevel(t *testing.T) {
+	c := NewTokenSaverConfig(false, false, false)
+	c.SetCaveman(true, "ultra")
+	c.SetCaveman(false)
+	if got := c.CavemanLevel(); got != "ultra" {
+		t.Errorf("CavemanLevel = %q after a bare toggle, want ultra", got)
+	}
+}
+
+// Headroom state must be readable without a URL configured, and a bare toggle
+// must not blank the URL a script set.
+func TestHeadroomConfigDefaultsAndPartialUpdates(t *testing.T) {
+	c := NewTokenSaverConfig(false, false, false)
+	if c.HeadroomEnabled() {
+		t.Error("Headroom must default to disabled")
+	}
+	if got := c.HeadroomURL(); got != DefaultHeadroomURL {
+		t.Errorf("HeadroomURL() = %q, want the default", got)
+	}
+	if got := c.HeadroomTimeoutMs(); got != 3000 {
+		t.Errorf("HeadroomTimeoutMs() = %d, want 3000", got)
+	}
+
+	c.SetHeadroom(true, "http://example.test:9000", 4500)
+	if !c.HeadroomEnabled() || c.HeadroomURL() != "http://example.test:9000" || c.HeadroomTimeoutMs() != 4500 {
+		t.Fatalf("SetHeadroom did not apply: enabled=%v url=%q timeout=%d",
+			c.HeadroomEnabled(), c.HeadroomURL(), c.HeadroomTimeoutMs())
+	}
+
+	c.SetHeadroom(false, "", 0)
+	if c.HeadroomEnabled() {
+		t.Error("SetHeadroom(false) did not disable")
+	}
+	if got := c.HeadroomURL(); got != "http://example.test:9000" {
+		t.Errorf("a bare toggle reset the URL to %q", got)
+	}
+	if got := c.HeadroomTimeoutMs(); got != 4500 {
+		t.Errorf("a bare toggle reset the timeout to %d", got)
+	}
+}
