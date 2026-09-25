@@ -111,13 +111,13 @@ Installs the pre-built binary for your OS/arch into `~/.local/bin`, verifies it
 runs, and wires up `PATH` — no Go toolchain required:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/arewedaks/9router-go/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/arewedaks/9router-go/feat/go-dashboard/scripts/install.sh | bash
 ```
 
 Pin a specific version:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/arewedaks/9router-go/main/scripts/install.sh | bash -s -- --version 1.8.43
+curl -fsSL https://raw.githubusercontent.com/arewedaks/9router-go/feat/go-dashboard/scripts/install.sh | bash -s -- --version 1.8.43
 ```
 
 ### Option 1: Pre-built Binaries (Recommended)

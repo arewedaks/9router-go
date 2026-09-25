@@ -3,7 +3,7 @@
 # install.sh — one-line installer for 9router-go.
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/arewedaks/9router-go/main/scripts/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/arewedaks/9router-go/feat/go-dashboard/scripts/install.sh | bash
 #   curl -fsSL .../install.sh | bash -s -- --version 1.8.43   # pin a version
 #
 # What it does (all stdlib curl + uname, no dependencies):
@@ -15,6 +15,11 @@
 set -euo pipefail
 
 REPO="arewedaks/9router-go"
+# The installer ships on the branch that is currently the source of truth.
+# feat/go-dashboard is where the dashboard + install.sh live; it will be merged
+# to main on the next release, after which the URL below should be switched to
+# main. Until then, pointing at main 404s (main is still the v1.8.13 fork point).
+SCRIPT_REF="feat/go-dashboard"
 BIN="9router-go"
 INSTALL_DIR="${HOME}/.local/bin"
 
