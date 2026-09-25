@@ -149,4 +149,15 @@ if [ "$WANT_SERVICE" -eq 1 ]; then
   echo ""
   echo "==> installing systemd service (auto-start on boot)"
   "$INSTALL_DIR/$BIN" service install
+else
+  # A silent "no autostart" is how an operator ends up rebooting into a dead
+  # gateway. Say it out loud, and say it again after every install.
+  if [ -d /run/systemd/system ]; then
+    echo ""
+    echo "NOTE: this machine has systemd, but no service was installed —"
+    echo "      9router-go will NOT come back after a reboot."
+    echo "      Enable auto-start with:"
+    echo "        sudo $INSTALL_DIR/$BIN service install"
+    echo "      (or re-run this installer with: sudo bash -s -- --service)"
+  fi
 fi

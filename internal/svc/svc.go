@@ -80,9 +80,12 @@ func (s Spec) UnitFile() string {
 		fmt.Fprintf(&b, "WorkingDirectory=%s\n", s.WorkingDir)
 	}
 	fmt.Fprintf(&b, "ExecStart=%s\n", s.BinaryPath)
-	b.WriteString("Restart=on-failure\n")
+	b.WriteString("Restart=always\n")
 	b.WriteString("RestartSec=3\n")
 	// A router that is down must not stay down: come back fast, keep trying.
+	// `always` (not `on-failure`) because the process can also exit 0 on a
+	// transient condition; a gateway that is silently gone after a reboot is
+	// worse than a noisy restart loop that journalctl explains.
 	b.WriteString("\n[Install]\n")
 	b.WriteString("WantedBy=multi-user.target\n")
 	return b.String()
@@ -106,12 +109,27 @@ func Install(s Spec) error {
 	if err := systemctl("enable", ServiceName); err != nil {
 		return err
 	}
+	// `enable` can succeed yet leave the unit unenabled (a stale symlink, a
+	// masked unit, a distro patching the target). Verify the boot wiring
+	// instead of trusting the exit code: this is the whole point of --service.
+	if state, err := enablement(); err != nil {
+		return err
+	} else if !isEnabledState(state) {
+		return fmt.Errorf("unit is not enabled for boot (is-enabled: %s); 9router-go would NOT start after a reboot", state)
+	}
 	// enable alone only makes it start at boot; start now so the operator
 	// gets immediate feedback instead of "it'll work after I reboot".
 	if err := systemctl("start", ServiceName); err != nil {
+		// The usual causes are swallowed by systemctl's own error line: a port
+		// already held by a manually started instance, or a bad data dir. Show
+		// the unit's log inline so the operator doesn't have to know to ask.
+		if status, sErr := exec.Command("systemctl", "status", ServiceName, "--no-pager", "-l").CombinedOutput(); sErr == nil || len(status) > 0 {
+			fmt.Fprintf(os.Stderr, "\n%s\n", strings.TrimSpace(string(status)))
+		}
 		return err
 	}
-	fmt.Printf("systemd service %q installed, enabled (boot), and started.\n", ServiceName)
+	state, _ := enablement()
+	fmt.Printf("systemd service %q installed, %s (boot), and started.\n", ServiceName, state)
 	fmt.Printf("  status:  systemctl status %s\n", ServiceName)
 	fmt.Printf("  logs:    journalctl -u %s -f\n", ServiceName)
 	fmt.Printf("  stop:    systemctl stop %s\n", ServiceName)
@@ -175,4 +193,25 @@ func systemctl(args ...string) error {
 		return fmt.Errorf("systemctl %s: %w\n%s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
 	}
 	return nil
+}
+
+// enablement returns the unit's boot state as reported by systemd, e.g.
+// "enabled", "disabled", "masked", "static".
+func enablement() (string, error) {
+	out, err := exec.Command("systemctl", "is-enabled", ServiceName).Output()
+	state := strings.TrimSpace(string(out))
+	// is-enabled exits non-zero for disabled/masked/static, which are exactly
+	// the answers we want to read, so only a missing systemctl is an error.
+	if err != nil && state == "" {
+		return "", fmt.Errorf("systemctl is-enabled: %w", err)
+	}
+	return state, nil
+}
+
+func isEnabledState(state string) bool {
+	switch state {
+	case "enabled", "enabled-runtime", "alias":
+		return true
+	}
+	return false
 }

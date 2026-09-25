@@ -24,7 +24,7 @@ func TestUnitFileCoreDirectives(t *testing.T) {
 		"Environment=PORT=20128",
 		"Environment=DATA_DIR=/var/lib/9router",
 		"WorkingDirectory=/var/lib/9router",
-		"Restart=on-failure",
+		"Restart=always",
 		"After=network-online.target",
 	} {
 		if !strings.Contains(u, want) {
@@ -50,5 +50,26 @@ func TestUnitFileCustomEnvironment(t *testing.T) {
 	}
 	if !strings.Contains(spec.UnitFile(), "Environment=JWT_SECRET=x") {
 		t.Error("custom Environment entries must pass through verbatim")
+	}
+}
+
+func TestRestartIsAlways(t *testing.T) {
+	// on-failure misses the "exited 0 on a transient problem" case, which is
+	// exactly how a gateway ends up silently absent after a reboot.
+	if u := (Spec{BinaryPath: "/usr/bin/x"}).UnitFile(); !strings.Contains(u, "Restart=always") {
+		t.Fatal("unit must use Restart=always")
+	}
+}
+
+func TestIsEnabledState(t *testing.T) {
+	for _, s := range []string{"enabled", "enabled-runtime", "alias"} {
+		if !isEnabledState(s) {
+			t.Errorf("%q must count as enabled for boot", s)
+		}
+	}
+	for _, s := range []string{"disabled", "masked", "static", "not-found", ""} {
+		if isEnabledState(s) {
+			t.Errorf("%q must NOT count as enabled for boot", s)
+		}
 	}
 }
