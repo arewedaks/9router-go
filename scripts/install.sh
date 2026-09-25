@@ -4,7 +4,7 @@
 #
 # Usage:
 #   curl -fsSL https://raw.githubusercontent.com/arewedaks/9router-go/feat/go-dashboard/scripts/install.sh | bash
-#   curl -fsSL .../install.sh | bash -s -- --version 1.8.43   # pin a version
+#   curl -fsSL .../install.sh | bash -s -- --version 1.8.44   # pin a version
 #   curl -fsSL .../install.sh | bash -s -- --service           # + systemd unit: auto-start on boot
 #
 # What it does (all stdlib curl + uname, no dependencies):

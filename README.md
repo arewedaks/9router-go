@@ -117,7 +117,7 @@ curl -fsSL https://raw.githubusercontent.com/arewedaks/9router-go/feat/go-dashbo
 Pin a specific version:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/arewedaks/9router-go/feat/go-dashboard/scripts/install.sh | bash -s -- --version 1.8.43
+curl -fsSL https://raw.githubusercontent.com/arewedaks/9router-go/feat/go-dashboard/scripts/install.sh | bash -s -- --version 1.8.44
 ```
 
 Auto-start on boot (systemd unit + enable, run as root):
