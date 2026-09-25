@@ -1020,6 +1020,10 @@ func (h *Handler) HandleImportModels(w http.ResponseWriter, r *http.Request) {
 			if !have[m.ID] {
 				added++
 			}
+			// Clear any hidden marker under node prefix or aliases
+			for _, uid := range dedupeNonEmpty([]string{m.ID, strings.TrimPrefix(m.ID, key+"/")}) {
+				_ = h.repo.UnhideModel(h.providerKeyCandidates(canonical, raw), uid)
+			}
 		}
 		result.Warning = fmt.Sprintf("Imported %d new model(s) under cache key %q.", added, key)
 	}
@@ -1040,6 +1044,7 @@ func (h *Handler) HandleAddModel(w http.ResponseWriter, r *http.Request) {
 	}
 	var payload struct {
 		ModelID string `json:"modelId"`
+		Name    string `json:"name"`
 		Kind    string `json:"kind"`
 		OwnedBy string `json:"ownedBy"`
 	}
@@ -1058,14 +1063,28 @@ func (h *Handler) HandleAddModel(w http.ResponseWriter, r *http.Request) {
 	aliases := append(providers.AliasesFor(canonical), providers.AliasesFor(raw)...)
 	key := h.repo.ResolveModelCacheKey(canonical, aliases)
 
-	if err := h.repo.AddCachedModel(key, payload.ModelID, payload.Kind, payload.OwnedBy); err != nil {
+	displayName := strings.TrimSpace(payload.Name)
+	if err := h.repo.AddCachedModelWithName(key, payload.ModelID, payload.Kind, payload.OwnedBy, displayName); err != nil {
 		handlerutil.WriteJSONError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	// Re-adding a previously removed model must clear the hidden marker, or the
-	// operator could never bring a model back.
-	_ = h.repo.UnhideModel(providerKeyCandidates(canonical, raw), payload.ModelID)
+	// Re-adding a previously removed model must clear the hidden marker across
+	// all provider spellings (including compatible endpoint node prefixes), or
+	// the model stays hidden from the dashboard and /v1/models.
+	unhideIDs := []string{payload.ModelID}
+	if p := h.nodePrefixKey(raw); p != "" {
+		unhideIDs = append(unhideIDs, strings.TrimPrefix(payload.ModelID, p+"/"))
+		unhideIDs = append(unhideIDs, p+"/"+strings.TrimPrefix(payload.ModelID, p+"/"))
+	}
+	if p := h.nodePrefixKey(canonical); p != "" {
+		unhideIDs = append(unhideIDs, strings.TrimPrefix(payload.ModelID, p+"/"))
+		unhideIDs = append(unhideIDs, p+"/"+strings.TrimPrefix(payload.ModelID, p+"/"))
+	}
+	candKeys := h.providerKeyCandidates(canonical, raw)
+	for _, uid := range dedupeNonEmpty(unhideIDs) {
+		_ = h.repo.UnhideModel(candKeys, uid)
+	}
 
 	handlerutil.WriteJSON(w, http.StatusOK, map[string]any{
 		"ok":       true,
@@ -1118,13 +1137,19 @@ func (h *Handler) HandleRemoveModel(w http.ResponseWriter, r *http.Request) {
 }
 
 // providerKeyCandidates returns the canonical id, the raw request key, and all
-// registered aliases for a provider, deduplicated. Every candidate is stored so
-// a later lookup by any spelling of the provider matches.
-func providerKeyCandidates(canonical, raw string) []string {
+// registered aliases for a provider (plus any compatible endpoint node prefix),
+// deduplicated. Every candidate is stored so a later lookup by any spelling matches.
+func (h *Handler) providerKeyCandidates(canonical, raw string) []string {
 	keys := []string{canonical, raw}
 	keys = append(keys, providers.AliasesFor(canonical)...)
 	if raw != canonical {
 		keys = append(keys, providers.AliasesFor(raw)...)
+	}
+	if p := h.nodePrefixKey(raw); p != "" {
+		keys = append(keys, p)
+	}
+	if p := h.nodePrefixKey(canonical); p != "" {
+		keys = append(keys, p)
 	}
 	return dedupeNonEmpty(keys)
 }

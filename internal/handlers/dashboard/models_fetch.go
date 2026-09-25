@@ -37,10 +37,11 @@ type UpstreamModel struct {
 }
 
 // upstreamResponse covers the common list envelopes returned by providers:
-// OpenAI uses {"data":[...]}, Google/Ollama use {"models":[...]}.
+// OpenAI uses {"data":[...]}, Google/Ollama use {"models":[...]}, some endpoints use {"results":[...]}.
 type upstreamResponse struct {
-	Data   []map[string]any `json:"data"`
-	Models []map[string]any `json:"models"`
+	Data    []map[string]any `json:"data"`
+	Models  []map[string]any `json:"models"`
+	Results []map[string]any `json:"results"`
 }
 
 // modelFetcher describes how to list models for a specific provider family.
@@ -251,23 +252,48 @@ func (h *Handler) fetchUpstreamModels(providerID, data string, timeout time.Dura
 	client := &http.Client{Timeout: timeout}
 
 	// Branch 1 & 2: user-defined compatible endpoints need a base URL.
-	if providers.IsCustomCompatible(providerID) {
+	if providers.IsCustomCompatible(providerID) || providers.IsCustomCompatible(canonical) {
+		var modelsPath string
+		if baseURL == "" && h.repo != nil {
+			if node, nodeData, err := h.repo.GetProviderNodeByID(providerID); err == nil && node != nil && nodeData != nil {
+				baseURL = nodeData.BaseURL
+				modelsPath = nodeData.ModelsPath
+			} else if node, nodeData, err := h.repo.GetProviderNodeByID(canonical); err == nil && node != nil && nodeData != nil {
+				baseURL = nodeData.BaseURL
+				modelsPath = nodeData.ModelsPath
+			} else if node, nodeData, err := h.repo.GetProviderNodeByPrefix(providerID); err == nil && node != nil && nodeData != nil {
+				baseURL = nodeData.BaseURL
+				modelsPath = nodeData.ModelsPath
+			}
+		}
 		if baseURL == "" {
 			return nil, fmt.Errorf("no base URL configured for OpenAI/Anthropic compatible provider")
 		}
-		isAnthropic := strings.HasPrefix(strings.ToLower(providerID), providers.CustomAnthropicPrefix)
+		isAnthropic := strings.HasPrefix(strings.ToLower(providerID), providers.CustomAnthropicPrefix) ||
+			strings.HasPrefix(strings.ToLower(canonical), providers.CustomAnthropicPrefix)
 		base := strings.TrimRight(baseURL, "/")
 		if isAnthropic {
 			base = strings.TrimSuffix(base, "/messages")
 		}
-		url := base + "/models"
+		if modelsPath == "" {
+			modelsPath = "/models"
+		}
+		cleanPath := "/" + strings.TrimLeft(modelsPath, "/")
+		url := base
+		if !strings.HasSuffix(base, cleanPath) {
+			url = base + cleanPath
+		}
 		headers := map[string]string{"Content-Type": "application/json"}
 		if isAnthropic {
-			headers["x-api-key"] = token
+			if token != "" {
+				headers["x-api-key"] = token
+				headers["Authorization"] = "Bearer " + token
+			}
 			headers["anthropic-version"] = "2023-06-01"
-			headers["Authorization"] = "Bearer " + token
 		} else {
-			headers["Authorization"] = "Bearer " + token
+			if token != "" {
+				headers["Authorization"] = "Bearer " + token
+			}
 		}
 		return h.doModelRequest(client, canonical, url, http.MethodGet, headers, nil)
 	}
@@ -354,12 +380,20 @@ func (h *Handler) doModelRequest(client *http.Client, provider, url, method stri
 
 	var parsed upstreamResponse
 	if err := json.Unmarshal(raw, &parsed); err != nil {
-		return nil, fmt.Errorf("decode models response: %w", err)
+		var bareList []map[string]any
+		if err2 := json.Unmarshal(raw, &bareList); err2 == nil {
+			parsed.Data = bareList
+		} else {
+			return nil, fmt.Errorf("decode models response: %w", err)
+		}
 	}
 
 	list := parsed.Data
 	if len(list) == 0 {
 		list = parsed.Models
+	}
+	if len(list) == 0 {
+		list = parsed.Results
 	}
 	out := make([]UpstreamModel, 0, len(list))
 	for _, entry := range list {

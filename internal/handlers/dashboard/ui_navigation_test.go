@@ -676,19 +676,34 @@ func TestUIAddConnectionIsAModal(t *testing.T) {
 	}
 }
 
-// TestUICompatibleNodeCardOwnsAddButton pins that the compatible-node card is the
-// one place a connection is added for a compatible endpoint — upstream hides the
-// toolbar Add button whenever isCompatible is set, so offering both would be
-// duplicate UI for the same action.
-func TestUICompatibleNodeCardOwnsAddButton(t *testing.T) {
+// A compatible endpoint is a node (it stores the base URL) AND a provider that
+// needs credentials, so the toolbar must offer "Add API Key".
+//
+// An earlier version of this test asserted the opposite — that the button must
+// be hidden when the provider is a node — and cited upstream as the reason.
+// That reading was wrong: upstream renders the button for compatible providers
+// and only changes the LABEL
+// (providers/[id]/page.js: isCompatible ? "Add API Key" : "Add Connection"),
+// passing isCompatible into the same AddApiKeyModal. Hiding it left the
+// operator able to set a base URL but never an API key.
+func TestUICompatibleNodeOffersAddApiKey(t *testing.T) {
 	body := readEmbeddedUI(t)
 
-	if !strings.Contains(body, `onclick="openAddConnModal('${safeId}')"`) {
-		t.Error("the node card must offer Add, addressing the node by its id")
+	// The button must not be suppressed for a node.
+	if strings.Contains(body, "&& !d.node;") {
+		t.Error("showKeyForm still suppresses the Add button for a node, so a " +
+			"compatible provider can never be given an API key")
 	}
-	// The toolbar button is suppressed for a node: showKeyForm must account for it.
-	if !strings.Contains(body, "const showKeyForm = oauthPanel === '' && !d.node;") {
-		t.Error("the toolbar Add button must be hidden when this provider is a node")
+	if !strings.Contains(body, "const showKeyForm = oauthPanel === '';") {
+		t.Error("showKeyForm must depend only on whether an OAuth panel already drives the flow")
+	}
+
+	// And it must be labelled for what it does, like upstream.
+	if !strings.Contains(body, `const addConnLabel = d.node ? 'Add API Key' : 'Add Connection';`) {
+		t.Error("the toolbar button must be labelled 'Add API Key' for a compatible node")
+	}
+	if !strings.Contains(body, `onclick="openAddConnModal('${d.provider}')"`) {
+		t.Error("the toolbar button must still open the connection modal")
 	}
 }
 
@@ -859,5 +874,104 @@ func TestUIProxyCardRendersTargetCheckboxes(t *testing.T) {
 	idx := strings.Index(body, `strategy === "none" ? "" :`)
 	if idx == -1 {
 		t.Error("the target checkbox block must be gated on a rotating strategy")
+	}
+}
+
+// The "Add OpenAI/Anthropic Compatible" buttons must survive every filter state.
+//
+// They used to be rendered INSIDE the section header, and the header is skipped
+// when the view narrows to one section (showSectionHeaders is false unless the
+// category is "all"). Filtering to the custom category therefore removed the
+// only way to create a compatible provider — exactly when the operator was
+// looking at that category in order to add one.
+func TestUICompatButtonsSurviveASingleSectionFilter(t *testing.T) {
+	body := readEmbeddedUI(t)
+
+	// The buttons must be built as their own block, outside the header ternary.
+	if !strings.Contains(body, `const customActions = key === "custom"`) {
+		t.Fatal("the Add Compatible buttons are not a standalone block; nesting them " +
+			"in the header makes them disappear whenever the header is hidden")
+	}
+	// ...and that block must be rendered in the section body, not only in the header.
+	sectionStart := strings.Index(body, `<section class="prov-section" data-section=`)
+	if sectionStart == -1 {
+		t.Fatal("provider section markup not found")
+	}
+	section := body[sectionStart:]
+	if end := strings.Index(section, "</section>"); end != -1 {
+		section = section[:end]
+	}
+	if !strings.Contains(section, "${customActions}") {
+		t.Error("the section must render customActions outside the header branch")
+	}
+
+	// Both buttons must still be present and wired to their modals.
+	for _, want := range []string{
+		`openCompatModal('openai')`,
+		`openCompatModal('anthropic')`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("missing Add Compatible button: %s", want)
+		}
+	}
+}
+
+// TestUIAddConnectionModalHasBulkMode verifies the Add Connection modal has
+// both Single and Bulk Add modes, with collision-free bulk planning.
+func TestUIAddConnectionModalHasBulkMode(t *testing.T) {
+	body := readEmbeddedUI(t)
+
+	// Mode switcher buttons
+	if !strings.Contains(body, `id="conn-mode-switcher"`) {
+		t.Error("missing conn-mode-switcher in Add Connection modal")
+	}
+	if !strings.Contains(body, `setConnMode('single')`) || !strings.Contains(body, `setConnMode('bulk')`) {
+		t.Error("missing setConnMode handlers in Add Connection modal")
+	}
+
+	// Bulk textarea and hint
+	if !strings.Contains(body, `id="acct-bulk-text"`) {
+		t.Error("missing acct-bulk-text textarea in Add Connection modal")
+	}
+	if !strings.Contains(body, "planBulkAdd(") {
+		t.Error("missing planBulkAdd planner function")
+	}
+	if !strings.Contains(body, "addBulkConnections(") {
+		t.Error("missing addBulkConnections function")
+	}
+}
+
+// TestUIModelImportSelectedOnly ensures that the model import modal tracks
+// selection explicitly via selectedIds Set and only imports selected models.
+func TestUIModelImportSelectedOnly(t *testing.T) {
+	body := readEmbeddedUI(t)
+
+	if !strings.Contains(body, "importState.selectedIds.has(m.id)") {
+		t.Error("commitImport must filter exclusively by importState.selectedIds")
+	}
+	if !strings.Contains(body, "updateImportSelectedUI") {
+		t.Error("missing updateImportSelectedUI function")
+	}
+	if !strings.Contains(body, "onImportCbChange") {
+		t.Error("missing onImportCbChange handler")
+	}
+}
+
+// TestUIModelDisableNoConfirmAndTwoModeAutoDisable ensures that removeModel has no
+// blocking confirm() popup and auto-disable supports safe and full modes.
+func TestUIModelDisableNoConfirmAndTwoModeAutoDisable(t *testing.T) {
+	body := readEmbeddedUI(t)
+
+	// Confirm prompt must be gone from removeModel
+	if strings.Contains(body, "Remove model \"${modelId}\"?") {
+		t.Error("confirmation prompt should be removed from removeModel")
+	}
+
+	// 2-mode auto disable selector
+	if !strings.Contains(body, `id="test-auto-disable-mode"`) {
+		t.Error("missing test-auto-disable-mode select dropdown")
+	}
+	if !strings.Contains(body, `value="safe"`) || !strings.Contains(body, `value="full"`) {
+		t.Error("missing safe and full options in test-auto-disable-mode")
 	}
 }

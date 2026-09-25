@@ -101,6 +101,41 @@ func TestAutoDisableSkipsUnknownStatus(t *testing.T) {
 	}
 }
 
+// In "full" mode, every model that does not produce a successful ping (including
+// 429, timeouts, and 500) must be auto-disabled.
+func TestAutoDisableFullModeDisablesAllFailingModels(t *testing.T) {
+	_, repo, _ := setupTestDashboard(t)
+
+	if _, err := repo.DB().Exec(
+		`INSERT INTO providerConnections (id, provider, authType, name, priority, isActive, data, createdAt, updatedAt)
+		 VALUES ('nv-1','nvidia','apikey','NVIDIA',1,1,'{"apiKey":"k"}','2026-07-18T00:00:00Z','2026-07-18T00:00:00Z')`,
+	); err != nil {
+		t.Fatalf("seed connection: %v", err)
+	}
+
+	h := &Handler{repo: repo}
+
+	// In full mode, 429 and timeouts must be disabled
+	h.maybeAutoDisable("nvidia/rate-limited", modelTestResult{
+		ModelID: "rate-limited", OK: false, Status: 429,
+	}, true, "full")
+
+	h.maybeAutoDisable("nvidia/timed-out", modelTestResult{
+		ModelID: "timed-out", OK: false, TimedOut: true,
+	}, true, "full")
+
+	hidden, err := repo.GetAllHiddenModels()
+	if err != nil {
+		t.Fatalf("GetAllHiddenModels: %v", err)
+	}
+	if !hidden["nvidia|rate-limited"] {
+		t.Error("full mode should disable 429 rate-limited models")
+	}
+	if !hidden["nvidia|timed-out"] {
+		t.Error("full mode should disable timed-out models")
+	}
+}
+
 // The row must offer a way to read the full error and to copy the model id.
 // A clipped tooltip made a rate limit indistinguishable from a missing model,
 // which is exactly the distinction that decides whether to delete an entry.

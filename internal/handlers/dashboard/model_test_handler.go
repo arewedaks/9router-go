@@ -288,6 +288,7 @@ func (h *Handler) HandleTestProviderModels(w http.ResponseWriter, r *http.Reques
 	var req struct {
 		Parallel          bool     `json:"parallel"`
 		AutoDisableFailed bool     `json:"autoDisableFailed"`
+		AutoDisableMode   string   `json:"autoDisableMode"`
 		Models            []string `json:"models"`
 	}
 	_ = json.Unmarshal(body, &req)
@@ -331,7 +332,7 @@ func (h *Handler) HandleTestProviderModels(w http.ResponseWriter, r *http.Reques
 	firstStart := time.Now()
 	firstRes := h.pingModel(ctx, first, "llm")
 	results = append(results, modelTestResultFor(first, firstRes, time.Since(firstStart).Milliseconds()))
-	h.maybeAutoDisable(first, firstRes, req.AutoDisableFailed)
+	h.maybeAutoDisable(first, firstRes, req.AutoDisableFailed, req.AutoDisableMode)
 
 	if rest := models[1:]; len(rest) > 0 {
 		if req.Parallel {
@@ -346,7 +347,7 @@ func (h *Handler) HandleTestProviderModels(w http.ResponseWriter, r *http.Reques
 					res := h.pingModel(ctx, model, "llm")
 					restRes[idx] = modelTestResultFor(model, res, time.Since(started).Milliseconds())
 					mu.Lock()
-					h.maybeAutoDisable(model, res, req.AutoDisableFailed)
+					h.maybeAutoDisable(model, res, req.AutoDisableFailed, req.AutoDisableMode)
 					mu.Unlock()
 				}(i, m)
 			}
@@ -357,7 +358,7 @@ func (h *Handler) HandleTestProviderModels(w http.ResponseWriter, r *http.Reques
 				started := time.Now()
 				res := h.pingModel(ctx, m, "llm")
 				results = append(results, modelTestResultFor(m, res, time.Since(started).Milliseconds()))
-				h.maybeAutoDisable(m, res, req.AutoDisableFailed)
+				h.maybeAutoDisable(m, res, req.AutoDisableFailed, req.AutoDisableMode)
 			}
 		}
 	}
@@ -412,24 +413,26 @@ func isPermanentModelFailure(status int) bool {
 }
 
 // maybeAutoDisable removes a model from the provider cache when it failed and
-// the caller asked for auto-disable. Mirrors the upstream "Auto-disable
-// failed" checkbox on the batch test toolbar.
-func (h *Handler) maybeAutoDisable(fullModel string, res modelTestResult, autoDisable bool) {
+// the caller asked for auto-disable. Supports "safe" mode (skip 429/timeouts)
+// and "full" mode (remove every failing model without ping).
+func (h *Handler) maybeAutoDisable(fullModel string, res modelTestResult, autoDisable bool, modes ...string) {
 	if res.OK || !autoDisable {
 		return
 	}
-	// A timeout says the provider was slow, not that the model is gone. Pruning
-	// on it deletes healthy models: 110 models on one node with a 30s budget
-	// meant any provider answering slower than that lost its entries. Only a
-	// real failure (4xx/5xx response) is evidence the model should go.
-	if res.TimedOut {
-		return
+	mode := "safe"
+	if len(modes) > 0 && modes[0] != "" {
+		mode = modes[0]
 	}
-	// Only a permanent rejection is evidence the model is gone. Everything else
-	// means "ask again later" or "the provider is having a bad day", and acting
-	// on it removes models that work.
-	if !isPermanentModelFailure(res.Status) {
-		return
+	// In safe mode (default):
+	// A timeout says the provider was slow, not that the model is gone.
+	// Only a permanent rejection (400, 401, 403, 404, etc.) triggers auto-disable.
+	if mode != "full" {
+		if res.TimedOut {
+			return
+		}
+		if !isPermanentModelFailure(res.Status) {
+			return
+		}
 	}
 	// fullModel looks like "<alias>/<modelID>".
 	alias, modelID, found := strings.Cut(fullModel, "/")

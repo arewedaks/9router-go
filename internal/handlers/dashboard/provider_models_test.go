@@ -1,6 +1,9 @@
 package dashboard
 
 import (
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"9router/proxy/internal/db"
@@ -131,5 +134,115 @@ func TestProviderDetailDoesNotLeakOtherProvidersCustomModels(t *testing.T) {
 	}
 	if len(body.Models) != 0 {
 		t.Errorf("another provider's models leaked into nvidia: %+v", body.Models)
+	}
+}
+
+// Importing models from an OpenAI-compatible provider node must use the node's
+// BaseURL even when the connection data blob only carries the apiKey.
+func TestImportModelsCompatibleNodeBaseURL(t *testing.T) {
+	_, repo, r := setupTestDashboard(t)
+
+	// Spin up fake upstream server with /models endpoint
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if req.URL.Path != "/v1/models" && req.URL.Path != "/models" {
+			http.NotFound(w, req)
+			return
+		}
+		if auth := req.Header.Get("Authorization"); auth != "Bearer test-key" {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"id":"custom-gpt-4o","name":"Custom GPT-4o"}]}`))
+	}))
+	defer ts.Close()
+
+	nodeID := "openai-compatible-chat-testnode1"
+	nodeData := fmt.Sprintf(`{"prefix":"testnode","apiType":"chat","baseUrl":%q,"nodeName":"Test Node"}`, ts.URL)
+	if _, err := repo.DB().Exec(
+		`INSERT INTO providerNodes (id, name, type, data, createdAt, updatedAt)
+		 VALUES (?, 'Test Node', 'openai-compatible', ?, '2026-07-18T00:00:00Z', '2026-07-18T00:00:00Z')`,
+		nodeID, nodeData,
+	); err != nil {
+		t.Fatalf("seed provider node: %v", err)
+	}
+
+	// Connection only stores apiKey in data, NOT baseUrl
+	if _, err := repo.DB().Exec(
+		`INSERT INTO providerConnections (id, provider, authType, name, priority, isActive, data, createdAt, updatedAt)
+		 VALUES ('c-1', ?, 'apikey', 'main', 1, 1, '{"apiKey":"test-key"}', '2026-07-18T00:00:00Z', '2026-07-18T00:00:00Z')`,
+		nodeID,
+	); err != nil {
+		t.Fatalf("seed connection: %v", err)
+	}
+
+	// 1. GET /api/dashboard/providers/{nodeID}/models
+	var fetchRes ModelFetchResult
+	if code := getJSON(t, r, "/api/dashboard/providers/"+nodeID+"/models", &fetchRes); code != 200 {
+		t.Fatalf("fetch models status = %d, want 200, error: %s", code, fetchRes.Error)
+	}
+	if len(fetchRes.Models) != 1 {
+		t.Fatalf("got %d models, want 1: %+v", len(fetchRes.Models), fetchRes.Models)
+	}
+	if fetchRes.Models[0].ID != "custom-gpt-4o" {
+		t.Errorf("model ID = %q, want custom-gpt-4o", fetchRes.Models[0].ID)
+	}
+
+	// 2. POST /api/dashboard/providers/{nodeID}/models (save model)
+	w := postJSON(t, r, "/api/dashboard/providers/"+nodeID+"/models", `{"modelId":"custom-gpt-4o","name":"Custom GPT-4o","kind":"llm"}`)
+	if w.Code != 200 {
+		t.Fatalf("add model status = %d, want 200: %s", w.Code, w.Body.String())
+	}
+
+	// 3. GET /api/dashboard/providers/{nodeID} verifies the model is present
+	var detail providerDetailBody
+	if code := getJSON(t, r, "/api/dashboard/providers/"+nodeID, &detail); code != 200 {
+		t.Fatalf("detail status = %d, want 200", code)
+	}
+	if len(detail.Models) != 1 {
+		t.Fatalf("cached models = %d, want 1", len(detail.Models))
+	}
+	if detail.Models[0].ModelID != "custom-gpt-4o" {
+		t.Errorf("cached model ID = %q, want custom-gpt-4o", detail.Models[0].ModelID)
+	}
+	if detail.Models[0].DisplayName != "Custom GPT-4o" {
+		t.Errorf("cached model DisplayName = %q, want Custom GPT-4o", detail.Models[0].DisplayName)
+	}
+}
+
+func TestAddModelUnhidesAcrossNodePrefix(t *testing.T) {
+	_, repo, r := setupTestDashboard(t)
+
+	nodeID := "openai-compatible-chat-prefixnode"
+	nodeData := `{"prefix":"pfix","apiType":"chat","nodeName":"Prefix Node"}`
+	if _, err := repo.DB().Exec(
+		`INSERT INTO providerNodes (id, name, type, data, createdAt, updatedAt)
+		 VALUES (?, 'Prefix Node', 'openai-compatible', ?, '2026-07-18T00:00:00Z', '2026-07-18T00:00:00Z')`,
+		nodeID, nodeData,
+	); err != nil {
+		t.Fatalf("seed provider node: %v", err)
+	}
+
+	// Hide model under the node prefix (e.g. from previous removal or auto-disable)
+	if err := repo.HideModel([]string{"pfix"}, "model-to-import"); err != nil {
+		t.Fatalf("hide model: %v", err)
+	}
+
+	// Add/Import model via POST /providers/{nodeID}/models
+	w := postJSON(t, r, "/api/dashboard/providers/"+nodeID+"/models", `{"modelId":"model-to-import","name":"Model To Import","kind":"llm"}`)
+	if w.Code != 200 {
+		t.Fatalf("add model status = %d: %s", w.Code, w.Body.String())
+	}
+
+	// Verify model appears in GET /api/dashboard/providers/{nodeID}
+	var detail providerDetailBody
+	if code := getJSON(t, r, "/api/dashboard/providers/"+nodeID, &detail); code != 200 {
+		t.Fatalf("detail status = %d, want 200", code)
+	}
+	if len(detail.Models) != 1 {
+		t.Fatalf("detail models count = %d, want 1", len(detail.Models))
+	}
+	if detail.Models[0].ModelID != "model-to-import" {
+		t.Errorf("model ID = %q, want model-to-import", detail.Models[0].ModelID)
 	}
 }

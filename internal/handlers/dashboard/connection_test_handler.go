@@ -12,6 +12,7 @@ import (
 
 	json "encoding/json/v2"
 
+	"9router/proxy/internal/db"
 	"9router/proxy/internal/log"
 	"9router/proxy/internal/models"
 	"9router/proxy/internal/providers"
@@ -514,6 +515,10 @@ func (h *Handler) probeGenericConnection(ctx context.Context, raw map[string]any
 
 	cfg, ok := providers.KnownProviders[out.Provider]
 	if !ok {
+		// Custom provider nodes (OpenAI / Anthropic compatible endpoints)
+		if nodeData := h.findProviderNodeData(out.Provider); nodeData != nil && nodeData.BaseURL != "" {
+			return h.probeCustomNodeConnection(ctx, nodeData, apiKey, out)
+		}
 		out.Warning = "Provider " + out.Provider + " has no known upstream configuration in this build, so it cannot be probed."
 		return out
 	}
@@ -587,6 +592,182 @@ func (h *Handler) probeGenericConnection(ctx context.Context, raw map[string]any
 		out.Warning = "Provider rate-limited the probe (HTTP 429). The credential was not judged."
 	default:
 		out.Error = fmt.Sprintf("HTTP %d: %s", resp.StatusCode, truncate(sanitizeUpstreamText(text), 240))
+	}
+	return out
+}
+
+func (h *Handler) findProviderNodeData(providerID string) *db.ProviderNodeData {
+	if h.repo == nil || providerID == "" {
+		return nil
+	}
+	canonical := providers.ResolveAlias(providerID)
+	if _, d, err := h.repo.GetProviderNodeByID(providerID); err == nil && d != nil {
+		return d
+	}
+	if canonical != providerID {
+		if _, d, err := h.repo.GetProviderNodeByID(canonical); err == nil && d != nil {
+			return d
+		}
+	}
+	if _, d, err := h.repo.GetProviderNodeByPrefix(providerID); err == nil && d != nil {
+		return d
+	}
+	return nil
+}
+
+func (h *Handler) probeCustomNodeConnection(ctx context.Context, nodeData *db.ProviderNodeData, apiKey string, out connectionTestResult) connectionTestResult {
+	baseURL := strings.TrimRight(strings.TrimSpace(nodeData.BaseURL), "/")
+	if baseURL == "" {
+		out.Error = "No base URL configured for custom provider node."
+		return out
+	}
+
+	canonical := providers.ResolveAlias(out.Provider)
+	isAnthropic := strings.HasPrefix(strings.ToLower(out.Provider), providers.CustomAnthropicPrefix) ||
+		strings.HasPrefix(strings.ToLower(canonical), providers.CustomAnthropicPrefix) ||
+		strings.Contains(strings.ToLower(nodeData.APIType), "anthropic")
+
+	client := h.httpClientForTest()
+	ctx, cancel := context.WithTimeout(ctx, connectionTestTimeout())
+	defer cancel()
+
+	// 1. Try GET /models (or configured modelsPath)
+	modelsPath := nodeData.ModelsPath
+	if modelsPath == "" {
+		modelsPath = "/models"
+	}
+	cleanPath := "/" + strings.TrimLeft(modelsPath, "/")
+	modelsURL := baseURL
+	if isAnthropic {
+		modelsURL = strings.TrimSuffix(baseURL, "/messages")
+	}
+	if !strings.HasSuffix(modelsURL, cleanPath) {
+		modelsURL += cleanPath
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, modelsURL, nil)
+	if err == nil {
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+		if isAnthropic {
+			req.Header.Set("x-api-key", apiKey)
+			req.Header.Set("anthropic-version", "2023-06-01")
+		}
+		resp, err := client.Do(req)
+		if err == nil {
+			defer resp.Body.Close()
+			bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, connectionTestMaxBody))
+			text := string(bodyBytes)
+			out.Status = resp.StatusCode
+
+			if isGeoBlockedError(text) {
+				out.Valid = true
+				out.GeoBlocked = true
+				out.Warning = "Egress location blocked by the provider."
+				return out
+			}
+
+			if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+				out.Valid = true
+				out.TestedAt = time.Now().UTC().Format(time.RFC3339)
+				return out
+			}
+			if resp.StatusCode == 401 || resp.StatusCode == 403 {
+				out.Error = fmt.Sprintf("Credential rejected (HTTP %d): %s",
+					resp.StatusCode, truncate(sanitizeUpstreamText(text), 240))
+				return out
+			}
+			if resp.StatusCode == 429 {
+				out.Valid = true
+				out.Warning = "Provider rate-limited the probe (HTTP 429). The credential was not judged."
+				return out
+			}
+			// If status is 404 / 405 (models endpoint not supported), fall through to chat probe
+		}
+	}
+
+	// 2. Fallback: Chat completion probe
+	probeModel := ""
+	candKeys := h.providerKeyCandidates(canonical, out.Provider)
+	if cachedModels, err := h.repo.ListCachedModelsForDashboard(candKeys...); err == nil && len(cachedModels) > 0 {
+		for _, cm := range cachedModels {
+			if cm.Kind == "" || cm.Kind == "llm" {
+				probeModel = cm.ModelID
+				break
+			}
+		}
+	}
+	if probeModel == "" {
+		probeModel = "gpt-4o-mini"
+	}
+
+	chatURL := baseURL
+	if isAnthropic {
+		if !strings.HasSuffix(chatURL, "/messages") {
+			chatURL += "/messages"
+		}
+	} else {
+		if !strings.HasSuffix(chatURL, "/chat/completions") {
+			chatURL += "/chat/completions"
+		}
+	}
+
+	bodyMap := map[string]any{
+		"model":      probeModel,
+		"max_tokens": 1,
+		"messages":   []map[string]any{{"role": "user", "content": "ping"}},
+	}
+	body, _ := json.Marshal(bodyMap)
+
+	chatReq, err := http.NewRequestWithContext(ctx, http.MethodPost, chatURL, bytes.NewReader(body))
+	if err != nil {
+		out.Error = "Could not build probe request: " + err.Error()
+		return out
+	}
+	chatReq.Header.Set("Content-Type", "application/json")
+	chatReq.Header.Set("Authorization", "Bearer "+apiKey)
+	if isAnthropic {
+		chatReq.Header.Set("x-api-key", apiKey)
+		chatReq.Header.Set("anthropic-version", "2023-06-01")
+	}
+
+	chatResp, err := client.Do(chatReq)
+	if err != nil {
+		if ctx.Err() != nil {
+			out.Error = fmt.Sprintf("Test timed out after %ds.", int(connectionTestTimeout().Seconds()))
+			return out
+		}
+		out.Error = "Probe request failed: " + err.Error()
+		return out
+	}
+	defer chatResp.Body.Close()
+
+	chatBytes, _ := io.ReadAll(io.LimitReader(chatResp.Body, connectionTestMaxBody))
+	chatText := string(chatBytes)
+	out.Status = chatResp.StatusCode
+
+	if isGeoBlockedError(chatText) {
+		out.Valid = true
+		out.GeoBlocked = true
+		out.Warning = "Egress location blocked by the provider."
+		return out
+	}
+
+	switch {
+	case chatResp.StatusCode >= 200 && chatResp.StatusCode < 300:
+		out.Valid = true
+		out.TestedAt = time.Now().UTC().Format(time.RFC3339)
+	case chatResp.StatusCode == 401 || chatResp.StatusCode == 403:
+		out.Error = fmt.Sprintf("Credential rejected (HTTP %d): %s",
+			chatResp.StatusCode, truncate(sanitizeUpstreamText(chatText), 240))
+	case chatResp.StatusCode == 400 || chatResp.StatusCode == 404 || chatResp.StatusCode == 422:
+		out.Valid = true
+		out.Warning = fmt.Sprintf("Auth accepted (HTTP %d): %s",
+			chatResp.StatusCode, truncate(sanitizeUpstreamText(chatText), 200))
+	case chatResp.StatusCode == 429:
+		out.Valid = true
+		out.Warning = "Provider rate-limited the probe (HTTP 429). The credential was not judged."
+	default:
+		out.Error = fmt.Sprintf("HTTP %d: %s", chatResp.StatusCode, truncate(sanitizeUpstreamText(chatText), 240))
 	}
 	return out
 }

@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -511,4 +512,54 @@ func antigravityProbeUserAgent(t *testing.T, h *Handler) string {
 	}
 	return providers.AntigravityUserAgent(
 		providers.NormalizeAntigravityClientProfile(settings.AntigravityClientProfile))
+}
+
+func TestTestConnection_CustomProviderNode(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/models" {
+			if r.Header.Get("Authorization") != "Bearer valid-custom-key" {
+				w.WriteHeader(http.StatusUnauthorized)
+				_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"object":"list","data":[{"id":"custom-model"}]}`))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	h, database := newProfileTestHandler(t)
+	repo := db.NewRepo(database)
+
+	nodeID := "openai-compatible-chat-cust1"
+	nodeData := fmt.Sprintf(`{"prefix":"cust1","apiType":"chat","baseUrl":%q,"nodeName":"Cust 1"}`, srv.URL+"/v1")
+	if _, err := repo.DB().Exec(
+		`INSERT INTO providerNodes (id, name, type, data, createdAt, updatedAt)
+		 VALUES (?, 'Cust 1', 'openai-compatible', ?, '2026-07-18T00:00:00Z', '2026-07-18T00:00:00Z')`,
+		nodeID, nodeData,
+	); err != nil {
+		t.Fatalf("seed node: %v", err)
+	}
+
+	// 1. Valid Key
+	seedConnection(t, repo, "c-valid", nodeID, `{"apiKey":"valid-custom-key"}`)
+	res := h.testConnection(context.Background(), "c-valid")
+	if !res.Valid {
+		t.Fatalf("expected valid custom connection, got error: %s, warning: %s", res.Error, res.Warning)
+	}
+	if res.Status != 200 {
+		t.Errorf("status = %d, want 200", res.Status)
+	}
+
+	// 2. Invalid Key
+	seedConnection(t, repo, "c-invalid", nodeID, `{"apiKey":"bad-key"}`)
+	resBad := h.testConnection(context.Background(), "c-invalid")
+	if resBad.Valid {
+		t.Fatalf("expected invalid for bad key, got valid")
+	}
+	if !strings.Contains(resBad.Error, "rejected (HTTP 401)") {
+		t.Errorf("expected 401 rejection error, got %q", resBad.Error)
+	}
 }

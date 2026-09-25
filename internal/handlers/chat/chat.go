@@ -405,6 +405,7 @@ func (h *ChatHandler) buildModelsList() []ModelInfoObject {
 				activeProviders[conn.Provider] = conn
 			}
 		}
+		nodePrefixes := h.nodePrefixByID()
 		for provID, conn := range activeProviders {
 			outputAlias := provID
 			var connData struct {
@@ -422,6 +423,8 @@ func (h *ChatHandler) buildModelsList() []ModelInfoObject {
 				outputAlias = connData.ProviderSpecificData.Prefix
 			} else if connData.Prefix != "" {
 				outputAlias = connData.Prefix
+			} else if pfx := nodePrefixes[provID]; pfx != "" {
+				outputAlias = pfx
 			} else if alias := providers.GetProviderAlias(provID); alias != "" {
 				outputAlias = alias
 			}

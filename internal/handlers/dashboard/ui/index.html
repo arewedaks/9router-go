@@ -1038,6 +1038,9 @@
     /* Section actions (e.g. the Compatible Endpoints "+ Add" buttons) are pinned
        to the right so they never depend on how wide the title/blurb happens to be. */
     .prov-section-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; margin-left: auto; }
+    /* Shown when a section is deliberately empty, so it reads as "nothing here
+       yet" rather than a rendering failure. */
+    .prov-empty-hint { border: 1px dashed var(--border); border-radius: 10px; padding: 10px 14px; color: var(--muted); font-size: 0.79rem; }
     /* On a phone the two Compatible buttons are wider than the whole header, and
        flex-shrink:0 let them take every pixel: the title/blurb collapsed to a
        zero-width column and were drawn behind the buttons. Wrapping puts the
@@ -2583,27 +2586,51 @@
 <div class="modal-overlay" id="add-conn-modal">
   <div class="modal-box">
     <div class="section-header" style="margin-bottom: 16px;">
-      <h3 style="font-size: 1.1rem; color: #fff;">Add Connection</h3>
+      <h3 style="font-size: 1.1rem; color: #fff;" id="add-conn-title">Add Connection</h3>
       <button class="btn btn-sm" onclick="closeModal('add-conn-modal')">✕</button>
     </div>
     <input type="hidden" id="addconn-provider">
-    <div class="form-group">
-      <label>Account name / email</label>
-      <input type="text" id="acct-label" placeholder="user@example.com">
-      <p class="hint-text">A label for this account so you can tell them apart.</p>
+
+    <!-- Mode Switcher (Single / Bulk Add) -->
+    <div id="conn-mode-switcher" style="display:flex; gap:8px; margin-bottom:14px;">
+      <button type="button" class="btn btn-sm btn-primary" id="conn-mode-single-btn" onclick="setConnMode('single')">Single</button>
+      <button type="button" class="btn btn-sm" id="conn-mode-bulk-btn" onclick="setConnMode('bulk')">Bulk Add</button>
     </div>
-    <div class="form-group">
-      <label id="acct-secret-label">API Key</label>
-      <input type="password" id="acct-secret" placeholder="sk-...">
-      <p class="hint-text" id="acct-secret-hint">Leave blank for no-auth providers.</p>
+
+    <!-- Single Mode Fields -->
+    <div id="conn-single-fields">
+      <div class="form-group">
+        <label>Account name / email</label>
+        <input type="text" id="acct-label" placeholder="user@example.com">
+        <p class="hint-text">A label for this account so you can tell them apart.</p>
+      </div>
+      <div class="form-group">
+        <label id="acct-secret-label">API Key</label>
+        <input type="password" id="acct-secret" placeholder="sk-...">
+        <p class="hint-text" id="acct-secret-hint">Leave blank for no-auth providers.</p>
+      </div>
+      <div class="form-group">
+        <label>Priority</label>
+        <input type="number" id="acct-priority" value="1" min="1">
+      </div>
     </div>
-    <div class="form-group">
-      <label>Priority</label>
-      <input type="number" id="acct-priority" value="1" min="1">
+
+    <!-- Bulk Mode Fields -->
+    <div id="conn-bulk-fields" style="display:none;">
+      <div class="form-group">
+        <label>API Keys (one per line)</label>
+        <p class="hint-text" id="acct-bulk-hint" style="margin-bottom:6px;">
+          Format: <code>name|apiKey</code> or just <code>apiKey</code> (auto-named by index).
+        </p>
+        <textarea id="acct-bulk-text" rows="6" class="form-control"
+                  style="width:100%; font-family:monospace; font-size:0.8rem; resize:vertical; min-height:130px; background:var(--bg-input, #0d1117); color:#e6edf3; border:1px solid var(--border); border-radius:6px; padding:8px;"
+                  placeholder="Production|sk-proj-abc...&#10;Staging|sk-proj-xyz...&#10;sk-proj-123..."></textarea>
+      </div>
     </div>
+
     <div id="add-conn-msg" style="display:none; font-size:0.75rem; margin-top:4px;"></div>
     <div class="modal-foot" style="padding:14px 0 0; border:none; gap:8px;">
-      <button class="btn btn-primary" onclick="addConnection()" style="flex:1;">Add</button>
+      <button class="btn btn-primary" id="add-conn-submit-btn" onclick="submitConnection()" style="flex:1;">Add</button>
       <button class="btn" onclick="closeModal('add-conn-modal')" style="flex:1;">Cancel</button>
     </div>
   </div>
@@ -4181,10 +4208,15 @@
     ];
     const panelEntry = OAUTH_PANELS.find(e => e.ids.includes(d.provider));
     const oauthPanel = panelEntry ? panelEntry.render(d.provider) : '';
-    // A compatible endpoint owns its own Add button on the node card, so the
-    // toolbar must not offer a second one (upstream hides it for the same
-    // reason: ConnectionsHeaderToolbar renders Add only when !isCompatible).
-    const showKeyForm = oauthPanel === '' && !d.node;
+    // A compatible endpoint is a NODE (it stores the base URL) and also needs
+    // credentials like any other provider. Upstream renders the Add button for
+    // it and simply labels it "Add API Key"
+    // (providers/[id]/page.js: isCompatible ? "Add API Key" : ...), passing
+    // isCompatible into the same AddApiKeyModal. Hiding it here because the
+    // provider is a node left the operator able to set a base URL but never an
+    // API key.
+    const showKeyForm = oauthPanel === '';
+    const addConnLabel = d.node ? 'Add API Key' : 'Add Connection';
     const connsInner = (d.connections || []).length
       ? d.connections.map(p => {
           const label = p.accountLabel || p.email || p.name || p.id.substring(0, 12);
@@ -4214,7 +4246,7 @@
       ${oauthPanel}
       <div class="conn-test-bar">
         ${showKeyForm ? `<button class="btn btn-sm btn-primary" onclick="openAddConnModal('${d.provider}')">
-          <span class="msym" style="font-size:14px;">add</span>Add Connection
+          <span class="msym" style="font-size:14px;">add</span>${addConnLabel}
         </button>` : ''}
         <button class="btn btn-sm" onclick="testAllConnections('${d.provider}');">Test All Accounts</button>
         <span id="conn-test-progress" class="conn-test-progress"></span>
@@ -4321,6 +4353,11 @@
         <label style="display:inline-flex; align-items:center; gap:5px; font-size:0.75rem; color:var(--muted); cursor:pointer;">
           <input type="checkbox" id="test-auto-disable" ${autoDisableFailed ? 'checked' : ''} onchange="setAutoDisable(this.checked);" style="accent-color:var(--primary);"> Auto-disable failed
         </label>
+        <select id="test-auto-disable-mode" onchange="setAutoDisableMode(this.value);"
+                style="width:auto; max-width:160px; font-size:0.72rem; padding:1px 5px; height:24px; background:var(--bg-input, #0d1117); color:#e6edf3; border:1px solid var(--border); border-radius:4px; vertical-align:middle; cursor:pointer; ${autoDisableFailed ? 'display:inline-block;' : 'display:none;'}">
+          <option value="safe" ${autoDisableMode === 'safe' ? 'selected' : ''}>Safe (skip 429)</option>
+          <option value="full" ${autoDisableMode === 'full' ? 'selected' : ''}>Full (all no ping)</option>
+        </select>
         <button class="btn btn-sm btn-danger" id="test-stop-btn" style="display:none;" onclick="stopModelTest()">Stop</button>
       </div>` : ""}
       <div style="margin-top:6px;">${modelsInner}</div>`;
@@ -4542,11 +4579,19 @@
   let activeTestController = null;
   let parallelTestMode = false;
   let autoDisableFailed = false;
+  let autoDisableMode = "safe";
 
   // Persist the toolbar checkbox state across re-renders (renderProviderDetail
   // replaces the DOM, so plain inline assignment would be lost).
   function setParallelMode(on) { parallelTestMode = !!on; }
-  function setAutoDisable(on) { autoDisableFailed = !!on; }
+  function setAutoDisable(on) {
+    autoDisableFailed = !!on;
+    const modeEl = document.getElementById("test-auto-disable-mode");
+    if (modeEl) modeEl.style.display = autoDisableFailed ? "inline-block" : "none";
+  }
+  function setAutoDisableMode(mode) {
+    autoDisableMode = mode === "full" ? "full" : "safe";
+  }
 
   function resetModelTestState() {
     modelTestResults = {};
@@ -4631,12 +4676,10 @@
           failCount++;
         }
         else okCount++;
-        if (!data.ok && autoDisable && !data.timedOut && !modelTestRetryable[modelId]) {
-          // Auto-disable: drop the model from the provider's advertised list.
-          // Skipped when the failure is retryable — a timeout, 429 or 5xx means
-          // the provider was slow or throttled, not that the model is gone, and
-          // removing it would delete a working entry. The server applies the
-          // same rule, so this is belt and braces rather than the only guard.
+        const shouldAutoDisable = autoDisable && !data.ok && (
+          autoDisableMode === "full" ? true : (!data.timedOut && !modelTestRetryable[modelId])
+        );
+        if (shouldAutoDisable) {
           await api(`/api/dashboard/providers/${encodeURIComponent(providerId)}/models?modelId=${encodeURIComponent(modelId)}`, { method: "DELETE" });
           removed++;
         }
@@ -4645,6 +4688,12 @@
         modelTestResults[modelId] = "error";
         modelTestError[modelId] = String(e);
         failCount++;
+        if (autoDisable && autoDisableMode === "full") {
+          try {
+            await api(`/api/dashboard/providers/${encodeURIComponent(providerId)}/models?modelId=${encodeURIComponent(modelId)}`, { method: "DELETE" });
+            removed++;
+          } catch (_) {}
+        }
       } finally {
         testingModelIds.delete(modelId);
         done++;
@@ -4700,7 +4749,6 @@
 
   // Removes a model from the provider cache (upstream "Remove model").
   async function removeModel(providerId, modelId) {
-    if (!confirm(`Remove model "${modelId}"?`)) return;
     try {
       await api(`/api/dashboard/providers/${encodeURIComponent(providerId)}/models?modelId=${encodeURIComponent(modelId)}`, {
         method: "DELETE"
@@ -4745,16 +4793,46 @@
   }
 
   // Modal listing fetched models with per-model checkboxes (upstream "Import All").
-  let importState = { providerId: null, models: [] };
+  let importState = { providerId: null, models: [], selectedIds: new Set() };
+
+  function updateImportSelectedUI() {
+    const total = importState.models.length;
+    const count = importState.selectedIds.size;
+    const btn = document.getElementById("import-all-btn");
+    if (btn) {
+      btn.textContent = count > 0 ? `Import Selected (${count})` : "Import Selected (0)";
+      btn.disabled = count === 0;
+    }
+    const q = (document.getElementById("import-search")?.value || "").toLowerCase().trim();
+    const countEl = document.getElementById("import-count");
+    if (countEl) {
+      if (q) {
+        const shown = document.querySelectorAll("#import-modal .import-row:not([style*='display: none'])").length;
+        countEl.textContent = `${shown} of ${total} match (${count} selected)`;
+      } else {
+        countEl.textContent = `${count} of ${total} selected`;
+      }
+    }
+  }
+
+  function onImportCbChange(cb, modelId) {
+    if (cb.checked) {
+      importState.selectedIds.add(modelId);
+    } else {
+      importState.selectedIds.delete(modelId);
+    }
+    updateImportSelectedUI();
+  }
 
   function showImportModal(providerId, models) {
-    importState = { providerId, models };
+    importState = { providerId, models, selectedIds: new Set() };
     const rows = models.map((m, i) => {
       const upstreamName = (m.name && m.name !== m.id) ? m.name : '';
       const freeBadge = m.isFree ? `<span class="mfree" title="Free tier model">Free</span>` : '';
       return `
-      <label class="import-row">
-        <input type="checkbox" class="import-cb" data-idx="${i}" checked>
+      <label class="import-row" id="import-row-${i}">
+        <input type="checkbox" class="import-cb" data-idx="${i}" data-id="${escapeHtml(m.id)}"
+               onchange="onImportCbChange(this, '${escapeHtml(m.id)}')">
         <span class="mnames">
           <span class="mid">${escapeHtml(m.id)}</span>
           ${upstreamName ? `<span class="msub">${escapeHtml(upstreamName)}</span>` : ''}
@@ -4782,7 +4860,7 @@
           <input type="text" id="import-search" class="import-search"
                  placeholder="Search model id or name..." autocomplete="off"
                  oninput="filterImportRows(this.value)">
-          <span class="import-toolbar-count" id="import-count">${models.length} available</span>
+          <span class="import-toolbar-count" id="import-count">0 of ${models.length} selected</span>
           <button class="btn btn-sm" onclick="toggleAllImport(true)">Select all</button>
           <button class="btn btn-sm" onclick="toggleAllImport(false)">Select none</button>
         </div>
@@ -4793,15 +4871,14 @@
         <div class="modal-foot">
           <div id="import-modal-msg" style="flex:1; font-size:0.75rem; color:var(--muted);"></div>
           <button class="btn" onclick="closeImportModal()">Cancel</button>
-          <button class="btn btn-primary" id="import-all-btn" onclick="commitImport()">Import Selected</button>
+          <button class="btn btn-primary" id="import-all-btn" onclick="commitImport()" disabled>Import Selected (0)</button>
         </div>
       </div>`;
     modal.classList.add("active");
   }
 
   // Filters the model list by id or upstream name. Rows are hidden rather than
-  // removed: the checkbox index is bound to importState.models, so rebuilding
-  // the list would break the mapping between a checkbox and its model.
+  // removed: the checkbox index is bound to importState.models.
   function filterImportRows(query) {
     const q = (query || "").toLowerCase().trim();
     let shown = 0;
@@ -4815,23 +4892,29 @@
     const count = document.getElementById("import-count");
     if (count) {
       const total = importState.models.length;
-      count.textContent = q ? `${shown} of ${total} match` : `${total} available`;
+      const sel = importState.selectedIds.size;
+      count.textContent = q ? `${shown} of ${total} match (${sel} selected)` : `${sel} of ${total} selected`;
     }
 
-    // A query that matches nothing must not read as "nothing to import": say so.
     const empty = document.getElementById("import-empty");
     if (empty) empty.style.display = shown === 0 ? "" : "none";
   }
 
-  // Select all / none applies to the VISIBLE rows when a filter is active.
-  // Otherwise a search followed by "Select all" would silently tick the hidden
-  // rows too, and importing far more than the operator could see.
+  // Select all / none applies to the VISIBLE rows when a filter is active,
+  // accurately updating the single-source-of-truth selectedIds Set.
   function toggleAllImport(checked) {
     document.querySelectorAll("#import-modal .import-row").forEach(row => {
       if (row.style.display === "none") return;
       const cb = row.querySelector(".import-cb");
-      if (cb) cb.checked = checked;
+      if (!cb) return;
+      cb.checked = checked;
+      const modelId = cb.dataset.id;
+      if (modelId) {
+        if (checked) importState.selectedIds.add(modelId);
+        else importState.selectedIds.delete(modelId);
+      }
     });
+    updateImportSelectedUI();
   }
 
   function closeImportModal() {
@@ -4840,9 +4923,8 @@
   }
 
   async function commitImport() {
-    const selected = Array.from(document.querySelectorAll(".import-cb"))
-      .filter(cb => cb.checked)
-      .map(cb => importState.models[parseInt(cb.dataset.idx, 10)]);
+    // Only import models that the operator explicitly selected in selectedIds Set
+    const selected = importState.models.filter(m => importState.selectedIds.has(m.id));
 
     const msg = document.getElementById("import-modal-msg");
     if (!selected.length) {
@@ -4860,7 +4942,7 @@
       for (const m of selected) {
         const res = await api(`/api/dashboard/providers/${encodeURIComponent(importState.providerId)}/models`, {
           method: "POST",
-          body: JSON.stringify({ modelId: m.id, kind: m.kind || "llm" })
+          body: JSON.stringify({ modelId: m.id, name: m.name || m.id, kind: m.kind || "llm" })
         });
         res.ok ? ok++ : fail++;
       }
@@ -6104,6 +6186,80 @@
   }
 
   // Adds a connection (account) to the provider. Uses the existing
+  let connAddMode = "single";
+
+  function setConnMode(mode) {
+    connAddMode = mode;
+    const isSingle = mode === "single";
+    const singleFields = document.getElementById("conn-single-fields");
+    const bulkFields = document.getElementById("conn-bulk-fields");
+    const singleBtn = document.getElementById("conn-mode-single-btn");
+    const bulkBtn = document.getElementById("conn-mode-bulk-btn");
+    const submitBtn = document.getElementById("add-conn-submit-btn");
+
+    if (singleFields) singleFields.style.display = isSingle ? "" : "none";
+    if (bulkFields) bulkFields.style.display = isSingle ? "none" : "";
+
+    if (singleBtn) {
+      singleBtn.className = isSingle ? "btn btn-sm btn-primary" : "btn btn-sm";
+    }
+    if (bulkBtn) {
+      bulkBtn.className = isSingle ? "btn btn-sm" : "btn btn-sm btn-primary";
+    }
+    if (submitBtn) {
+      submitBtn.textContent = isSingle ? "Add" : "Add All Keys";
+    }
+    const msg = document.getElementById("add-conn-msg");
+    if (msg) { msg.style.display = "none"; msg.textContent = ""; }
+  }
+
+  // Plan collision-free names against existing connections so auto-named keys
+  // never collide and overwrite an existing account (parity with VansRouter bulkAdd.js).
+  function planBulkAdd(lines, existingNames, opts) {
+    const isCloudflareAi = opts && opts.isCloudflareAi;
+    const safeExisting = Array.isArray(existingNames) ? existingNames : [];
+    const used = new Set(safeExisting.map(n => (typeof n === "string" ? n.toLowerCase() : "")));
+
+    const out = [];
+    for (const raw of lines) {
+      const line = typeof raw === "string" ? raw.trim() : "";
+      if (!line) continue;
+
+      const parts = line.split("|");
+      let base = "Key";
+      let apiKey = "";
+      let psd = null;
+
+      if (isCloudflareAi && parts.length >= 3) {
+        base = parts[0].trim() || "Key";
+        apiKey = parts.slice(1, -1).join("|").trim();
+        const accountId = parts[parts.length - 1].trim();
+        psd = { accountId };
+      } else if (parts.length >= 2) {
+        base = parts[0].trim() || "Key";
+        apiKey = parts.slice(1).join("|").trim();
+      } else {
+        apiKey = parts[0].trim();
+      }
+
+      if (!apiKey) continue;
+
+      let idx = 1;
+      let name = "";
+      for (;;) {
+        name = `${base} ${idx}`;
+        if (!used.has(name.toLowerCase())) break;
+        idx += 1;
+      }
+      used.add(name.toLowerCase());
+
+      const entry = { name, apiKey };
+      if (psd) entry.providerSpecificData = psd;
+      out.push(entry);
+    }
+    return out;
+  }
+
   // POST /api/dashboard/providers endpoint, wrapping the secret into the
   // credential blob the router expects.
   function openAddConnModal(providerId) {
@@ -6129,10 +6285,106 @@
     secretInput.placeholder = secretPh;
     document.getElementById("acct-secret-hint").textContent = secretHint;
 
+    // Reset bulk fields
+    const bulkInput = document.getElementById("acct-bulk-text");
+    if (bulkInput) bulkInput.value = "";
+    const bulkHint = document.getElementById("acct-bulk-hint");
+    const isCloudflareAi = providerId === "cloudflare-ai" || providerId === "cf";
+    if (bulkHint) {
+      bulkHint.innerHTML = isCloudflareAi
+        ? 'Format: <code>name|apiKey|accountId</code> or just <code>apiKey</code> (auto-named by index).'
+        : 'Format: <code>name|apiKey</code> or just <code>apiKey</code> (auto-named by index).';
+    }
+
+    // Bulk add is available for API-key providers
+    const canBulk = !isCookie && authType !== "none";
+    const switcher = document.getElementById("conn-mode-switcher");
+    if (switcher) switcher.style.display = canBulk ? "flex" : "none";
+    setConnMode("single");
+
     const msg = document.getElementById("add-conn-msg");
     msg.style.display = "none";
     msg.textContent = "";
     document.getElementById("add-conn-modal").classList.add("active");
+  }
+
+  async function submitConnection() {
+    if (connAddMode === "bulk") {
+      await addBulkConnections();
+    } else {
+      await addConnection();
+    }
+  }
+
+  async function addBulkConnections() {
+    const providerId = document.getElementById("addconn-provider").value;
+    const bulkText = (document.getElementById("acct-bulk-text")?.value || "").trim();
+    if (!bulkText) {
+      setFormMsg("add-conn-msg", "Paste at least one API key.", false);
+      return;
+    }
+
+    const lines = bulkText.split("\n");
+    const d = lastProviderDetail && lastProviderDetail.provider === providerId ? lastProviderDetail : null;
+    const existingNames = ((d && d.connections) || []).map(c => c.name || c.accountLabel || "");
+    const isCloudflareAi = providerId === "cloudflare-ai" || providerId === "cf";
+
+    const plan = planBulkAdd(lines, existingNames, { isCloudflareAi });
+    if (!plan.length) {
+      setFormMsg("add-conn-msg", "No valid keys found in input.", false);
+      return;
+    }
+
+    const submitBtn = document.getElementById("add-conn-submit-btn");
+    if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = `Adding ${plan.length} key(s)…`; }
+    setFormMsg("add-conn-msg", `Adding ${plan.length} key(s)...`, true);
+
+    let success = 0;
+    let failed = 0;
+
+    for (const entry of plan) {
+      const blob = {
+        name: entry.name,
+        email: entry.name,
+        apiKey: entry.apiKey,
+        testStatus: "unknown"
+      };
+      if (entry.providerSpecificData) {
+        blob.providerSpecificData = entry.providerSpecificData;
+      }
+      try {
+        const res = await api("/api/dashboard/providers", {
+          method: "POST",
+          body: JSON.stringify({
+            provider: providerId,
+            authType: "apikey",
+            name: entry.name,
+            email: entry.name,
+            priority: 1,
+            isActive: 1,
+            data: JSON.stringify(blob)
+          })
+        });
+        if (res.ok) {
+          success++;
+        } else {
+          failed++;
+        }
+      } catch (_) {
+        failed++;
+      }
+    }
+
+    if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = "Add All Keys"; }
+    const statusText = `✓ ${success} added${failed > 0 ? `, ✗ ${failed} failed` : ""}.`;
+    setFormMsg("add-conn-msg", statusText, failed === 0);
+
+    if (success > 0) {
+      setTimeout(() => {
+        closeModal("add-conn-modal");
+        openProviderDetail(providerId);
+      }, 800);
+    }
   }
 
   async function addConnection(providerId) {
@@ -7228,6 +7480,15 @@
 
     const sections = CATEGORY_ORDER.filter(k => bySection[k] && bySection[k].length);
 
+    // The compatible-endpoints section must exist even when it is empty: its
+    // header carries the only buttons that can CREATE such a provider. Deriving
+    // the section list purely from existing providers made those buttons
+    // unreachable — no provider meant no section, so there was no way to add
+    // one. Upstream renders the block unconditionally and shows a hint when it
+    // is empty (providers/page.js: "No custom providers — use buttons above").
+    if (bySection.custom === undefined) bySection.custom = [];
+    if (sections.indexOf("custom") === -1) sections.push("custom");
+
     // Fallback: a provider carrying an unknown category would land in a bucket
     // that CATEGORY_ORDER does not know about — surface it instead of dropping it.
     Object.keys(bySection).forEach(k => {
@@ -7284,19 +7545,33 @@
             <h3 class="prov-section-title">${escapeHtml(meta.label)} <span class="prov-section-count">${cardCount}</span></h3>
             ${meta.blurb ? `<p class="prov-section-blurb">${escapeHtml(meta.blurb)}</p>` : ""}
           </div>
-          ${key === "custom" ? `<div class="prov-section-actions">
-            <button class="btn btn-sm" onclick="openCompatModal('anthropic')">
-              <span class="msym" style="font-size:15px;">add</span>Anthropic Compatible
-            </button>
-            <button class="btn btn-sm" onclick="openCompatModal('openai')">
-              <span class="msym" style="font-size:15px;">add</span>OpenAI Compatible
-            </button>
-          </div>` : ""}
         </div>` : "";
+
+      // The Add buttons live OUTSIDE the header. They used to be rendered only
+      // as part of it, so filtering to a single category (which drops the
+      // header) removed the only way to create a compatible provider — exactly
+      // when the operator was looking at that category to add one. The action
+      // belongs to the section, not to its heading.
+      const customActions = key === "custom" ? `
+        <div class="prov-section-actions">
+          <button class="btn btn-sm" onclick="openCompatModal('anthropic')">
+            <span class="msym" style="font-size:15px;">add</span>Anthropic Compatible
+          </button>
+          <button class="btn btn-sm" onclick="openCompatModal('openai')">
+            <span class="msym" style="font-size:15px;">add</span>OpenAI Compatible
+          </button>
+        </div>` : "";
+
+      // An empty section needs to say so, otherwise it reads as a rendering bug
+      // rather than a category with nothing in it yet.
+      const emptyHint = key === "custom" && providers.length === 0 ? `
+        <div class="prov-empty-hint">No compatible endpoints yet — use the buttons above to add one.</div>` : "";
 
       return `
         <section class="prov-section" data-section="${escapeHtml(key)}">
           ${header}
+          ${customActions}
+          ${emptyHint}
           <div class="prov-card-grid">${providers.map(renderCard).join("")}</div>
         </section>`;
     }).join("");
@@ -7470,12 +7745,18 @@
   let pickerQuery = "";
 
   // Order matches the provider page sections so the two views agree.
+  // Categories shown in the Add Provider picker.
+  //
+  // "custom" (OpenAI/Anthropic compatible) is deliberately excluded: a compatible
+  // endpoint is a NODE with a base URL, prefix, and chat path, created through
+  // the dedicated "+ OpenAI Compatible" / "+ Anthropic Compatible" buttons on the
+  // page (openCompatModal). Offering them here was confusing because picking one
+  // only navigated to the dummy provider detail rather than creating a node.
   const PICKER_GROUPS = [
     { key: "oauth",     label: "OAuth & CLI Tools (Session / Auth Token)", dot: "#3b82f6" },
     { key: "freeTier",  label: "Free Tier & Free Credits",                dot: "#22c55e" },
     { key: "apikey",    label: "API Key Providers",                       dot: "#eab308" },
     { key: "webCookie", label: "Web Session Cookie",                      dot: "#a855f7" },
-    { key: "custom",    label: "Custom & Self-Hosted Endpoints",          dot: "#14b8a6" },
   ];
 
   async function openAddProviderModal() {
