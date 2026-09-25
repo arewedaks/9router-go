@@ -6978,6 +6978,27 @@
     document.getElementById("cnt-apikey").innerText = counts.apikey;
     document.getElementById("cnt-webCookie").innerText = counts.webCookie;
     document.getElementById("cnt-custom").innerText = counts.custom;
+
+    // Hide filter pills for categories that own no provider. An empty pill is a
+    // dead end: clicking it filters the grid down to nothing, which reads as a
+    // broken page rather than a category that simply has no members yet. The
+    // count span stays in the DOM so updateCategoryCounts keeps working if a
+    // provider is added later.
+    //
+    // "custom" is the exception: it stays visible even at 0 because it is the
+    // operator's entry point into creating a compatible endpoint (the empty
+    // state points at Add Provider → Compatible Endpoints). Hiding it would
+    // remove the only affordance that reveals the feature exists.
+    const alwaysVisible = new Set(["custom"]);
+    for (const cat of ["oauth", "freeTier", "apikey", "webCookie", "custom"]) {
+      const btn = document.getElementById("f-" + cat);
+      if (!btn) continue;
+      const hasProviders = counts[cat] > 0 || alwaysVisible.has(cat);
+      btn.style.display = hasProviders ? "" : "none";
+      // If the pill the operator was standing on just disappeared, fall back to
+      // "All" so the grid is never stranded on an invisible filter.
+      if (!hasProviders && currentCategory === cat) setCategoryFilter("all");
+    }
   }
 
   function getCategoryBadge(cat, label) {
@@ -7480,14 +7501,17 @@
 
     const sections = CATEGORY_ORDER.filter(k => bySection[k] && bySection[k].length);
 
-    // The compatible-endpoints section must exist even when it is empty: its
-    // header carries the only buttons that can CREATE such a provider. Deriving
-    // the section list purely from existing providers made those buttons
-    // unreachable — no provider meant no section, so there was no way to add
-    // one. Upstream renders the block unconditionally and shows a hint when it
-    // is empty (providers/page.js: "No custom providers — use buttons above").
-    if (bySection.custom === undefined) bySection.custom = [];
-    if (sections.indexOf("custom") === -1) sections.push("custom");
+    // Categories that own no provider are dropped from the grid — neither the
+    // pill nor the section is shown for them. Rendering an empty "Web Cookie
+    // Providers" group with a 0 badge is noise: the operator cannot act on it
+    // and it makes the page look half-loaded.
+    //
+    // "custom" is force-created only when the operator explicitly filtered to
+    // it: that is a deliberate request to see the compatible section, so the
+    // empty-state hint (pointing at Add Provider) is the right answer there.
+    const showEmptyCustom = currentCategory === "custom";
+    if (showEmptyCustom && bySection.custom === undefined) bySection.custom = [];
+    if (showEmptyCustom && sections.indexOf("custom") === -1) sections.unshift("custom");
 
     // Fallback: a provider carrying an unknown category would land in a bucket
     // that CATEGORY_ORDER does not know about — surface it instead of dropping it.
@@ -7536,6 +7560,7 @@
     container.innerHTML = sections.map(key => {
       const meta = CATEGORY_SECTIONS[key] || { label: key, dot: "var(--muted)", blurb: "" };
       const providers = bySection[key];
+
       const cardCount = providers.length;
       const accountCount = providers.reduce((n, p) => n + groups[p].length, 0);
       const header = showSectionHeaders ? `
@@ -7547,30 +7572,14 @@
           </div>
         </div>` : "";
 
-      // The Add buttons live OUTSIDE the header. They used to be rendered only
-      // as part of it, so filtering to a single category (which drops the
-      // header) removed the only way to create a compatible provider — exactly
-      // when the operator was looking at that category to add one. The action
-      // belongs to the section, not to its heading.
-      const customActions = key === "custom" ? `
-        <div class="prov-section-actions">
-          <button class="btn btn-sm" onclick="openCompatModal('anthropic')">
-            <span class="msym" style="font-size:15px;">add</span>Anthropic Compatible
-          </button>
-          <button class="btn btn-sm" onclick="openCompatModal('openai')">
-            <span class="msym" style="font-size:15px;">add</span>OpenAI Compatible
-          </button>
-        </div>` : "";
-
       // An empty section needs to say so, otherwise it reads as a rendering bug
       // rather than a category with nothing in it yet.
       const emptyHint = key === "custom" && providers.length === 0 ? `
-        <div class="prov-empty-hint">No compatible endpoints yet — use the buttons above to add one.</div>` : "";
+        <div class="prov-empty-hint">No compatible endpoints yet — click "Add Provider" then pick Compatible Endpoints.</div>` : "";
 
       return `
         <section class="prov-section" data-section="${escapeHtml(key)}">
           ${header}
-          ${customActions}
           ${emptyHint}
           <div class="prov-card-grid">${providers.map(renderCard).join("")}</div>
         </section>`;
@@ -7797,6 +7806,21 @@
 
     let html = "";
     let shown = 0;
+
+    // --- Compatible Endpoints group (always shown, even when filtered) ---
+    if (!q || q.includes("compat") || q.includes("openai") || q.includes("anthropic")) {
+      html += `<div class="picker-group-head"><span class="picker-dot" style="background:#14b8a6"></span>Compatible Endpoints <span style="opacity:.7">2</span></div>`;
+      html += `<div class="picker-row" role="option" data-id="_compat_openai" onclick="closeModal('provider-modal');openCompatModal('openai');">
+        <span class="picker-name">OpenAI Compatible</span>
+        <span class="picker-kind">any OpenAI-protocol endpoint</span>
+      </div>`;
+      html += `<div class="picker-row" role="option" data-id="_compat_anthropic" onclick="closeModal('provider-modal');openCompatModal('anthropic');">
+        <span class="picker-name">Anthropic / Claude Code Compatible</span>
+        <span class="picker-kind">CC-format endpoint</span>
+      </div>`;
+      shown += 2;
+    }
+
     for (const g of PICKER_GROUPS) {
       // "free" is a separate backend category that the provider page folds into
       // Free Tier; do the same here so a free provider is not invisible.

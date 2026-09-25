@@ -877,42 +877,27 @@ func TestUIProxyCardRendersTargetCheckboxes(t *testing.T) {
 	}
 }
 
-// The "Add OpenAI/Anthropic Compatible" buttons must survive every filter state.
-//
-// They used to be rendered INSIDE the section header, and the header is skipped
-// when the view narrows to one section (showSectionHeaders is false unless the
-// category is "all"). Filtering to the custom category therefore removed the
-// only way to create a compatible provider — exactly when the operator was
-// looking at that category in order to add one.
+// The Add Provider picker must offer a "Compatible Endpoints" group with
+// direct links into the two compat modals, so that adding a compatible
+// endpoint is reachable from a single entry point (+ Add Provider) in
+// every filter state — no standalone add buttons are required on the
+// section grid.
 func TestUICompatButtonsSurviveASingleSectionFilter(t *testing.T) {
 	body := readEmbeddedUI(t)
 
-	// The buttons must be built as their own block, outside the header ternary.
-	if !strings.Contains(body, `const customActions = key === "custom"`) {
-		t.Fatal("the Add Compatible buttons are not a standalone block; nesting them " +
-			"in the header makes them disappear whenever the header is hidden")
-	}
-	// ...and that block must be rendered in the section body, not only in the header.
-	sectionStart := strings.Index(body, `<section class="prov-section" data-section=`)
-	if sectionStart == -1 {
-		t.Fatal("provider section markup not found")
-	}
-	section := body[sectionStart:]
-	if end := strings.Index(section, "</section>"); end != -1 {
-		section = section[:end]
-	}
-	if !strings.Contains(section, "${customActions}") {
-		t.Error("the section must render customActions outside the header branch")
-	}
-
-	// Both buttons must still be present and wired to their modals.
+	// Both compat modals must still be wired via the picker entries.
 	for _, want := range []string{
-		`openCompatModal('openai')`,
-		`openCompatModal('anthropic')`,
+		`closeModal('provider-modal');openCompatModal('openai')`,
+		`closeModal('provider-modal');openCompatModal('anthropic')`,
 	} {
 		if !strings.Contains(body, want) {
-			t.Errorf("missing Add Compatible button: %s", want)
+			t.Errorf("picker missing compat entry: %s", want)
 		}
+	}
+
+	// The picker group header must exist.
+	if !strings.Contains(body, "Compatible Endpoints") {
+		t.Error("Add Provider picker missing the Compatible Endpoints group header")
 	}
 }
 
@@ -995,5 +980,56 @@ func TestUIEnableDisableAllInConnBar(t *testing.T) {
 	}
 	if !strings.Contains(barContent, "margin-left:auto") {
 		t.Error("Enable/Disable All buttons must be right-aligned with margin-left:auto")
+	}
+}
+
+// TestUIEmptyCompatibleEndpointsPointsToPicker verifies that when the
+// compatible category is empty, the empty-state hint directs the operator to
+// the Add Provider picker (which now includes a Compatible Endpoints group),
+// instead of rendering standalone add buttons on the section itself.
+func TestUIEmptyCompatibleEndpointsPointsToPicker(t *testing.T) {
+	body := readEmbeddedUI(t)
+
+	// The picker must offer a "Compatible Endpoints" group with direct links
+	// into the two compat modals.
+	if !strings.Contains(body, "Compatible Endpoints") {
+		t.Error("Add Provider picker missing the Compatible Endpoints group header")
+	}
+	if !strings.Contains(body, "closeModal('provider-modal');openCompatModal('openai')") {
+		t.Error("picker missing the OpenAI Compatible entry wired to openCompatModal")
+	}
+	if !strings.Contains(body, "closeModal('provider-modal');openCompatModal('anthropic')") {
+		t.Error("picker missing the Anthropic Compatible entry wired to openCompatModal")
+	}
+
+	// The empty custom section must render a hint pointing to the picker rather
+	// than its own add buttons.
+	if !strings.Contains(body, "No compatible endpoints yet") {
+		t.Error("missing empty custom section hint text")
+	}
+}
+
+// TestUIEmptyCategoriesAreHidden verifies that filter pills and grid sections
+// for categories that own no provider are hidden. An empty "Web Cookie" pill
+// filters the grid to nothing and reads as a broken page; the Compatible pill
+// is the deliberate exception because it is the entry point to Add Provider.
+func TestUIEmptyCategoriesAreHidden(t *testing.T) {
+	body := readEmbeddedUI(t)
+
+	// The hide loop must cover every category pill.
+	if !strings.Contains(body, `for (const cat of ["oauth", "freeTier", "apikey", "webCookie", "custom"])`) {
+		t.Fatal("updateCategoryCounts does not iterate the category pills to hide empty ones")
+	}
+	if !strings.Contains(body, `btn.style.display = hasProviders ? "" : "none"`) {
+		t.Error("empty category pills are not hidden via display:none")
+	}
+	// Compatible stays visible at 0 — it is the path into creating a compatible
+	// endpoint, so hiding it would remove the only visible affordance.
+	if !strings.Contains(body, `const alwaysVisible = new Set(["custom"])`) {
+		t.Error("the Compatible pill must stay visible even when empty")
+	}
+	// And the grid must not render empty sections.
+	if !strings.Contains(body, `const showEmptyCustom = currentCategory === "custom"`) {
+		t.Error("empty grid sections are not gated on an explicit custom filter")
 	}
 }
