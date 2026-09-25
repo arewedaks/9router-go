@@ -120,6 +120,20 @@ Pin a specific version:
 curl -fsSL https://raw.githubusercontent.com/arewedaks/9router-go/feat/go-dashboard/scripts/install.sh | bash -s -- --version 1.8.43
 ```
 
+Auto-start on boot (systemd unit + enable, run as root):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/arewedaks/9router-go/feat/go-dashboard/scripts/install.sh | sudo bash -s -- --service
+```
+
+The service can also be managed after install directly through the binary:
+
+```bash
+sudo 9router-go service install     # write unit + enable at boot + start now
+9router-go service status           # unit installed? running?
+sudo 9router-go service uninstall   # stop + disable + remove unit
+```
+
 ### Option 1: Pre-built Binaries (Recommended)
 Download the latest binary for your OS and architecture from [GitHub Releases](https://github.com/luqman-v1/9router-go/releases/latest):
 

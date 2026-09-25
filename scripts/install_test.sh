@@ -27,4 +27,11 @@ grep -qF '"$INSTALL_DIR/${BIN}" version' "$SCRIPT" || fail "smoke check does not
 # 5. PATH wiring is idempotent: an existing entry must not be appended twice.
 grep -q 'case ":$PATH:"' "$SCRIPT" || fail "PATH idempotency check missing"
 
-echo "PASS: install.sh static assertions (5/5)"
+# 6. --service: auto-start on boot, gated on root + systemd, and it must call
+#    the binary's own service subcommand (single source of truth for the unit).
+grep -q -- '--service) WANT_SERVICE=1' "$SCRIPT" || fail "--service flag not parsed"
+grep -q 'id -u)" -ne 0' "$SCRIPT" || fail "--service missing root guard"
+grep -q '/run/systemd/system' "$SCRIPT" || fail "--service missing systemd detection"
+grep -qF '"$INSTALL_DIR/$BIN" service install' "$SCRIPT" || fail "--service does not delegate to the binary"
+
+echo "PASS: install.sh static assertions (9/9)"

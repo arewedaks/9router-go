@@ -5,12 +5,14 @@
 # Usage:
 #   curl -fsSL https://raw.githubusercontent.com/arewedaks/9router-go/feat/go-dashboard/scripts/install.sh | bash
 #   curl -fsSL .../install.sh | bash -s -- --version 1.8.43   # pin a version
+#   curl -fsSL .../install.sh | bash -s -- --service           # + systemd unit: auto-start on boot
 #
 # What it does (all stdlib curl + uname, no dependencies):
 #   1. Detect OS/arch -> pick the release asset
 #   2. Download the binary from the GitHub release
 #   3. chmod +x, verify it runs, install to ~/.local/bin/9router-go
 #   4. Add ~/.local/bin to PATH via the user's shell rc (idempotent)
+#   5. With --service (as root): install the systemd unit + enable at boot
 #
 set -euo pipefail
 
@@ -25,10 +27,12 @@ INSTALL_DIR="${HOME}/.local/bin"
 
 # ---- parse optional --version flag -------------------------------------
 WANT_VERSION=""
+WANT_SERVICE=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --version) WANT_VERSION="${2:-}"; shift 2 ;;
     --version=*) WANT_VERSION="${1#--version=}"; shift ;;
+    --service) WANT_SERVICE=1; shift ;;
     -h|--help)
       grep '^#' "$0" | sed 's/^# \?//' | tail -n +2; exit 0 ;;
     *) echo "unknown flag: $1" >&2; exit 2 ;;
@@ -131,3 +135,18 @@ echo ""
 echo "Done. Start it with:"
 echo "  9router-go            # serves on :20128, dashboard at /"
 echo "  9router-go --port 9090"
+
+# ---- optional: systemd service so it survives a reboot -----------------
+if [ "$WANT_SERVICE" -eq 1 ]; then
+  if [ "$(id -u)" -ne 0 ]; then
+    echo "ERROR: --service needs root (writes /etc/systemd/system). Re-run with sudo." >&2
+    exit 1
+  fi
+  if [ ! -d /run/systemd/system ]; then
+    echo "ERROR: systemd is not running on this machine; --service needs it." >&2
+    exit 1
+  fi
+  echo ""
+  echo "==> installing systemd service (auto-start on boot)"
+  "$INSTALL_DIR/$BIN" service install
+fi

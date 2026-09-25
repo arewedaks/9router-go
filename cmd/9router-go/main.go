@@ -25,6 +25,7 @@ import (
 	"9router/proxy/internal/providers"
 	"9router/proxy/internal/quota"
 	"9router/proxy/internal/shutdown"
+	"9router/proxy/internal/svc"
 	"9router/proxy/internal/updater"
 )
 
@@ -111,6 +112,48 @@ func main() {
 					}
 					fmt.Println("✅ 9router-go updated successfully!")
 					return nil
+				},
+			},
+			{
+				Name:  "service",
+				Usage: "Manage the systemd service so 9router-go auto-starts on boot",
+				Subcommands: []*cli.Command{
+					{
+						Name:  "install",
+						Usage: "Write the systemd unit, enable it at boot, and start it now",
+						Action: func(cCtx *cli.Context) error {
+							// The data-dir and port flags win over Default() so "sudo
+							// 9router-go service install --data-dir /var/lib/9router" is
+							// honoured in the unit, not just this one-shot run.
+							spec := svc.Default()
+							if cCtx.IsSet("data-dir") {
+								spec.DataDir = cCtx.String("data-dir")
+							}
+							if cCtx.IsSet("port") {
+								spec.Ports = strconv.Itoa(cCtx.Int("port"))
+							}
+							return svc.Install(spec)
+						},
+					},
+					{
+						Name:   "uninstall",
+						Usage:  "Stop, disable and remove the systemd unit",
+						Action: func(cCtx *cli.Context) error { return svc.Uninstall() },
+					},
+					{
+						Name:  "status",
+						Usage: "Report whether the unit is installed and running",
+						Action: func(cCtx *cli.Context) error {
+							installed, running, err := svc.Status()
+							if err != nil {
+								return err
+							}
+							fmt.Printf("unit:  %s\nstate: %s\n",
+								map[bool]string{true: "installed", false: "not installed"}[installed],
+								map[bool]string{true: "running", false: "stopped"}[running])
+							return nil
+						},
+					},
 				},
 			},
 			{
