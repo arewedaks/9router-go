@@ -1,5 +1,5 @@
 {
-  "latestVersion": "1.8.43",
+  "latestVersion": "1.8.44",
   "downloadUrl": "https://github.com/arewedaks/9router-go/releases/latest",
   "releaseNotes": "- chore: bump version to 1.8.43 (dcfa12d)\n- Move Enable/Disable All buttons into connections toolbar (1db65f1)\n- Fix auto-disable modes and custom provider node support (395781c)\n- Fix Antigravity quota accuracy and codebuff login host (6420bd4)\n- chore(release): version.json -> v1.8.42 (40e2ca7)\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
 }
