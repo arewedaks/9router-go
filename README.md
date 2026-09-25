@@ -105,6 +105,21 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed flow diagrams (combo, fusion
 
 ## 📥 Download & Installation
 
+### Option 0: One-line installer (recommended)
+
+Installs the pre-built binary for your OS/arch into `~/.local/bin`, verifies it
+runs, and wires up `PATH` — no Go toolchain required:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/arewedaks/9router-go/main/scripts/install.sh | bash
+```
+
+Pin a specific version:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/arewedaks/9router-go/main/scripts/install.sh | bash -s -- --version 1.8.43
+```
+
 ### Option 1: Pre-built Binaries (Recommended)
 Download the latest binary for your OS and architecture from [GitHub Releases](https://github.com/luqman-v1/9router-go/releases/latest):
 
