@@ -4250,6 +4250,10 @@
         </button>` : ''}
         <button class="btn btn-sm" onclick="testAllConnections('${d.provider}');">Test All Accounts</button>
         <span id="conn-test-progress" class="conn-test-progress"></span>
+        <div style="margin-left:auto; display:flex; gap:7px;">
+          <button class="btn btn-sm" onclick="toggleAllConnections(1)">Enable All</button>
+          <button class="btn btn-sm" onclick="toggleAllConnections(0)">Disable All</button>
+        </div>
       </div>
       ${accountRoundRobinControls(d)}
       <div style="margin-top:6px;">${connsInner}</div>`;
@@ -4403,10 +4407,6 @@
             ${aliases}
             ${providerLink(d)}
           </div>
-        </div>
-        <div style="display:flex; gap:7px;">
-          <button class="btn btn-sm" onclick="toggleAllConnections(1)">Enable All</button>
-          <button class="btn btn-sm" onclick="toggleAllConnections(0)">Disable All</button>
         </div>
       </div>
       ${riskHtml}

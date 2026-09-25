@@ -975,3 +975,25 @@ func TestUIModelDisableNoConfirmAndTwoModeAutoDisable(t *testing.T) {
 		t.Error("missing safe and full options in test-auto-disable-mode")
 	}
 }
+
+// TestUIEnableDisableAllInConnBar ensures Enable All and Disable All buttons
+// are placed in the Connections toolbar alongside Test All Accounts.
+func TestUIEnableDisableAllInConnBar(t *testing.T) {
+	body := readEmbeddedUI(t)
+
+	barIdx := strings.LastIndex(body, `<div class="conn-test-bar">`)
+	if barIdx == -1 {
+		t.Fatal("missing conn-test-bar div in UI")
+	}
+	barContent := body[barIdx : barIdx+800]
+
+	if !strings.Contains(barContent, "toggleAllConnections(1)") {
+		t.Error("conn-test-bar must contain Enable All button")
+	}
+	if !strings.Contains(barContent, "toggleAllConnections(0)") {
+		t.Error("conn-test-bar must contain Disable All button")
+	}
+	if !strings.Contains(barContent, "margin-left:auto") {
+		t.Error("Enable/Disable All buttons must be right-aligned with margin-left:auto")
+	}
+}
