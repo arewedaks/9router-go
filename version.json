@@ -1,5 +1,5 @@
 {
-  "latestVersion": "1.8.44",
+  "latestVersion": "1.8.45",
   "downloadUrl": "https://github.com/arewedaks/9router-go/releases/latest",
   "releaseNotes": "- chore: bump version to 1.8.44 (d6d1c8a)\n- fix(cli): reject unknown positional commands instead of silently booting the server (95d7dc3)\n- harden(service): verify is-enabled, Restart=always, loud no-service notice, systemd-analyze test (58bd81a)\n- feat(service): systemd unit via '9router-go service install' + --service in installer (auto-start on boot) (763df39)\n- fix(installer): point one-liner at feat/go-dashboard until merged to main (ae33cac)\n- Add one-line installer script for pre-built binaries (85a26d4)\n- Hide empty provider categories from dashboard pills and grid (d67e134)\n- chore(release): version.json -> v1.8.43 (e651303)\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
 }
