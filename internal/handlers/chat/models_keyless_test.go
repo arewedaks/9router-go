@@ -1,9 +1,12 @@
 package chat
 
 import (
+	"context"
+	"strings"
 	"testing"
 
 	"9router/proxy/internal/db"
+	"9router/proxy/internal/keyless"
 	"9router/proxy/internal/providers"
 )
 
@@ -39,12 +42,16 @@ func TestHandleModelsListsKeylessProviderModels(t *testing.T) {
 	}
 }
 
-// With an empty cache nothing is advertised. The registry used to be the
-// fallback here, but it is a hardcoded table that knows nothing about the
-// account: it listed 794 models across 12 connections, most of which answered
-// model_not_supported. A keyless provider now advertises only what was
-// imported, exactly like a connected one.
-func TestHandleModelsKeylessProviderWithoutImportAdvertisesNothing(t *testing.T) {
+// A keyless provider advertises only what is in its imported cache — the
+// registry is a hardcoded table that knows nothing about the account, so it is
+// never the fallback (it listed 794 models across 12 connections, most of which
+// answered model_not_supported).
+//
+// That cache must not be empty on a fresh install, though: the startup seeder
+// fills it from the shipped keyless catalogue, because OpenCode Free needs no
+// credential and so had nothing for the operator to configure before the
+// provider worked. What must NOT happen is the registry leaking back in.
+func TestHandleModelsKeylessProviderAdvertisesSeededCatalogueNotRegistry(t *testing.T) {
 	database, cleanup := setupChatTestDB(t)
 	defer cleanup()
 
@@ -57,15 +64,33 @@ func TestHandleModelsKeylessProviderWithoutImportAdvertisesNothing(t *testing.T)
 		t.Fatalf("seed connection: %v", err)
 	}
 
-	registry := providers.GetProviderModels("oc")
-	if len(registry) == 0 {
-		t.Skip("the registry declares no OpenCode models")
+	// Nothing imported yet — this is the fresh-install state. The fixture DB
+	// carries unrelated combos, so only the oc/* namespace is meaningful here.
+	for id := range decodeModelIDs(t, h) {
+		if strings.HasPrefix(id, "oc/") {
+			t.Fatalf("precondition: an unseeded keyless cache must advertise no oc/* model, got %q", id)
+		}
+	}
+
+	if err := keyless.SeedIfEmpty(context.Background(), repo); err != nil {
+		t.Fatalf("seed: %v", err)
 	}
 
 	ids := decodeModelIDs(t, h)
-	for _, m := range registry {
-		if _, ok := ids["oc/"+m]; ok {
-			t.Errorf("unimported keyless provider advertised registry model oc/%s", m)
+	for _, m := range providers.KeylessModelIDs("oc") {
+		if _, ok := ids["oc/"+m]; !ok {
+			t.Errorf("seeded keyless model oc/%s is not advertised", m)
+		}
+	}
+	// The registry fallback must stay dead: every advertised oc/* model has to
+	// be one the seeder actually wrote.
+	seeded := make(map[string]bool)
+	for _, m := range providers.KeylessModelIDs("oc") {
+		seeded["oc/"+m] = true
+	}
+	for id := range ids {
+		if strings.HasPrefix(id, "oc/") && !seeded[id] {
+			t.Errorf("advertised unseeded model %q — the registry fallback is back", id)
 		}
 	}
 }
@@ -111,5 +136,32 @@ func TestHandleModelsDoesNotDuplicateKeylessProviderWithConnection(t *testing.T)
 	ids := decodeModelIDs(t, h)
 	if _, ok := ids["oc/union-alpha"]; !ok {
 		t.Errorf("connected OpenCode lost its model: %v", keysOf(ids))
+	}
+}
+
+// A brand-new install has no connections at all. The keyless branch used to be
+// gated on len(activeConnections) > 0, so OpenCode Free advertised nothing in
+// /v1/models on a fresh database even though the startup seeder had filled its
+// catalogue — and the same model answered chat requests fine.
+func TestHandleModelsAdvertisesKeylessWithZeroConnections(t *testing.T) {
+	database, cleanup := setupChatTestDB(t)
+	defer cleanup()
+
+	repo := db.NewRepo(database)
+	h := &ChatHandler{Repo: repo}
+
+	if err := keyless.SeedIfEmpty(context.Background(), repo); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	ids := decodeModelIDs(t, h)
+	found := 0
+	for id := range ids {
+		if strings.HasPrefix(id, "oc/") {
+			found++
+		}
+	}
+	if found == 0 {
+		t.Fatalf("a zero-connection install advertised no keyless models: %v", keysOf(ids))
 	}
 }

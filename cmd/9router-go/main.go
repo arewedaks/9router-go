@@ -21,6 +21,7 @@ import (
 	"9router/proxy/internal/config"
 	"9router/proxy/internal/db"
 	"9router/proxy/internal/handlers"
+	"9router/proxy/internal/keyless"
 	"9router/proxy/internal/middleware"
 	"9router/proxy/internal/providers"
 	"9router/proxy/internal/quota"
@@ -248,6 +249,15 @@ func runServer(cCtx *cli.Context) error {
 	}
 
 	repo := db.NewRepo(conn)
+
+	// A keyless provider (OpenCode Free) has no connection row, and every model
+	// list is built from the imported cache — empty on a fresh database, which
+	// made the provider look broken until someone found the Import button.
+	// Seed its shipped catalogue so the provider works the moment the gateway
+	// starts. Best-effort: a failure here must not stop the server booting.
+	if err := keyless.SeedIfEmpty(context.Background(), repo); err != nil {
+		log.Printf("[keyless] warning: seed free models failed: %v", err)
+	}
 
 	ts := handlers.NewTokenSaverConfig(cCtx.Bool("rtk"), cCtx.Bool("caveman"), cCtx.Bool("ponytail"))
 	if settings, sErr := repo.GetSettings(); sErr == nil && settings != nil {

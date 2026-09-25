@@ -498,7 +498,15 @@ func (h *ChatHandler) buildModelsList() []ModelInfoObject {
 	// alias lookup is independent of connections. NoAuthProviders() is the
 	// registry's own list of keyless chat providers; reusing it keeps this list and
 	// the providers grid from drifting apart.
-	if h.Repo != nil && len(activeConnections) > 0 {
+	//
+	// The branch deliberately does NOT require an existing connection. It used
+	// to, and that made a brand-new install advertise zero models even after the
+	// startup seeder filled the keyless catalogue: with no connections at all,
+	// OpenCode Free was invisible in /v1/models while still answering chat
+	// requests. What the guard was protecting against — the hardcoded registry
+	// leaking in — cannot happen here, because the model list below comes from
+	// the imported cache.
+	if h.Repo != nil {
 		connected := make(map[string]bool, len(activeConnections))
 		for _, c := range activeConnections {
 			connected[c.Provider] = true

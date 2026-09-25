@@ -1,6 +1,7 @@
 package providers
 
 import (
+	"sort"
 	"strings"
 	"sync"
 )
@@ -186,11 +187,15 @@ var (
 	// freeModelIDsByProvider maps a provider id to the set of catalogued free
 	// model ids (upstream `FREE_MODEL_IDS_BY_PROVIDER`).
 	freeModelIDsByProvider map[string]map[string]struct{}
+	// keylessModelIDsByProvider is the subset whose regime is `keyless`: models
+	// reachable with no credential, which a fresh install can seed.
+	keylessModelIDsByProvider map[string]map[string]struct{}
 )
 
 func buildFreeCatalog() {
 	providersWithFreeModels = make(map[string]struct{})
 	freeModelIDsByProvider = make(map[string]map[string]struct{})
+	keylessModelIDsByProvider = make(map[string]map[string]struct{})
 	for _, entry := range freeModelCatalog {
 		if !freeBudgetGrantsAccess(entry.FreeType) {
 			continue
@@ -202,6 +207,14 @@ func buildFreeCatalog() {
 			freeModelIDsByProvider[entry.Provider] = ids
 		}
 		ids[entry.ModelID] = struct{}{}
+		if entry.FreeType == regimeKeyless {
+			keyless := keylessModelIDsByProvider[entry.Provider]
+			if keyless == nil {
+				keyless = make(map[string]struct{})
+				keylessModelIDsByProvider[entry.Provider] = keyless
+			}
+			keyless[entry.ModelID] = struct{}{}
+		}
 	}
 }
 
@@ -218,6 +231,34 @@ func ProviderHasFreeModels(providerID string) bool {
 	resolved := ResolveAlias(providerID)
 	_, ok := providersWithFreeModels[resolved]
 	return ok
+}
+
+// KeylessModelIDs returns the catalogued model ids for a provider that
+// authenticates with no credential at all (regime `keyless`), or nil when the
+// provider owns none.
+//
+// This is the seed for a fresh install: a keyless provider owns no connection
+// row and therefore no cached models, so without it OpenCode Free lists zero
+// models on a brand-new database and the operator must click Import before the
+// provider works — even though nothing about it needs configuring.
+func KeylessModelIDs(providerID string) []string {
+	if providerID == "" {
+		return nil
+	}
+	freeCatalogOnce.Do(buildFreeCatalog)
+	ids := keylessModelIDsByProvider[providerID]
+	if ids == nil {
+		ids = keylessModelIDsByProvider[ResolveAlias(providerID)]
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(ids))
+	for id := range ids {
+		out = append(out, id)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // isCatalogFreeModel reports whether the model id is listed as free for the
