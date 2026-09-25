@@ -1,5 +1,5 @@
 {
   "latestVersion": "1.8.43",
   "downloadUrl": "https://github.com/arewedaks/9router-go/releases/latest",
-  "releaseNotes": "- feat(dashboard): Bulk API Key import with collision-free naming planner\n- fix(dashboard): Single-source-of-truth model import selection with dynamic count\n- fix(dashboard): Model import visibility unhides models across compatible node prefixes\n- feat(dashboard): Dual-mode auto-disable (Safe skip 429 vs Full strict failure)\n- feat(dashboard): Instant model deletion without blocking confirm popup\n- fix(dashboard): Direct base URL probing for custom provider account tests\n- feat(dashboard): Right-aligned Enable All & Disable All buttons in Connections toolbar\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
+  "releaseNotes": "- chore: bump version to 1.8.43 (dcfa12d)\n- Move Enable/Disable All buttons into connections toolbar (1db65f1)\n- Fix auto-disable modes and custom provider node support (395781c)\n- Fix Antigravity quota accuracy and codebuff login host (6420bd4)\n- chore(release): version.json -> v1.8.42 (40e2ca7)\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
 }
