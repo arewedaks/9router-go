@@ -187,6 +187,16 @@ func main() {
 }
 
 func runServer(cCtx *cli.Context) error {
+	// urfave/cli v2 falls back to the app Action when the first positional
+	// argument matches no command, and it does not invoke CommandNotFound for
+	// that case. An older binary that has never heard of "service install"
+	// therefore starts the gateway in the foreground and looks like it worked.
+	// A stray positional argument is always a mistake here: reject it instead
+	// of booting a server the operator did not ask for.
+	if args := cCtx.Args().Slice(); len(args) > 0 {
+		return fmt.Errorf("unknown command %q\n\nRun '9router-go --help' to see the available commands", args[0])
+	}
+
 	if cCtx.IsSet("port") && cCtx.Int("port") > 0 {
 		os.Setenv("PORT", strconv.Itoa(cCtx.Int("port")))
 	}

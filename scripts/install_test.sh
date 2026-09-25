@@ -34,4 +34,9 @@ grep -q 'id -u)" -ne 0' "$SCRIPT" || fail "--service missing root guard"
 grep -q '/run/systemd/system' "$SCRIPT" || fail "--service missing systemd detection"
 grep -qF '"$INSTALL_DIR/$BIN" service install' "$SCRIPT" || fail "--service does not delegate to the binary"
 
-echo "PASS: install.sh static assertions (9/9)"
+# 7. --service must refuse a release that has no `service` subcommand: the
+#    v1.8.43 asset predates it and silently boots the server instead.
+grep -qF "grep -q '^[[:space:]]*service[[:space:]]'" "$SCRIPT" || fail "--service missing capability guard"
+grep -q 'has no .service. command' "$SCRIPT" || fail "--service guard message missing"
+
+echo "PASS: install.sh static assertions (11/11)"

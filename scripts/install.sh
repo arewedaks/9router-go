@@ -146,6 +146,16 @@ if [ "$WANT_SERVICE" -eq 1 ]; then
     echo "ERROR: systemd is not running on this machine; --service needs it." >&2
     exit 1
   fi
+  # The release asset must actually carry the service subcommand: v1.8.43 and
+  # every earlier release predate it. Without this guard the binary silently
+  # starts the gateway in the foreground and the operator believes a unit was
+  # written (urfave/cli ignores the unknown "service" argument).
+  if ! "$INSTALL_DIR/$BIN" --help 2>&1 | grep -q '^[[:space:]]*service[[:space:]]'; then
+    echo "ERROR: this release ($VER) has no 'service' command, so it cannot" >&2
+    echo "       install an auto-start unit. Upgrade to a release built from" >&2
+    echo "       feat/go-dashboard (v1.8.44+), then re-run with --service." >&2
+    exit 1
+  fi
   echo ""
   echo "==> installing systemd service (auto-start on boot)"
   "$INSTALL_DIR/$BIN" service install
@@ -156,8 +166,14 @@ else
     echo ""
     echo "NOTE: this machine has systemd, but no service was installed —"
     echo "      9router-go will NOT come back after a reboot."
-    echo "      Enable auto-start with:"
-    echo "        sudo $INSTALL_DIR/$BIN service install"
-    echo "      (or re-run this installer with: sudo bash -s -- --service)"
+    if "$INSTALL_DIR/$BIN" --help 2>&1 | grep -q '^[[:space:]]*service[[:space:]]'; then
+      echo "      Enable auto-start with:"
+      echo "        sudo $INSTALL_DIR/$BIN service install"
+      echo "      (or re-run this installer with: sudo bash -s -- --service)"
+    else
+      echo "      This release ($VER) predates the 'service' command, so it"
+      echo "      cannot install a unit at all. Upgrade first:"
+      echo "        curl -fsSL .../install.sh | sudo bash -s -- --version <newer> --service"
+    fi
   fi
 fi
