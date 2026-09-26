@@ -345,6 +345,8 @@ func (h *ChatHandler) tryForwardWithConnection(
 			IsStream:       isStream,
 			TranslateResp:  translateResponse,
 			ConnectionID:   connectionID,
+			Provider:       provider,
+			ModelName:      model,
 			SessionID:      sessionID,
 			ToolNameMap:    claudeToolMap,
 			UpstreamClaude: upstreamClaudeWanted(isAnthropic, providerCfg, claudeNative),

@@ -22,6 +22,7 @@ type Request struct {
 	ConnectionID   string            // for OAuth refresh by fallback
 	SessionID      string            // client session / conversation id
 	ProjectID      string            // for gemini-native (antigravity)
+	Provider       string            // canonical provider id (for per-provider request rules)
 	ModelName      string            // extracted model name
 	Endpoint       string            // custom URL override (azure)
 	ToolNameMap    map[string]string // claude OAuth tool-cloak map (suffixed -> original)

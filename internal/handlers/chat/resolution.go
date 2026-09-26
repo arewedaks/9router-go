@@ -14,6 +14,7 @@ import (
 	"9router/proxy/internal/providers"
 	"9router/proxy/internal/proxy/executor"
 	"9router/proxy/internal/proxy/oauth"
+	"9router/proxy/internal/proxy/paramfix"
 )
 
 // NewChatHandler creates a ChatHandler with the given repository and a streaming-capable HTTP client.
@@ -21,6 +22,15 @@ import (
 func NewChatHandler(repo *db.Repo, ts ...*shared.TokenSaverConfig) *ChatHandler {
 	executor.RegisterAll()
 	oauth.RegisterAll()
+	// Let paramfix resolve a model's advertised output ceiling for its
+	// ClampToModelCeiling rules. Injected rather than imported so paramfix stays
+	// free of a provider-registry dependency.
+	paramfix.SetMaxOutputCeilingFunc(func(provider, model string) int {
+		if _, maxOut := providers.GetModelTokenLimits(model); maxOut > 0 {
+			return maxOut
+		}
+		return 0
+	})
 	cfg := &shared.TokenSaverConfig{}
 	if len(ts) > 0 && ts[0] != nil {
 		cfg = ts[0]

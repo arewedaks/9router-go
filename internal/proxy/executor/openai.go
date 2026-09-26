@@ -3,6 +3,7 @@ package executor
 import (
 	"bytes"
 	"context"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"net/http"
@@ -10,12 +11,38 @@ import (
 
 	"9router/proxy/internal/log"
 	"9router/proxy/internal/proxy"
+	"9router/proxy/internal/proxy/paramfix"
 	"9router/proxy/internal/shutdown"
 	"9router/proxy/internal/translator"
 )
 
+// paramfixProvider resolves the provider id a rule should be scoped to. The
+// dispatch site sets it from the same value used to look the executor up, which
+// is what the rule table is keyed on.
+func paramfixProvider(req *Request) string { return req.Provider }
+
+// paramfixModel resolves the model id, preferring the explicitly extracted name
+// and falling back to the body so a rule cannot be skipped because the caller
+// left ModelName empty.
+func paramfixModel(req *Request) string {
+	if req.ModelName != "" {
+		return req.ModelName
+	}
+	var probe struct {
+		Model string `json:"model"`
+	}
+	_ = json.Unmarshal(req.Body, &probe)
+	return probe.Model
+}
+
 // ForwardOpenAI sends an OpenAI-format request and writes the response.
 func ForwardOpenAI(w http.ResponseWriter, req *Request) error {
+	// Single choke point for parameter corrections, matching 9Router's
+	// executors/default.js transformRequest. Every OpenAI-compatible provider
+	// passes through here, so a rule added to paramfix.Rules applies everywhere
+	// instead of having to be repeated per executor.
+	req.Body = paramfix.Apply(paramfixProvider(req), paramfixModel(req), req.Body)
+
 	resp, err := proxy.ForwardOpenAI(req.Ctx, req.Client, req.Config, req.APIKey, req.Body, req.IsStream)
 	if err != nil {
 		return fmt.Errorf("ForwardOpenAI upstream: %w", err)
