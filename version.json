@@ -1,5 +1,5 @@
 {
   "latestVersion": "1.8.46",
   "downloadUrl": "https://github.com/arewedaks/9router-go/releases/latest",
-  "releaseNotes": "- chore: bump version to 1.8.45 (bb616c5)\n- feat(keyless): seed OpenCode Free models on fresh install so no manual import is needed (2dbe405)\n- docs: pin installer example to 1.8.44 (first release with the service subcommand) (3e5d2e4)\n- chore(release): version.json -> v1.8.44 (7b5030a)\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
+  "releaseNotes": "- chore: bump version to 1.8.46 (3f82ef6)\n- fix(ui): delete a model without refetching the provider page (9dcaaf0)\n- chore(release): version.json -> v1.8.45 (e60671d)\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
 }
