@@ -3861,8 +3861,21 @@
     const poolId = strat.proxyPoolId || "__none__";
     const targets = Array.isArray(strat.targetProxyPoolIds) ? strat.targetProxyPoolIds : [];
 
-    const strategyOpts = PROXY_STRATEGIES.map(o =>
-      `<option value="${o.value}" ${strategy === o.value ? "selected" : ""}>${escapeHtml(o.label)}</option>`).join("");
+    // Rotation across pools is only meaningful with at least two of them.
+    // VansRouter disables the rotating options below that count; doing the same
+    // avoids the silent no-op where the operator picks "Round-Robin" and every
+    // request keeps using the single pool they already had.
+    //
+    // Declared before strategyOpts on purpose: it is read while building the
+    // option list, and a `const` read earlier in the same scope is a temporal
+    // dead zone ReferenceError that blanks the whole provider page.
+    const activePoolCount = (proxyPoolCache || []).filter(p => p.isActive && p.hasUrl).length;
+    const canRotate = activePoolCount >= 2;
+
+    const strategyOpts = PROXY_STRATEGIES.map(o => {
+      const needsPool = o.value !== "none";
+      return `<option value="${o.value}" ${strategy === o.value ? "selected" : ""} ${needsPool && !canRotate ? "disabled" : ""}>${escapeHtml(o.label)}</option>`;
+    }).join("");
 
     const poolOpts = [`<option value="__none__" ${poolId === "__none__" ? "selected" : ""}>None (direct)</option>`]
       .concat((proxyPoolCache || []).map(p =>
@@ -3911,9 +3924,12 @@
         </div>
         ${targetsHtml}
         <div id="proxy-save-msg" style="font-size:0.72rem; margin-top:10px; color:var(--muted);">
-          ${strategy === "none"
-            ? "Traffic uses the selected pool for every request."
-            : "Traffic rotates across the eligible pools; individual pool choice is bypassed."}
+          ${!canRotate
+            ? `Rotation needs at least 2 active pools with a URL (you have ${activePoolCount}). `
+              + "Paste one list per pool, or put several proxies in one pool to rotate per request."
+            : strategy === "none"
+              ? "Traffic uses the selected pool for every request. Multiple proxies in a pool rotate per request."
+              : "Traffic rotates across the eligible pools; individual pool choice is bypassed."}
         </div>
 
         <details style="margin-top:16px; border-top:1px solid var(--border); padding-top:14px;">
