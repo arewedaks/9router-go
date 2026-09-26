@@ -36,7 +36,25 @@ func (h *Handler) HandleAuthSession(w http.ResponseWriter, r *http.Request) {
 		handlerutil.WriteJSON(w, http.StatusUnauthorized, map[string]any{"authenticated": false})
 		return
 	}
-	handlerutil.WriteJSON(w, http.StatusOK, map[string]any{"authenticated": true})
+	handlerutil.WriteJSON(w, http.StatusOK, map[string]any{
+		"authenticated": true,
+		// Reported so the dashboard can insist the operator replace the built-in
+		// credential. A fresh install accepts the known literal until someone
+		// changes it, and on a reachable host that is an open door, not a
+		// convenience.
+		"usingDefaultPassword": h.usingDefaultPassword(),
+	})
+}
+
+// usingDefaultPassword reports whether the active password is still the built-in
+// default (or INITIAL_PASSWORD, which is public documentation — not a secret
+// either). No stored hash means VerifyPassword is comparing against the literal.
+func (h *Handler) usingDefaultPassword() bool {
+	settings, err := h.repo.GetSettings()
+	if err != nil || settings == nil {
+		return true
+	}
+	return settings.PasswordHash == ""
 }
 
 // HandleAuthStatus reports whether the dashboard demands a login. The UI calls
@@ -57,6 +75,9 @@ func (h *Handler) HandleAuthStatus(w http.ResponseWriter, r *http.Request) {
 	handlerutil.WriteJSON(w, http.StatusOK, map[string]any{
 		"requireLogin": requireLogin,
 		"hasPassword":  hasPassword,
+		// Also exposed here because this route is reachable before sign-in, so the
+		// login screen itself can warn that the default password is still in use.
+		"usingDefaultPassword": !hasPassword,
 		// Reported here because this route is reachable before sign-in, so the
 		// page can show which build is running on the login screen too. The
 		// version is not sensitive: it is the release anyone can see on GitHub.

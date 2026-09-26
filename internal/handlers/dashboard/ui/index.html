@@ -1697,6 +1697,7 @@
 </header>
 
 <main>
+  <div id="default-password-warning"></div>
   <!-- OVERVIEW TAB -->
   <!-- ENDPOINT & KEY (mirrors the upstream /dashboard/endpoint page) -->
   <div id="tab-endpoint" class="tab-pane">
@@ -3330,6 +3331,9 @@
       document.getElementById("set-new-pw").value = "";
       document.getElementById("set-confirm-pw").value = "";
       setMsg("pw-change-msg", "✅ Password updated.", true);
+      // The warning only exists while the built-in default is active, so it has
+      // to be re-evaluated rather than left on screen.
+      refreshDefaultPasswordFlag();
     } catch (e) {
       setMsg("pw-change-msg", "Network error: " + e.message, false);
     } finally {
@@ -6769,6 +6773,7 @@
       if (res.ok) {
         const s = await res.json();
         if (s.authenticated) {
+          window.__usingDefaultPassword = !!s.usingDefaultPassword;
           hideLoginScreen();
           restoreFromHash();
           startUpdatePolling();
@@ -6805,6 +6810,28 @@
     document.body.classList.remove("needs-login");
     const screen = document.getElementById("login-screen");
     if (screen) screen.hidden = true;
+    renderDefaultPasswordWarning();
+  }
+
+  // A fresh install ships a built-in dashboard password that everyone can read
+  // in the docs. Until the operator replaces it, the dashboard is open to anyone
+  // who can reach it, so the warning is rendered rather than merely available
+  // somewhere in settings.
+  function renderDefaultPasswordWarning() {
+    const host = document.getElementById("default-password-warning");
+    if (!host) return;
+    if (!window.__usingDefaultPassword) { host.innerHTML = ""; return; }
+    host.innerHTML = `<div class="risk-banner" style="margin-bottom:16px;"><span class="msym">key</span><span>The dashboard is still using the built-in default password. Anyone who can reach this address can sign in. <a href="#" style="color:inherit;text-decoration:underline" onclick="event.preventDefault();showSettings();">Change it now</a>.</span></div>`;
+  }
+
+  async function refreshDefaultPasswordFlag() {
+    try {
+      const res = await fetch("/api/dashboard/auth/session");
+      if (!res.ok) return;
+      const s = await res.json();
+      window.__usingDefaultPassword = !!s.usingDefaultPassword;
+      renderDefaultPasswordWarning();
+    } catch (e) { /* leave the last known state */ }
   }
 
   function setLoginError(msg) {
