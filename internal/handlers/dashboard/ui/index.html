@@ -6762,6 +6762,11 @@
           return;
         }
         authHasPassword = !!st.hasPassword;
+        // Seed the warning flag here rather than only on the session check: this
+        // route answers before sign-in, so every path into the dashboard (already
+        // signed in, or about to submit the form) has it set by the time the
+        // first hideLoginScreen() runs.
+        window.__usingDefaultPassword = !!st.usingDefaultPassword;
       }
     } catch (e) { /* fall through to the session check */ }
 
@@ -6821,7 +6826,7 @@
     const host = document.getElementById("default-password-warning");
     if (!host) return;
     if (!window.__usingDefaultPassword) { host.innerHTML = ""; return; }
-    host.innerHTML = `<div class="risk-banner" style="margin-bottom:16px;"><span class="msym">key</span><span>The dashboard is still using the built-in default password. Anyone who can reach this address can sign in. <a href="#" style="color:inherit;text-decoration:underline" onclick="event.preventDefault();showSettings();">Change it now</a>.</span></div>`;
+    host.innerHTML = `<div class="risk-banner" style="margin-bottom:16px;"><span class="msym">key</span><span>The dashboard is still using the built-in default password. Anyone who can reach this address can sign in. <a href="#" style="color:inherit;text-decoration:underline" onclick="event.preventDefault();navigateTab('settings');">Change it now</a>.</span></div>`;
   }
 
   async function refreshDefaultPasswordFlag() {
