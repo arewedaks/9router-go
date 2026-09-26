@@ -95,4 +95,3 @@ func TestStandardScrollbarPropsAreScopedToNonWebkit(t *testing.T) {
 		}
 	}
 }
-

@@ -3,7 +3,6 @@ package db
 import (
 	"path/filepath"
 	"testing"
-
 )
 
 func setupHiddenRepo(t *testing.T) *Repo {

@@ -48,8 +48,8 @@ func isKiroProvider(providerID string) bool {
 
 // kiroModel is one entry from the control-plane response.
 type kiroModel struct {
-	ModelID   string  `json:"modelId"`
-	ModelName string  `json:"modelName"`
+	ModelID   string `json:"modelId"`
+	ModelName string `json:"modelName"`
 	// RateMultiplier is the credit cost per request; surfaced in the description
 	// because it is the number that decides which model is worth using.
 	RateMultiplier float64 `json:"rateMultiplier"`

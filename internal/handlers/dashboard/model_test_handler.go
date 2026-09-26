@@ -388,21 +388,21 @@ func (h *Handler) HandleTestProviderModels(w http.ResponseWriter, r *http.Reques
 //
 // Only the provider's own refusal counts:
 //
-//  400 bad request, 401 unauthorised, 403 forbidden, 404 not found,
-//  410 gone, 422 unprocessable — the provider evaluated the request and
-//  rejected it. A 404 from a provider that knows its models is the strongest
-//  signal there is that the model does not exist on this account.
+//	400 bad request, 401 unauthorised, 403 forbidden, 404 not found,
+//	410 gone, 422 unprocessable — the provider evaluated the request and
+//	rejected it. A 404 from a provider that knows its models is the strongest
+//	signal there is that the model does not exist on this account.
 //
 // Everything else is excluded deliberately:
 //
-//  408 request timeout, 429 rate limited, 5xx gateway/origin errors — these say
-//  the provider is busy or unwell, nothing about the model. A parallel run over
-//  a large node triggers 429 against its own upstream, and acting on it deletes
-//  healthy models: measured live, three models a parallel run reported as
-//  "failed" all answered 200 on a serial retry a minute later.
+//	408 request timeout, 429 rate limited, 5xx gateway/origin errors — these say
+//	the provider is busy or unwell, nothing about the model. A parallel run over
+//	a large node triggers 429 against its own upstream, and acting on it deletes
+//	healthy models: measured live, three models a parallel run reported as
+//	"failed" all answered 200 on a serial retry a minute later.
 //
-//  0 means no HTTP response was produced at all (connection refused, DNS
-//  failure). Nothing was learned, so nothing may be removed.
+//	0 means no HTTP response was produced at all (connection refused, DNS
+//	failure). Nothing was learned, so nothing may be removed.
 func isPermanentModelFailure(status int) bool {
 	switch status {
 	case 400, 401, 403, 404, 410, 422:
