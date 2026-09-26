@@ -153,6 +153,12 @@ var KnownProviders = map[string]ProviderConfig{
 		AuthScheme:    "bearer",
 		DefaultAPIKey: "public",
 		StaticHeaders: map[string]string{"x-opencode-client": "desktop"},
+		// The free tier takes the literal key "public" and needs no account.
+		// Without this flag the provider never reaches the no-auth branch in
+		// getConnectionForProvider, so its configured proxy pool was silently
+		// ignored and every request went out over the host's own IP — exactly
+		// what an operator routes through a pool to avoid.
+		NoAuth: true,
 	},
 	"gemini": {
 		BaseURL:    "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
@@ -779,6 +785,12 @@ var KnownProviders = map[string]ProviderConfig{
 		BaseURL:    "devin://acp/stdio",
 		AuthHeader: "Authorization",
 		AuthScheme: "bearer",
+		// The registry files this as AuthType "none" (the credential lives in the
+		// `devin` CLI's own login, not in a connection row). NoAuth is what lets
+		// getConnectionForProvider build the virtual connection that carries the
+		// provider's proxy-pool configuration, so without it a pool set for
+		// devin-cli is stored and then ignored.
+		NoAuth: true,
 	},
 	"kilo-gateway": {
 		BaseURL:    "https://api.kilo.ai/api/gateway/chat/completions",

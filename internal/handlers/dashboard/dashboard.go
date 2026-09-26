@@ -195,6 +195,7 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 		// list pools by id + name, and backup preview already counts them. Pool
 		// creation stays in the deploy/import paths, so there is no POST.
 		dr.Get("/proxy-pools", h.HandleListProxyPools)
+		dr.Post("/proxy-pools", h.HandleCreateProxyPool)
 
 		// Historical usage. These power the Usage page and are deliberately
 		// separate from the live /api/usage/* endpoints, which stream in-flight

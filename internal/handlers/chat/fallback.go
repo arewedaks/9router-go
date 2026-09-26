@@ -68,7 +68,9 @@ func (h *ChatHandler) handleAccountFallback(
 			if apiKey == "" {
 				apiKey = "public"
 			}
-			return h.tryForwardWithConnection(ctx, w, provider, model, "default", &ConnectionData{APIKey: apiKey}, body, isStream, translateResponse, endpoint)
+			// Proxy configuration for a keyless provider lives only here, so it
+			// has to be resolved with the connection rather than left empty.
+			return h.tryForwardWithConnection(ctx, w, provider, model, "default", h.NewNoAuthConnectionData(provider, apiKey), body, isStream, translateResponse, endpoint)
 		}
 		return fmt.Errorf("no active connections for provider: %s", provider)
 	}

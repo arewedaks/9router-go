@@ -73,14 +73,7 @@ func (h *ChatHandler) getBestConnection(provider string, connectionID string, ex
 				// VansRouter src/sse/services/auth.js, which returns
 				// { id: "noauth", accessToken: "public", providerSpecificData: {...} }
 				// for FREE_PROVIDERS[provider].noAuth.
-				connData := &ConnectionData{
-					AccessToken: "public",
-				}
-				if settings, err := h.Repo.GetSettings(); err == nil && settings != nil {
-					if strat, ok := settings.ProviderStrategies[provider]; ok {
-						connData.ProxyPoolID = h.resolveNoAuthProxyPoolID(provider, strat)
-					}
-				}
+				connData := h.NewNoAuthConnectionData(provider, "public")
 				publicName := "Public"
 				conn := &models.ProviderConnection{
 					ID:       "noauth",
@@ -178,6 +171,29 @@ func (h *ChatHandler) resolveNoAuthProxyPoolID(provider string, strat db.Provide
 		return ""
 	}
 	return db.PickProxyPoolID(eligible, strat.TargetProxyPoolIds, strategy, provider)
+}
+
+// NewNoAuthConnectionData builds the virtual connection for a provider that
+// authenticates with no user-supplied credential.
+//
+// The proxy pool is resolved here rather than left to the caller because a
+// no-auth provider owns no connection row: this struct is the *only* carrier
+// of its proxy configuration. Building it without ProxyPoolID silently sends
+// every request out over the host's own IP even though the dashboard shows a
+// pool attached — which is precisely the leak a pool exists to prevent.
+func (h *ChatHandler) NewNoAuthConnectionData(provider, apiKey string) *ConnectionData {
+	connData := &ConnectionData{APIKey: apiKey, AccessToken: apiKey}
+	if h.Repo == nil {
+		return connData
+	}
+	settings, err := h.Repo.GetSettings()
+	if err != nil || settings == nil {
+		return connData
+	}
+	if strat, ok := settings.ProviderStrategies[provider]; ok {
+		connData.ProxyPoolID = h.resolveNoAuthProxyPoolID(provider, strat)
+	}
+	return connData
 }
 
 // GetProviderConfig returns the upstream configuration for a provider.

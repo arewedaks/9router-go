@@ -3915,7 +3915,91 @@
             ? "Traffic uses the selected pool for every request."
             : "Traffic rotates across the eligible pools; individual pool choice is bypassed."}
         </div>
+
+        <details style="margin-top:16px; border-top:1px solid var(--border); padding-top:14px;">
+          <summary style="cursor:pointer; font-size:0.8rem; color:#ededed;">
+            Import a proxy list into a new pool
+          </summary>
+          <div style="margin-top:12px;">
+            <label class="field-label">Paste proxies — one per line</label>
+            <textarea id="proxy-import-list" rows="5" spellcheck="false"
+              placeholder="user:pass@host:3129&#10;host:8080&#10;socks5://host:1080"
+              style="width:100%; font-family:monospace; font-size:0.75rem; background:var(--glass); color:#ededed; border:1px solid var(--border); border-radius:7px; padding:8px; resize:vertical;"></textarea>
+            <div style="font-size:0.7rem; color:var(--muted); margin-top:6px;">
+              Accepts <code>user:pass@host:port</code>, <code>host:port</code> and full URLs.
+              Blank lines and <code>#</code> comments are ignored; CRLF exports work as-is.
+            </div>
+            <div style="display:flex; align-items:center; gap:8px; margin-top:10px; flex-wrap:wrap;">
+              <input type="text" id="proxy-import-name" placeholder="Pool name" value="Imported proxies"
+                     style="flex:1; min-width:150px; background:var(--glass); color:#ededed; border:1px solid var(--border); border-radius:7px; padding:6px 8px; font-size:0.78rem;">
+              <label style="display:inline-flex; align-items:center; gap:6px; font-size:0.75rem; color:var(--muted); cursor:pointer;">
+                <input type="checkbox" id="proxy-import-assign" checked style="accent-color:var(--primary);">
+                Use for ${escapeHtml(d.displayName || d.provider)}
+              </label>
+              <button class="btn btn-primary" id="proxy-import-btn"
+                      onclick="importProxyList('${escapeHtml(d.provider)}')">Import</button>
+            </div>
+            <div id="proxy-import-msg" style="font-size:0.72rem; margin-top:8px; color:var(--muted);"></div>
+          </div>
+        </details>
       </div>`;
+  }
+
+  // Import a pasted proxy list. The server parses it (CRLF, comments, scheme-less
+  // entries) and attaches the pool to this provider in the same request, because
+  // a pool nobody targets routes nothing.
+  async function importProxyList(providerId) {
+    const listEl = document.getElementById("proxy-import-list");
+    const nameEl = document.getElementById("proxy-import-name");
+    const assignEl = document.getElementById("proxy-import-assign");
+    const btn = document.getElementById("proxy-import-btn");
+    const msg = document.getElementById("proxy-import-msg");
+    const list = listEl ? listEl.value : "";
+    if (!list.trim()) {
+      if (msg) { msg.textContent = "Paste at least one proxy first."; msg.style.color = "var(--danger)"; }
+      return;
+    }
+    if (btn) btn.disabled = true;
+    if (msg) { msg.textContent = "Importing…"; msg.style.color = "var(--muted)"; }
+    try {
+      const res = await api("/api/dashboard/proxy-pools", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: nameEl ? nameEl.value : "",
+          list,
+          provider: (assignEl && assignEl.checked) ? providerId : "",
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        if (msg) { msg.textContent = errorMessage(data, res.status); msg.style.color = "var(--danger)"; }
+        return;
+      }
+      const skipped = data.skipped || 0;
+      const summary = `Imported ${data.imported} prox${data.imported === 1 ? "y" : "ies"}`
+        + (skipped ? `, skipped ${skipped} unusable line${skipped === 1 ? "" : "s"}` : "")
+        + (data.provider ? ` — now routing ${data.provider}` : "") + ".";
+      if (listEl) listEl.value = "";
+      // Pick up the new pool so the dropdown and eligible-pool list show it.
+      await loadProxyPools(true);
+      if (data.provider === providerId) {
+        providerStrategies[providerId] = Object.assign({}, providerStrategies[providerId] || {},
+          { proxyPoolId: data.proxyPoolId, rotateStrategy: "none" });
+      }
+      // Re-render first, then write the message: renderProviderDetail replaces
+      // the whole pane, so a message painted before it would be thrown away and
+      // the operator would see the import "do nothing".
+      renderProviderDetailRefresh();
+      const fresh = document.getElementById("proxy-import-msg");
+      if (fresh) { fresh.textContent = summary; fresh.style.color = "#3fb950"; }
+      const det = document.querySelector("#proxy-import-list")?.closest("details");
+      if (det) det.open = true;
+    } catch (e) {
+      if (msg) { msg.textContent = String(e); msg.style.color = "var(--danger)"; }
+    } finally {
+      if (btn) btn.disabled = false;
+    }
   }
 
   // Selecting a different strategy changes which controls apply (the target pool

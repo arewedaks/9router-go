@@ -164,3 +164,25 @@ func TestNewProvidersRegistry_v059(t *testing.T) {
 		t.Errorf("expected grok-4.6 to have reasoning and search, got %+v", grokCaps)
 	}
 }
+
+// A provider the registry calls keyless (AuthType "none") must also be marked
+// NoAuth in KnownProviders. The two are read by different code paths: the
+// registry drives the dashboard card, while NoAuth is what lets
+// getConnectionForProvider synthesise the virtual connection that carries the
+// proxy-pool configuration. opencode had the registry flag but not the config
+// one, so a proxy pool set for it was accepted by the dashboard and then
+// silently ignored at request time.
+func TestKnownProviders_NoAuthMatchesRegistryAuthType(t *testing.T) {
+	for id, meta := range providerRegistry {
+		cfg, ok := KnownProviders[id]
+		if !ok {
+			continue
+		}
+		if meta.AuthType == "none" && !cfg.NoAuth {
+			t.Errorf("%s: registry says AuthType=none but KnownProviders has NoAuth=false; its proxy pool would be ignored", id)
+		}
+		if cfg.NoAuth && meta.AuthType != "none" {
+			t.Errorf("%s: KnownProviders.NoAuth=true but registry AuthType=%q", id, meta.AuthType)
+		}
+	}
+}

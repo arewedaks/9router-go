@@ -100,13 +100,17 @@ func (p *ProxyPool) NextURL() string {
 // deploy-type pools. Field order matches what the Next.js dashboard writes so
 // the shared DB stays byte-compatible.
 type ProxyPoolData struct {
-	Name         string  `json:"name"`
-	ProxyURL     string  `json:"proxyUrl"`
-	NoProxy      string  `json:"noProxy"`
-	Type         string  `json:"type"`
-	StrictProxy  bool    `json:"strictProxy"`
-	LastTestedAt *string `json:"lastTestedAt"`
-	LastError    *string `json:"lastError"`
+	Name     string `json:"name"`
+	ProxyURL string `json:"proxyUrl"`
+	// URLs carries a multi-proxy pool (round-robin). GetProxyPool already reads
+	// this array — that is how the Next.js dashboard stores an imported list —
+	// but nothing here could write it, so a pasted list had nowhere to go.
+	URLs         []string `json:"urls,omitempty"`
+	NoProxy      string   `json:"noProxy"`
+	Type         string   `json:"type"`
+	StrictProxy  bool     `json:"strictProxy"`
+	LastTestedAt *string  `json:"lastTestedAt"`
+	LastError    *string  `json:"lastError"`
 }
 
 // InsertProxyPool inserts a new proxy pool row and returns the pool object in
@@ -129,6 +133,8 @@ func (r *Repo) InsertProxyPool(d ProxyPoolData) (map[string]any, error) {
 		"id":           id,
 		"name":         d.Name,
 		"proxyUrl":     d.ProxyURL,
+		"urls":         d.URLs,
+		"urlCount":     max(1, len(d.URLs)),
 		"noProxy":      d.NoProxy,
 		"type":         d.Type,
 		"strictProxy":  d.StrictProxy,
