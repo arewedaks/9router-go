@@ -4314,7 +4314,7 @@
                       onclick="testModel('${d.provider}','${escapeHtml(m.modelId)}')">
                 <span class="msym" style="font-size:14px;${testing ? 'animation:spin 1s linear infinite;' : ''}">${testing ? 'progress_activity' : 'science'}</span>
               </button>
-              <button class="btn btn-sm btn-danger" title="Remove model" onclick="removeModel('${d.provider}','${escapeHtml(m.modelId)}')">×</button>
+              <button class="btn btn-sm btn-danger" title="Remove model" onclick="removeModel('${d.provider}','${escapeHtml(m.modelId)}', this)">×</button>
             </span>
           </div>`;
         }).join("")
@@ -4652,6 +4652,9 @@
     // How many models were actually disabled. Distinct from failCount because a
     // timeout counts as a failure to report but must not remove anything.
     let removed = 0;
+    // Ids the run deleted server-side, so the final repaint can drop them from
+    // the cached detail without a re-fetch.
+    const removedModelIds = new Set();
 
     const tick = () => {
       if (progress) progress.innerText = `${done}/${total} — ${okCount} ok, ${failCount} error`;
@@ -4692,6 +4695,7 @@
           try {
             await api(`/api/dashboard/providers/${encodeURIComponent(providerId)}/models?modelId=${encodeURIComponent(modelId)}`, { method: "DELETE" });
             removed++;
+            removedModelIds.add(modelId);
           } catch (_) {}
         }
       } finally {
@@ -4731,15 +4735,22 @@
       if (btn) btn.disabled = false;
       if (stopBtn) stopBtn.style.display = "none";
       activeTestController = null;
-      if (autoDisable && removed > 0) {
-        // Models were removed server-side, so re-fetch rather than re-render:
-        // lastProviderDetail still holds the pre-run list and would paint the
-        // disabled models back onto the page. keepTab stays on Models so the
-        // operator sees the updated rows.
-        openProviderDetail(providerId, true);
-      } else {
-        renderProviderDetailRefresh();
+      if (autoDisable && removed > 0 && lastProviderDetail && lastProviderDetail.provider === providerId) {
+        // Drop the removed rows from the cached payload so the re-render below
+        // cannot paint them back. This used to re-fetch the whole provider,
+        // which flashed "Loading…" and threw away the operator's scroll
+        // position at the end of a run that may have taken a minute.
+        lastProviderDetail.models = (lastProviderDetail.models || [])
+          .filter(m => !removedModelIds.has(m.modelId));
+        removedModelIds.forEach(id => {
+          delete modelTestResults[id];
+          delete modelTestLatency[id];
+          delete modelTestError[id];
+          delete modelTestRetryable[id];
+        });
+        removedModelIds.clear();
       }
+      renderProviderDetailRefresh();
     }
   }
 
@@ -4748,15 +4759,47 @@
   }
 
   // Removes a model from the provider cache (upstream "Remove model").
-  async function removeModel(providerId, modelId) {
+  //
+  // The row is dropped from the cached detail and the Models tab re-renders in
+  // place. Calling openProviderDetail() here re-fetched the whole provider and
+  // flashed "Loading…" over the page, which made deleting several models a
+  // scroll-and-hunt exercise: the operator lost their place after every click.
+  // The server is still the authority — a failure re-fetches so the row comes
+  // back rather than lying about what is stored.
+  async function removeModel(providerId, modelId, btn) {
+    if (btn) btn.disabled = true;
     try {
-      await api(`/api/dashboard/providers/${encodeURIComponent(providerId)}/models?modelId=${encodeURIComponent(modelId)}`, {
+      const res = await api(`/api/dashboard/providers/${encodeURIComponent(providerId)}/models?modelId=${encodeURIComponent(modelId)}`, {
         method: "DELETE"
       });
-      openProviderDetail(providerId, true);
+      if (!res.ok) {
+        // The delete did not happen, so repaint from the server: dropping the
+        // row locally would claim a removal that never occurred.
+        openProviderDetail(providerId, true);
+        return;
+      }
     } catch (e) {
       console.error(e);
+      openProviderDetail(providerId, true);
+      return;
     }
+
+    if (lastProviderDetail && lastProviderDetail.provider === providerId) {
+      // Drop it from the cached payload so the next re-render (a test run, a
+      // status change) cannot paint the removed row back onto the page.
+      lastProviderDetail.models = (lastProviderDetail.models || [])
+        .filter(m => m.modelId !== modelId);
+      delete modelTestResults[modelId];
+      delete modelTestLatency[modelId];
+      delete modelTestError[modelId];
+      delete modelTestRetryable[modelId];
+      testingModelIds.delete(modelId);
+      renderProviderDetailRefresh();
+      return;
+    }
+    // No cached detail to edit (e.g. the page was opened by a stale id): fall
+    // back to the authoritative fetch.
+    openProviderDetail(providerId, true);
   }
 
   // Fetches the provider's live model list from its own /models endpoint
