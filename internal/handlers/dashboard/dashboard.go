@@ -196,6 +196,13 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 		// creation stays in the deploy/import paths, so there is no POST.
 		dr.Get("/proxy-pools", h.HandleListProxyPools)
 		dr.Post("/proxy-pools", h.HandleCreateProxyPool)
+		// Pool management: the list route alone left a pool un-inspectable and
+		// un-repairable once created, so a bad entry could only be worked around
+		// by making another one.
+		dr.Get("/proxy-pools/{id}", h.HandleGetProxyPool)
+		dr.Put("/proxy-pools/{id}", h.HandleUpdateProxyPool)
+		dr.Delete("/proxy-pools/{id}", h.HandleDeleteProxyPool)
+		dr.Post("/proxy-pools/{id}/test", h.HandleTestProxyPool)
 
 		// Historical usage. These power the Usage page and are deliberately
 		// separate from the live /api/usage/* endpoints, which stream in-flight

@@ -158,6 +158,12 @@ type ProxyPoolSummary struct {
 	HasURL     bool   `json:"hasUrl"`
 	URLCount   int    `json:"urlCount"`
 	TestStatus string `json:"testStatus,omitempty"`
+	// LastError and LastTestedAt are carried on the summary so the pool list can
+	// show why a proxy is failing without a detail fetch per row. A status alone
+	// ("error") says something broke but not what, which is the part an operator
+	// needs in order to fix it.
+	LastError    string `json:"lastError,omitempty"`
+	LastTestedAt string `json:"lastTestedAt,omitempty"`
 }
 
 // ListProxyPools returns every pool, newest name-first, optionally restricted to
@@ -194,6 +200,8 @@ func (r *Repo) ListProxyPools(onlyActiveWithURL bool) ([]ProxyPoolSummary, error
 		if sum.Type == "" {
 			sum.Type = "http"
 		}
+		sum.LastError = handlerutil.GetString(raw, "lastError")
+		sum.LastTestedAt = handlerutil.GetString(raw, "lastTestedAt")
 		if urls, ok := raw["urls"].([]any); ok {
 			for _, u := range urls {
 				if s, ok := u.(string); ok && s != "" {

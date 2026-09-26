@@ -507,6 +507,7 @@
     #nav-providers .nav-icon { --tint: #3fb950; }  /* status-ok — green  */
     #nav-combos    .nav-icon { --tint: #22d3ee; }  /* live dot  — cyan   */
     #nav-console   .nav-icon { --tint: #3fb950; }  /* status-ok — green  */
+    #nav-proxies   .nav-icon { --tint: #a371f7; } /* lan       — violet */
     #nav-token-saver .nav-icon { --tint: #d29922; } /* warning  — amber  */
     #nav-settings  .nav-icon { --tint: #8b949e; }  /* muted     — slate  */
 
@@ -1671,6 +1672,7 @@
     <button class="nav-btn" id="nav-console" onclick="navigateTab('console')"><span class="nav-icon">terminal</span> Console Log</button>
 
     <div class="nav-group-label">Configuration</div>
+    <button class="nav-btn" id="nav-proxies" onclick="navigateTab('proxies')"><span class="nav-icon">lan</span> Proxies</button>
     <button class="nav-btn" id="nav-token-saver" onclick="navigateTab('token-saver')"><span class="nav-icon">savings</span> Token Saver</button>
     <button class="nav-btn" id="nav-settings" onclick="navigateTab('settings')"><span class="nav-icon">settings</span> Settings</button>
   </nav>
@@ -2181,6 +2183,19 @@
   </div>
 
   <!-- TOKEN SAVER TAB -->
+  <div id="tab-proxies" class="tab-pane">
+    <div class="section-header">
+      <div>
+        <h2 class="section-title">Proxy Pools</h2>
+        <p style="font-size: 0.85rem; color: var(--muted);">Egress pools your providers route through, and whether each one can actually reach the internet</p>
+      </div>
+      <button class="btn btn-primary" onclick="openProxyBatchModal()">+ Add Proxies</button>
+    </div>
+
+    <div id="proxy-pool-summary" style="font-size:0.78rem; color:var(--muted); margin-bottom:12px;"></div>
+    <div id="proxy-pool-list"></div>
+  </div>
+
   <div id="tab-token-saver" class="tab-pane">
     <div class="section-header" style="margin-bottom:16px;">
       <div>
@@ -2413,6 +2428,96 @@
     <div style="display: flex; gap: 10px; justify-content: flex-end;">
       <button class="btn" id="model-error-copy" onclick="copyModelErrorText()">Copy error</button>
       <button class="btn btn-primary" onclick="closeModal('model-error-modal')">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- BATCH PROXY IMPORT
+
+     A pasted vendor export is one long text blob, so the review step is the
+     point: the operator sees the accepted and dropped line counts and a sample
+     of what will be saved before committing, instead of a bare textarea that
+     only reports problems after a round trip. -->
+<div class="modal-overlay" id="proxy-batch-modal">
+  <div class="modal-box" style="max-width: 620px;">
+    <h2 style="font-size: 1.15rem; margin-bottom: 4px;">Add Proxies</h2>
+    <div style="font-size: 0.78rem; color: var(--muted); margin-bottom: 12px;">
+      Paste one proxy per line. Blank lines and <code>#</code> comments are ignored, and CRLF exports work as-is.
+    </div>
+
+    <label class="field-label">Proxies</label>
+    <textarea id="proxy-batch-list" rows="9" spellcheck="false" oninput="updateProxyBatchPreview()"
+      placeholder="user:pass@host:3129&#10;host:8080&#10;socks5://host:1080"
+      style="width:100%; font-family:monospace; font-size:0.75rem; background:var(--glass); color:#ededed; border:1px solid var(--border); border-radius:7px; padding:8px; resize:vertical;"></textarea>
+    <div id="proxy-batch-preview"></div>
+
+    <div class="add-form-grid" style="grid-template-columns:1fr 1fr; margin-top:14px;">
+      <div>
+        <label class="field-label">Pool name</label>
+        <input type="text" id="proxy-batch-name" value="Imported proxies"
+               style="width:100%; background:var(--glass); color:#ededed; border:1px solid var(--border); border-radius:7px; padding:7px 9px; font-size:0.8rem;">
+      </div>
+      <div>
+        <label class="field-label">Route a provider through it (optional)</label>
+        <select id="proxy-batch-provider">
+          <option value="">— don't assign yet —</option>
+        </select>
+      </div>
+    </div>
+
+    <div id="proxy-batch-msg" style="font-size:0.74rem; margin-top:10px; color:var(--muted);"></div>
+    <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:16px;">
+      <button class="btn" onclick="closeModal('proxy-batch-modal')">Cancel</button>
+      <button class="btn btn-primary" id="proxy-batch-submit" onclick="submitProxyBatch()">Import</button>
+    </div>
+  </div>
+</div>
+
+<!-- PROXY POOL EDIT -->
+<div class="modal-overlay" id="proxy-edit-modal">
+  <div class="modal-box" style="max-width: 620px;">
+    <h2 style="font-size: 1.15rem; margin-bottom: 12px;" id="proxy-edit-title">Edit Proxy Pool</h2>
+    <input type="hidden" id="proxy-edit-id">
+
+    <label class="field-label">Name</label>
+    <input type="text" id="proxy-edit-name"
+           style="width:100%; background:var(--glass); color:#ededed; border:1px solid var(--border); border-radius:7px; padding:7px 9px; font-size:0.8rem; margin-bottom:12px;">
+
+    <label class="field-label">Proxies — one per line</label>
+    <textarea id="proxy-edit-list" rows="7" spellcheck="false"
+      style="width:100%; font-family:monospace; font-size:0.75rem; background:var(--glass); color:#ededed; border:1px solid var(--border); border-radius:7px; padding:8px; resize:vertical;"></textarea>
+    <div style="font-size:0.7rem; color:var(--muted); margin-top:5px;">
+      Several entries rotate per request. One entry means every request uses it.
+    </div>
+
+    <div class="add-form-grid" style="grid-template-columns:1fr 1fr; margin-top:12px;">
+      <div>
+        <label class="field-label">Type</label>
+        <select id="proxy-edit-type">
+          <option value="http">http</option>
+          <option value="https">https</option>
+          <option value="socks5">socks5</option>
+          <option value="vercel">vercel</option>
+          <option value="cloudflare">cloudflare</option>
+          <option value="deno">deno</option>
+        </select>
+      </div>
+      <div>
+        <label class="field-label">No-proxy hosts</label>
+        <input type="text" id="proxy-edit-noproxy" placeholder="localhost,127.0.0.1"
+               style="width:100%; background:var(--glass); color:#ededed; border:1px solid var(--border); border-radius:7px; padding:7px 9px; font-size:0.8rem;">
+      </div>
+    </div>
+
+    <label style="display:inline-flex; align-items:center; gap:7px; font-size:0.78rem; color:var(--muted); cursor:pointer; margin-top:12px;">
+      <input type="checkbox" id="proxy-edit-strict" style="accent-color:var(--primary);">
+      Strict: fail the request instead of falling back to a direct connection
+    </label>
+
+    <div id="proxy-edit-msg" style="font-size:0.74rem; margin-top:10px; color:var(--muted);"></div>
+    <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:16px;">
+      <button class="btn" onclick="closeModal('proxy-edit-modal')">Cancel</button>
+      <button class="btn btn-primary" id="proxy-edit-submit" onclick="submitProxyEdit()">Save</button>
     </div>
   </div>
 </div>
@@ -2913,7 +3018,7 @@
   // Page titles shown in the top bar, keyed by tab id.
   const TAB_TITLES = {
     endpoint: "Endpoint & Key", usage: "Usage", providers: "Providers", combos: "Combos",
-    console: "Console Log", "token-saver": "Token Saver", settings: "Settings",
+    console: "Console Log", proxies: "Proxy Pools", "token-saver": "Token Saver", settings: "Settings",
     "provider-detail": "Provider Detail",
   };
 
@@ -2963,6 +3068,7 @@
     if (tabId === "combos") loadCombos();
     if (tabId === "console") startConsoleLogs();
     else stopConsoleLogs();
+    if (tabId === "proxies") loadProxyPoolTab();
     if (tabId === "token-saver") loadTokenSaver();
     if (tabId === "settings") loadSettings();
   }
@@ -3770,6 +3876,360 @@
     }
   }
 
+  // ----------------------------------------------------------------
+  // Proxy Pools (standalone management tab)
+  // ----------------------------------------------------------------
+  //
+  // The pool data was reachable before only from inside a provider's panel, so
+  // an operator could create a pool and then never see it again: no list, no
+  // way to test it, no way to fix a bad entry, no way to remove one. This tab
+  // is that missing surface.
+
+  let proxyPoolAdminList = [];
+
+  async function loadProxyPoolTab() {
+    const host = document.getElementById("proxy-pool-list");
+    const summary = document.getElementById("proxy-pool-summary");
+    if (!host) return;
+    host.innerHTML = `<div style="padding:24px; text-align:center; color:var(--muted); font-size:0.8rem;">Loading…</div>`;
+    try {
+      const res = await api("/api/dashboard/proxy-pools");
+      const data = res.ok ? await res.json() : {};
+      proxyPoolAdminList = data.proxyPools || [];
+      proxyPoolCache = proxyPoolAdminList; // keep the provider picker in sync
+      renderProxyPoolList();
+      if (summary && proxyPoolAdminList.length) {
+        const active = proxyPoolAdminList.filter(p => p.isActive).length;
+        const bad = proxyPoolAdminList.filter(p => proxyProbeStatus(p) === "failing").length;
+        summary.textContent = `${proxyPoolAdminList.length} pool${proxyPoolAdminList.length === 1 ? "" : "s"}`
+          + ` · ${active} active`
+          + (bad ? ` · ${bad} failing their last test` : "");
+      } else if (summary) {
+        summary.textContent = "";
+      }
+    } catch (e) {
+      host.innerHTML = `<div style="padding:24px; text-align:center; color:var(--danger); font-size:0.8rem;">Failed to load proxy pools: ${escapeHtml(String(e && e.message ? e.message : e))}</div>`;
+    }
+  }
+
+  // A pool's probe outcome, normalised in one place. Reading p.testStatus
+  // directly at each call site is how a stale "active" ends up presented as a
+  // live result; the derived value also carries whether a probe has run at all,
+  // which is a different claim from a passing one.
+  function proxyProbeStatus(p) {
+    const status = String(p && p.testStatus ? p.testStatus : "").toLowerCase();
+    if (!status || status === "unknown") return "untested";
+    if (status === "error" || status === "failed" || status === "unavailable") return "failing";
+    if (status === "active" || status === "success" || status === "ok") return "reachable";
+    return "untested";
+  }
+
+  function proxyStatusChip(p) {
+    const chip = "display:inline-flex; align-items:center; gap:5px; font-size:0.68rem; border-radius:20px; padding:2px 9px;";
+    switch (proxyProbeStatus(p)) {
+      case "failing":
+        return `<span style="${chip} color:#f85149; background:rgba(248,81,73,0.12); border:1px solid rgba(248,81,73,0.3);"><span class="msym" style="font-size:12px;">error</span>failing</span>`;
+      case "reachable":
+        return `<span style="${chip} color:#3fb950; background:rgba(63,185,80,0.12); border:1px solid rgba(63,185,80,0.3);"><span class="msym" style="font-size:12px;">check_circle</span>reachable</span>`;
+      default:
+        return `<span style="${chip} color:var(--muted); background:var(--glass); border:1px solid var(--border);">not tested</span>`;
+    }
+  }
+
+  function renderProxyPoolList() {
+    const host = document.getElementById("proxy-pool-list");
+    if (!host) return;
+    if (!proxyPoolAdminList.length) {
+      host.innerHTML = `
+        <div class="card" style="padding:36px; text-align:center;">
+          <div style="font-size:0.86rem; color:#ededed; margin-bottom:6px;">No proxy pools yet</div>
+          <div style="font-size:0.78rem; color:var(--muted); margin-bottom:16px;">
+            Paste a proxy list to create one. Until a provider selects a pool, traffic leaves from this host's own IP.
+          </div>
+          <button class="btn btn-primary" onclick="openProxyBatchModal()">+ Add Proxies</button>
+        </div>`;
+      return;
+    }
+
+    host.innerHTML = proxyPoolAdminList.map(p => {
+      const name = escapeHtml(p.name || "(unnamed)");
+      const id = escapeHtml(p.id);
+      const count = p.urlCount || 0;
+      return `
+      <div class="card" style="margin-bottom:10px; padding:14px 16px;">
+        <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+          <div style="flex:1; min-width:200px;">
+            <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+              <span style="font-size:0.9rem; color:#ededed;">${name}</span>
+              ${proxyStatusChip(p)}
+              ${p.isActive ? "" : `<span style="font-size:0.68rem; color:var(--muted); background:var(--glass); border:1px solid var(--border); border-radius:20px; padding:2px 9px;">paused</span>`}
+            </div>
+            <div style="font-size:0.72rem; color:var(--muted); margin-top:4px; font-family:monospace;">
+              ${count} prox${count === 1 ? "y" : "ies"} · ${escapeHtml(p.type || "http")} · ${id.substring(0, 8)}
+            </div>
+            ${p.lastError ? `<div style="font-size:0.7rem; color:#f85149; margin-top:4px; word-break:break-word;">${escapeHtml(p.lastError)}</div>` : ""}
+            ${p.lastTestedAt ? `<div style="font-size:0.68rem; color:var(--muted); margin-top:3px;">last tested ${escapeHtml(p.lastTestedAt)}</div>` : ""}
+          </div>
+          <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+            <button class="btn btn-sm" onclick="toggleProxyPoolActive('${id}', ${p.isActive ? "false" : "true"})">
+              ${p.isActive ? "Pause" : "Activate"}
+            </button>
+            <button class="btn btn-sm" id="proxy-test-${id}" onclick="testProxyPool('${id}')">Test</button>
+            <button class="btn btn-sm" onclick="openProxyPoolDetail('${id}')">Details</button>
+            <button class="btn btn-sm" style="color:#f85149;" onclick="deleteProxyPool('${id}', '${name.replace(/'/g, "\\'")}')">Delete</button>
+          </div>
+        </div>
+      </div>`;
+    }).join("");
+  }
+
+  // Testing goes through the server, which opens a real CONNECT tunnel. A test
+  // that only checked TCP reachability would pass for a proxy that cannot
+  // forward anything, which is the failure worth catching.
+  async function testProxyPool(id) {
+    const btn = document.getElementById("proxy-test-" + id);
+    if (btn) { btn.disabled = true; btn.textContent = "Testing…"; }
+    try {
+      const res = await api(`/api/dashboard/proxy-pools/${encodeURIComponent(id)}/test`, { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(errorMessage(data, res.status));
+        return;
+      }
+      // The pool's stored status changed, so re-read rather than patching one
+      // row: lastTestedAt and lastError are part of the record.
+      await loadProxyPoolTab();
+      if (!data.ok && data.error) alert("Proxy test failed: " + data.error);
+    } catch (e) {
+      alert("Proxy test failed: " + String(e && e.message ? e.message : e));
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = "Test"; }
+    }
+  }
+
+  async function toggleProxyPoolActive(id, next) {
+    try {
+      const res = await api(`/api/dashboard/proxy-pools/${encodeURIComponent(id)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isActive: next }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        alert(errorMessage(data, res.status));
+        return;
+      }
+      await loadProxyPoolTab();
+    } catch (e) {
+      alert(String(e && e.message ? e.message : e));
+    }
+  }
+
+  async function deleteProxyPool(id, name) {
+    if (!confirm(`Delete proxy pool "${name}"?\n\nProviders still routing through it will refuse the delete.`)) return;
+    try {
+      const res = await api(`/api/dashboard/proxy-pools/${encodeURIComponent(id)}`, { method: "DELETE" });
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 409) {
+        // The server names the count so the operator knows what to change
+        // rather than being told "failed".
+        alert(data.error || `Cannot delete: ${data.boundConnectionCount || 0} provider(s) still use this pool.`);
+        return;
+      }
+      if (!res.ok) {
+        alert(errorMessage(data, res.status));
+        return;
+      }
+      await loadProxyPoolTab();
+    } catch (e) {
+      alert(String(e && e.message ? e.message : e));
+    }
+  }
+
+  async function openProxyPoolDetail(id) {
+    try {
+      const res = await api(`/api/dashboard/proxy-pools/${encodeURIComponent(id)}`);
+      const p = res.ok ? await res.json() : null;
+      if (!p) { alert("Could not load that pool."); return; }
+      openProxyEditModal(p);
+    } catch (e) {
+      alert(String(e && e.message ? e.message : e));
+    }
+  }
+
+  // ----------------------------------------------------------------
+  // Batch import
+  // ----------------------------------------------------------------
+  //
+  // A pasted vendor export is one long text blob. The work is making it
+  // reviewable before it is saved: the server parses, but the operator should
+  // see what will be created, how many lines were dropped, and be able to fix a
+  // name, before committing.
+  function openProxyBatchModal() {
+    const m = document.getElementById("proxy-batch-modal");
+    if (!m) return;
+    document.getElementById("proxy-batch-list").value = "";
+    document.getElementById("proxy-batch-name").value = "Imported proxies";
+    document.getElementById("proxy-batch-preview").innerHTML = "";
+    document.getElementById("proxy-batch-msg").textContent = "";
+    populateBatchProviderPicker();
+    m.classList.add("active");
+    setTimeout(() => { const el = document.getElementById("proxy-batch-list"); if (el) el.focus(); }, 50);
+  }
+
+  // Live preview: the same rules the server applies, run in the browser so the
+  // operator sees the result as they paste instead of after a round trip.
+  function updateProxyBatchPreview() {
+    const raw = document.getElementById("proxy-batch-list").value;
+    const host = document.getElementById("proxy-batch-preview");
+    if (!host) return;
+    const lines = raw.split(/\r?\n/).map(l => l.trim()).filter(l => l && !l.startsWith("#"));
+    const usable = lines.filter(isUsableProxyLine);
+    const skipped = lines.length - usable.length;
+    if (!lines.length) { host.innerHTML = ""; return; }
+    host.innerHTML = `
+      <div style="font-size:0.74rem; color:var(--muted); margin-top:8px;">
+        <span style="color:#3fb950;">${usable.length}</span> usable
+        ${skipped ? `· <span style="color:#d29922;">${skipped}</span> unreadable line${skipped === 1 ? "" : "s"} will be skipped` : ""}
+      </div>
+      <div style="font-size:0.7rem; color:var(--muted); margin-top:6px; font-family:monospace; max-height:110px; overflow:auto;">
+        ${usable.slice(0, 8).map(u => escapeHtml(u)).join("<br>")}
+        ${usable.length > 8 ? `<br>…and ${usable.length - 8} more` : ""}
+      </div>`;
+  }
+
+  // Mirrors the server's acceptance rule: host:port, user:pass@host:port, or a
+  // full URL. Kept deliberately loose — the server is the authority, this is
+  // only a preview, so a false "usable" here is caught on submit.
+  function isUsableProxyLine(line) {
+    const s = line.trim();
+    if (!s) return false;
+    if (/^(https?|socks5h?|socks4):\/\//i.test(s)) return true;
+    const tail = s.includes("@") ? s.split("@").pop() : s;
+    return /^[^\s:]+:\d{2,5}$/.test(tail);
+  }
+
+  // Assigning on import is the one thing the provider panel's old inline
+  // textarea did that a plain pool list could not, so it moves here rather than
+  // being dropped with the duplicate UI.
+  async function populateBatchProviderPicker() {
+    const sel = document.getElementById("proxy-batch-provider");
+    if (!sel) return;
+    const keep = sel.value;
+
+    // allProviders is only filled once the Providers tab has been visited, so a
+    // fresh session opening Proxies first would get an empty picker.
+    let providers = Array.isArray(allProviders) ? allProviders : [];
+    if (!providers.length) {
+      try {
+        const res = await api("/api/dashboard/providers");
+        if (res.ok) providers = await res.json();
+      } catch (e) {
+        providers = [];
+      }
+    }
+
+    sel.innerHTML = `<option value="">— don't assign yet —</option>`
+      + providers.map(p => {
+          const id = escapeHtml(p.provider || p.id || "");
+          const label = escapeHtml(p.displayName || p.name || p.provider || p.id || "");
+          return `<option value="${id}">${label}</option>`;
+        }).join("");
+    if (keep && Array.from(sel.options).some(o => o.value === keep)) sel.value = keep;
+  }
+
+  async function submitProxyBatch() {
+    const list = document.getElementById("proxy-batch-list").value;
+    const name = document.getElementById("proxy-batch-name").value;
+    const providerEl = document.getElementById("proxy-batch-provider");
+    const provider = providerEl ? providerEl.value : "";
+    const msg = document.getElementById("proxy-batch-msg");
+    const btn = document.getElementById("proxy-batch-submit");
+    if (!list.trim()) {
+      if (msg) { msg.textContent = "Paste at least one proxy first."; msg.style.color = "var(--danger)"; }
+      return;
+    }
+    if (btn) btn.disabled = true;
+    if (msg) { msg.textContent = "Importing…"; msg.style.color = "var(--muted)"; }
+    try {
+      const res = await api("/api/dashboard/proxy-pools", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: name, list: list, provider: provider }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        if (msg) { msg.textContent = errorMessage(data, res.status); msg.style.color = "var(--danger)"; }
+        return;
+      }
+      closeModal("proxy-batch-modal");
+      // Drop the pool cache so the provider panel's picker sees the new pool
+      // without a page reload.
+      await loadProxyPools(true);
+      await loadProxyPoolTab();
+      const skipped = data.skipped || 0;
+      alert(`Imported ${data.imported} prox${data.imported === 1 ? "y" : "ies"}`
+        + (skipped ? `, skipped ${skipped} unreadable line${skipped === 1 ? "" : "s"}` : "")
+        + (data.provider ? ` — now routing ${data.provider}` : "") + ".");
+    } catch (e) {
+      if (msg) { msg.textContent = String(e && e.message ? e.message : e); msg.style.color = "var(--danger)"; }
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  // ----------------------------------------------------------------
+  // Edit + add via modal
+  // ----------------------------------------------------------------
+  function openProxyEditModal(p) {
+    const m = document.getElementById("proxy-edit-modal");
+    if (!m) return;
+    document.getElementById("proxy-edit-id").value = p.id;
+    document.getElementById("proxy-edit-title").textContent = p.name ? `Edit ${p.name}` : "Edit Proxy Pool";
+    document.getElementById("proxy-edit-name").value = p.name || "";
+    document.getElementById("proxy-edit-type").value = p.type || "http";
+    document.getElementById("proxy-edit-noproxy").value = p.noProxy || "";
+    document.getElementById("proxy-edit-strict").checked = p.strictProxy === true;
+    const urls = Array.isArray(p.urls) && p.urls.length ? p.urls : (p.proxyUrl ? [p.proxyUrl] : []);
+    document.getElementById("proxy-edit-list").value = urls.join("\n");
+    document.getElementById("proxy-edit-msg").textContent = "";
+    m.classList.add("active");
+  }
+
+  async function submitProxyEdit() {
+    const id = document.getElementById("proxy-edit-id").value;
+    const name = document.getElementById("proxy-edit-name").value;
+    const list = document.getElementById("proxy-edit-list").value;
+    const type = document.getElementById("proxy-edit-type").value;
+    const noProxy = document.getElementById("proxy-edit-noproxy").value;
+    const strict = document.getElementById("proxy-edit-strict").checked;
+    const msg = document.getElementById("proxy-edit-msg");
+    const btn = document.getElementById("proxy-edit-submit");
+    if (!list.trim()) {
+      if (msg) { msg.textContent = "A pool needs at least one proxy."; msg.style.color = "var(--danger)"; }
+      return;
+    }
+    if (btn) btn.disabled = true;
+    try {
+      const res = await api(`/api/dashboard/proxy-pools/${encodeURIComponent(id)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: name, list: list, noProxy: noProxy, type: type, strictProxy: strict }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        if (msg) { msg.textContent = errorMessage(data, res.status); msg.style.color = "var(--danger)"; }
+        return;
+      }
+      closeModal("proxy-edit-modal");
+      await loadProxyPoolTab();
+    } catch (e) {
+      if (msg) { msg.textContent = String(e && e.message ? e.message : e); msg.style.color = "var(--danger)"; }
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+
   // Cache the pools list so switching tabs does not re-fetch on every render.
   let proxyPoolCache = null;
 
@@ -3936,91 +4396,14 @@
               : "Traffic rotates across the eligible pools; individual pool choice is bypassed."}
         </div>
 
-        <details style="margin-top:16px; border-top:1px solid var(--border); padding-top:14px;">
-          <summary style="cursor:pointer; font-size:0.8rem; color:#ededed;">
-            Import a proxy list into a new pool
-          </summary>
-          <div style="margin-top:12px;">
-            <label class="field-label">Paste proxies — one per line</label>
-            <textarea id="proxy-import-list" rows="5" spellcheck="false"
-              placeholder="user:pass@host:3129&#10;host:8080&#10;socks5://host:1080"
-              style="width:100%; font-family:monospace; font-size:0.75rem; background:var(--glass); color:#ededed; border:1px solid var(--border); border-radius:7px; padding:8px; resize:vertical;"></textarea>
-            <div style="font-size:0.7rem; color:var(--muted); margin-top:6px;">
-              Accepts <code>user:pass@host:port</code>, <code>host:port</code> and full URLs.
-              Blank lines and <code>#</code> comments are ignored; CRLF exports work as-is.
-            </div>
-            <div style="display:flex; align-items:center; gap:8px; margin-top:10px; flex-wrap:wrap;">
-              <input type="text" id="proxy-import-name" placeholder="Pool name" value="Imported proxies"
-                     style="flex:1; min-width:150px; background:var(--glass); color:#ededed; border:1px solid var(--border); border-radius:7px; padding:6px 8px; font-size:0.78rem;">
-              <label style="display:inline-flex; align-items:center; gap:6px; font-size:0.75rem; color:var(--muted); cursor:pointer;">
-                <input type="checkbox" id="proxy-import-assign" checked style="accent-color:var(--primary);">
-                Use for ${escapeHtml(d.displayName || d.provider)}
-              </label>
-              <button class="btn btn-primary" id="proxy-import-btn"
-                      onclick="importProxyList('${escapeHtml(d.provider)}')">Import</button>
-            </div>
-            <div id="proxy-import-msg" style="font-size:0.72rem; margin-top:8px; color:var(--muted);"></div>
-          </div>
-        </details>
+        <div style="margin-top:14px; border-top:1px solid var(--border); padding-top:12px; font-size:0.75rem; color:var(--muted);">
+          Need to add proxies? Paste a list in
+          <a href="#proxies" onclick="navigateTab('proxies'); return false;" style="color:var(--primary); text-decoration:none;">Proxy Pools</a>
+          and assign the pool here.
+        </div>
       </div>`;
   }
 
-  // Import a pasted proxy list. The server parses it (CRLF, comments, scheme-less
-  // entries) and attaches the pool to this provider in the same request, because
-  // a pool nobody targets routes nothing.
-  async function importProxyList(providerId) {
-    const listEl = document.getElementById("proxy-import-list");
-    const nameEl = document.getElementById("proxy-import-name");
-    const assignEl = document.getElementById("proxy-import-assign");
-    const btn = document.getElementById("proxy-import-btn");
-    const msg = document.getElementById("proxy-import-msg");
-    const list = listEl ? listEl.value : "";
-    if (!list.trim()) {
-      if (msg) { msg.textContent = "Paste at least one proxy first."; msg.style.color = "var(--danger)"; }
-      return;
-    }
-    if (btn) btn.disabled = true;
-    if (msg) { msg.textContent = "Importing…"; msg.style.color = "var(--muted)"; }
-    try {
-      const res = await api("/api/dashboard/proxy-pools", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: nameEl ? nameEl.value : "",
-          list,
-          provider: (assignEl && assignEl.checked) ? providerId : "",
-        }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        if (msg) { msg.textContent = errorMessage(data, res.status); msg.style.color = "var(--danger)"; }
-        return;
-      }
-      const skipped = data.skipped || 0;
-      const summary = `Imported ${data.imported} prox${data.imported === 1 ? "y" : "ies"}`
-        + (skipped ? `, skipped ${skipped} unusable line${skipped === 1 ? "" : "s"}` : "")
-        + (data.provider ? ` — now routing ${data.provider}` : "") + ".";
-      if (listEl) listEl.value = "";
-      // Pick up the new pool so the dropdown and eligible-pool list show it.
-      await loadProxyPools(true);
-      if (data.provider === providerId) {
-        providerStrategies[providerId] = Object.assign({}, providerStrategies[providerId] || {},
-          { proxyPoolId: data.proxyPoolId, rotateStrategy: "none" });
-      }
-      // Re-render first, then write the message: renderProviderDetail replaces
-      // the whole pane, so a message painted before it would be thrown away and
-      // the operator would see the import "do nothing".
-      renderProviderDetailRefresh();
-      const fresh = document.getElementById("proxy-import-msg");
-      if (fresh) { fresh.textContent = summary; fresh.style.color = "#3fb950"; }
-      const det = document.querySelector("#proxy-import-list")?.closest("details");
-      if (det) det.open = true;
-    } catch (e) {
-      if (msg) { msg.textContent = String(e); msg.style.color = "var(--danger)"; }
-    } finally {
-      if (btn) btn.disabled = false;
-    }
-  }
 
   // Selecting a different strategy changes which controls apply (the target pool
   // list only exists for rotating strategies), so the card is re-rendered rather
