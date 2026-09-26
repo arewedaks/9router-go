@@ -97,21 +97,31 @@ var freeModelCatalog = []freeBudget{
 	// (see KnownProviders["opencode"].DefaultAPIKey), which is why the provider
 	// is filed under CategoryFree / AuthType "none" rather than freeTier.
 	//
-	// The ids below are the ones the live catalogue currently serves with a
-	// "-free" suffix, verified against https://opencode.ai/zen/v1/models. Note
-	// that the suffix is "-free", NOT OpenRouter's ":free", so the payload
-	// signal never fires and the catalogue entry is the only thing that can
-	// badge these models. Upstream rotates this line-up (OmniRoute's own
-	// catalogue still lists an older set: minimax-m2.5-free, ling-2.6-1t-free,
-	// trinity-large-preview-free, nemotron-3-super-free, qwen3.6-plus-free);
-	// listing the current ids keeps the badge honest without inventing
-	// provenance for retired ones.
+	// Every id below was verified by actually calling it (POST
+	// /zen/v1/chat/completions with the literal key "public"), not merely read
+	// off /zen/v1/models. That distinction matters: the listing advertises ids
+	// the chat endpoint then refuses.
+	//
+	// Two ids from the previous list were removed for exactly that reason and
+	// are deliberately NOT re-added by a later "sync with /models" pass:
+	//   - deepseek-v4-flash-free -> 400 "Model is unavailable"
+	//   - jev-1.13-free          -> 500 Internal server error
+	// Seeding dead ids is worse than seeding fewer models: the operator hits a
+	// failure on a model the router itself advertised, and every such request
+	// burns a fallback attempt before reaching one that works.
+	//
+	// Note the suffix is "-free", NOT OpenRouter's ":free", so the payload
+	// signal never fires and this catalogue entry is the only thing that can
+	// badge these models.
 	{"opencode", "big-pickle", regimeKeyless, ""},
-	{"opencode", "deepseek-v4-flash-free", regimeKeyless, ""},
 	{"opencode", "mimo-v2.5-free", regimeKeyless, ""},
+	{"opencode", "mimo-v2.6-flash-free", regimeKeyless, ""},
 	{"opencode", "ling-3.0-flash-fin-free", regimeKeyless, ""},
 	{"opencode", "nemotron-3-ultra-free", regimeKeyless, ""},
 	{"opencode", "nemotron-3.5-lightning-free", regimeKeyless, ""},
+	{"opencode", "space-bunny-free", regimeKeyless, ""},
+	// muse-spark rejects max_output_tokens < 16 with a 400; the model itself is
+	// fine with a sane value. See minOutputTokensForProvider.
 	{"opencode", "muse-spark-1.3-contributor-free", regimeKeyless, ""},
 	{"opencode", "muse-spark-1.2-contributor-free", regimeKeyless, ""},
 

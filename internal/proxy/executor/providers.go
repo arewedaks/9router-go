@@ -1125,6 +1125,25 @@ func deriveOpencodeSession(rawSession, clientTool, connID string) string {
 	return proxy.TranslateOpenCodeSessionID(raw, clientTool)
 }
 
+// minMuseSparkOutputTokens is the floor muse-spark enforces on
+// max_output_tokens; requests below it are rejected with a 400.
+const minMuseSparkOutputTokens = 16
+
+// numericTokenLimit reads a token count that may arrive as a JSON number or as
+// a string, since clients are inconsistent about it.
+func numericTokenLimit(v any) (int, bool) {
+	switch n := v.(type) {
+	case float64:
+		return int(n), true
+	case int:
+		return n, true
+	case string:
+		i, err := strconv.Atoi(strings.TrimSpace(n))
+		return i, err == nil
+	}
+	return 0, false
+}
+
 func normalizeMuseSparkResponsesBody(body []byte, cleanModel string) ([]byte, error) {
 	var m map[string]any
 	if err := json.Unmarshal(body, &m); err != nil {
@@ -1161,6 +1180,17 @@ func normalizeMuseSparkResponsesBody(body []byte, cleanModel string) ([]byte, er
 			}
 		}
 		m["input"] = cleanInput
+	}
+	// muse-spark rejects max_output_tokens below 16 with a 400:
+	//   "`max_output_tokens` The number must be `>= 16`."
+	// A caller asking for a very short answer (a smoke test, a one-word reply)
+	// therefore gets a hard failure for a request the model would have served.
+	// Clamp up rather than forward the rejection — the caller's intent is "a
+	// short answer", not "exactly this cap".
+	if v, ok := m["max_output_tokens"]; ok {
+		if n, ok := numericTokenLimit(v); ok && n < minMuseSparkOutputTokens {
+			m["max_output_tokens"] = minMuseSparkOutputTokens
+		}
 	}
 	// PR #4062: Normalize explicit non-auto tool_choice to "auto" on muse-spark-1.3
 	if strings.Contains(cleanModel, "muse-spark-1.3") {

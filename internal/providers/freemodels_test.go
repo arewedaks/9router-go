@@ -41,15 +41,28 @@ func TestProviderHasFreeModels_ResolvesAliases(t *testing.T) {
 // ":free" is), so a passing badge here can only come from the shipped
 // catalogue — which is exactly the wiring that regressed for this provider.
 func TestOpenCodeFreeTier_OnlyFreeIdsBadge(t *testing.T) {
+	// Only ids confirmed reachable by an actual chat call. deepseek-v4-flash-free
+	// and jev-1.13-free are listed by /zen/v1/models but answer 400 "Model is
+	// unavailable" and 500 respectively, so advertising them would make the
+	// router's own catalogue the source of a guaranteed failure.
 	freeIDs := []string{
 		"big-pickle",
-		"deepseek-v4-flash-free",
 		"mimo-v2.5-free",
+		"mimo-v2.6-flash-free",
 		"ling-3.0-flash-fin-free",
 		"nemotron-3-ultra-free",
 		"nemotron-3.5-lightning-free",
+		"space-bunny-free",
 		"muse-spark-1.3-contributor-free",
 		"muse-spark-1.2-contributor-free",
+	}
+
+	// A model the chat endpoint rejects must not be advertised as free, even
+	// though the listing endpoint returns it.
+	for _, dead := range []string{"deepseek-v4-flash-free", "jev-1.13-free"} {
+		if IsFreeModel("opencode", FreeModelCandidate{ID: dead}) {
+			t.Errorf("IsFreeModel(opencode, %q) = true, but the chat endpoint rejects that id", dead)
+		}
 	}
 	for _, id := range freeIDs {
 		// Canonical id and alias must agree.
