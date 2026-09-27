@@ -1,13 +1,32 @@
 # 9router-go
 
-[![CI](https://github.com/luqman-v1/9router-go/actions/workflows/ci.yml/badge.svg)](https://github.com/luqman-v1/9router-go/actions/workflows/ci.yml)
-[![Release](https://github.com/luqman-v1/9router-go/actions/workflows/release.yml/badge.svg)](https://github.com/luqman-v1/9router-go/actions/workflows/release.yml)
+[![CI](https://github.com/arewedaks/9router-go/actions/workflows/ci.yml/badge.svg)](https://github.com/arewedaks/9router-go/actions/workflows/ci.yml)
+[![Release](https://github.com/arewedaks/9router-go/actions/workflows/release.yml/badge.svg)](https://github.com/arewedaks/9router-go/actions/workflows/release.yml)
+[![Latest release](https://img.shields.io/github/v/release/arewedaks/9router-go)](https://github.com/arewedaks/9router-go/releases/latest)
 
-High-performance Go proxy gateway for [9Router](https://github.com/decolua/9router) LLM routing.
+High-performance Go proxy gateway for [9Router](https://github.com/decolua/9router) LLM routing — with its own **built-in dashboard** (providers, usage, console log, model import) served directly from the binary.
 
-> **Sync:** `v1.8.11` ↔ `decolua/9router v0.5.75` + upstream PR ports (#3973, #3981, #3968) — see `CHANGELOG.md` & `ARCHITECTURE.md` for details.
+> **Current:** `v1.9.4` — Go proxy + embedded dashboard in one binary; shares the same SQLite DB as the original [9Router dashboard](https://github.com/decolua/9router).
 
-> **9Router** is a local AI routing gateway + dashboard. This Go proxy replaces the Next.js `/v1/*` routes for high-throughput LLM traffic, while the [9Router dashboard](https://github.com/decolua/9router) handles management UI (providers, API keys, combos, usage tracking).
+## Dashboard
+
+The Go binary serves the full management UI on the same port — no separate Next.js app needed:
+
+| Tab | What you get |
+|---|---|
+| **Providers** | Add accounts (OAuth flows, API keys, keyless), per-account connection tests, model import from the live upstream catalogue, auto-disable for dead models (Safe/Full modes) |
+| **Usage** | Live usage stats, in-flight SSE topology, per-model/per-provider request history |
+| **Console Log** | Live SSE log stream with level filters, resource metrics (CPU/RAM/uptime), and the current `/v1/models` count |
+| **Token Saver** | RTK compression, Caveman/Headroom/Ponytail toggles with levels |
+| **Combos** | Multi-model routing strategies (fallback, round-robin, sticky, fusion) |
+
+### Usage — live stats & topology
+
+![Dashboard Usage tab](docs/img/dashboard-usage.png)
+
+### Providers — accounts, connection tests, model import
+
+![Dashboard Providers tab](docs/img/dashboard-providers.png)
 
 ### Features
 
@@ -15,6 +34,9 @@ High-performance Go proxy gateway for [9Router](https://github.com/decolua/9rout
 - **42 MB** memory footprint
 - **SQLite WAL mode** with non-blocking concurrency (shared with [9Router dashboard](https://github.com/decolua/9router))
 - **OpenAI, Claude, and Gemini native format support** with bidirectional SSE translation
+- **One-command service install**: `sudo 9router-go service install` writes the systemd unit, enables boot start, verifies it, and starts now
+- **Dashboard model import with live catalogues**: Grok CLI (reasoning-effort expansion), TwinMind (`/api/v3/chat/models`), Cline, ClinePass, GitHub Copilot, Antigravity and more — Free/Regular categories, alphabetized, one-click Select-all-free
+- **Live auto-disable**: Test-All modes (Safe skips 429/timeouts, Full removes every no-ping) drop dead models per-row the moment their ping fails — no manual refresh
 - **Antigravity Tool Cloaking & Anti-Ban Decoy System**: 21 official IDE decoy tools (`run_command`, `replace_file_content`, etc.) with `_ide` suffix cloaking and protobuf validation safeguards
 - **Antigravity Anti-Competitive Prompt Stripping**: strips competitor identity prompts to prevent synthetic 429 quota exhaustion errors
 - **Dynamic Egress Proxy Pools & Edge Relays**: round-robin IP rotation via active HTTP/HTTPS/SOCKS5 pools + Vercel/Cloudflare/Deno edge relays (`x-relay-target` / `x-relay-path`)
@@ -111,19 +133,19 @@ Installs the pre-built binary for your OS/arch into `~/.local/bin`, verifies it
 runs, and wires up `PATH` — no Go toolchain required:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/arewedaks/9router-go/feat/go-dashboard/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/arewedaks/9router-go/HEAD/scripts/install.sh | bash
 ```
 
 Pin a specific version:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/arewedaks/9router-go/feat/go-dashboard/scripts/install.sh | bash -s -- --version 1.8.44
+curl -fsSL https://raw.githubusercontent.com/arewedaks/9router-go/HEAD/scripts/install.sh | bash -s -- --version 1.8.44
 ```
 
 Auto-start on boot (systemd unit + enable, run as root):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/arewedaks/9router-go/feat/go-dashboard/scripts/install.sh | sudo bash -s -- --service
+curl -fsSL https://raw.githubusercontent.com/arewedaks/9router-go/HEAD/scripts/install.sh | sudo bash -s -- --service
 ```
 
 The service can also be managed after install directly through the binary:
@@ -135,22 +157,22 @@ sudo 9router-go service uninstall   # stop + disable + remove unit
 ```
 
 ### Option 1: Pre-built Binaries (Recommended)
-Download the latest binary for your OS and architecture from [GitHub Releases](https://github.com/luqman-v1/9router-go/releases/latest):
+Download the latest binary for your OS and architecture from [GitHub Releases](https://github.com/arewedaks/9router-go/releases/latest):
 
 | Platform | Architecture | Binary |
 |----------|--------------|--------|
-| **Linux** | x86_64 (`amd64`) | [`9router-go-linux-amd64`](https://github.com/luqman-v1/9router-go/releases/latest/download/9router-go-linux-amd64) |
-| **Linux** | ARM64 (`arm64`) | [`9router-go-linux-arm64`](https://github.com/luqman-v1/9router-go/releases/latest/download/9router-go-linux-arm64) |
-| **macOS** | Apple Silicon (`arm64`) | [`9router-go-darwin-arm64`](https://github.com/luqman-v1/9router-go/releases/latest/download/9router-go-darwin-arm64) |
-| **macOS** | Intel (`amd64`) | [`9router-go-darwin-amd64`](https://github.com/luqman-v1/9router-go/releases/latest/download/9router-go-darwin-amd64) |
-| **Windows** | x86_64 (`amd64`) | [`9router-go-windows-amd64.exe`](https://github.com/luqman-v1/9router-go/releases/latest/download/9router-go-windows-amd64.exe) |
+| **Linux** | x86_64 (`amd64`) | [`9router-go-linux-amd64`](https://github.com/arewedaks/9router-go/releases/latest/download/9router-go-linux-amd64) |
+| **Linux** | ARM64 (`arm64`) | [`9router-go-linux-arm64`](https://github.com/arewedaks/9router-go/releases/latest/download/9router-go-linux-arm64) |
+| **macOS** | Apple Silicon (`arm64`) | [`9router-go-darwin-arm64`](https://github.com/arewedaks/9router-go/releases/latest/download/9router-go-darwin-arm64) |
+| **macOS** | Intel (`amd64`) | [`9router-go-darwin-amd64`](https://github.com/arewedaks/9router-go/releases/latest/download/9router-go-darwin-amd64) |
+| **Windows** | x86_64 (`amd64`) | [`9router-go-windows-amd64.exe`](https://github.com/arewedaks/9router-go/releases/latest/download/9router-go-windows-amd64.exe) |
 
 **One-liner download (Linux / macOS):**
 ```bash
 # Detect OS & Arch, download to ./9router-go and make executable
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
 ARCH=$(uname -m | sed -e 's/x86_64/amd64/' -e 's/aarch64/arm64/')
-curl -sL "https://github.com/luqman-v1/9router-go/releases/latest/download/9router-go-${OS}-${ARCH}" -o 9router-go
+curl -sL "https://github.com/arewedaks/9router-go/releases/latest/download/9router-go-${OS}-${ARCH}" -o 9router-go
 chmod +x 9router-go
 ```
 
@@ -158,19 +180,19 @@ chmod +x 9router-go
 ```bash
 docker run -d \
   --name 9router-go \
-  -p 20130:20130 \
+  -p 20128:20128 \
   -v ~/.9router/db:/root/.9router/db \
   luqmenul/9router-go:latest
 ```
 
 ### Option 3: Go Install
 ```bash
-go install github.com/luqman-v1/9router-go/cmd/9router-go@latest
+go install github.com/arewedaks/9router-go/cmd/9router-go@latest
 ```
 
 ### Option 4: Build from Source
 ```bash
-git clone https://github.com/luqman-v1/9router-go.git
+git clone https://github.com/arewedaks/9router-go.git
 cd 9router-go
 go build -o 9router-go ./cmd/9router-go/
 ```
@@ -180,7 +202,7 @@ go build -o 9router-go ./cmd/9router-go/
 ## 🚀 Running 9Router-Go
 
 ```bash
-# Run with default settings (port 20130, automatically locates ~/.9router/db/data.sqlite)
+# Run with default settings (port 20128, automatically locates ~/.9router/db/data.sqlite)
 ./9router-go
 
 # Or specify custom port or database path:
@@ -189,7 +211,7 @@ PORT=20128 ./9router-go
 ./9router-go --port 20128 --db-path ~/.9router/db/data.sqlite
 
 # Verify server health:
-curl http://localhost:20130/health
+curl http://localhost:20128/health
 ```
 
 ---
@@ -200,7 +222,7 @@ curl http://localhost:20130/health
 
 ### 1. Direct cURL Example
 ```bash
-curl http://localhost:20130/v1/chat/completions \
+curl http://localhost:20128/v1/chat/completions \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer sk-your-api-key" \
   -d '{
@@ -213,7 +235,7 @@ curl http://localhost:20130/v1/chat/completions \
 ### 2. Claude Code CLI
 Configure your environment variables to point Claude Code to 9Router:
 ```bash
-export ANTHROPIC_BASE_URL="http://localhost:20130/v1"
+export ANTHROPIC_BASE_URL="http://localhost:20128/v1"
 export ANTHROPIC_API_KEY="sk-your-key"
 claude
 ```
@@ -223,13 +245,13 @@ In `~/.omp/agent/models.yml`:
 ```yaml
 providers:
   myco:
-    baseUrl: http://localhost:20130/v1
+    baseUrl: http://localhost:20128/v1
     apiKey: sk-your-key
     api: openai-completions
 ```
 
 ### 4. Cursor / VS Code / Cline / Continue
-- **Base URL**: `http://localhost:20130/v1`
+- **Base URL**: `http://localhost:20128/v1`
 - **API Key**: `sk-your-api-key` (or any string if authentication is public/single-user)
 - **Model**: Select any configured model or combo (e.g., `ag/gemini-3.8-flash-high`, `deepseek/deepseek-chat`, combo name).
 
@@ -490,7 +512,7 @@ GOOS=windows GOARCH=amd64 go build -o 9router-go.exe ./cmd/9router-go/
 go test ./... -v
 ```
 
-All **655 tests** pass (with `-count=1` to bypass test caching).
+Run with `-count=1` to bypass test caching.
 
 ## Benchmark
 
