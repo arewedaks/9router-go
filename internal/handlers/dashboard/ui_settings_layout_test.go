@@ -264,3 +264,37 @@ func TestSettingsButtonsShareOneSize(t *testing.T) {
 			"rule was meant to replace")
 	}
 }
+
+// TestSettingsCardsEndOnOneLine: the message slots kept an 18px min-height plus
+// a 10px margin even while empty, so a card with one ended 28px of blank space
+// below its buttons and the two cards in a row stopped matching. Empty slots
+// must collapse, and a stretched card must push its action block to the bottom
+// edge so both cards in a row finish on the same line.
+func TestSettingsCardsEndOnOneLine(t *testing.T) {
+	ui := readEmbeddedUI(t)
+
+	if !strings.Contains(ui, ".settings-msg:empty { min-height: 0; margin-bottom: 0; }") {
+		t.Error("an empty message slot still reserves space, so cards with one " +
+			"end with a hole and row bottoms stop lining up")
+	}
+	if !strings.Contains(ui, "align-items: stretch;") {
+		t.Error("the settings grid does not stretch cards, so the shorter card " +
+			"in a row stops early and the bottom edge looks ragged")
+	}
+	if !strings.Contains(ui, ".card > .btn-pair:last-child { margin-top: auto; }") {
+		t.Error("the action pair is not pushed to the card bottom, so two cards " +
+			"of different content height do not finish their actions on one line")
+	}
+	// The action pair has to be the last element of its card, or the auto margin
+	// lands on the wrong block and the buttons hang mid-card.
+	for _, card := range []string{"applyCloudflarePreset()", "showCloudflaredConfig()"} {
+		i := strings.Index(ui, card)
+		if i < 0 {
+			t.Fatalf("%s is missing", card)
+		}
+		if !strings.Contains(ui[i:i+300], `</div>`+"\n    </div>") &&
+			!strings.Contains(ui[i:i+400], `.settings-msg`) {
+			t.Errorf("the buttons for %s are not at the end of their card", card)
+		}
+	}
+}
