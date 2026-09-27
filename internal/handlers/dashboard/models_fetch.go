@@ -197,6 +197,15 @@ func (h *Handler) fetchUpstreamModels(providerID, data string, timeout time.Dura
 		return h.fetchAntigravityModels(canonical, data, timeout)
 	}
 
+	// Grok CLI's session endpoint cli-chat-proxy.grok.com does publish an
+	// OpenAI-style /models route, but it needs the CLI identity headers and a
+	// per-effort expansion the generic registry branch cannot express (the
+	// registry had no entry at all, so Import said "does not support models
+	// listing"). See grok_catalog.go.
+	if canonical == "grok-cli" || providerID == "grok-cli" {
+		return h.fetchGrokCLIModels(providerID, data, timeout)
+	}
+
 	// TwinMind has no OpenAI-style /models route either: its catalogue is
 	// GET /api/v3/chat/models with a tier map per model. Without this branch
 	// the generic lookup reported "does not support models listing". See
