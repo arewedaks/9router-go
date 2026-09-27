@@ -284,3 +284,58 @@ func TestModelNameWrapsInsteadOfTruncatingOnMobile(t *testing.T) {
 		t.Error("the model id is still truncated on mobile instead of wrapping")
 	}
 }
+
+// Once a public domain is set, the Local and Docker rows stop describing
+// anything a client can use. The Local row collapses into the domain address
+// under a label that says "local", and host.docker.internal resolves to the
+// container's own machine rather than to a remote gateway — so a Docker user
+// on a laptop was handed a host that does not run the proxy. Hiding both
+// leaves the domain as the single address to copy.
+func TestLoopbackEndpointRowsHideOnceDomainIsSet(t *testing.T) {
+	ui := readEmbeddedUI(t)
+
+	for _, need := range []string{
+		`document.querySelectorAll("#endpoint-local, #endpoint-docker")`,
+		`if (String((settings && settings.publicBaseURL) || "").trim()) {`,
+		`if (row) row.style.display = "none";`,
+		`tag.classList.toggle("active", !!set);`,
+	} {
+		if !strings.Contains(ui, need) {
+			t.Errorf("loopback endpoint rows are not hidden behind a configured domain: %s missing", need)
+		}
+	}
+
+	// Hiding must not remove the rows: with no domain configured they are the
+	// only addresses on a bare host that differ from one another.
+	if strings.Contains(ui, `id="endpoint-docker"`) && strings.Contains(ui, `style="display:none`+`"`) &&
+		strings.Contains(ui, `endpoint-docker"`) {
+		if strings.Contains(ui, `<div class="endpoint-row"> <span class="endpoint-tag">Docker</span> <input class="endpoint-url" id="endpoint-docker" readonly style=`) {
+			t.Error("the Docker row is now hidden in markup instead of at render time")
+		}
+	}
+}
+
+// The Domain row is the address a client copies, so it has to read like the
+// other two rows and like the confirmation message: all of them end in /v1.
+// It previously showed the bare origin, so copying it produced an endpoint
+// that an OpenAI-compatible client calls at /chat/completions and gets a 404.
+func TestDomainEndpointRowShowsTheClientPath(t *testing.T) {
+	ui := readEmbeddedUI(t)
+
+	for _, need := range []string{
+		`const shown = set ? set + "/v1" : "";`,
+		`if (document.activeElement !== el) el.value = shown;`,
+		// Saving has to remove the suffix again: the server rejects a path.
+		`.replace(/\/+$/, "").replace(/\/v1$/, "")`,
+	} {
+		if !strings.Contains(ui, need) {
+			t.Errorf("the domain row does not show the /v1 client path: %s missing", need)
+		}
+	}
+
+	// The suffix must be added in exactly one place, or the rows drift apart
+	// again the way they just did.
+	if n := strings.Count(ui, `set + "/v1"`); n != 1 {
+		t.Errorf("the /v1 suffix is built in %d places, want 1", n)
+	}
+}

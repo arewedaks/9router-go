@@ -2,6 +2,8 @@ package db
 
 import (
 	json "encoding/json/v2"
+	"fmt"
+	"net/url"
 	"os"
 	"strings"
 
@@ -147,18 +149,24 @@ func (p ProviderStrategy) MarshalJSON() ([]byte, error) {
 
 // SettingsData represents token saver and general settings stored in the settings table.
 type SettingsData struct {
-	RTKEnabled         bool                        `json:"rtkEnabled"`
-	CavemanEnabled     bool                        `json:"cavemanEnabled"`
-	CavemanLevel       string                      `json:"cavemanLevel"`
-	PonytailEnabled    bool                        `json:"ponytailEnabled"`
-	PonytailLevel      string                      `json:"ponytailLevel"`
-	HeadroomUrl        string                      `json:"headroomUrl"`
-	HeadroomEnabled    bool                        `json:"headroomEnabled"`
-	HeadroomCodeAware  bool                        `json:"headroomCodeAware"`
-	HeadroomKompress   bool                        `json:"headroomKompress"`
-	HeadroomTimeoutMs  int                         `json:"headroomTimeoutMs"`
-	HeadroomCompressUM bool                        `json:"headroomCompressUserMessages"`
-	AutoUpdate         bool                        `json:"autoUpdate"`
+	RTKEnabled         bool   `json:"rtkEnabled"`
+	CavemanEnabled     bool   `json:"cavemanEnabled"`
+	CavemanLevel       string `json:"cavemanLevel"`
+	PonytailEnabled    bool   `json:"ponytailEnabled"`
+	PonytailLevel      string `json:"ponytailLevel"`
+	HeadroomUrl        string `json:"headroomUrl"`
+	HeadroomEnabled    bool   `json:"headroomEnabled"`
+	HeadroomCodeAware  bool   `json:"headroomCodeAware"`
+	HeadroomKompress   bool   `json:"headroomKompress"`
+	HeadroomTimeoutMs  int    `json:"headroomTimeoutMs"`
+	HeadroomCompressUM bool   `json:"headroomCompressUserMessages"`
+	AutoUpdate         bool   `json:"autoUpdate"`
+	// PublicBaseURL is the address clients are told to use, for installs where
+	// the gateway sits behind a domain it cannot infer from its own request (a
+	// tunnel, or a different hostname from the one the browser happened to
+	// use). Empty means "derive it from the incoming request", which is what an
+	// install with nothing in front of it wants.
+	PublicBaseURL      string                      `json:"publicBaseURL"`
 	ProviderStrategies map[string]ProviderStrategy `json:"providerStrategies,omitempty"`
 
 	// AntigravityClientProfile is the single, provider-wide client identity
@@ -268,6 +276,7 @@ func (s SettingsData) MarshalJSON() ([]byte, error) {
 	out["headroomTimeoutMs"] = s.HeadroomTimeoutMs
 	out["headroomCompressUserMessages"] = s.HeadroomCompressUM
 	out["autoUpdate"] = s.AutoUpdate
+	out["publicBaseURL"] = s.PublicBaseURL
 
 	// The named optional fields are omitted when nil so an absent value keeps
 	// meaning "use the default" rather than being frozen into the blob.
@@ -364,6 +373,9 @@ func (r *Repo) GetSettings() (*SettingsData, error) {
 	}
 	if v, ok := raw["autoUpdate"].(bool); ok {
 		s.AutoUpdate = v
+	}
+	if v := handlerutil.GetString(raw, "publicBaseURL"); v != "" {
+		s.PublicBaseURL = v
 	}
 	if v := handlerutil.GetString(raw, "password"); v != "" {
 		s.PasswordHash = v
@@ -587,4 +599,46 @@ func ListenPort() string {
 		return p
 	}
 	return "20128"
+}
+
+// NormalizePublicBaseURL validates the operator-supplied public address and
+// returns it in the one form the rest of the codebase builds URLs from:
+// scheme://host[:port], with no trailing slash and no path.
+//
+// The value is copied into snippets the operator pastes into clients and sent
+// to OAuth providers as a redirect_uri, so an unchecked string is a header
+// injection and a misdirected callback waiting to happen. Anything that is not
+// a plain http(s) origin is rejected rather than repaired: a base URL carrying
+// a path, embedded credentials or a query is a mistake, and quietly stripping
+// it would point clients somewhere the operator never intended.
+func NormalizePublicBaseURL(raw string) (string, error) {
+	v := strings.TrimSpace(raw)
+	if v == "" {
+		return "", nil
+	}
+	if strings.ContainsAny(v, " \t\r\n") {
+		return "", fmt.Errorf("publicBaseURL must not contain spaces or line breaks")
+	}
+	u, err := url.Parse(v)
+	if err != nil {
+		return "", fmt.Errorf("publicBaseURL is not a valid URL")
+	}
+	switch u.Scheme {
+	case "http", "https":
+	default:
+		return "", fmt.Errorf("publicBaseURL must start with http:// or https://")
+	}
+	if u.Host == "" {
+		return "", fmt.Errorf("publicBaseURL must include a host")
+	}
+	if u.User != nil {
+		return "", fmt.Errorf("publicBaseURL must not embed credentials")
+	}
+	if u.RawQuery != "" || u.Fragment != "" {
+		return "", fmt.Errorf("publicBaseURL must not include a query or fragment")
+	}
+	if strings.TrimRight(u.Path, "/") != "" {
+		return "", fmt.Errorf("publicBaseURL must not include a path, got %q", u.Path)
+	}
+	return u.Scheme + "://" + u.Host, nil
 }

@@ -1408,3 +1408,38 @@ func TestModelFetchWithoutCredentialFailsForNonDefaultedProvider(t *testing.T) {
 		t.Fatal("expected an error: openrouter declares no DefaultAPIKey")
 	}
 }
+
+// The UI is a single file that carries every behaviour change, so a browser
+// that caches it keeps running the old page after an upgrade. That is exactly
+// what happened: the /v1 fix was deployed but the operator still saw the old
+// endpoint row. The page must always be revalidated, and the revalidation has
+// to be cheap, or every load resends the whole file.
+func TestServeUIRevalidatesInsteadOfBeingCached(t *testing.T) {
+	_, _, r := setupTestDashboard(t)
+
+	first := httptest.NewRecorder()
+	r.ServeHTTP(first, httptest.NewRequest("GET", "/dashboard", nil))
+	if first.Code != http.StatusOK {
+		t.Fatalf("first load status = %d, want 200", first.Code)
+	}
+	if cc := first.Header().Get("Cache-Control"); cc != "no-cache" {
+		t.Errorf("Cache-Control = %q, want %q", cc, "no-cache")
+	}
+	etag := first.Header().Get("ETag")
+	if etag == "" {
+		t.Fatal("no ETag: the browser has nothing to revalidate with, so no-cache would refetch the whole page every time")
+	}
+
+	// A returning browser sends the validator back and must get a 304 with no
+	// body, not another full copy of the page.
+	req := httptest.NewRequest("GET", "/dashboard", nil)
+	req.Header.Set("If-None-Match", etag)
+	second := httptest.NewRecorder()
+	r.ServeHTTP(second, req)
+	if second.Code != http.StatusNotModified {
+		t.Fatalf("revalidation status = %d, want 304", second.Code)
+	}
+	if second.Body.Len() != 0 {
+		t.Errorf("304 carried %d bytes of body, want 0", second.Body.Len())
+	}
+}
