@@ -35,18 +35,42 @@ func TestUISettingsHasBackupControls(t *testing.T) {
 		}
 	}
 
-	// The controls must be inside the Settings pane, not stranded elsewhere.
-	// The pane now ends at </main>: the Health & Setup tab that used to follow it
-	// was removed, so it can no longer be used as the closing marker.
-	settingsIdx := strings.Index(ui, `id="tab-settings"`)
-	mainEnd := strings.Index(ui[settingsIdx:], "</main>")
-	if settingsIdx < 0 || mainEnd < 0 {
-		t.Fatalf("could not locate the settings pane")
+	// The controls are reached from the Settings pane rather than stranded
+	// elsewhere. They live in their own modal, matching every other dialog in
+	// the dashboard, so the guarantee is that the Settings card opens that modal
+	// and the fields are inside it -- not that the bytes fall in the pane's range.
+	for _, need := range []string{
+		`onclick="openBackupModal()"`,
+		`onclick="openRestoreModal()"`,
+		`id="backup-modal"`,
+		`id="restore-modal"`,
+	} {
+		if !strings.Contains(ui, need) {
+			t.Errorf("backup control %s is missing", need)
+		}
 	}
-	pane := ui[settingsIdx : settingsIdx+mainEnd]
-	for _, need := range []string{`id="backup-pw"`, `id="restore-file"`, `id="restore-btn"`} {
-		if !strings.Contains(pane, need) {
-			t.Errorf("backup control %s is not inside the Settings pane", need)
+	// The prompts must sit inside their modal, or the operator would be typing a
+	// password into a form they cannot see.
+	for _, pair := range []struct{ modal, field string }{
+		{`id="backup-modal"`, `id="backup-pw"`},
+		{`id="restore-modal"`, `id="restore-file"`},
+		{`id="restore-modal"`, `id="restore-btn"`},
+		{`id="pw-modal"`, `id="set-cur-pw"`},
+	} {
+		m := strings.Index(ui, pair.modal)
+		if m < 0 {
+			t.Fatalf("modal %s not found", pair.modal)
+		}
+		// A modal is a sibling block: scan to its closing </div> pair. Counting
+		// divs is overkill here; the next modal boundary is close enough and the
+		// field must appear before it.
+		rest := ui[m+len(pair.modal):]
+		next := strings.Index(rest, `<div class="modal-overlay"`)
+		if next < 0 {
+			next = len(rest)
+		}
+		if !strings.Contains(rest[:next], pair.field) {
+			t.Errorf("field %s is not inside %s", pair.field, pair.modal)
 		}
 	}
 }

@@ -1305,12 +1305,22 @@
     .import-row input { accent-color: var(--primary); }
 
     /* Settings page */
-    .settings-group-title { font-size: 0.95rem; color: #fff; margin: 22px 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+    .settings-group-title { grid-column: 1 / -1; font-size: 0.95rem; color: #fff; margin: 22px 0 3px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
     .settings-group-title:first-of-type { margin-top: 0; }
+    /* Two columns on a desktop so the settings page does not stretch a single
+       row of controls across the full window. Below that the cards stack. */
+    .settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 20px; margin-bottom: 20px; align-items: start; }
+    @media (max-width: 980px) { .settings-grid { grid-template-columns: minmax(0, 1fr); } }
+    /* A labelled row with its control on the right. The password fields and the
+       long explanations moved into modals, so a row is often all that is left. */
+    .card-row { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+    .card-row-title { font-size: 0.92rem; color: #fff; font-weight: 600; }
+    .card-row-sub { font-size: 0.8rem; color: var(--muted); margin: 2px 0 0; line-height: 1.45; }
+    .listen-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 12px; }
     /* Two switches that answer the same question share one card, stacked as
        rows. A card each made the group read as three unrelated settings. */
     .proxy-row + .proxy-row { margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--border); }
-    .proxy-row-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; gap: 12px; }
+    .proxy-row-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; gap: 12px; }
     /* Second topic inside one card. The red rule keeps a destructive control
        from reading as a continuation of the ordinary form above it. */
     .settings-subsection { margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--border); }
@@ -2042,119 +2052,83 @@
     </div>
 
     <!-- SECURITY -->
-    <h3 class="settings-group-title">🔐 Security</h3>
+    <div class="settings-grid">
 
+    <!-- SECURITY -->
+    <h3 class="settings-group-title">🔐 Security</h3>
     <div class="card">
-      <h3 style="margin:0 0 4px; font-size:1rem; color:#fff;">Change Password</h3>
-      <p style="font-size:0.85rem; color:var(--muted); margin-bottom:14px;">Update the password used to sign in to this dashboard.</p>
-      <div class="form-group">
-        <label>Current password</label>
-        <input type="password" id="set-cur-pw" autocomplete="current-password" placeholder="Current password">
+      <div class="card-row">
+        <div>
+          <div class="card-row-title">Change Password</div>
+          <div class="card-row-sub">Update the dashboard sign-in password.</div>
+        </div>
+        <button class="btn" onclick="openPwModal()">Change</button>
       </div>
-      <div class="form-group">
-        <label>New password</label>
-        <input type="password" id="set-new-pw" autocomplete="new-password" placeholder="At least 6 characters">
-      </div>
-      <div class="form-group">
-        <label>Confirm new password</label>
-        <input type="password" id="set-confirm-pw" autocomplete="new-password" placeholder="Repeat new password">
+      <div class="card-row" style="margin-top:14px; padding-top:14px; border-top:1px solid var(--border);">
+        <div>
+          <div class="card-row-title">Reset Password</div>
+          <div class="card-row-sub">Restore the built-in default. Loopback only.</div>
+        </div>
+        <button class="btn" id="pw-reset-btn" onclick="resetPasswordConfirm()" style="border-color:var(--danger); color:var(--danger);">Reset</button>
       </div>
       <div id="pw-change-msg" class="settings-msg"></div>
-      <button class="btn btn-primary" id="pw-change-btn" onclick="changePassword()" style="width:100%; justify-content:center;">Update Password</button>
-
-      <!-- Destructive half of the same topic. It stays inside the one Security
-           card rather than getting a card of its own, but keeps a red rule so
-           it is not mistaken for the ordinary form above it. -->
-      <div class="settings-subsection settings-subsection-danger">
-        <h3 style="margin:0 0 4px; font-size:1rem; color:#fff;">Reset Password</h3>
-        <p style="font-size:0.85rem; color:var(--muted); margin-bottom:12px;">Clears the stored password and restores the built-in default, so you can get back in if the password is lost.</p>
-        <div class="settings-warn">
-          ⚠️ Anyone who can reach this dashboard on this machine can use this to
-          regain access. Only works from localhost. You will have to sign in
-          again afterwards.
-        </div>
-        <div id="pw-reset-msg" class="settings-msg"></div>
-        <button class="btn" id="pw-reset-btn" onclick="resetPasswordConfirm()" style="width:100%; justify-content:center; border-color:var(--danger); color:var(--danger);">Reset to Default Password</button>
-      </div>
+      <div id="pw-reset-msg" class="settings-msg"></div>
     </div>
 
     <!-- CLOUDFLARE / REVERSE PROXY -->
     <h3 class="settings-group-title">🌐 Cloudflare / Reverse Proxy</h3>
-    <p style="font-size: 0.85rem; color: var(--muted); margin: -6px 0 14px;">
-      This router speaks plain HTTP and has no TLS of its own, so it is meant to
-      sit behind Cloudflare Tunnel or another reverse proxy that terminates
-      HTTPS. The two switches below fix the problems that setup creates. Use
-      <strong>Copy config</strong> to get a ready-to-paste cloudflared file.
-    </p>
-
     <div class="card">
       <div class="proxy-row">
         <div class="proxy-row-head">
-          <h3 style="margin:0; font-size:1rem; color: #fff;"><span class="msym" style="font-size:17px;">alt_route</span> Trust proxy headers</h3>
+          <h3 style="margin:0; font-size:0.95rem; color: #fff;"><span class="msym" style="font-size:17px;">alt_route</span> Trust proxy headers</h3>
           <label class="switch">
             <input type="checkbox" id="set-trust-proxy">
             <span class="slider"></span>
           </label>
         </div>
-        <p style="font-size: 0.85rem; color: var(--muted); margin-bottom: 12px;">
-          Reads <code>X-Forwarded-For</code> to identify the real client. Without
-          it every visitor looks like the proxy's own IP, so five wrong passwords
-          from <em>anyone</em> lock out <em>everyone</em>.
+        <p class="card-row-sub">
+          Reads <code>X-Forwarded-For</code> for the real client IP. Off, one
+          attacker's wrong guesses lock out everyone.
         </p>
         <div class="settings-warn" id="set-trust-proxy-warn">
-          ⚠️ Only turn this on once the port is NOT reachable directly from the
-          internet. A direct client could forge the header to dodge the login
-          limiter.
+          ⚠️ Enable only once the port is not reachable directly.
         </div>
       </div>
 
       <div class="proxy-row">
         <div class="proxy-row-head">
-          <h3 style="margin:0; font-size:1rem; color: #fff;"><span class="msym" style="font-size:17px;">lock</span> Secure session cookie</h3>
+          <h3 style="margin:0; font-size:0.95rem; color: #fff;"><span class="msym" style="font-size:17px;">lock</span> Secure session cookie</h3>
           <label class="switch">
             <input type="checkbox" id="set-cookie-secure">
             <span class="slider"></span>
           </label>
         </div>
-        <p style="font-size: 0.85rem; color: var(--muted); margin-bottom: 12px;">
-          Adds the <code>Secure</code> flag to the login cookie so browsers never
-          send it over an unencrypted hop. Turn on when the public URL is HTTPS.
+        <p class="card-row-sub">
+          Adds the <code>Secure</code> flag so the login cookie is never sent
+          over plain HTTP. Turn on when the public URL is HTTPS.
         </p>
-        <div class="settings-warn">
-          ⚠️ If the site is HTTPS but the origin sees plain HTTP, the cookie would
-          otherwise be sendable in the clear. Leave off only while testing over
-          plain HTTP on localhost.
-        </div>
       </div>
     </div>
 
-    <!-- Tunnel setup and the listen address describe the same deployment, so
-         they share one card: the address is what the tunnel dials, and the two
-         buttons act on both. -->
-    <div class="card" style="margin-top: 14px;">
-      <h3 style="margin:0 0 4px; font-size:1rem; color:#fff;">📡 Active listen address</h3>
-      <p style="font-size:0.85rem; color:var(--muted); margin-bottom:12px;">
-        Fixed when the process starts — changing it needs a restart with
-        <code>HOST=127.0.0.1</code>, because the listening socket cannot be
-        rebound while running.
-      </p>
-      <div class="grid">
+    <div class="card">
+      <div class="card-row-title"><span class="msym" style="font-size:17px;">dns</span> Listen address</div>
+      <p class="card-row-sub">Fixed at start — changing it needs a restart with <code>HOST=127.0.0.1</code>.</p>
+      <div class="listen-pair">
         <div>
-          <div style="font-size:0.78rem; color:var(--muted); margin-bottom:2px;">HOST</div>
+          <div class="card-row-sub" style="margin:0 0 2px;">HOST</div>
           <code id="set-listen-host" style="color:#fff;">—</code>
         </div>
         <div>
-          <div style="font-size:0.78rem; color:var(--muted); margin-bottom:2px;">PORT</div>
+          <div class="card-row-sub" style="margin:0 0 2px;">PORT</div>
           <code id="set-listen-port" style="color:#fff;">—</code>
         </div>
       </div>
-      <div class="settings-warn" id="set-bind-warn" style="margin-top:12px; display:none;">
-        ⚠️ Listening on <strong>0.0.0.0</strong> means the port is reachable
-        directly, bypassing Cloudflare. Restart with <code>HOST=127.0.0.1</code>
-        so only the tunnel can reach it.
+      <div class="settings-warn" id="set-bind-warn" style="display:none;">
+        ⚠️ Reachable directly on 0.0.0.0, bypassing Cloudflare. Restart with
+        <code>HOST=127.0.0.1</code>.
       </div>
       <div style="display:flex; gap:8px; margin-top:14px; flex-wrap:wrap;">
-        <button class="btn" onclick="applyCloudflarePreset()"><span class="msym" style="font-size:15px;">bolt</span> Enable Cloudflare mode</button>
+        <button class="btn btn-primary" onclick="applyCloudflarePreset()"><span class="msym" style="font-size:15px;">bolt</span> Enable Cloudflare mode</button>
         <button class="btn" onclick="showCloudflaredConfig()">📋 Copy config</button>
       </div>
       <div id="cf-msg" class="settings-msg"></div>
@@ -2162,51 +2136,23 @@
 
     <!-- BACKUP -->
     <h3 class="settings-group-title">💾 Backup & Restore</h3>
-    <p style="font-size: 0.85rem; color: var(--muted); margin: -6px 0 14px;">
-      Download a copy of this router's whole configuration — connections, keys,
-      combos and settings — or restore one you saved earlier.
-    </p>
-
-    <div class="grid">
-      <div class="card">
-        <h3 style="margin:0 0 4px; font-size:1rem; color:#fff;">Download Backup</h3>
-        <p style="font-size:0.85rem; color:var(--muted); margin-bottom:12px;">
-          Saves a single JSON file containing every connection, API key, combo and
-          setting.
-        </p>
-        <div class="settings-warn">
-          ⚠️ The file contains your provider tokens and password hash in plain text,
-          so it can be used to sign in. Keep it somewhere private.
+    <div class="card">
+      <div class="card-row">
+        <div>
+          <div class="card-row-title">Download Backup</div>
+          <div class="card-row-sub">One JSON file with every connection, API key, combo and setting.</div>
         </div>
-        <div class="form-group">
-          <label>Confirm your password</label>
-          <input type="password" id="backup-pw" autocomplete="current-password" placeholder="Dashboard password">
-        </div>
-        <div id="backup-msg" class="settings-msg"></div>
-        <button class="btn btn-primary" id="backup-btn" onclick="downloadBackup()" style="width:100%; justify-content:center;">⬇️ Download Backup</button>
+        <button class="btn" onclick="openBackupModal()">Download</button>
       </div>
-
-      <div class="card" style="border-left:3px solid var(--danger);">
-        <h3 style="margin:0 0 4px; font-size:1rem; color:#fff;">Restore From Backup</h3>
-        <p style="font-size:0.85rem; color:var(--muted); margin-bottom:12px;">
-          Replaces everything listed above with the contents of the file.
-        </p>
-        <div class="settings-warn">
-          ⚠️ This is a full replace, not a merge. Connections, API keys, combos and
-          settings that are not in the file will be deleted. Usage history is kept.
+      <div class="card-row" style="margin-top:14px; padding-top:14px; border-top:1px solid var(--border);">
+        <div>
+          <div class="card-row-title">Restore From Backup</div>
+          <div class="card-row-sub">Full replace, not a merge. Usage history is kept.</div>
         </div>
-        <div class="form-group">
-          <label>Backup file (.json)</label>
-          <input type="file" id="restore-file" accept="application/json,.json" onchange="onRestoreFileChosen()">
-        </div>
-        <div class="form-group">
-          <label>Confirm your password</label>
-          <input type="password" id="restore-pw" autocomplete="current-password" placeholder="Dashboard password">
-        </div>
-        <div id="restore-preview"></div>
-        <div id="restore-msg" class="settings-msg"></div>
-        <button class="btn" id="restore-btn" onclick="restoreBackup()" style="width:100%; justify-content:center; border-color:var(--danger); color:var(--danger);">⬆️ Restore &amp; Replace</button>
+        <button class="btn" onclick="openRestoreModal()" style="border-color:var(--danger); color:var(--danger);">Restore</button>
       </div>
+      <div id="backup-msg" class="settings-msg"></div>
+      <div id="restore-msg" class="settings-msg"></div>
     </div>
 
   </div>
@@ -2430,6 +2376,75 @@
   </script>
 
 <!-- LOGIN MODAL -->
+<!-- The password prompts live in modals rather than inline: the fields are
+     only needed at the moment of the action, and inline they turned the
+     Settings page into a wall of inputs. -->
+<div class="modal-overlay" id="pw-modal">
+  <div class="modal-box" style="max-width: 420px;">
+    <h2 style="font-size: 1.05rem; margin-bottom: 14px;">Change Password</h2>
+    <div class="form-group">
+      <label>Current password</label>
+      <input type="password" id="set-cur-pw" autocomplete="current-password" placeholder="Current password">
+    </div>
+    <div class="form-group">
+      <label>New password</label>
+      <input type="password" id="set-new-pw" autocomplete="new-password" placeholder="At least 6 characters">
+    </div>
+    <div class="form-group">
+      <label>Confirm new password</label>
+      <input type="password" id="set-confirm-pw" autocomplete="new-password" placeholder="Repeat new password">
+    </div>
+    <div id="pw-modal-msg" class="settings-msg"></div>
+    <div style="display:flex; gap:10px; justify-content:flex-end;">
+      <button class="btn" onclick="closeModal('pw-modal')">Cancel</button>
+      <button class="btn btn-primary" id="pw-change-btn" onclick="changePassword()">Update</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="backup-modal">
+  <div class="modal-box" style="max-width: 420px;">
+    <h2 style="font-size: 1.05rem; margin-bottom: 6px;">Download Backup</h2>
+    <p style="font-size: 0.82rem; color: var(--muted); margin-bottom: 12px;">
+      The file holds your provider tokens and password hash in plain text.
+      Keep it somewhere private.
+    </p>
+    <div class="form-group">
+      <label>Confirm your password</label>
+      <input type="password" id="backup-pw" autocomplete="current-password" placeholder="Dashboard password">
+    </div>
+    <div id="backup-modal-msg" class="settings-msg"></div>
+    <div style="display:flex; gap:10px; justify-content:flex-end;">
+      <button class="btn" onclick="closeModal('backup-modal')">Cancel</button>
+      <button class="btn btn-primary" id="backup-btn" onclick="downloadBackup()">Download</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="restore-modal">
+  <div class="modal-box" style="max-width: 460px;">
+    <h2 style="font-size: 1.05rem; margin-bottom: 6px;">Restore From Backup</h2>
+    <p style="font-size: 0.82rem; color: var(--muted); margin-bottom: 12px;">
+      A full replace, not a merge. Connections, API keys, combos and settings
+      missing from the file will be deleted. Usage history is kept.
+    </p>
+    <div class="form-group">
+      <label>Backup file (.json)</label>
+      <input type="file" id="restore-file" accept="application/json,.json" onchange="onRestoreFileChosen()">
+    </div>
+    <div id="restore-preview"></div>
+    <div class="form-group">
+      <label>Confirm your password</label>
+      <input type="password" id="restore-pw" autocomplete="current-password" placeholder="Dashboard password">
+    </div>
+    <div id="restore-modal-msg" class="settings-msg"></div>
+    <div style="display:flex; gap:10px; justify-content:flex-end;">
+      <button class="btn" onclick="closeModal('restore-modal')">Cancel</button>
+      <button class="btn" id="restore-btn" onclick="restoreBackup()" style="border-color:var(--danger); color:var(--danger);">Restore &amp; Replace</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="update-modal">
   <div class="modal-box" style="max-width: 520px;">
     <h2 style="font-size: 1.15rem; margin-bottom: 4px;" id="update-modal-title">Update available</h2>
@@ -3443,9 +3458,9 @@
     const cur = document.getElementById("set-cur-pw").value;
     const nw = document.getElementById("set-new-pw").value;
     const conf = document.getElementById("set-confirm-pw").value;
-    if (!cur || !nw) return setMsg("pw-change-msg", "Fill in your current and new password.", false);
-    if (nw.length < 6) return setMsg("pw-change-msg", "New password must be at least 6 characters.", false);
-    if (nw !== conf) return setMsg("pw-change-msg", "The two new passwords do not match.", false);
+    if (!cur || !nw) return setMsg("pw-modal-msg", "Fill in your current and new password.", false);
+    if (nw.length < 6) return setMsg("pw-modal-msg", "New password must be at least 6 characters.", false);
+    if (nw !== conf) return setMsg("pw-modal-msg", "The two new passwords do not match.", false);
 
     const btn = document.getElementById("pw-change-btn");
     btn.disabled = true;
@@ -3460,17 +3475,19 @@
         // The server says "Unauthorized" here, which does not tell the operator
         // which field was wrong.
         const m = res.status === 401 ? "Your current password is incorrect." : errorMessage(data, res.status);
-        return setMsg("pw-change-msg", m, false);
+        return setMsg("pw-modal-msg", m, false);
       }
       document.getElementById("set-cur-pw").value = "";
       document.getElementById("set-new-pw").value = "";
       document.getElementById("set-confirm-pw").value = "";
-      setMsg("pw-change-msg", "✅ Password updated.", true);
+      setMsg("pw-modal-msg", "✅ Password updated.", true);
+        closeModal("pw-modal");
+        setMsg("pw-modal-msg", "✅ Password updated.", true);
       // The warning only exists while the built-in default is active, so it has
       // to be re-evaluated rather than left on screen.
       refreshDefaultPasswordFlag();
     } catch (e) {
-      setMsg("pw-change-msg", "Network error: " + e.message, false);
+      setMsg("pw-modal-msg", "Network error: " + e.message, false);
     } finally {
       btn.disabled = false;
     }
@@ -3517,7 +3534,7 @@
 
   async function downloadBackup() {
     const pw = backupPassword("backup-pw");
-    if (!pw) return setMsg("backup-msg", "Enter your password to confirm.", false);
+    if (!pw) return setMsg("backup-modal-msg", "Enter your password to confirm.", false);
 
     const btn = document.getElementById("backup-btn");
     btn.disabled = true;
@@ -3528,7 +3545,7 @@
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         const m = res.status === 401 ? "That password is not correct." : errorMessage(data, res.status);
-        return setMsg("backup-msg", m, false);
+        return setMsg("backup-modal-msg", m, false);
       }
 
       // Save via a blob rather than navigating to the URL: a plain link would
@@ -3547,9 +3564,11 @@
       setTimeout(() => URL.revokeObjectURL(url), 10000);
 
       document.getElementById("backup-pw").value = "";
-      setMsg("backup-msg", "✅ Backup downloaded.", true);
+      setMsg("backup-modal-msg", "✅ Backup downloaded.", true);
+        closeModal("backup-modal");
+        setMsg("backup-modal-msg", "✅ Backup downloaded.", true);
     } catch (e) {
-      setMsg("backup-msg", "Network error: " + e.message, false);
+      setMsg("backup-modal-msg", "Network error: " + e.message, false);
     } finally {
       btn.disabled = false;
     }
@@ -3613,8 +3632,8 @@
     const input = document.getElementById("restore-file");
     const pw = backupPassword("restore-pw");
     const file = input.files && input.files[0];
-    if (!file) return setMsg("restore-msg", "Choose a backup file first.", false);
-    if (!pw) return setMsg("restore-msg", "Enter your password to confirm.", false);
+    if (!file) return setMsg("restore-modal-msg", "Choose a backup file first.", false);
+    if (!pw) return setMsg("restore-modal-msg", "Enter your password to confirm.", false);
 
     if (!confirm(
       "Restore " + file.name + "?\n\n" +
@@ -3630,7 +3649,7 @@
       try {
         payload = JSON.parse(text);
       } catch (e) {
-        return setMsg("restore-msg", "That file is not valid JSON.", false);
+        return setMsg("restore-modal-msg", "That file is not valid JSON.", false);
       }
       payload.password = pw;
 
@@ -3642,15 +3661,17 @@
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         const m = res.status === 401 ? "That password is not correct." : errorMessage(data, res.status);
-        return setMsg("restore-msg", m, false);
+        return setMsg("restore-modal-msg", m, false);
       }
 
-      setMsg("restore-msg", "✅ Restored. Reloading…", true);
+      setMsg("restore-modal-msg", "✅ Restored. Reloading…", true);
+        closeModal("restore-modal");
+        setMsg("restore-modal-msg", "✅ Restored. Reloading…", true);
       // Everything on screen now describes the old configuration, so reload
       // rather than trying to patch each view in place.
       setTimeout(() => location.reload(), 900);
     } catch (e) {
-      setMsg("restore-msg", "Network error: " + e.message, false);
+      setMsg("restore-modal-msg", "Network error: " + e.message, false);
     } finally {
       btn.disabled = false;
     }
@@ -3691,6 +3712,38 @@
 
   function closeModal(id) {
     document.getElementById(id).classList.remove("active");
+  }
+
+  // The Settings rows only need the password at the moment of the action, so the
+  // prompts live in modals. Each opener clears the previous message and any
+  // secret left in the field, so reopening never shows a stale error or a
+  // password from last time.
+  function openSettingsModal(id, msgId, fields) {
+    setMsg(msgId, "", true);
+    fields.forEach(function (f) {
+      const el = document.getElementById(f);
+      if (el) el.value = "";
+    });
+    document.getElementById(id).classList.add("active");
+    const first = document.getElementById(fields[0]);
+    if (first) first.focus();
+  }
+
+  function openPwModal() {
+    openSettingsModal("pw-modal", "pw-modal-msg", ["set-cur-pw", "set-new-pw", "set-confirm-pw"]);
+  }
+
+  function openBackupModal() {
+    openSettingsModal("backup-modal", "backup-modal-msg", ["backup-pw"]);
+  }
+
+  function openRestoreModal() {
+    setMsg("restore-modal-msg", "", true);
+    const f = document.getElementById("restore-file");
+    if (f) f.value = "";
+    const p = document.getElementById("restore-preview");
+    if (p) p.innerHTML = "";
+    openSettingsModal("restore-modal", "restore-modal-msg", ["restore-pw"]);
   }
 
   // ----------------------------------------------------------------
