@@ -298,3 +298,38 @@ func TestSettingsCardsEndOnOneLine(t *testing.T) {
 		}
 	}
 }
+
+// TestSettingsPaneClosesBeforeTheNextPane: the settings pane once swallowed the
+// three panes after it -- its closing </div> sat at the end of <main> instead of
+// before tab-proxies. Total div counts still balanced, so a count check passed
+// while navigateTab('console') hid the whole chain: turning settings inactive
+// set display:none on the pane that *contained* the console. Each pane must be a
+// sibling, so the depth has to return to zero before the next pane opens.
+func TestSettingsPaneClosesBeforeTheNextPane(t *testing.T) {
+	ui := readEmbeddedUI(t)
+
+	panes := regexp.MustCompile(`<div id="tab-([a-z-]+)" class="tab-pane">`).FindAllStringSubmatch(ui, -1)
+	if len(panes) < 2 {
+		t.Fatal("no tab panes found")
+	}
+	for i := 0; i < len(panes)-1; i++ {
+		a, b := panes[i][1], panes[i+1][1]
+		start := strings.Index(ui, `<div id="tab-`+a) + len(`<div id="tab-`+a)
+		end := strings.Index(ui, `<div id="tab-`+b)
+		if end < 0 {
+			t.Fatalf("pane %q not found", b)
+		}
+		depth := 1
+		for _, m := range regexp.MustCompile(`<div\b|</div>`).FindAllString(ui[start:end], -1) {
+			if strings.HasPrefix(m, "</div>") {
+				depth--
+			} else {
+				depth++
+			}
+		}
+		if depth != 0 {
+			t.Errorf("tab-%s is still open (depth %d) when tab-%s opens: %s swallows %s, "+
+				"so hiding %s also hides %s", a, depth, b, a, b, a, b)
+		}
+	}
+}
