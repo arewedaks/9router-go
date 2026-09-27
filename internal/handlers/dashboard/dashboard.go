@@ -230,7 +230,17 @@ func (h *Handler) ServeUI(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Dashboard UI not found", http.StatusNotFound)
 		return
 	}
+	// The page is one self-contained file and carries every behaviour change, so
+	// a cached copy silently keeps serving the old UI after an upgrade. no-cache
+	// makes the browser revalidate on every load; the ETag turns that
+	// revalidation into a cheap 304 instead of resending the whole file.
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("ETag", assetETag(content))
+	if match := r.Header.Get("If-None-Match"); match != "" && match == assetETag(content) {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(content)
 }
@@ -274,14 +284,14 @@ func (h *Handler) ServeProviderLogo(w http.ResponseWriter, r *http.Request) {
 	// ETag lets a hard-refresh still revalidate instead of re-downloading.
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Cache-Control", "public, max-age=86400")
-	w.Header().Set("ETag", logoETag(data))
+	w.Header().Set("ETag", assetETag(data))
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(data)
 }
 
-// logoETag derives a stable validator from the asset bytes. FNV-1a is plenty:
+// assetETag derives a stable validator from the asset bytes. FNV-1a is plenty:
 // this only has to change when the file does, not resist an attacker.
-func logoETag(data []byte) string {
+func assetETag(data []byte) string {
 	h := fnv.New64a()
 	_, _ = h.Write(data)
 	return `"` + strconv.FormatUint(h.Sum64(), 36) + `"`
@@ -1772,6 +1782,12 @@ func (h *Handler) HandleGetSettings(w http.ResponseWriter, r *http.Request) {
 		"proxyEnvCookieSecure": strings.EqualFold(os.Getenv("AUTH_COOKIE_SECURE"), "true"),
 		"listenHost":           db.ListenHost(),
 		"listenPort":           db.ListenPort(),
+		"publicBaseURL":        s.PublicBaseURL,
+		// dbPath is the path the operator configured explicitly, empty when the
+		// process derived one. The generator omits the flag in that case rather
+		// than guessing a path: with no flag the process re-derives the same one,
+		// while a wrong guess silently starts on an empty database.
+		"dbPath":               strings.TrimSpace(os.Getenv("DB_PATH")),
 		"behindProxySuggested": db.ListenHost() == "127.0.0.1" || db.ListenHost() == "localhost",
 	}
 
@@ -1835,6 +1851,10 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		PonytailLevel         *string `json:"ponytailLevel"`
 		InjectionGuardEnabled *bool   `json:"injectionGuardEnabled"`
 		AutoUpdate            *bool   `json:"autoUpdate"`
+		// PublicBaseURL overrides the address clients are handed. It exists for
+		// installs behind a domain the request cannot reveal; empty restores the
+		// derived-from-request behaviour.
+		PublicBaseURL *string `json:"publicBaseURL"`
 		// Headroom is the optional external compression proxy. The URL and
 		// timeout are accepted here so the Token Saver page saves in one request.
 		HeadroomEnabled        *bool   `json:"headroomEnabled"`
@@ -1907,6 +1927,18 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		h.tokenSaver.SetPonytail(*req.PonytailEnabled, h.tokenSaver.PonytailLevel())
 		s.PonytailEnabled = *req.PonytailEnabled
 		s.PonytailLevel = h.tokenSaver.PonytailLevel()
+	}
+	// The base URL is what every client is told to paste, so a bad value is
+	// rejected here rather than quietly repaired: silently dropping the part it
+	// dislikes would hand out an address that resolves somewhere else, and the
+	// operator would only find out from a failed request much later.
+	if req.PublicBaseURL != nil {
+		base, err := db.NormalizePublicBaseURL(*req.PublicBaseURL)
+		if err != nil {
+			handlerutil.WriteJSONError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		s.PublicBaseURL = base
 	}
 	if req.HeadroomEnabled != nil || req.HeadroomUrl != nil || req.HeadroomTimeoutMs != nil {
 		enabled := h.tokenSaver.HeadroomEnabled()
@@ -2015,6 +2047,9 @@ func (h *Handler) HandleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		// instead of guessing. Absent means the default, which is "required".
 		"requireApiKey":       s.RequireAPIKey == nil || *s.RequireAPIKey,
 		"allowRemoteNoApiKey": s.AllowRemoteNoApiKey != nil && *s.AllowRemoteNoApiKey,
+		// Echoed back normalised, so the endpoint row settles on what was
+		// actually stored rather than on the raw text that was typed.
+		"publicBaseURL": s.PublicBaseURL,
 	})
 }
 

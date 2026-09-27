@@ -1728,6 +1728,23 @@
           <input class="endpoint-url" id="endpoint-docker" readonly value="">
           <button class="btn btn-sm" onclick="copyEndpoint('endpoint-docker', this)">Copy</button>
         </div>
+        <!-- The public address clients are told to use. Editable because a
+             tunnel or split-horizon DNS means the origin the browser used is
+             not always the origin other machines can reach. -->
+        <div class="endpoint-row">
+          <span class="endpoint-tag">Domain</span>
+          <input class="endpoint-url" id="endpoint-public" spellcheck="false"
+                 placeholder="https://api.example.com" value="">
+          <button class="btn btn-sm" id="endpoint-public-copy" style="display:none;"
+                  onclick="copyEndpoint('endpoint-public', this)">Copy</button>
+          <button class="btn btn-sm btn-primary" onclick="savePublicBaseURL(this)">Save</button>
+        </div>
+        <div class="settings-msg" id="endpoint-public-msg"></div>
+        <p style="font-size:0.72rem; color:var(--muted); margin:6px 0 0;">
+          Set a domain when the gateway is reached through a tunnel or proxy and
+          the address in your browser is not the one clients should use. Leave
+          empty to use the address this page was loaded from.
+        </p>
       </div>
     </div>
 
@@ -7447,11 +7464,75 @@
         ? `http://host.docker.internal:${listenPortValue()}/v1`
         : `${origin}/v1`;
     }
+    // A configured domain is the one address every client has to use,
+    // containers included: host.docker.internal resolves to the container's
+    // own machine, so against a remote gateway it points at the wrong host
+    // entirely. Both loopback rows also collapse into the domain row here,
+    // so they are hidden rather than shown twice under two names. With no
+    // domain set they stay, because on a bare host they are the only two
+    // addresses that actually differ.
+    if (String((settings && settings.publicBaseURL) || "").trim()) {
+      for (const el of document.querySelectorAll("#endpoint-local, #endpoint-docker")) {
+        const row = el.closest(".endpoint-row");
+        if (row) row.style.display = "none";
+      }
+    }
     // A loopback host means only this machine can reach the proxy; anything
     // else is exposed, and that is worth saying out loud next to the key list.
     const localHosts = ["localhost", "127.0.0.1", "::1", "0.0.0.0", ""];
     const warn = document.getElementById("endpoint-exposed-warn");
     if (warn) warn.style.display = localHosts.includes(host) ? "none" : "";
+    renderPublicBaseURL(settings && settings.publicBaseURL);
+  }
+
+  // The configured domain wins over the derived origin, because that is the
+  // whole point of setting it. With none saved the input stays empty: the Local
+  // row above already states the effective address, so a second copy of it here
+  // only adds noise.
+  function renderPublicBaseURL(value) {
+    const el = document.getElementById("endpoint-public");
+    if (!el) return;
+    const set = String(value || "").trim();
+    // The field carries the /v1 suffix that every other row and message shows,
+    // because the address a client copies has to be the one it can call. Only
+    // the bare origin is stored: the server rejects a configured path.
+    const shown = set ? set + "/v1" : "";
+    if (document.activeElement !== el) el.value = shown;
+    // With a domain set it is the only row left standing, so it carries the
+    // highlight that the Local row otherwise owns.
+    const tag = el.closest(".endpoint-row").querySelector(".endpoint-tag");
+    if (tag) tag.classList.toggle("active", !!set);
+    const copy = document.getElementById("endpoint-public-copy");
+    if (copy) copy.style.display = set ? "" : "none";
+  }
+
+  async function savePublicBaseURL() {
+    const el = document.getElementById("endpoint-public");
+    // Strip the /v1 the field displays. The server stores an origin and rejects
+    // a path, so echoing the shown value back verbatim would be refused as
+    // "must not include a path".
+    const value = (el.value || "").trim().replace(/\/+$/, "").replace(/\/v1$/, "");
+    try {
+      const res = await fetch("/api/dashboard/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ publicBaseURL: value }),
+      });
+      // The server is authoritative on the stored value: it normalises the
+      // scheme and strips a trailing slash, so echoing the raw input back
+      // would show something the server never saved.
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setMsg("endpoint-public-msg", data.error || "Could not save.", false);
+        return;
+      }
+      renderPublicBaseURL(data.publicBaseURL);
+      setMsg("endpoint-public-msg", data.publicBaseURL
+        ? "Clients should use " + data.publicBaseURL + "/v1"
+        : "Cleared — using this page's address.", true);
+    } catch (e) {
+      setMsg("endpoint-public-msg", "Could not save.", false);
+    }
   }
 
   // The port the process listens on, as reported by the server. Used only for
@@ -8910,7 +8991,14 @@
   // Reflects the reverse-proxy settings and the active listen address. Kept
   // separate from loadSettings so the Cloudflare card can refresh on its own
   // after a save without re-reading the token-saver switches.
+  //
+  // publicBaseURL and dbPath are kept here too, because the card's cloudflared
+  // config generator needs them and they arrive on the same payload.
+  let proxyCardPublicBaseURL = "";
+  let proxyCardDBPath = "";
   function applyProxySettingsToUI(s) {
+    proxyCardPublicBaseURL = String(s.publicBaseURL || "").trim();
+    proxyCardDBPath = String(s.dbPath || "").trim();
     const tp = document.getElementById("set-trust-proxy");
     const cs = document.getElementById("set-cookie-secure");
     if (tp) tp.checked = !!s.trustProxy;
@@ -8971,21 +9059,35 @@
   async function showCloudflaredConfig() {
     const port = (document.getElementById("set-listen-port") || {}).textContent || "20128";
     const base = window.location.origin;
+    // The card already knows the operator's domain, so the generated file uses
+    // it instead of a placeholder they would have to remember to edit. With no
+    // domain saved there is nothing to derive, and the placeholder stays as an
+    // obvious example rather than a plausible-looking wrong value.
+    const host = proxyCardPublicBaseURL
+      ? proxyCardPublicBaseURL.replace(/^[a-z]+:\/\//i, "").replace(/\/.*$/, "")
+      : "router.example.com";
+    // Only name the database when one was configured explicitly. With no flag
+    // the process derives the same path again; naming a made-up path here is
+    // how a copy-paste ends up on an empty database that looks like data loss.
+    const dbFlag = proxyCardDBPath ? " --db-path " + proxyCardDBPath : "";
     const text =
       "# ~/.cloudflared/config.yml\n" +
       "tunnel: <TUNNEL-ID>\n" +
       "credentials-file: /root/.cloudflared/<TUNNEL-ID>.json\n" +
       "ingress:\n" +
-      "  - hostname: router.example.com\n" +
+      "  - hostname: " + host + "\n" +
       "    service: http://127.0.0.1:" + port + "\n" +
       "  - service: http_status:404\n" +
       "\n" +
-      "# Then run the router itself with:\n" +
+      "# The two proxy switches live in Settings -> Cloudflare / Reverse Proxy.\n" +
+      "# Turn them on there: they are stored with the rest of the settings and\n" +
+      "# apply immediately, so they do not need to be passed as environment\n" +
+      "# variables.\n" +
+      "#\n" +
+      "# Then run the router with its socket on loopback, so only the tunnel can\n" +
+      "# reach it and Cloudflare cannot be bypassed:\n" +
       "HOST=127.0.0.1 \\\n" +
-      "TRUST_PROXY=true \\\n" +
-      "AUTH_COOKIE_SECURE=true \\\n" +
-      "INITIAL_PASSWORD='<strong-password>' \\\n" +
-      "  ./9router-go --port " + port + " --db-path /var/lib/9router/data.sqlite\n" +
+      "  ./9router-go --port " + port + dbFlag + "\n" +
       "\n" +
       "# Cloudflare dashboard: SSL/TLS -> Overview -> Full (never Flexible).\n" +
       "# Dashboard currently served from: " + base + "\n";
