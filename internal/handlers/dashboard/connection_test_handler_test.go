@@ -563,3 +563,64 @@ func TestTestConnection_CustomProviderNode(t *testing.T) {
 		t.Errorf("expected 401 rejection error, got %q", resBad.Error)
 	}
 }
+
+// --- generic probe: Cline token normalization + 402 verdict ------------------
+
+// TestProbeClineConnection_CatalogueProbe is the regression check for the Test
+// button on real Cline accounts: it probed with a chat call, which cannot judge
+// Cline (paid models answer 402 insufficient_credits, free-tier models flap
+// 429/500), so a good credential showed a different colour on every press. The
+// probe now uses the catalogue GET with the workos:-prefixed token + client
+// identity headers — 200 = valid, 401 = rejected, deterministic and free.
+func TestProbeClineConnection_CatalogueProbe(t *testing.T) {
+	cases := []struct {
+		name      string
+		status    int
+		wantValid bool
+		wantWarn  bool
+		wantErr   bool
+	}{
+		{"200 is a clean pass", 200, true, false, false},
+		{"401 rejects the credential", 401, false, false, true},
+		{"402 credits still validates", 402, true, true, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var gotAuth atomic.Value
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				gotAuth.Store(r.Header.Get("Authorization"))
+				w.WriteHeader(tc.status)
+			}))
+			t.Cleanup(srv.Close)
+			restoreClineCatalogURL(t, srv.URL)
+
+			h, _ := newProfileTestHandler(t)
+			out := h.probeClineConnection(
+				context.Background(),
+				map[string]any{"accessToken": "raw-workos-token"},
+				connectionTestResult{Provider: "cline", ConnectionID: "conn-1"},
+			)
+			if auth, _ := gotAuth.Load().(string); auth != "Bearer workos:raw-workos-token" {
+				t.Errorf("Authorization = %q, want the workos:-prefixed bearer like the chat path", auth)
+			}
+			if out.Valid != tc.wantValid {
+				t.Errorf("Valid = %v, want %v (error %q)", out.Valid, tc.wantValid, out.Error)
+			}
+			if (out.Warning != "") != tc.wantWarn {
+				t.Errorf("Warning = %q, want set=%v", out.Warning, tc.wantWarn)
+			}
+			if (out.Error != "") != tc.wantErr {
+				t.Errorf("Error = %q, want set=%v", out.Error, tc.wantErr)
+			}
+		})
+	}
+}
+
+// restoreClineCatalogURL repoints the catalogue endpoint at an httptest server
+// and restores it afterwards.
+func restoreClineCatalogURL(t *testing.T, url string) {
+	t.Helper()
+	orig := clineModelsURL
+	clineModelsURL = url
+	t.Cleanup(func() { clineModelsURL = orig })
+}

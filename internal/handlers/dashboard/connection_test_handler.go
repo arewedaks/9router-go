@@ -231,6 +231,9 @@ func (h *Handler) testConnection(ctx context.Context, connID string) (result con
 	if isAntigravityProviderID(conn.Provider) {
 		return h.probeAntigravityConnection(ctx, raw, out)
 	}
+	if isClineFamily(conn.Provider) {
+		return h.probeClineConnection(ctx, raw, out)
+	}
 	return h.probeGenericConnection(ctx, raw, out)
 }
 
@@ -506,11 +509,62 @@ func antigravityTokenExpired(raw map[string]any) bool {
 // This is intentionally conservative: providers whose auth surface cannot be
 // exercised by a chat call are reported as skipped (Valid=false, no Error) so
 // the UI can say "not verifiable" instead of inventing a verdict.
+// probeClineConnection validates a Cline / ClinePass credential with the model
+// CATALOGUE GET instead of a chat call. A chat probe cannot judge Cline: paid
+// models need credits (HTTP 402) and free-tier models flap (HTTP 429/500), so
+// the same good credential shows a different colour on every press. The
+// catalogue GET is free, unlimited, and deterministic — 200 = valid, 401/403 =
+// rejected.
+func (h *Handler) probeClineConnection(ctx context.Context, raw map[string]any, out connectionTestResult) connectionTestResult {
+	token := connString(raw, "accessToken", "access_token", "apiKey", "token", "key")
+	if token == "" {
+		out.Error = "No credential found on this connection (looked for accessToken / apiKey / token)."
+		return out
+	}
+	_, status, err := h.getClineCatalog(
+		endpointForCline(isClinePassProvider(out.Provider)), token, connectionTestTimeout())
+	if err != nil {
+		if ctx.Err() != nil {
+			out.Error = fmt.Sprintf("Test timed out after %ds.", int(connectionTestTimeout().Seconds()))
+			return out
+		}
+		out.Error = "Catalogue probe failed: " + err.Error()
+		return out
+	}
+	out.Status = status
+
+	switch {
+	case status == http.StatusOK:
+		out.Valid = true
+		out.TestedAt = time.Now().UTC().Format(time.RFC3339)
+	case status == 401 || status == 403:
+		out.Error = fmt.Sprintf("Credential rejected (HTTP %d): re-authenticate this Cline account.", status)
+	case status == 402:
+		out.Valid = true
+		out.Warning = "Credential is valid but the account is out of credits (HTTP 402)."
+	case status == 429:
+		out.Valid = true
+		out.Warning = "Cline rate-limited the probe (HTTP 429). The credential was not judged."
+	default:
+		out.Valid = true
+		out.Warning = fmt.Sprintf("Catalogue returned HTTP %d — the credential was accepted.", status)
+	}
+	return out
+}
+
 func (h *Handler) probeGenericConnection(ctx context.Context, raw map[string]any, out connectionTestResult) connectionTestResult {
 	apiKey := connString(raw, "apiKey", "api_key", "accessToken", "access_token", "token", "key", "copilotToken")
 	if apiKey == "" {
 		out.Error = "No credential found on this connection (looked for apiKey / accessToken / token)."
 		return out
+	}
+	// Same token normalization the chat path applies
+	// (handlers/chat.NormalizeProviderToken): Cline's API rejects a plain
+	// bearer and answers the misleading "latest version of Cline" 401 even
+	// when the credential is good.
+	switch out.Provider {
+	case "cline", "clinepass":
+		apiKey = providers.ClineAccessToken(apiKey)
 	}
 
 	cfg, ok := providers.KnownProviders[out.Provider]
@@ -590,6 +644,13 @@ func (h *Handler) probeGenericConnection(ctx context.Context, raw map[string]any
 	case resp.StatusCode == 429:
 		out.Valid = true
 		out.Warning = "Provider rate-limited the probe (HTTP 429). The credential was not judged."
+	case resp.StatusCode == 402:
+		// Auth was accepted (402 = payment/balance, not auth); the account is
+		// drained. Cline answers insufficient_credits here. Credential valid,
+		// account unusable until topped up.
+		out.Valid = true
+		out.Warning = fmt.Sprintf("Credential is valid but the account is out of credits (HTTP 402): %s",
+			truncate(sanitizeUpstreamText(text), 200))
 	default:
 		out.Error = fmt.Sprintf("HTTP %d: %s", resp.StatusCode, truncate(sanitizeUpstreamText(text), 240))
 	}
@@ -787,6 +848,10 @@ var genericProbeModels = map[string]string{
 	"groq":       "llama-3.1-8b-instant",
 	"mistral":    "mistral-small-latest",
 	"openrouter": "openai/gpt-4o-mini",
+	// Cline requires the modelType/model form and gates paid models behind
+	// credits; a free-tier flash model gets a clean 200 on a drained account.
+	"cline":      "google/gemma-4-26b-a4b-it:free",
+	"clinepass":  "cline-pass/deepseek-v4-flash",
 }
 
 // setProbeAuthHeader applies the provider's configured auth header/scheme.
