@@ -2336,6 +2336,11 @@
       <div id="res-grid" class="res-grid">
         <div class="res-empty">Loading resource metrics…</div>
       </div>
+      <div id="res-model-strip" style="margin-top:10px; display:flex; align-items:center; gap:8px; font-size:0.78rem; color:var(--muted);">
+        <button class="btn btn-sm" onclick="refreshModelCountTile()" title="Refresh the /v1/models count" style="padding:2px 8px;font-size:0.75rem;"><span class="msym" style="font-size:14px;vertical-align:-2px;">refresh</span></button>
+        <span>Models served by <code style="color:var(--text);">/v1/models</code>:</span>
+        <b id="res-model-count" style="font-variant-numeric:tabular-nums;color:var(--text);">…</b>
+      </div>
     </div>
 
     <div class="card" style="padding: 16px;">
@@ -3311,6 +3316,7 @@
   function startConsoleLogs() {
     if (consoleEventSource) return;
     startResourcePolling();
+    refreshModelCountTile();
     const statusBadge = document.getElementById("console-status-badge");
     if (statusBadge) {
       statusBadge.textContent = "● Connecting...";
@@ -3372,6 +3378,25 @@
     if (statusBadge) {
       statusBadge.textContent = "● Paused";
       statusBadge.className = "badge badge-idle";
+    }
+  }
+
+  // Model-count tile: how many ids /v1/models currently serves. Fetched once
+  // when the Console tab opens and on tile click — the list only changes on
+  // import/hide actions, so polling it every 5s would burn CPU for nothing.
+  async function refreshModelCountTile() {
+    const el = document.getElementById("res-model-count");
+    if (!el) return;
+    el.textContent = "…";
+    try {
+      const res = await api("/v1/models");
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const n = Array.isArray(data.data) ? data.data.length : (Array.isArray(data.models) ? data.models.length : 0);
+      el.textContent = String(n);
+    } catch (e) {
+      el.textContent = "n/a";
+      el.title = String(e);
     }
   }
 
