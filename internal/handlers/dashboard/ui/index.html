@@ -1320,6 +1320,9 @@
     .import-row .mnames { flex: 1 1 auto; min-width: 90px; display: flex; flex-direction: column; gap: 1px; overflow: hidden; }
     .import-row .msub { font-size: 0.68rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .import-row input { accent-color: var(--primary); }
+    /* Toolbar action buttons are icon-only: fixed-size squares, not the
+       flex-grow pills the combo cards use. */
+    .modal-toolbar .icon-btn-sm { flex: 0 0 auto; padding: 5px 7px; }
     .import-cat { font-size: 0.72rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); padding: 8px 4px 3px; border-bottom: 1px solid var(--border); user-select: none; }
 
     /* Settings page */
@@ -5651,9 +5654,18 @@
                  placeholder="Search model id or name..." autocomplete="off"
                  oninput="filterImportRows(this.value)">
           <span class="import-toolbar-count" id="import-count">0 of ${models.length} selected</span>
-          <button class="btn btn-sm" onclick="selectAllFreeImport()">Select all free</button>
-          <button class="btn btn-sm" onclick="toggleAllImport(true)">Select all</button>
-          <button class="btn btn-sm" onclick="toggleAllImport(false)">Select none</button>
+          <button class="icon-btn-sm" onclick="selectAllFreeImport()"
+                  title="Select all free models" aria-label="Select all free models">
+            <span class="msym">done_all</span>
+          </button>
+          <button class="icon-btn-sm" onclick="toggleAllImport(true)"
+                  title="Select all models" aria-label="Select all models">
+            <span class="msym">check_box</span>
+          </button>
+          <button class="icon-btn-sm" onclick="toggleAllImport(false)"
+                  title="Deselect all models" aria-label="Deselect all models">
+            <span class="msym">check_box_outline_blank</span>
+          </button>
         </div>
         <div class="modal-body">
           <div id="import-empty" class="import-empty" style="display:none;">No model matches that search.</div>
