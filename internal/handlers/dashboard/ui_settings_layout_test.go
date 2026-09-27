@@ -333,3 +333,32 @@ func TestSettingsPaneClosesBeforeTheNextPane(t *testing.T) {
 		}
 	}
 }
+
+// TestNoNativeBrowserDialogs: window.confirm/alert/prompt render browser chrome,
+// are suppressed when a page is not focused, and cannot be styled. The dashboard
+// replaces them with the in-app dialog (appConfirm/appAlert/appPrompt) and
+// non-blocking toasts, so a remaining native call is a regression.
+func TestNoNativeBrowserDialogs(t *testing.T) {
+	ui := readEmbeddedUI(t)
+
+	native := regexp.MustCompile(`(?m)^(\s*)(?:window\.)?(?:alert|confirm|prompt)\s*\(`)
+	for _, m := range native.FindAllStringSubmatchIndex(ui, -1) {
+		line := ui[m[0]:m[1]]
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "//") {
+			continue // prose about the dialogs, not a call
+		}
+		// The in-app wrappers legitimately contain those words in their names.
+		if strings.Contains(line, "appConfirm") || strings.Contains(line, "appAlert") || strings.Contains(line, "appPrompt") {
+			continue
+		}
+		t.Errorf("native browser dialog at: %s -- use appConfirm/appAlert/appPrompt or toast", trimmed)
+	}
+
+	// The helpers the replacement relies on must exist.
+	for _, need := range []string{"function appConfirm(", "function appAlert(", "function appPrompt(", "function toast("} {
+		if !strings.Contains(ui, need) {
+			t.Errorf("missing helper %s", need)
+		}
+	}
+}

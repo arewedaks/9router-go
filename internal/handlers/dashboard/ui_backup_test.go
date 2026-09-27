@@ -134,8 +134,13 @@ func TestUIBackupConfirmsBeforeRestoring(t *testing.T) {
 	}
 	body := ui[idx : idx+end]
 
-	if !strings.Contains(body, "confirm(") {
+	// The confirmation moved off window.confirm onto the in-app dialog
+	// (appConfirm), which blocks like the native one but matches the dashboard.
+	if !strings.Contains(body, "appConfirm(") {
 		t.Error("restoreBackup() does not confirm before replacing the configuration")
+	}
+	if strings.Contains(body, "confirm(") && !strings.Contains(body, "appConfirm(") {
+		t.Error("restoreBackup() went back to the native blocking confirm()")
 	}
 	if !strings.Contains(body, "location.reload()") {
 		t.Error("restoreBackup() does not reload, so the UI keeps showing the replaced configuration")

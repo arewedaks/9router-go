@@ -193,7 +193,7 @@ func TestUISettingsPageHasPasswordControls(t *testing.T) {
 	// Resetting restores the default password, so it must be confirmed first.
 	reset := ui[strings.Index(ui, "async function resetPasswordConfirm()"):]
 	reset = reset[:strings.Index(reset, "\n  }")]
-	if !strings.Contains(reset, "confirm(") {
+	if !strings.Contains(reset, "appConfirm(") {
 		t.Error("resetPasswordConfirm does not ask for confirmation before wiping the password")
 	}
 	// And the danger has to be visible on the page, not only in the dialog.
