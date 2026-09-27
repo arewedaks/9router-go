@@ -5639,6 +5639,7 @@
                  placeholder="Search model id or name..." autocomplete="off"
                  oninput="filterImportRows(this.value)">
           <span class="import-toolbar-count" id="import-count">0 of ${models.length} selected</span>
+          <button class="btn btn-sm" onclick="selectAllFreeImport()">Select all free</button>
           <button class="btn btn-sm" onclick="toggleAllImport(true)">Select all</button>
           <button class="btn btn-sm" onclick="toggleAllImport(false)">Select none</button>
         </div>
@@ -5676,6 +5677,25 @@
 
     const empty = document.getElementById("import-empty");
     if (empty) empty.style.display = shown === 0 ? "" : "none";
+  }
+
+  // Selects every model in the Free category (importState.models with
+  // isFree), regardless of search filtering. No free models → nothing happens.
+  function selectAllFreeImport() {
+    let changed = false;
+    for (const m of importState.models) {
+      if (m.isFree && !importState.selectedIds.has(m.id)) {
+        importState.selectedIds.add(m.id);
+        changed = true;
+      }
+    }
+    if (changed) {
+      document.querySelectorAll("#import-modal .import-row").forEach(row => {
+        const cb = row.querySelector(".import-cb");
+        if (cb && importState.selectedIds.has(cb.dataset.id)) cb.checked = true;
+      });
+      updateImportSelectedUI();
+    }
   }
 
   // Select all / none applies to the VISIBLE rows when a filter is active,

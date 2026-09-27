@@ -32,6 +32,14 @@ func TestUIImportModalHasTwoCategories(t *testing.T) {
 	if !strings.Contains(body, `class="import-row"`) || !strings.Contains(body, `class="import-cb"`) {
 		t.Error("row shape changed; search/select-all would break")
 	}
+	// Select-all-free: the toolbar button wires to a handler that only marks
+	// isFree models in the single-source-of-truth Set.
+	if !strings.Contains(ui, `onclick="selectAllFreeImport()"`) {
+		t.Error("toolbar has no Select all free button")
+	}
+	if fn := extractFunction(t, ui, "selectAllFreeImport"); !strings.Contains(fn, "m.isFree") {
+		t.Error("selectAllFreeImport must target isFree models only")
+	}
 }
 
 // The fetch handler must sort models alphabetically before responding, so
