@@ -234,6 +234,16 @@ func (h *Handler) fetchUpstreamModels(providerID, data string, timeout time.Dura
 		return h.fetchCodebuddyModels(canonical)
 	}
 
+	// MiMo Code Free is keyless and has no /models route either; Import is
+	// served from the platform model ids — see mimo_catalog.go.
+	if isMimoFreeProvider(canonical) || isMimoFreeProvider(providerID) {
+		return &ModelFetchResult{
+			Provider:  canonical,
+			Models:    mimoFreeStaticModels(),
+			Supported: true,
+		}, nil
+	}
+
 	// GitHub Copilot has a live per-account catalogue at api.githubcopilot.com/models
 	// that requires the Copilot bearer token plus the CLI identity headers, which
 	// the generic registry branch cannot express. Handle it explicitly; it falls

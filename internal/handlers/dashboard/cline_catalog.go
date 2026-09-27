@@ -34,10 +34,14 @@ import (
 // subscription-only model on the free Cline connection (which answers
 // `403 ENTITLEMENT_ERROR`) or vice versa.
 
-const (
+// The catalogue URLs are vars (not consts) so tests can repoint the probe at
+// an httptest server; production never mutates them.
+var (
 	clineModelsURL            = "https://api.cline.bot/api/v1/ai/cline/models"
 	clineRecommendedModelsURL = "https://api.cline.bot/api/v1/ai/cline/recommended-models"
+)
 
+const (
 	// clinePassModelPrefix is the ClinePass subscription namespace.
 	clinePassModelPrefix = "cline-pass/"
 )
