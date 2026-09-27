@@ -167,10 +167,18 @@ func twinmindContentText(content jsontext.Value) string {
 // twinmindModelPayload maps the requested model onto TwinMind's payload shape:
 // the literal "auto", or {"model_name": <id>} for an explicit pick. "auto" is
 // TwinMind's own free default and rides as a plain string.
+//
+// Imported ids carry the vendor prefix the catalogue adds to keep same-named
+// models distinct (google/gemini-3.7-flash); TwinMind itself only knows the
+// bare name, so the prefix is stripped before it is sent. A 422 here surfaced
+// as an unreadable gzip body, which is why the prefix must not leak upstream.
 func twinmindModelPayload(model string) any {
 	m := strings.TrimSpace(model)
 	if m == "" || m == "auto" {
 		return "auto"
+	}
+	if i := strings.IndexByte(m, '/'); i >= 0 {
+		m = m[i+1:]
 	}
 	return map[string]any{"model_name": m}
 }

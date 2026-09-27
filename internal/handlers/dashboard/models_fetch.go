@@ -197,6 +197,14 @@ func (h *Handler) fetchUpstreamModels(providerID, data string, timeout time.Dura
 		return h.fetchAntigravityModels(canonical, data, timeout)
 	}
 
+	// TwinMind has no OpenAI-style /models route either: its catalogue is
+	// GET /api/v3/chat/models with a tier map per model. Without this branch
+	// the generic lookup reported "does not support models listing". See
+	// twinmind_catalog.go.
+	if canonical == "twinmind" || providerID == "twinmind" {
+		return h.fetchTwinmindModels(providerID, data, timeout)
+	}
+
 	// Freebuff / Codebuff has no /models route either (404 on every candidate),
 	// so it too is served from a local catalogue — see freebuff_catalog.go.
 	// Without this a connected account imported zero models and the UI said

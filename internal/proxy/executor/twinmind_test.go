@@ -104,6 +104,30 @@ func TestForwardTwinMindNonStreamBuildsOneCompletion(t *testing.T) {
 	}
 }
 
+func TestForwardTwinMindStripsVendorPrefix(t *testing.T) {
+	upstream := twinmindSSEUpstream(t,
+		"data: {\"type\":\"done\"}\n\n",
+		func(r *http.Request, body string) {
+			if strings.Contains(body, `"model_name":"google/`) {
+				t.Errorf("vendor prefix leaked upstream: %s", body)
+			}
+			if !strings.Contains(body, `"model_name":"gemini-3.7-flash"`) {
+				t.Errorf("bare model name missing: %s", body)
+			}
+		})
+	w := httptest.NewRecorder()
+	err := ForwardTwinMind(w, &Request{
+		Ctx:    t.Context(),
+		Client: upstream.Client(),
+		Config: &providers.ProviderConfig{BaseURL: upstream.URL},
+		APIKey: "id-token",
+		Body:   []byte(`{"model":"google/gemini-3.7-flash","messages":[{"role":"user","content":"x"}]}`),
+	})
+	if err != nil {
+		t.Fatalf("ForwardTwinMind: %v", err)
+	}
+}
+
 func TestForwardTwinMindMapsUpstreamErrorEvent(t *testing.T) {
 	upstream := twinmindSSEUpstream(t,
 		"data: {\"type\":\"error\",\"content\":\"model not allowed\"}\n\n",
