@@ -150,7 +150,13 @@ if [ "$WANT_SERVICE" -eq 1 ]; then
   # every earlier release predate it. Without this guard the binary silently
   # starts the gateway in the foreground and the operator believes a unit was
   # written (urfave/cli ignores the unknown "service" argument).
-  if ! "$INSTALL_DIR/$BIN" --help 2>&1 | grep -q '^[[:space:]]*service[[:space:]]'; then
+  #
+  # Probed via `service status` instead of grepping --help: help output varies
+  # across CLI versions, while the subcommand either exists (status exits 0
+  # even when the unit is not installed) or the CLI reports the unknown
+  # command (non-zero). An empty path variable would otherwise run
+  # "/.local/bin/... --help" and misreport a healthy release as broken.
+  if ! "$INSTALL_DIR/$BIN" service status >/dev/null 2>&1; then
     echo "ERROR: this release ($VER) has no 'service' command, so it cannot" >&2
     echo "       install an auto-start unit. Upgrade to a release built from" >&2
     echo "       feat/go-dashboard (v1.8.44+), then re-run with --service." >&2
