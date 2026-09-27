@@ -1307,6 +1307,14 @@
     /* Settings page */
     .settings-group-title { font-size: 0.95rem; color: #fff; margin: 22px 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
     .settings-group-title:first-of-type { margin-top: 0; }
+    /* Two switches that answer the same question share one card, stacked as
+       rows. A card each made the group read as three unrelated settings. */
+    .proxy-row + .proxy-row { margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--border); }
+    .proxy-row-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; gap: 12px; }
+    /* Second topic inside one card. The red rule keeps a destructive control
+       from reading as a continuation of the ordinary form above it. */
+    .settings-subsection { margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--border); }
+    .settings-subsection-danger { border-top: 1px solid var(--danger); margin-left: -16px; margin-right: -16px; padding-left: 16px; padding-right: 16px; }
     .settings-warn { font-size: 0.78rem; color: #f0b849; background: rgba(210,153,34,0.1); border: 1px solid rgba(210,153,34,0.35); border-radius: var(--radius); padding: 10px 12px; margin-bottom: 14px; line-height: 1.5; }
     .settings-msg { font-size: 0.8rem; min-height: 18px; margin-bottom: 10px; }
     .settings-msg.ok { color: #56d364; }
@@ -2036,27 +2044,28 @@
     <!-- SECURITY -->
     <h3 class="settings-group-title">🔐 Security</h3>
 
-    <div class="grid">
-      <div class="card">
-        <h3 style="margin:0 0 4px; font-size:1rem; color:#fff;">Change Password</h3>
-        <p style="font-size:0.85rem; color:var(--muted); margin-bottom:14px;">Update the password used to sign in to this dashboard.</p>
-        <div class="form-group">
-          <label>Current password</label>
-          <input type="password" id="set-cur-pw" autocomplete="current-password" placeholder="Current password">
-        </div>
-        <div class="form-group">
-          <label>New password</label>
-          <input type="password" id="set-new-pw" autocomplete="new-password" placeholder="At least 6 characters">
-        </div>
-        <div class="form-group">
-          <label>Confirm new password</label>
-          <input type="password" id="set-confirm-pw" autocomplete="new-password" placeholder="Repeat new password">
-        </div>
-        <div id="pw-change-msg" class="settings-msg"></div>
-        <button class="btn btn-primary" id="pw-change-btn" onclick="changePassword()" style="width:100%; justify-content:center;">Update Password</button>
+    <div class="card">
+      <h3 style="margin:0 0 4px; font-size:1rem; color:#fff;">Change Password</h3>
+      <p style="font-size:0.85rem; color:var(--muted); margin-bottom:14px;">Update the password used to sign in to this dashboard.</p>
+      <div class="form-group">
+        <label>Current password</label>
+        <input type="password" id="set-cur-pw" autocomplete="current-password" placeholder="Current password">
       </div>
+      <div class="form-group">
+        <label>New password</label>
+        <input type="password" id="set-new-pw" autocomplete="new-password" placeholder="At least 6 characters">
+      </div>
+      <div class="form-group">
+        <label>Confirm new password</label>
+        <input type="password" id="set-confirm-pw" autocomplete="new-password" placeholder="Repeat new password">
+      </div>
+      <div id="pw-change-msg" class="settings-msg"></div>
+      <button class="btn btn-primary" id="pw-change-btn" onclick="changePassword()" style="width:100%; justify-content:center;">Update Password</button>
 
-      <div class="card" style="border-left:3px solid var(--danger);">
+      <!-- Destructive half of the same topic. It stays inside the one Security
+           card rather than getting a card of its own, but keeps a red rule so
+           it is not mistaken for the ordinary form above it. -->
+      <div class="settings-subsection settings-subsection-danger">
         <h3 style="margin:0 0 4px; font-size:1rem; color:#fff;">Reset Password</h3>
         <p style="font-size:0.85rem; color:var(--muted); margin-bottom:12px;">Clears the stored password and restores the built-in default, so you can get back in if the password is lost.</p>
         <div class="settings-warn">
@@ -2078,9 +2087,9 @@
       <strong>Copy config</strong> to get a ready-to-paste cloudflared file.
     </p>
 
-    <div class="grid">
-      <div class="card">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+    <div class="card">
+      <div class="proxy-row">
+        <div class="proxy-row-head">
           <h3 style="margin:0; font-size:1rem; color: #fff;"><span class="msym" style="font-size:17px;">alt_route</span> Trust proxy headers</h3>
           <label class="switch">
             <input type="checkbox" id="set-trust-proxy">
@@ -2099,8 +2108,8 @@
         </div>
       </div>
 
-      <div class="card">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+      <div class="proxy-row">
+        <div class="proxy-row-head">
           <h3 style="margin:0; font-size:1rem; color: #fff;"><span class="msym" style="font-size:17px;">lock</span> Secure session cookie</h3>
           <label class="switch">
             <input type="checkbox" id="set-cookie-secure">
@@ -2119,6 +2128,9 @@
       </div>
     </div>
 
+    <!-- Tunnel setup and the listen address describe the same deployment, so
+         they share one card: the address is what the tunnel dials, and the two
+         buttons act on both. -->
     <div class="card" style="margin-top: 14px;">
       <h3 style="margin:0 0 4px; font-size:1rem; color:#fff;">📡 Active listen address</h3>
       <p style="font-size:0.85rem; color:var(--muted); margin-bottom:12px;">
