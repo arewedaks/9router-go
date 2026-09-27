@@ -75,6 +75,13 @@ func TestUITestAllModelsAutoDisableRepaintsInPlace(t *testing.T) {
         // Models were removed server-side, so re-fetch`) {
 		t.Error("auto-disable still re-fetches the whole provider")
 	}
+	// Both DELETE paths must record the id in removedModelIds. The response
+	// path forgot this, so disabled rows stayed on screen until a manual
+	// refresh — the exact "auto-disable does nothing until I reload" bug.
+	if !strings.Contains(body, `removed++;
+          removedModelIds.add(modelId);`) {
+		t.Error("the successful-test path does not record removed ids; rows linger until a manual refresh")
+	}
 	// Exactly one refresh call at the end of the run, shared by both branches.
 	if n := strings.Count(body, "renderProviderDetailRefresh()"); n < 2 {
 		t.Errorf("expected in-flight row repaints plus a final one, found %d refresh calls", n)

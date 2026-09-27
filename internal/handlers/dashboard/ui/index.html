@@ -5408,6 +5408,7 @@
         if (shouldAutoDisable) {
           await api(`/api/dashboard/providers/${encodeURIComponent(providerId)}/models?modelId=${encodeURIComponent(modelId)}`, { method: "DELETE" });
           removed++;
+          removedModelIds.add(modelId);
         }
       } catch (e) {
         if (e && e.name === "AbortError") return;
