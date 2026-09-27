@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -108,22 +109,42 @@ func TestBackupAndRestoreShareOneCard(t *testing.T) {
 	idx := strings.Index(ui, `id="tab-settings"`)
 	pane := ui[idx:]
 
-	// Exactly one card between the Backup heading and the end of the pane.
-	start := strings.Index(pane, "💾 Backup & Restore")
-	if start < 0 {
+	// Both directions live in one card. The card is the element that opens
+	// before the label, not everything after it, so count the rows inside the
+	// card that carries the label.
+	label := strings.Index(pane, "💾 Backup & Restore")
+	if label < 0 {
 		t.Fatal("the Backup & Restore group is missing")
 	}
-	tail := pane[start:]
-	// Stop at the pane's end so a later tab's cards are not counted.
-	if end := strings.Index(tail, "<!-- TOKEN SAVER TAB -->"); end > 0 {
-		tail = tail[:end]
+	cardOpen := strings.LastIndex(pane[:label], `<div class="card">`)
+	if cardOpen < 0 {
+		t.Fatal("the Backup & Restore label is not inside a card")
 	}
-	if n := strings.Count(tail, `class="card"`); n != 1 {
-		t.Errorf("Backup & Restore renders %d cards, want 1: download and restore "+
-			"are the same topic and belong in one card", n)
+	// Walk forward to the matching close by tracking div depth.
+	depth := 0
+	cardEnd := -1
+	for _, m := range regexp.MustCompile(`<div\b|</div>`).FindAllStringIndex(pane[cardOpen:], -1) {
+		if strings.HasPrefix(pane[cardOpen+m[0]:cardOpen+m[1]], "</div>") {
+			depth--
+			if depth == 0 {
+				cardEnd = cardOpen + m[1]
+				break
+			}
+		} else {
+			depth++
+		}
+	}
+	if cardEnd < 0 {
+		t.Fatal("could not find the end of the Backup & Restore card")
+	}
+	card := pane[cardOpen:cardEnd]
+
+	if n := strings.Count(card, `class="card-row"`); n != 2 {
+		t.Errorf("the Backup & Restore card has %d rows, want 2 (download and "+
+			"restore are the same topic and share one card)", n)
 	}
 	for _, need := range []string{"Download Backup", "Restore From Backup"} {
-		if !strings.Contains(tail, need) {
+		if !strings.Contains(card, need) {
 			t.Errorf("the merged card is missing the %q row", need)
 		}
 	}
@@ -168,5 +189,42 @@ func TestPasswordPromptsLiveInModals(t *testing.T) {
 		if !strings.Contains(ui, pair.modal) {
 			t.Errorf("%s is missing from the dashboard", pair.modal)
 		}
+	}
+}
+
+// TestSecurityAndBackupShareOneRow: Security is one short card under a
+// full-width heading, which left the whole right half of the row empty while
+// Backup started a fresh row below. The two cards sit side by side instead, so
+// each group's label lives inside its own card.
+func TestSecurityAndBackupShareOneRow(t *testing.T) {
+	ui := readEmbeddedUI(t)
+
+	idx := strings.Index(ui, `id="tab-settings"`)
+	end := strings.Index(ui[idx:], "<!-- TOKEN SAVER TAB -->")
+	if end < 0 {
+		t.Fatal("could not locate the end of the settings pane")
+	}
+	pane := ui[idx : idx+end]
+
+	// A spanning heading between the two would force Backup onto its own row, so
+	// neither label may be a standalone heading.
+	for _, label := range []string{"🔐 Security", "💾 Backup & Restore"} {
+		i := strings.Index(pane, label)
+		if i < 0 {
+			t.Fatalf("label %q is missing", label)
+		}
+		if strings.Contains(pane[:i], "settings-group-title") &&
+			strings.LastIndex(pane[:i], "settings-group-title") > strings.LastIndex(pane[:i], "<div") {
+			t.Errorf("%q is still a spanning group heading, so its card cannot "+
+				"share a row with the card beside it", label)
+		}
+		if !strings.Contains(pane[i:i+200], "card-row-title") {
+			t.Errorf("%q is not rendered as a card title", label)
+		}
+	}
+	// Only Cloudflare keeps a spanning heading, so exactly one remains.
+	if n := strings.Count(pane, "settings-group-title"); n != 1 {
+		t.Errorf("the pane has %d spanning headings, want 1 (Cloudflare); the "+
+			"others moved into their cards to sit side by side", n)
 	}
 }

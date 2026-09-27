@@ -2055,8 +2055,8 @@
     <div class="settings-grid">
 
     <!-- SECURITY -->
-    <h3 class="settings-group-title">🔐 Security</h3>
     <div class="card">
+      <div class="card-row-title" style="margin-bottom:12px;">🔐 Security</div>
       <div class="card-row">
         <div>
           <div class="card-row-title">Change Password</div>
@@ -2073,6 +2073,26 @@
       </div>
       <div id="pw-change-msg" class="settings-msg"></div>
       <div id="pw-reset-msg" class="settings-msg"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-row-title" style="margin-bottom:12px;">💾 Backup & Restore</div>
+      <div class="card-row">
+        <div>
+          <div class="card-row-title">Download Backup</div>
+          <div class="card-row-sub">One JSON file with every connection, API key, combo and setting.</div>
+        </div>
+        <button class="btn" onclick="openBackupModal()">Download</button>
+      </div>
+      <div class="card-row" style="margin-top:14px; padding-top:14px; border-top:1px solid var(--border);">
+        <div>
+          <div class="card-row-title">Restore From Backup</div>
+          <div class="card-row-sub">Full replace, not a merge. Usage history is kept.</div>
+        </div>
+        <button class="btn" onclick="openRestoreModal()" style="border-color:var(--danger); color:var(--danger);">Restore</button>
+      </div>
+      <div id="backup-msg" class="settings-msg"></div>
+      <div id="restore-msg" class="settings-msg"></div>
     </div>
 
     <!-- CLOUDFLARE / REVERSE PROXY -->
@@ -2135,25 +2155,6 @@
     </div>
 
     <!-- BACKUP -->
-    <h3 class="settings-group-title">💾 Backup & Restore</h3>
-    <div class="card">
-      <div class="card-row">
-        <div>
-          <div class="card-row-title">Download Backup</div>
-          <div class="card-row-sub">One JSON file with every connection, API key, combo and setting.</div>
-        </div>
-        <button class="btn" onclick="openBackupModal()">Download</button>
-      </div>
-      <div class="card-row" style="margin-top:14px; padding-top:14px; border-top:1px solid var(--border);">
-        <div>
-          <div class="card-row-title">Restore From Backup</div>
-          <div class="card-row-sub">Full replace, not a merge. Usage history is kept.</div>
-        </div>
-        <button class="btn" onclick="openRestoreModal()" style="border-color:var(--danger); color:var(--danger);">Restore</button>
-      </div>
-      <div id="backup-msg" class="settings-msg"></div>
-      <div id="restore-msg" class="settings-msg"></div>
-    </div>
 
   </div>
 
