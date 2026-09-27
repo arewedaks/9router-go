@@ -716,8 +716,11 @@ func TestUIAddConnectionModalFollowsAuthType(t *testing.T) {
 	if !strings.Contains(body, `const isCookie = authType === "cookie";`) {
 		t.Error("the modal must read the provider's auth type")
 	}
-	if !strings.Contains(body, `const secretLabel = isCookie ? "Cookie" : (authType === "none" ? "Optional Token" : "API Key");`) {
-		t.Error("the credential label must switch on auth type")
+	if !strings.Contains(body, `const secretLabel = isCookie ? "Cookie" : isOauth ? "Refresh Token"`) {
+		t.Error("the credential label must switch on auth type (oauth asks for a refresh token)")
+	}
+	if !strings.Contains(body, `blob.refreshToken = secret;`) {
+		t.Error("an oauth provider's credential must be stored as refreshToken, not apiKey")
 	}
 	if !strings.Contains(body, `document.getElementById("acct-secret-label").textContent = secretLabel;`) {
 		t.Error("the derived label must be applied to the modal's field label")

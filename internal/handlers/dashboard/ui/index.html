@@ -7033,12 +7033,17 @@
     const d = lastProviderDetail && lastProviderDetail.provider === providerId ? lastProviderDetail : null;
     const authType = d ? d.authType : "";
     const isCookie = authType === "cookie";
-    const secretLabel = isCookie ? "Cookie" : (authType === "none" ? "Optional Token" : "API Key");
+    const isOauth = authType === "oauth";
+    const secretLabel = isCookie ? "Cookie" : isOauth ? "Refresh Token" : (authType === "none" ? "Optional Token" : "API Key");
     const secretPh = isCookie
       ? "sso=... or __Secure-next-auth.session-token=..."
+      : isOauth
+      ? "Paste the provider's long-lived refresh token"
       : "sk-... (leave blank for no-auth providers)";
     const secretHint = isCookie
       ? "Paste the session cookie the provider's web UI uses."
+      : isOauth
+      ? "The router exchanges it for a fresh access token automatically."
       : (authType === "none" ? "This provider does not require a credential." : "Leave blank for no-auth providers.");
 
     document.getElementById("addconn-provider").value = providerId;
@@ -7061,7 +7066,8 @@
         : 'Format: <code>name|apiKey</code> or just <code>apiKey</code> (auto-named by index).';
     }
 
-    // Bulk add is available for API-key providers
+    // Bulk add is available for key-like credentials (API keys and refresh
+    // tokens); cookies and no-auth providers have nothing to bulk-paste.
     const canBulk = !isCookie && authType !== "none";
     const switcher = document.getElementById("conn-mode-switcher");
     if (switcher) switcher.style.display = canBulk ? "flex" : "none";
@@ -7107,11 +7113,15 @@
     let success = 0;
     let failed = 0;
 
+    const isTwinmindBulk = providerId === "twinmind" || providerId.startsWith("twinmind-");
     for (const entry of plan) {
       const blob = {
         name: entry.name,
         email: entry.name,
-        apiKey: entry.apiKey,
+        [isTwinmindBulk ? "refreshToken" : "apiKey"]: entry.apiKey,
+        // A refresh-token credential must look expired so the first chat
+        // exchanges it for a real ID token instead of sending it upstream.
+        ...(isTwinmindBulk ? { expiresAt: "2000-01-01T00:00:00Z" } : {}),
         testStatus: "unknown"
       };
       if (entry.providerSpecificData) {
@@ -7122,7 +7132,7 @@
           method: "POST",
           body: JSON.stringify({
             provider: providerId,
-            authType: "apikey",
+            authType: isTwinmindBulk ? "oauth" : "apikey",
             name: entry.name,
             email: entry.name,
             priority: 1,
@@ -7176,6 +7186,13 @@
     if (secret) {
       if (providerId.includes("cookie") || providerId.startsWith("grok-web") || providerId.startsWith("perplexity-web")) {
         blob.cookie = secret;
+      } else if (providerId === "twinmind" || providerId.startsWith("twinmind-")) {
+        // A TwinMind credential is the long-lived Firebase refresh token; the
+        // refresher swaps it for a one-hour ID token. A stale expiresAt makes
+        // the first chat refresh immediately instead of sending the raw token
+        // upstream, where it would be rejected.
+        blob.refreshToken = secret;
+        blob.expiresAt = "2000-01-01T00:00:00Z";
       } else {
         blob.apiKey = secret;
       }
@@ -7187,7 +7204,7 @@
         method: "POST",
         body: JSON.stringify({
           provider: providerId,
-          authType: secret ? (blob.cookie ? "cookie" : "apikey") : "none",
+          authType: secret ? (blob.cookie ? "cookie" : blob.refreshToken ? "oauth" : "apikey") : "none",
           name: label || null,
           email: label || null,
           priority,
