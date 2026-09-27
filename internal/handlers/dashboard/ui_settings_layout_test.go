@@ -228,3 +228,39 @@ func TestSecurityAndBackupShareOneRow(t *testing.T) {
 			"others moved into their cards to sit side by side", n)
 	}
 }
+
+// TestSettingsButtonsShareOneSize: the row controls each sized to their own
+// label, so a card showed buttons of 66px, 78px and 90px with the icon pair a
+// pixel taller than the rest. One width and one height makes the controls line
+// up as a column, which is what "rapi" means here.
+func TestSettingsButtonsShareOneSize(t *testing.T) {
+	ui := readEmbeddedUI(t)
+
+	// Icon buttons were taller because the glyph added line height; a min-height
+	// on the shared class is what levels them.
+	if !strings.Contains(ui, "min-height: 36px") {
+		t.Error("buttons have no min-height, so an icon button renders taller " +
+			"than a text-only one")
+	}
+	if !strings.Contains(ui, ".card-row > .btn { min-width: 104px; flex: 0 0 auto; }") {
+		t.Error("row controls have no shared width, so each button sizes to its " +
+			"own label and the card edge looks ragged")
+	}
+	// A two-action row splits evenly, so neither button reads as primary merely
+	// because its label is longer.
+	if !strings.Contains(ui, ".btn-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr))") {
+		t.Error("the Cloudflare action pair is not split evenly")
+	}
+	// The pair markup has to use that class, or the rule does nothing.
+	idx := strings.Index(ui, "applyCloudflarePreset()")
+	if idx < 0 {
+		t.Fatal("the Cloudflare preset button is missing")
+	}
+	if !strings.Contains(ui[idx-200:idx], `class="btn-pair"`) {
+		t.Error("the Cloudflare buttons are not wrapped in .btn-pair")
+	}
+	if strings.Contains(ui, `style="display:flex; gap:8px; margin-top:14px; flex-wrap:wrap;"`) {
+		t.Error("the Cloudflare pair still uses the ad-hoc flex wrapper the " +
+			"rule was meant to replace")
+	}
+}

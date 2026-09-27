@@ -688,7 +688,9 @@
     .filter-btn:hover { color: #fff; border-color: var(--muted); }
     .filter-btn.active { background: rgba(229, 106, 74, 0.14); color: var(--primary); border-color: var(--primary); font-weight: 600; }
     
-    .btn { background: var(--panel-hover); border: 1px solid var(--border); color: var(--text); padding: 8px 14px; border-radius: var(--radius); cursor: pointer; font-size: 0.85rem; font-weight: 500; display: inline-flex; align-items: center; gap: 6px; transition: 0.15s; }
+    /* min-height keeps an icon button the same height as a text-only one, and
+       justify-content centres the label when min-width applies. */
+    .btn { background: var(--panel-hover); border: 1px solid var(--border); color: var(--text); padding: 8px 14px; border-radius: var(--radius); cursor: pointer; font-size: 0.85rem; font-weight: 500; display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 36px; transition: 0.15s; }
     .btn:hover { border-color: var(--muted); }
     .btn-primary { background: #238636; border-color: #2ea043; color: #fff; }
     .btn-primary:hover { background: #2ea043; }
@@ -1314,6 +1316,12 @@
     /* A labelled row with its control on the right. The password fields and the
        long explanations moved into modals, so a row is often all that is left. */
     .card-row { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+    /* Every row control is the same width, so the buttons line up down the card
+       instead of each one sizing to its own label. */
+    .card-row > .btn { min-width: 104px; flex: 0 0 auto; }
+    /* A pair of actions in one card splits the width evenly, so neither reads as
+       the primary one just because its label is longer. */
+    .btn-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 14px; }
     .card-row-title { font-size: 0.92rem; color: #fff; font-weight: 600; }
     .card-row-sub { font-size: 0.8rem; color: var(--muted); margin: 2px 0 0; line-height: 1.45; }
     .listen-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 12px; }
@@ -2147,7 +2155,7 @@
         ⚠️ Reachable directly on 0.0.0.0, bypassing Cloudflare. Restart with
         <code>HOST=127.0.0.1</code>.
       </div>
-      <div style="display:flex; gap:8px; margin-top:14px; flex-wrap:wrap;">
+      <div class="btn-pair">
         <button class="btn btn-primary" onclick="applyCloudflarePreset()"><span class="msym" style="font-size:15px;">bolt</span> Enable Cloudflare mode</button>
         <button class="btn" onclick="showCloudflaredConfig()">📋 Copy config</button>
       </div>
@@ -2381,7 +2389,7 @@
      only needed at the moment of the action, and inline they turned the
      Settings page into a wall of inputs. -->
 <div class="modal-overlay" id="pw-modal">
-  <div class="modal-box" style="max-width: 420px;">
+  <div class="modal-box" style="max-width: 440px;">
     <h2 style="font-size: 1.05rem; margin-bottom: 14px;">Change Password</h2>
     <div class="form-group">
       <label>Current password</label>
@@ -2404,7 +2412,7 @@
 </div>
 
 <div class="modal-overlay" id="backup-modal">
-  <div class="modal-box" style="max-width: 420px;">
+  <div class="modal-box" style="max-width: 440px;">
     <h2 style="font-size: 1.05rem; margin-bottom: 6px;">Download Backup</h2>
     <p style="font-size: 0.82rem; color: var(--muted); margin-bottom: 12px;">
       The file holds your provider tokens and password hash in plain text.
@@ -2423,7 +2431,7 @@
 </div>
 
 <div class="modal-overlay" id="restore-modal">
-  <div class="modal-box" style="max-width: 460px;">
+  <div class="modal-box" style="max-width: 440px;">
     <h2 style="font-size: 1.05rem; margin-bottom: 6px;">Restore From Backup</h2>
     <p style="font-size: 0.82rem; color: var(--muted); margin-bottom: 12px;">
       A full replace, not a merge. Connections, API keys, combos and settings
