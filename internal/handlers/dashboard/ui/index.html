@@ -5409,6 +5409,9 @@
           await api(`/api/dashboard/providers/${encodeURIComponent(providerId)}/models?modelId=${encodeURIComponent(modelId)}`, { method: "DELETE" });
           removed++;
           removedModelIds.add(modelId);
+          // Drop the row the moment its delete lands — a 458-model run must not
+          // keep dead rows on screen until the whole sweep finishes.
+          dropRemovedRowsFromCache(providerId, removedModelIds);
         }
       } catch (e) {
         if (e && e.name === "AbortError") return;
@@ -5420,6 +5423,7 @@
             await api(`/api/dashboard/providers/${encodeURIComponent(providerId)}/models?modelId=${encodeURIComponent(modelId)}`, { method: "DELETE" });
             removed++;
             removedModelIds.add(modelId);
+            dropRemovedRowsFromCache(providerId, removedModelIds);
           } catch (_) {}
         }
       } finally {
@@ -5460,22 +5464,29 @@
       if (stopBtn) stopBtn.style.display = "none";
       activeTestController = null;
       if (autoDisable && removed > 0 && lastProviderDetail && lastProviderDetail.provider === providerId) {
-        // Drop the removed rows from the cached payload so the re-render below
-        // cannot paint them back. This used to re-fetch the whole provider,
-        // which flashed "Loading…" and threw away the operator's scroll
-        // position at the end of a run that may have taken a minute.
-        lastProviderDetail.models = (lastProviderDetail.models || [])
-          .filter(m => !removedModelIds.has(m.modelId));
-        removedModelIds.forEach(id => {
-          delete modelTestResults[id];
-          delete modelTestLatency[id];
-          delete modelTestError[id];
-          delete modelTestRetryable[id];
-        });
-        removedModelIds.clear();
+        // Anything still queued (e.g. an abort landed between add and drop)
+        // goes now; per-model deletes already dropped their rows live.
+        dropRemovedRowsFromCache(providerId, removedModelIds);
       }
       renderProviderDetailRefresh();
     }
+  }
+
+  // Removes every id queued in removed from the cached provider detail and
+  // clears the per-model test state, so the next in-place repaint cannot
+  // paint disabled rows back. Shared by the live per-model drop and the
+  // end-of-run sweep. No-op unless the cache belongs to this provider.
+  function dropRemovedRowsFromCache(providerId, removed) {
+    if (!removed.size || !lastProviderDetail || lastProviderDetail.provider !== providerId) return;
+    lastProviderDetail.models = (lastProviderDetail.models || [])
+      .filter(m => !removed.has(m.modelId));
+    removed.forEach(id => {
+      delete modelTestResults[id];
+      delete modelTestLatency[id];
+      delete modelTestError[id];
+      delete modelTestRetryable[id];
+    });
+    removed.clear();
   }
 
   function stopModelTest() {

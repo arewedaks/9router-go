@@ -68,8 +68,17 @@ func TestUITestAllModelsAutoDisableRepaintsInPlace(t *testing.T) {
 	if !strings.Contains(body, "removedModelIds") {
 		t.Fatal("auto-disable must remember which models it removed")
 	}
-	if !strings.Contains(body, "filter(m => !removedModelIds.has(m.modelId))") {
-		t.Error("auto-disable must drop removed rows from the cached payload before repainting")
+	// Rows drop live: both DELETE paths call the shared drop helper as soon as
+	// the delete lands, not only at the end of the run.
+	if n := strings.Count(body, "dropRemovedRowsFromCache(providerId, removedModelIds)"); n < 3 {
+		t.Errorf("expected the drop helper called from both DELETE paths plus the final sweep, found %d", n)
+	}
+	helper := extractFunction(t, ui, "dropRemovedRowsFromCache")
+	if !strings.Contains(helper, "filter(m => !removed.has(m.modelId))") {
+		t.Error("the drop helper must remove rows from the cached payload")
+	}
+	if !strings.Contains(helper, "lastProviderDetail.provider !== providerId") {
+		t.Error("the drop helper must verify the cache belongs to this provider")
 	}
 	if strings.Contains(body, `removed > 0) {
         // Models were removed server-side, so re-fetch`) {
