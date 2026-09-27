@@ -1320,6 +1320,7 @@
     .import-row .mnames { flex: 1 1 auto; min-width: 90px; display: flex; flex-direction: column; gap: 1px; overflow: hidden; }
     .import-row .msub { font-size: 0.68rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .import-row input { accent-color: var(--primary); }
+    .import-cat { font-size: 0.72rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); padding: 8px 4px 3px; border-bottom: 1px solid var(--border); user-select: none; }
 
     /* Settings page */
     .settings-group-title { grid-column: 1 / -1; font-size: 0.95rem; color: #fff; margin: 22px 0 3px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
@@ -5591,7 +5592,10 @@
 
   function showImportModal(providerId, models) {
     importState = { providerId, models, selectedIds: new Set() };
-    const rows = models.map((m, i) => {
+    // Two categories: Free models first, then the rest. Both share the same
+    // .import-row shape so search, select-all and the checkbox handlers keep
+    // working unchanged; rows are already alphabetized server-side.
+    const row = (m, i) => {
       const upstreamName = (m.name && m.name !== m.id) ? m.name : '';
       const freeBadge = m.isFree ? `<span class="mfree" title="Free tier model">Free</span>` : '';
       return `
@@ -5605,7 +5609,16 @@
         ${freeBadge}
         <span class="mkind">${escapeHtml(m.kind || 'llm')}</span>
       </label>`;
-    }).join("");
+    };
+    const free = models.filter(m => m.isFree);
+    const regular = models.filter(m => !m.isFree);
+    const idxMap = new Map(models.map((m, i) => [m, i]));
+    const rows = [
+      free.length ? `<div class="import-cat">Free models (${free.length})</div>` : '',
+      ...free.map(m => row(m, idxMap.get(m))),
+      regular.length ? `<div class="import-cat">Regular models (${regular.length})</div>` : '',
+      ...regular.map(m => row(m, idxMap.get(m))),
+    ].join("");
 
     let modal = document.getElementById("import-modal");
     if (!modal) {

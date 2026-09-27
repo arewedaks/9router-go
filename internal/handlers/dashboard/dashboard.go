@@ -1007,6 +1007,10 @@ func (h *Handler) HandleImportModels(w http.ResponseWriter, r *http.Request) {
 			DisplayName: result.Models[i].Name,
 		})
 	}
+	// Sort once here so EVERY fetch path (registry fetchers, Grok CLI's live
+	// catalogue, fallbacks) ships the modal an alphabetized list — the Import
+	// modal renders two categories (Free / Regular) in that order.
+	result.Models = sortUpstreamModels(result.Models)
 	if result.Error != "" && !result.Supported {
 		// Provider simply has no listing endpoint — report cleanly.
 		handlerutil.WriteJSON(w, http.StatusOK, result)
