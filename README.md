@@ -71,29 +71,25 @@ The Go binary serves the full management UI on the same port — no separate Nex
 
 ```
 ┌─────────────────┐     ┌──────────────────────┐     ┌─────────────────┐
-│   CLI Client    │────▶│    Go Proxy           │────▶│  Upstream LLM   │
+│   CLI Client    │────▶│   9router-go binary   │────▶│  Upstream LLM   │
 │  (Claude Code,  │     │                       │     │  (OpenAI, etc.) │
 │   Codex, etc.)  │     │  • Auth (SQLite)      │     └─────────────────┘
 │                 │     │  • Model resolution   │
-│                 │     │  • Combo strategies   │
-│                 │     │    - sticky           │
-│                 │     │    - round-robin      │
-│                 │     │    - fallback         │
-│                 │     │    - fusion           │
-│                 │     │  • Auto-capability    │
-│                 │     │  • SSE streaming      │
-│                 │     │  • Stall detection    │
-│                 │     │  • Error klasifikasi  │
-│                 │     │  • Translation        │
-│                 │     └───────┬──────────┘
-│                             │
-└─────────────────────┐     ┌─▼──────────────────┐
-  │   Dashboard     │────▶│  SQLite (WAL)    │
-  │  [9Router]      │     └────────────────────┘
-  │  • Providers    │
-  │  • API Keys     │
-  │  • Usage        │
-  └─────────────────┘
+└─────────────────┘     │  • Combo strategies   │
+┌─────────────────┐     │    - sticky           │
+│    Browser      │────▶│    - round-robin      │
+│  (Dashboard)    │     │    - fallback         │
+│  • Providers    │     │    - fusion           │
+│  • Usage        │     │  • Auto-capability    │
+│  • Console Log  │     │  • SSE streaming      │
+│  • Token Saver  │     │  • Stall detection    │
+│  • Import       │     │  • Error klasifikasi  │
+└─────────────────┘     │  • Translation        │
+                        └───────┬──────────┘
+                                │
+                        ┌───────▼──────────┐
+                        │  SQLite (WAL)    │
+                        └──────────────────┘
 ```
 
 ### Request Flow
@@ -139,7 +135,7 @@ curl -fsSL https://raw.githubusercontent.com/arewedaks/9router-go/HEAD/scripts/i
 Pin a specific version:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/arewedaks/9router-go/HEAD/scripts/install.sh | bash -s -- --version 1.8.44
+curl -fsSL https://raw.githubusercontent.com/arewedaks/9router-go/HEAD/scripts/install.sh | bash -s -- --version 1.9.4
 ```
 
 Auto-start on boot (systemd unit + enable, run as root):
@@ -177,12 +173,13 @@ chmod +x 9router-go
 ```
 
 ### Option 2: Docker
+
 ```bash
-docker run -d \
+docker build -t 9router-go . && docker run -d \
   --name 9router-go \
   -p 20128:20128 \
   -v ~/.9router/db:/root/.9router/db \
-  luqmenul/9router-go:latest
+  9router-go
 ```
 
 ### Option 3: Go Install
@@ -427,74 +424,42 @@ GET  /api/translator/stream    # Dashboard live console log SSE stream
 
 ## Docker
 
-### Pull from Docker Hub
+### Build the image locally
 
 ```bash
-docker pull luqmenul/9router-go:latest
+docker build -t 9router-go .
 ```
 
 ### Docker Compose (`docker-compose.yml`)
 
-#### With Outbound Egress Proxy (Microwarp SOCKS5)
-
-```yaml
-services:
-  microwarp:
-    image: ghcr.io/ccbkkb/microwarp:latest
-    container_name: microwarp
-    restart: always
-    ports:
-      - "1080:1080"
-    cap_add:
-      - NET_ADMIN
-      - SYS_MODULE
-    sysctls:
-      - net.ipv4.conf.all.src_valid_mark=1
-    volumes:
-      - ./warp:/etc/wireguard
-
-  9router-go:
-    image: luqmenul/9router-go:latest
-    container_name: 9router-go
-    ports:
-      - "20130:20128"
-    environment:
-      - PORT=20128
-      - DATA_DIR=/data
-      - RTK_ENABLED=true
-      - CAVEMAN_ENABLED=false
-      - PONYTAIL_ENABLED=true
-      - HTTP_PROXY=socks5://microwarp:1080
-      - HTTPS_PROXY=socks5://microwarp:1080
-    volumes:
-      - ./data:/data
-    depends_on:
-      - microwarp
-    restart: unless-stopped
-```
-
-#### Standalone Deployment
+The repo's compose file builds the image from source and mounts a named volume
+for the SQLite data dir:
 
 ```yaml
 services:
   9router-go:
-    image: luqmenul/9router-go:latest
+    build: .
     container_name: 9router-go
     ports:
       - "20128:20128"
+    volumes:
+      - 9router-data:/data
     environment:
       - PORT=20128
       - DATA_DIR=/data
-      - RTK_ENABLED=true
-      - CAVEMAN_ENABLED=false
-      - PONYTAIL_ENABLED=true
-    volumes:
-      - ./data:/data
+      # Token saver toggles (all default off except RTK):
+      # - RTK_ENABLED=true
+      # - CAVEMAN_ENABLED=false
+      # - PONYTAIL_ENABLED=false
+      # Or use DB_PATH for a custom SQLite location:
+      # - DB_PATH=/data/custom/data.sqlite
     restart: unless-stopped
+
+volumes:
+  9router-data:
 ```
 
 ```bash
-# Start container
 docker compose up -d
 ```
 
