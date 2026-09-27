@@ -132,6 +132,12 @@ var ProviderModels = map[string][]string{
 	"tortoise": {"tortoise-v2"},
 	"tr": {"auto", "work", "gemini-3.1-pro", "gemini-3-flash-solo", "minimax-m3", "minimax-m2.7", "kimi-k2.5", "gpt-5.4", "gpt-5.2"},
 	"trae": {"auto", "work", "gemini-3.1-pro", "gemini-3-flash-solo", "minimax-m3", "minimax-m2.7", "kimi-k2.5", "gpt-5.4", "gpt-5.2"},
+	// TwinMind models verified against /api/v3/chat/models. "auto" is the free
+	// default; the pro-tier models answer with their own weights (verified live).
+	// max-tier models are listed last: TwinMind accepts them without error but
+	// streams nothing for a non-max account, so an operator picking one gets an
+	// empty completion rather than a failure to route on.
+	"twinmind": {"auto", "claude-sonnet-4-6", "claude-sonnet-5", "gemini-3.7-flash", "gemini-3.6-flash", "gpt-5.6-terra", "gpt-6-luna", "claude-opus-5-5-thinking", "claude-opus-5-thinking", "gemini-3.8-flash-thinking", "gemini-3.1-pro-thinking", "gpt-6-astra-thinking", "gpt-6-sol-thinking"},
 	"venice": {"venice-uncensored-1-2", "zai-org-glm-5", "qwen3-235b-a22b-instruct-2507", "qwen3-coder-480b-a35b-instruct-turbo", "qwen3-vl-235b-a22b", "deepseek-v4-pro", "llama-3.3-70b", "hermes-3-llama-3.1-405b", "mistral-small-3-2-24b-instruct", "text-embedding-3-large", "text-embedding-bge-m3", "text-embedding-qwen3-8b", "venice-sd35", "flux-2-pro", "gpt-image-2"},
 	"vertex": {"gemini-3.1-pro-preview", "gemini-3.1-flash-lite-preview", "gemini-3-flash-preview", "gemini-2.5-flash", "veo-3.1-generate-preview", "veo-3.1-fast-generate-preview", "veo-3.0-generate-001", "veo-2.0-generate-001"},
 	"vertex-partner": {"deepseek-ai/deepseek-v3.2-maas", "qwen/qwen3-next-80b-a3b-thinking-maas", "qwen/qwen3-next-80b-a3b-instruct-maas", "zai-org/glm-5-maas"},

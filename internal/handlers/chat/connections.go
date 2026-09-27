@@ -320,7 +320,14 @@ func extractAPIKey(connData *ConnectionData) string {
 	if connData.APIKey != "" {
 		return connData.APIKey
 	}
-	return connData.AccessToken
+	if connData.AccessToken != "" {
+		return connData.AccessToken
+	}
+	// Refresh-token-only connections (TwinMind's Firebase credential): the
+	// refresh path runs after this point and swaps the stored refresh token for
+	// a fresh access token, so returning the refresh token here just gives the
+	// in-flight request something until the store persists the real one.
+	return connData.RefreshToken
 }
 
 // NormalizeProviderToken normalizes credentials for providers with specific token requirements

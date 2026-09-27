@@ -24,6 +24,7 @@ type ModelInfo struct {
 type ConnectionData struct {
 	APIKey                 string                 `json:"apiKey"`
 	AccessToken            string                 `json:"accessToken"`
+	RefreshToken           string                 `json:"refreshToken,omitempty"`
 	BaseURL                string                 `json:"baseUrl,omitempty"`
 	ProxyPoolID            string                 `json:"proxyPoolId,omitempty"`
 	ConnectionProxyEnabled bool                   `json:"connectionProxyEnabled,omitempty"`

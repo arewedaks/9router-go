@@ -86,6 +86,7 @@ var ProviderAliasMap = map[string]string{
 	"qianfan":        "baidu",
 	"samba":          "sambanova",
 	"tr":             "trae",
+	"tm":             "twinmind",
 	"ws":             "windsurf",
 	"xq":             "xquik",
 	"zd":             "zed",

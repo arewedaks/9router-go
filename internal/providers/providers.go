@@ -855,6 +855,17 @@ var KnownProviders = map[string]ProviderConfig{
 			"content-type": "application/json",
 		},
 	},
+	// TwinMind wraps Google/OpenAI/Anthropic models behind its own chat
+	// endpoint: POST /api/chat (SSE), auth via a Firebase ID token that lives
+	// one hour and is renewed forever from the stored refresh token. The
+	// registry URL is the app host's models endpoint only for reference; the
+	// chat path and the token refresh live in the executor and the OAuth
+	// refresher respectively.
+	"twinmind": {
+		BaseURL:    "https://app.twinmind.com/api/chat",
+		AuthHeader: "Authorization",
+		AuthScheme: "bearer",
+	},
 }
 
 // RetryableStatusCodes are HTTP status codes that trigger account fallback.

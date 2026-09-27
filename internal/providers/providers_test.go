@@ -186,3 +186,32 @@ func TestKnownProviders_NoAuthMatchesRegistryAuthType(t *testing.T) {
 		}
 	}
 }
+
+// TestTwinmindProviderRegistered locks the TwinMind wiring: the registry
+// entry, the UI metadata, the alias, and the model list must all exist for the
+// provider to be selectable and routable. The chat endpoint is NOT
+// /api/v3/chat (404 in production); the live path is /api/chat.
+func TestTwinmindProviderRegistered(t *testing.T) {
+	cfg, ok := KnownProviders["twinmind"]
+	if !ok {
+		t.Fatal("KnownProviders has no twinmind entry")
+	}
+	if cfg.BaseURL != "https://app.twinmind.com/api/chat" {
+		t.Errorf("BaseURL = %q, want the verified POST /api/chat endpoint", cfg.BaseURL)
+	}
+	if cfg.AuthScheme != "bearer" {
+		t.Errorf("AuthScheme = %q, want bearer (Firebase ID token)", cfg.AuthScheme)
+	}
+	meta, ok := providerRegistry["twinmind"]
+	if !ok {
+		t.Error("providerRegistry has no twinmind metadata; the dashboard cannot render it")
+	} else if meta.Alias != "tm" {
+		t.Errorf("alias = %q, want tm", meta.Alias)
+	}
+	if ResolveAlias("tm") != "twinmind" {
+		t.Error("alias tm does not resolve to twinmind")
+	}
+	if _, ok := ProviderModels["twinmind"]; !ok {
+		t.Error("ProviderModels has no twinmind list")
+	}
+}
