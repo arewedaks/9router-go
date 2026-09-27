@@ -104,6 +104,60 @@ func TestForwardTwinMindNonStreamBuildsOneCompletion(t *testing.T) {
 	}
 }
 
+// Upstream carries the whole answer in text_start when the reply is short:
+// a real "Say PONG" run emitted {"type":"text_start","content":"PONG"} then a
+// single empty text_delta, so ignoring text_start produced an empty
+// completion for every short answer.
+func TestForwardTwinMindReadsTextStart(t *testing.T) {
+	upstream := twinmindSSEUpstream(t,
+		"data: {\"type\":\"run_start\",\"session_id\":\"s\"}\n\n"+
+			"data: {\"type\":\"text_start\",\"content\":\"PONG\"}\n\n"+
+			"data: {\"type\":\"text_delta\",\"content\":\"\"}\n\n"+
+			"data: {\"type\":\"done\"}\n\n",
+		func(*http.Request, string) {})
+	w := httptest.NewRecorder()
+	err := ForwardTwinMind(w, &Request{
+		Ctx:    t.Context(),
+		Client: upstream.Client(),
+		Config: &providers.ProviderConfig{BaseURL: upstream.URL},
+		APIKey: "id-token",
+		Body:   []byte(`{"model":"auto","messages":[{"role":"user","content":"Say PONG"}]}`),
+	})
+	if err != nil {
+		t.Fatalf("ForwardTwinMind: %v", err)
+	}
+	if !strings.Contains(w.Body.String(), `"content":"PONG"`) {
+		t.Errorf("text_start content was dropped from the completion: %s", w.Body.String())
+	}
+}
+
+// A thinking model emits thinking_start with its first reasoning slice, which
+// had the same shape problem as text_start.
+func TestForwardTwinMindReadsThinkingStart(t *testing.T) {
+	upstream := twinmindSSEUpstream(t,
+		"data: {\"type\":\"thinking_start\",\"content\":\"weighing options\"}\n\n"+
+			"data: {\"type\":\"thinking_delta\",\"content\":\" further\"}\n\n"+
+			"data: {\"type\":\"text_start\",\"content\":\"answer\"}\n\n"+
+			"data: {\"type\":\"done\"}\n\n",
+		func(*http.Request, string) {})
+	w := httptest.NewRecorder()
+	err := ForwardTwinMind(w, &Request{
+		Ctx:      t.Context(),
+		Client:   upstream.Client(),
+		Config:   &providers.ProviderConfig{BaseURL: upstream.URL},
+		APIKey:   "id-token",
+		IsStream: true,
+		Body:     []byte(`{"model":"auto","messages":[{"role":"user","content":"x"}],"stream":true}`),
+	})
+	if err != nil {
+		t.Fatalf("ForwardTwinMind: %v", err)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "weighing options further") {
+		t.Errorf("thinking_start slice was dropped: %s", body)
+	}
+}
+
 func TestForwardTwinMindStripsVendorPrefix(t *testing.T) {
 	upstream := twinmindSSEUpstream(t,
 		"data: {\"type\":\"done\"}\n\n",

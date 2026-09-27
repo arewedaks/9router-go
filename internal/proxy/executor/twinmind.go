@@ -251,9 +251,11 @@ func twinmindStreamResponse(w http.ResponseWriter, req *Request, upstream io.Rea
 			case "error":
 				errSeen = &twinmindErr{Message: e.Content}
 				return true, nil
-			case "thinking_delta":
-				thinking.WriteString(e.Content)
-			case "text_delta":
+			// Upstream opens a text block with the first slice already in
+			// text_start and only then streams text_delta. Reading just the
+			// deltas dropped that opening slice, so a short answer ("PONG")
+			// arrived empty while a long one merely lost its first sentence.
+			case "text_start", "text_delta":
 				if e.Content == "" {
 					break // the closing empty delta only marks end-of-text
 				}
@@ -263,6 +265,9 @@ func twinmindStreamResponse(w http.ResponseWriter, req *Request, upstream io.Rea
 						return false, jerr
 					}
 				}
+			// Same shape for the reasoning block of a thinking model.
+			case "thinking_start", "thinking_delta":
+				thinking.WriteString(e.Content)
 			}
 			return e.Type == "done" || e.Type == "error", nil
 		}
