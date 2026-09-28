@@ -130,12 +130,49 @@ func (h *Handler) fetchClineModels(providerID, data string, timeout time.Duratio
 		return fallback("Cline catalogue contained no usable chat models — using the built-in fallback catalogue."), nil
 	}
 
+	models = mergeClineKnownFreeRows(models, isPass)
 	sortUpstreamModels(models)
 	return &ModelFetchResult{
 		Provider:  canonical,
 		Models:    models,
 		Supported: true,
 	}, nil
+}
+
+// clineKnownFreeRows lists the `cline-free/*` ids the free tier demonstrably
+// serves but the live catalogue omits. Probed on a live account: the catalogue
+// carries 458 rows with 17 openrouter `:free` entries and ZERO `cline-free/*`
+// rows, yet `cline-free/deepseek-v4.1-flash` answers a chat call with HTTP 200
+// (the id is honoured by the gateway even though its rows were dropped from
+// the listing). Without these rows the Import modal never offers the free
+// models the account actually routes through — the operator's exact complaint.
+// A row already present in the live catalogue is kept as-is (no override).
+var clineKnownFreeRows = []string{
+	"cline-free/deepseek-v4.1-flash",
+	"cline-free/muse-spark-1.3-contributor",
+}
+
+// mergeClineKnownFreeRows appends the known free-namespace rows (with the
+// Free badge) to the catalogue unless an id is already present.
+func mergeClineKnownFreeRows(models []UpstreamModel, isPass bool) []UpstreamModel {
+	if isPass {
+		return models // cline-pass has its own subscription namespace
+	}
+	have := make(map[string]bool, len(models))
+	for _, m := range models {
+		have[m.ID] = true
+	}
+	for _, id := range clineKnownFreeRows {
+		if have[id] {
+			continue
+		}
+		models = append(models, UpstreamModel{
+			ID:     id,
+			Name:   id,
+			IsFree: true,
+		})
+	}
+	return models
 }
 
 // endpointForCline picks the catalogue endpoint for the namespace. The full
