@@ -1,5 +1,5 @@
 {
-  "latestVersion": "1.9.5",
+  "latestVersion": "1.9.6",
   "downloadUrl": "https://github.com/arewedaks/9router-go/releases/latest",
-  "releaseNotes": "- chore: bump version to 1.9.5 (2be6b77)\n- feat(proxies): accept the host:port:user:pass export format (e5cf88e)\n- feat(dashboard): proxy pool delete offers Unbind & delete (6b206b8)\n- feat(dashboard): drag-to-reorder in the combo model picker (e4be3dd)\n- feat(dashboard): import Pixel Canary \u2014 generalize the cline missing-rows merge (72b5f6c)\n- feat(dashboard): import the cline-free models the live catalogue omits (59f20ea)\n- fix(install): probe the service subcommand instead of grepping --help (246b30e)\n- docs: align README with this repo's actual build and topology (918e555)\n- docs: refresh README for the embedded-dashboard era (efbc269)\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
+  "releaseNotes": "- fix(translator): emit generated images instead of dropping inlineData parts (12c871c)\n- test(translator): regression for inlineData image passthrough (3ca2226)\n\nImage generation via ag/gemini-3.1-flash-image now returns the picture as a data-URI markdown link in both streaming and non-streaming chat responses.\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
 }
