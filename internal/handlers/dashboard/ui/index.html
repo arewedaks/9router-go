@@ -4301,9 +4301,30 @@
       const res = await api(`/api/dashboard/proxy-pools/${encodeURIComponent(id)}`, { method: "DELETE" });
       const data = await res.json().catch(() => ({}));
       if (res.status === 409) {
-        // The server names the count so the operator knows what to change
-        // rather than being told "failed".
-        toast(data.error || `Cannot delete: ${data.boundConnectionCount || 0} provider(s) still use this pool.`, true);
+        // The server names the bound providers so the offer to unbind them is
+        // concrete. One confirmation, then: clear each provider's strategy
+        // pool (__none__ clears + drops empty entries server-side) and retry
+        // the delete — no detour to the provider settings page.
+        const providers = data.boundProviders || [];
+        const names = providers.join(", ") || `${data.boundConnectionCount || 0} provider(s)`;
+        if (!(await appConfirm(
+          `"${name}" is still used by: ${names}.\n\nUnbind them from this pool and delete it anyway?`,
+          { title: "Pool still in use", okText: "Unbind & delete", danger: true }
+        ))) return;
+        const patch = { providerStrategies: {} };
+        for (const pid of providers) patch.providerStrategies[pid] = { proxyPoolId: "__none__" };
+        const unbind = await api("/api/dashboard/settings", { method: "POST", body: JSON.stringify(patch) });
+        if (!unbind.ok) {
+          toast(errorMessage(await unbind.json().catch(() => ({})), unbind.status), true);
+          return;
+        }
+        const retry = await api(`/api/dashboard/proxy-pools/${encodeURIComponent(id)}`, { method: "DELETE" });
+        if (!retry.ok) {
+          toast(errorMessage(await retry.json().catch(() => ({})), retry.status), true);
+          return;
+        }
+        toast(`Pool "${name}" deleted; ${names} now connect directly.`);
+        await loadProxyPoolTab();
         return;
       }
       if (!res.ok) {

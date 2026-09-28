@@ -175,26 +175,32 @@ var ErrProxyPoolNotFound = errors.New("proxy pool not found")
 // The strategies live inside the single settings row as JSON, not in a table of
 // their own, so they are read through GetSettings rather than queried directly.
 func (r *Repo) countProxyPoolReferences(poolID string) (int, error) {
+	ids, err := r.ProxyPoolBoundProviders(poolID)
+	return len(ids), err
+}
+
+// ProxyPoolBoundProviders names the providers whose strategy still selects
+// this pool, so a refused delete can say WHO to unbind instead of only how
+// many. Same lookup as countProxyPoolReferences, returning identities.
+func (r *Repo) ProxyPoolBoundProviders(poolID string) ([]string, error) {
 	s, err := r.GetSettings()
 	if err != nil || s == nil {
-		// No readable settings means no strategy can reference a pool.
-		return 0, nil //nolint:nilerr // absent settings is not a reference
+		return nil, nil //nolint:nilerr // absent settings is not a reference
 	}
-
-	count := 0
-	for _, strat := range s.ProviderStrategies {
+	ids := make([]string, 0, 4)
+	for id, strat := range s.ProviderStrategies {
 		if strat.ProxyPoolID == poolID {
-			count++
+			ids = append(ids, id)
 			continue
 		}
 		for _, t := range strat.TargetProxyPoolIds {
 			if t == poolID {
-				count++
+				ids = append(ids, id)
 				break
 			}
 		}
 	}
-	return count, nil
+	return ids, nil
 }
 
 // RecordProxyPoolTest stores the outcome of a connectivity test so the list can

@@ -148,9 +148,11 @@ func (h *Handler) HandleDeleteProxyPool(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if bound > 0 {
+		boundProviders, _ := h.repo.ProxyPoolBoundProviders(id)
 		handlerutil.WriteJSON(w, http.StatusConflict, map[string]any{
-			"error":                fmt.Sprintf("%d provider(s) still route through this pool. Change their proxy strategy first.", bound),
+			"error":                fmt.Sprintf("%d provider(s) still route through this pool: %s. Change their proxy strategy first.", bound, strings.Join(boundProviders, ", ")),
 			"boundConnectionCount": bound,
+			"boundProviders":       boundProviders,
 		})
 		return
 	}
