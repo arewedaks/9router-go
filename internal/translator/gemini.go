@@ -523,6 +523,15 @@ func TranslateGeminiResponseToOpenAI(geminiBody []byte) ([]byte, *OpenAIUsage, e
 					},
 				})
 			}
+			// Generated-image parts (antigravity image_gen: responseModalities
+			// TEXT+IMAGE) arrive as inlineData and were previously dropped, so an
+			// image request returned content:"" despite the model generating pixels.
+			if part.InlineData != nil && part.InlineData.Data != "" {
+				if openaiContent != "" {
+					openaiContent += "\n"
+				}
+				openaiContent += fmt.Sprintf("![generated image](data:%s;base64,%s)", part.InlineData.MimeType, part.InlineData.Data)
+			}
 		}
 	}
 
@@ -666,6 +675,12 @@ func TranslateGeminiChunkToOpenAI(chunk []byte, state *GeminiStreamState) ([]byt
 				}
 				if part.Text != "" && part.Thought != nil && *part.Thought {
 					delta["reasoning_content"] = part.Text
+				}
+				// Generated-image parts (antigravity image_gen) stream as inlineData
+				// after the final text chunk; without this the SSE stream closed
+				// empty for image models.
+				if part.InlineData != nil && part.InlineData.Data != "" {
+					delta["content"] = fmt.Sprintf("![generated image](data:%s;base64,%s)", part.InlineData.MimeType, part.InlineData.Data)
 				}
 				if part.FunctionCall != nil {
 					args, err := json.Marshal(part.FunctionCall.Args)
