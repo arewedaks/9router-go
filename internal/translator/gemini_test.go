@@ -731,3 +731,78 @@ func TestTranslateOpenAIToGemini_SynthesizesMissingToolCallID(t *testing.T) {
 		t.Errorf("synthesized ids do not pair: call=%q response=%q", callID, respID)
 	}
 }
+
+// Antigravity image_gen returns the generated pixels as an inlineData part.
+// The response translators previously dropped that part, so image models
+// answered with content:"" despite the model generating an image.
+func TestGeminiResponseInlineImageEmitted(t *testing.T) {
+	geminiResp := `{
+		"candidates": [{
+			"content": {
+				"role": "model",
+				"parts": [{
+					"text": "Here is your cube."
+				}, {
+					"inlineData": {
+						"mimeType": "image/png",
+						"data": "aGVsbG8gd29ybGQ="
+					}
+				}]
+			},
+			"finishReason": "STOP"
+		}]
+	}`
+
+	openaiBytes, _, err := TranslateGeminiResponseToOpenAI([]byte(geminiResp))
+	if err != nil {
+		t.Fatalf("TranslateGeminiResponseToOpenAI failed: %v", err)
+	}
+	var parsed struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.Unmarshal(openaiBytes, &parsed); err != nil {
+		t.Fatalf("unmarshal openai response: %v", err)
+	}
+	content := parsed.Choices[0].Message.Content
+	if !strings.Contains(content, "Here is your cube.") {
+		t.Errorf("text part lost: %q", content)
+	}
+	if !strings.Contains(content, "![generated image](data:image/png;base64,aGVsbG8gd29ybGQ=)") {
+		t.Errorf("inline image part dropped: %q", content)
+	}
+}
+
+func TestGeminiStreamInlineImageEmitted(t *testing.T) {
+	chunk := `{
+		"candidates": [{
+			"content": {
+				"role": "model",
+				"parts": [{
+					"inlineData": {
+						"mimeType": "image/png",
+						"data": "c3RyZWFt"
+					}
+				}]
+			}
+		}]
+	}`
+	state := &GeminiStreamState{MessageId: "chatcmpl-test", Model: "gemini"}
+	results, err := TranslateGeminiChunkToOpenAI([]byte(chunk), state)
+	if err != nil {
+		t.Fatalf("TranslateGeminiChunkToOpenAI failed: %v", err)
+	}
+	found := false
+	for _, r := range results {
+		b, _ := json.Marshal(r)
+		if strings.Contains(string(b), "![generated image](data:image/png;base64,c3RyZWFt)") {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("streamed inline image part dropped")
+	}
+}
