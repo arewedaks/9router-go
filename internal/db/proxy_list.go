@@ -60,6 +60,15 @@ func NormalizeProxyURL(entry string) (string, bool) {
 	// A bare host:port has no scheme, so url.Parse would read the host as a
 	// scheme. Detect it and prefix http:// (the overwhelmingly common case for
 	// a pasted list) while leaving explicit schemes alone.
+	// Rewire the provider-export form host:port:user:pass into a URL before the
+	// scheme prefix. Proxy vendors (ProxyScrape, Webshare exports, Telegram
+	// lists) ship this exact colon shape, and url.Parse cannot read it: the
+	// extra colons land in the host section and the entry is refused. Only
+	// scheme-less entries are split, so IPv6 literals (always submitted inside
+	// a scheme, http://[::1]:8080) never hit this path.
+	if !strings.Contains(entry, "://") {
+		entry = rewireColonProxy(entry)
+	}
 	if !strings.Contains(entry, "://") {
 		entry = "http://" + entry
 	}
@@ -98,6 +107,28 @@ func NormalizeProxyURL(entry string) (string, bool) {
 	u.RawQuery = ""
 	u.Fragment = ""
 	return u.String(), true
+}
+
+// rewireColonProxy rewrites the colon-export shape host:port:user:pass into
+// the URL form http://user:pass@host:port so url.Parse can read it. It only
+// fires when the entry splits into exactly host, numeric port, user and pass
+// — anything else is returned unchanged and judged by the normal parse, so
+// host:port, host:port:user (rare) and garbage all keep their existing
+// behaviour.
+func rewireColonProxy(entry string) string {
+	parts := strings.Split(entry, ":")
+	if len(parts) != 4 {
+		return entry
+	}
+	host, port, user, pass := parts[0], parts[1], parts[2], parts[3]
+	if host == "" || user == "" {
+		return entry
+	}
+	p, err := strconv.Atoi(port)
+	if err != nil || p < 1 || p > 65535 {
+		return entry
+	}
+	return "http://" + url.UserPassword(user, pass).String() + "@" + host + ":" + port
 }
 
 // ProxyPoolDataFromList builds the stored pool payload for a list of proxies.
