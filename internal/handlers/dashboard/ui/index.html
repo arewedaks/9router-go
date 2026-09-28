@@ -1029,6 +1029,12 @@
     .combo-model-name { flex: 1 1 auto; min-width: 0; font-family: monospace; font-size: 0.8rem; color: #f4b59c; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .combo-model-row .btn { flex: 0 0 auto; padding: 1px 7px; line-height: 1.4; }
     .combo-model-row .btn[disabled] { opacity: 0.3; cursor: default; }
+    /* Drag-to-reorder: grip affordance + live drop indicator. */
+    .combo-model-drag { flex: 0 0 12px; color: var(--muted); cursor: grab; user-select: none; font-size: 0.8rem; }
+    .combo-model-row[draggable="true"] { cursor: grab; }
+    .combo-model-row.dragging { opacity: 0.45; }
+    .combo-model-row.drop-above { box-shadow: 0 -2px 0 0 var(--primary); }
+    .combo-model-row.drop-below { box-shadow: 0 2px 0 0 var(--primary); }
     .combo-picker-list { max-height: 340px; overflow-y: auto; border: 1px solid var(--border); border-radius: 6px; }
     .combo-picker-row { display: flex; align-items: center; gap: 8px; padding: 7px 10px; cursor: pointer; border-bottom: 1px solid var(--border); }
     .combo-picker-row:last-child { border-bottom: none; }
@@ -9015,7 +9021,8 @@
       return;
     }
     box.innerHTML = comboModels.map((m, i) => `
-      <div class="combo-model-row">
+      <div class="combo-model-row" draggable="true" data-idx="${i}">
+        <span class="combo-model-drag" title="Drag to reorder">⠿</span>
         <span class="combo-model-idx">${i + 1}</span>
         <span class="combo-model-name" title="${escapeHtml(m)}">${escapeHtml(m)}</span>
         <button class="btn btn-sm" title="Move up" ${i === 0 ? "disabled" : ""}
@@ -9026,6 +9033,54 @@
                 onclick="removeComboModel(${i})">✕</button>
       </div>
     `).join("");
+    wireComboDrag();
+  }
+
+  // Drag-to-reorder for the combo model list. Native HTML5 DnD — no library.
+  // One dragover handler on the container (not per-row) so rows can be re-rendered
+  // without rebinding; the drop target is whichever row sits under the cursor.
+  // Text selection inside the row (copying a model id) still works: only the
+  // grip cell starts a drag via the row's draggable attribute.
+  function wireComboDrag() {
+    const box = document.getElementById("c-model-list");
+    if (!box || box.dataset.dragWired) return;
+    box.dataset.dragWired = "1";
+    let dragIdx = -1;
+    box.addEventListener("dragstart", (e) => {
+      const row = e.target.closest(".combo-model-row");
+      if (!row) { e.preventDefault(); return; }
+      dragIdx = Number(row.dataset.idx);
+      row.classList.add("dragging");
+      e.dataTransfer.effectAllowed = "move";
+      try { e.dataTransfer.setData("text/plain", comboModels[dragIdx]); } catch (_) {}
+    });
+    box.addEventListener("dragend", () => {
+      dragIdx = -1;
+      box.querySelectorAll(".combo-model-row").forEach(r => r.classList.remove("dragging", "drop-above", "drop-below"));
+    });
+    box.addEventListener("dragover", (e) => {
+      const row = e.target.closest(".combo-model-row");
+      if (dragIdx < 0 || !row) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      const overIdx = Number(row.dataset.idx);
+      box.querySelectorAll(".combo-model-row").forEach(r => r.classList.remove("drop-above", "drop-below"));
+      if (overIdx !== dragIdx) {
+        row.classList.add(overIdx > dragIdx ? "drop-below" : "drop-above");
+      }
+    });
+    box.addEventListener("drop", (e) => {
+      const row = e.target.closest(".combo-model-row");
+      if (dragIdx < 0 || !row) return;
+      e.preventDefault();
+      const overIdx = Number(row.dataset.idx);
+      if (overIdx === dragIdx) return;
+      const [moved] = comboModels.splice(dragIdx, 1);
+      // Insert relative to the list AFTER removing the dragged item, which is
+      // why the index shifts by one when dragging downwards.
+      comboModels.splice(overIdx > dragIdx ? overIdx - 1 : overIdx, 0, moved);
+      renderComboModels();
+    });
   }
 
   function moveComboModel(i, delta) {
