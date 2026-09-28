@@ -130,7 +130,7 @@ func (h *Handler) fetchClineModels(providerID, data string, timeout time.Duratio
 		return fallback("Cline catalogue contained no usable chat models — using the built-in fallback catalogue."), nil
 	}
 
-	models = mergeClineKnownFreeRows(models, isPass)
+	models = mergeClineExtraCatalogRows(models, isPass)
 	sortUpstreamModels(models)
 	return &ModelFetchResult{
 		Provider:  canonical,
@@ -139,22 +139,29 @@ func (h *Handler) fetchClineModels(providerID, data string, timeout time.Duratio
 	}, nil
 }
 
-// clineKnownFreeRows lists the `cline-free/*` ids the free tier demonstrably
-// serves but the live catalogue omits. Probed on a live account: the catalogue
-// carries 458 rows with 17 openrouter `:free` entries and ZERO `cline-free/*`
-// rows, yet `cline-free/deepseek-v4.1-flash` answers a chat call with HTTP 200
-// (the id is honoured by the gateway even though its rows were dropped from
-// the listing). Without these rows the Import modal never offers the free
-// models the account actually routes through — the operator's exact complaint.
+// clineExtraCatalogRows lists ids the gateway demonstrably serves but the
+// live catalogue omits. Probed on a live account against
+// POST /api/v1/chat/completions: the gateway answers 402 (auth accepted,
+// billing) for these ids while unknown ids get 404 "model not found" — so
+// they are real, they just dropped out of the listing:
+//
+//   - cline-free/deepseek-v4.1-flash answers HTTP 200 with actual content,
+//     yet the listing has zero cline-free/* rows (the operator's complaint:
+//     the free DeepSeek 4.1 Flash was not importable)
+//   - google/pixel-canary & openrouter/pixel-canary answer 402, and neither
+//     id (nor any "canary"/"pixel" spelling) appears anywhere in the listing
+//
 // A row already present in the live catalogue is kept as-is (no override).
-var clineKnownFreeRows = []string{
-	"cline-free/deepseek-v4.1-flash",
-	"cline-free/muse-spark-1.3-contributor",
+var clineExtraCatalogRows = []UpstreamModel{
+	{ID: "cline-free/deepseek-v4.1-flash", Name: "Cline Free: DeepSeek V4.1 Flash", IsFree: true},
+	{ID: "cline-free/muse-spark-1.3-contributor", Name: "Cline Free: Muse Spark 1.3 Contributor", IsFree: true},
+	{ID: "google/pixel-canary", Name: "Google: Pixel Canary"},
+	{ID: "openrouter/pixel-canary", Name: "OpenRouter: Pixel Canary"},
 }
 
-// mergeClineKnownFreeRows appends the known free-namespace rows (with the
-// Free badge) to the catalogue unless an id is already present.
-func mergeClineKnownFreeRows(models []UpstreamModel, isPass bool) []UpstreamModel {
+// mergeClineExtraCatalogRows appends the known-but-unlisted rows to the
+// catalogue unless an id is already present.
+func mergeClineExtraCatalogRows(models []UpstreamModel, isPass bool) []UpstreamModel {
 	if isPass {
 		return models // cline-pass has its own subscription namespace
 	}
@@ -162,15 +169,12 @@ func mergeClineKnownFreeRows(models []UpstreamModel, isPass bool) []UpstreamMode
 	for _, m := range models {
 		have[m.ID] = true
 	}
-	for _, id := range clineKnownFreeRows {
-		if have[id] {
+	for _, row := range clineExtraCatalogRows {
+		if have[row.ID] {
 			continue
 		}
-		models = append(models, UpstreamModel{
-			ID:     id,
-			Name:   id,
-			IsFree: true,
-		})
+		m := row
+		models = append(models, m)
 	}
 	return models
 }
