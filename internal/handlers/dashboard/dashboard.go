@@ -203,6 +203,7 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 		dr.Put("/proxy-pools/{id}", h.HandleUpdateProxyPool)
 		dr.Delete("/proxy-pools/{id}", h.HandleDeleteProxyPool)
 		dr.Post("/proxy-pools/{id}/test", h.HandleTestProxyPool)
+		dr.Post("/proxy-pools/health-check", h.HandleHealthCheckProxyPools)
 
 		// Historical usage. These power the Usage page and are deliberately
 		// separate from the live /api/usage/* endpoints, which stream in-flight

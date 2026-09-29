@@ -2208,7 +2208,10 @@
         <h2 class="section-title">Proxy Pools</h2>
         <p style="font-size: 0.85rem; color: var(--muted);">Egress pools your providers route through, and whether each one can actually reach the internet</p>
       </div>
-      <button class="btn btn-primary" onclick="openProxyBatchModal()">+ Add Proxies</button>
+      <div style="display:flex; gap:8px;">
+        <button class="btn" id="proxy-health-check-btn" onclick="healthCheckAllProxyPools()">Health Check</button>
+        <button class="btn btn-primary" onclick="openProxyBatchModal()">+ Add Proxies</button>
+      </div>
     </div>
 
     <div id="proxy-pool-summary" style="font-size:0.78rem; color:var(--muted); margin-bottom:12px;"></div>
@@ -4274,6 +4277,34 @@
       toast("Proxy test failed: " + String(e && e.message ? e.message : e), true);
     } finally {
       if (btn) { btn.disabled = false; btn.textContent = "Test"; }
+    }
+  }
+
+  // Bulk health check: probe every pool through the server (real CONNECT
+  // tunnel) with bounded concurrency, then re-read so badges show fresh
+  // testStatus/isActive/lastTestedAt. Server-side persistence also
+  // auto-deactivates pools that fail, matching the single-pool Test button.
+  async function healthCheckAllProxyPools() {
+    const btn = document.getElementById("proxy-health-check-btn");
+    if (btn) { btn.disabled = true; btn.textContent = "Checking…"; }
+    try {
+      const res = await api("/api/dashboard/proxy-pools/health-check", { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast(errorMessage(data, res.status), true);
+        return;
+      }
+      await loadProxyPoolTab();
+      const dead = (data.results || []).filter(r => !r.ok);
+      if (dead.length) {
+        toast(`Health check: ${data.alive} alive, ${dead.length} failing — ${dead[0].name || dead[0].id}: ${dead[0].error || "no detail"}`, true);
+      } else {
+        toast(`Health check: all ${data.alive} pool${data.alive === 1 ? "" : "s"} reachable`);
+      }
+    } catch (e) {
+      toast("Health check failed: " + String(e && e.message ? e.message : e), true);
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = "Health Check"; }
     }
   }
 

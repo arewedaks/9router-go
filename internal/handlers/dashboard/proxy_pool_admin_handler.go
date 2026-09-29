@@ -10,7 +10,9 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -287,4 +289,100 @@ func probeProxy(ctx context.Context, proxyAddr string) error {
 		return fmt.Errorf("proxy refused the tunnel: %s", line)
 	}
 	return nil
+}
+
+// handleHealthCheckResult is one pool's outcome in the bulk health-check
+// response.
+type handleHealthCheckResult struct {
+	ID    string `json:"id"`
+	Name  string `json:"name,omitempty"`
+	OK    bool   `json:"ok"`
+	Error string `json:"error,omitempty"`
+}
+
+// HandleHealthCheckProxyPools probes every pool concurrently and returns the
+// per-pool outcome. Concurrency is bounded so a page of dead proxies cannot
+// open hundreds of sockets at once; each probe still runs the full CONNECT
+// tunnel check via the same path as the single-pool test.
+func (h *Handler) HandleHealthCheckProxyPools(w http.ResponseWriter, r *http.Request) {
+	pools, err := h.repo.ListProxyPools(false)
+	if err != nil {
+		handlerutil.WriteJSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	type job struct {
+		id   string
+		name string
+	}
+	jobs := make(chan job)
+	results := make(chan handleHealthCheckResult)
+	var wg sync.WaitGroup
+
+	workers := 8
+	if len(pools) < workers {
+		workers = len(pools)
+	}
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := range jobs {
+				detail, err := h.repo.GetProxyPoolDetail(j.id)
+				if err != nil {
+					results <- handleHealthCheckResult{ID: j.id, Name: j.name, OK: false, Error: "pool not found"}
+					continue
+				}
+				target := firstProxyURL(detail)
+				if target == "" {
+					results <- handleHealthCheckResult{ID: j.id, Name: j.name, OK: false, Error: "Pool has no proxy URL to test"}
+					continue
+				}
+				probeCtx, cancel := context.WithTimeout(r.Context(), proxyTestTimeout)
+				if err := probeProxy(probeCtx, target); err != nil {
+					results <- handleHealthCheckResult{ID: j.id, Name: j.name, OK: false, Error: err.Error()}
+				} else {
+					results <- handleHealthCheckResult{ID: j.id, Name: j.name, OK: true}
+				}
+				cancel()
+			}
+		}()
+	}
+
+	go func() {
+		for _, p := range pools {
+			jobs <- job{id: p.ID, name: p.Name}
+		}
+		close(jobs)
+	}()
+
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	out := make([]handleHealthCheckResult, 0, len(pools))
+	for res := range results {
+		// Same persistence path as the single test: status, error and the
+		// auto-deactivate behaviour all come along for free.
+		msg := res.Error
+		if err := h.repo.RecordProxyPoolTest(res.ID, res.OK, msg); err != nil {
+			res.Error = msg + " (persist failed: " + err.Error() + ")"
+		}
+		out = append(out, res)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+
+	alive := 0
+	for _, res := range out {
+		if res.OK {
+			alive++
+		}
+	}
+	handlerutil.WriteJSON(w, http.StatusOK, map[string]any{
+		"results": out,
+		"total":   len(out),
+		"alive":   alive,
+		"dead":    len(out) - alive,
+	})
 }

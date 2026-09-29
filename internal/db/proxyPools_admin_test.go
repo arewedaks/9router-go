@@ -139,6 +139,11 @@ func TestRecordProxyPoolTest(t *testing.T) {
 	if got["lastTestedAt"] == nil || got["lastTestedAt"] == "" {
 		t.Error("lastTestedAt must be set so the UI can show staleness")
 	}
+	// A failed probe deactivates the pool so traffic stops routing into a
+	// proxy that just proved it cannot egress.
+	if isActive, ok := got["isActive"].(bool); !ok || isActive {
+		t.Errorf("isActive = %v, want false after a failed test", got["isActive"])
+	}
 
 	if err := r.RecordProxyPoolTest(id, true, ""); err != nil {
 		t.Fatal(err)
@@ -151,6 +156,10 @@ func TestRecordProxyPoolTest(t *testing.T) {
 	// stale error next to a working pool.
 	if _, present := got["lastError"]; present {
 		t.Errorf("lastError = %v, want it cleared on success", got["lastError"])
+	}
+	// And a passing probe re-activates the pool it had deactivated.
+	if isActive, ok := got["isActive"].(bool); !ok || !isActive {
+		t.Errorf("isActive = %v, want true after a passing test", got["isActive"])
 	}
 }
 

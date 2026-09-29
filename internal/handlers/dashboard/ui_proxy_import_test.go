@@ -106,3 +106,18 @@ func TestUIProxyCardDeclaresBindingsBeforeUse(t *testing.T) {
 		}
 	}
 }
+
+// The Proxies tab header must keep both actions visible: bulk health check is
+// the operator's first stop after importing a list, and losing the button
+// silently degrades the tab back to per-pool testing only.
+func TestUIProxiesTabHasHealthCheckButton(t *testing.T) {
+	ui := readEmbeddedUI(t)
+
+	if !strings.Contains(ui, `id="proxy-health-check-btn"`) {
+		t.Error("Proxies tab header is missing the bulk Health Check button")
+	}
+	fn := extractFunction(t, ui, "healthCheckAllProxyPools")
+	if !strings.Contains(fn, "/api/dashboard/proxy-pools/health-check") {
+		t.Error("healthCheckAllProxyPools does not POST to the health-check endpoint")
+	}
+}

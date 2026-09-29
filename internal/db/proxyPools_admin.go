@@ -235,8 +235,14 @@ func (r *Repo) RecordProxyPoolTest(poolID string, ok bool, testErr string) error
 	if ok {
 		status = "active"
 	}
-	if _, err := r.db.Exec(`UPDATE proxyPools SET data = ?, testStatus = ?, updatedAt = ? WHERE id = ?`,
-		string(dataBytes), status, now, poolID); err != nil {
+	// A pool that fails its probe is dead weight: leaving isActive on would
+	// keep routing traffic into a proxy that just proved it cannot egress.
+	setActive := 0
+	if ok {
+		setActive = 1
+	}
+	if _, err := r.db.Exec(`UPDATE proxyPools SET data = ?, testStatus = ?, isActive = ?, updatedAt = ? WHERE id = ?`,
+		string(dataBytes), status, setActive, now, poolID); err != nil {
 		return fmt.Errorf("record proxy pool test: %w", err)
 	}
 	InvalidateProxyPoolCache(poolID)
