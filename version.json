@@ -1,5 +1,5 @@
 {
-  "latestVersion": "1.9.6",
+  "latestVersion": "1.9.7",
   "downloadUrl": "https://github.com/arewedaks/9router-go/releases/latest",
   "releaseNotes": "- chore(release): version.json -> v1.9.6 (99d4905)\n- fix(translator): emit generated images instead of dropping inlineData parts (12c871c)\n- test(translator): regression for inlineData image passthrough (3ca2226)\n- chore(release): version.json -> v1.9.5 (c2b4f74)\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
 }
