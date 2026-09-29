@@ -208,7 +208,7 @@ jobs:
           git checkout -B "$BRANCH" "origin/$BRANCH"
 
           python3 - <<'PY'
-          import json, os
+          import json, os, re
 
           version = os.environ["VERSION"]
           notes = open("/tmp/notes.txt").read().strip()
@@ -221,13 +221,33 @@ jobs:
           with open("version.json", "w") as f:
               json.dump(manifest, f, indent=2)
               f.write("\n")
+
+          # Keep the compiled-in fallback in step with the manifest. A tag cut
+          # without a manual bump leaves updater.go on the previous version, so a
+          # binary built from that tag reports the wrong "current version" and
+          # the update check can never settle. The manifest is the source of
+          # truth; mirroring it here means tagging alone is always sufficient.
+          updater = "internal/updater/updater.go"
+          if os.path.exists(updater):
+              src = open(updater).read()
+              patched, n = re.subn(
+                  r'var CurrentVersion = "[^"]*"',
+                  f'var CurrentVersion = "{version}"',
+                  src,
+                  count=1,
+              )
+              if n:
+                  open(updater, "w").write(patched)
+                  print(f"updater.go -> {version}")
           PY
 
-          if git diff --quiet version.json; then
-            echo "version.json already current; nothing to commit"
+          # Both files move together: a release that updates one and not the
+          # other is exactly the drift this job exists to prevent.
+          if git diff --quiet version.json internal/updater/updater.go; then
+            echo "release files already current; nothing to commit"
             exit 0
           fi
-          git add version.json
+          git add version.json internal/updater/updater.go
           git commit -m "chore(release): version.json -> ${GITHUB_REF_NAME}"
           git push origin "HEAD:$BRANCH"
         env:

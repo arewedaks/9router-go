@@ -59,4 +59,11 @@ fi
 
 echo ""
 echo "Done. Version is now $NEW_VER (source of truth: version.json)"
-echo "Next: git add version.json internal/updater/updater.go && git commit -m \"chore: bump version to $NEW_VER\" && git tag v$NEW_VER"
+echo ""
+echo "Next, in this order — the tag must be pushed on its own so the release"
+echo "workflow fires (a tag pushed alongside the branch is ignored):"
+echo "  git add version.json internal/updater/updater.go"
+echo "  git commit -m \"chore: bump version to $NEW_VER\""
+echo "  git push origin HEAD"
+echo "  git tag -a v$NEW_VER -m \"v$NEW_VER\""
+echo "  git push origin refs/tags/v$NEW_VER"

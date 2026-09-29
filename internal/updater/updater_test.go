@@ -594,3 +594,24 @@ func TestExecutableForRestartSurvivesSwappedAwayInode(t *testing.T) {
 		t.Errorf("executableForRestart() = %q, want the absolute path %q", got, live)
 	}
 }
+
+// The compiled-in fallback and the manifest the dashboard polls must name the
+// same version. The release workflow mirrors version.json into this constant so
+// tagging alone is sufficient; this test catches a tag that was cut without it,
+// which would make the binary report the previous version forever.
+func TestCurrentVersionMatchesManifest(t *testing.T) {
+	raw, err := os.ReadFile("../../version.json")
+	if err != nil {
+		t.Fatalf("read version.json: %v", err)
+	}
+	var manifest struct {
+		LatestVersion string `json:"latestVersion"`
+	}
+	if err := json.Unmarshal(raw, &manifest); err != nil {
+		t.Fatalf("parse version.json: %v", err)
+	}
+	if manifest.LatestVersion != CurrentVersion {
+		t.Errorf("version drift: version.json says %s, CurrentVersion says %s — run scripts/bump-version.sh",
+			manifest.LatestVersion, CurrentVersion)
+	}
+}
