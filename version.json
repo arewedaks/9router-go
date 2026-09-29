@@ -1,5 +1,5 @@
 {
   "latestVersion": "1.9.7",
   "downloadUrl": "https://github.com/arewedaks/9router-go/releases/latest",
-  "releaseNotes": "- chore(release): version.json -> v1.9.6 (99d4905)\n- fix(translator): emit generated images instead of dropping inlineData parts (12c871c)\n- test(translator): regression for inlineData image passthrough (3ca2226)\n- chore(release): version.json -> v1.9.5 (c2b4f74)\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
+  "releaseNotes": "- chore(release): version.json -> v1.9.7 (ef800ba)\n- feat(proxy-pools): bulk health check with auto-deactivate (f2f621c)\n- feat(media): implement multimodal image generation, binary output, and adapter normalization (c959682)\n- fix(release): keep the compiled-in version in step with the manifest (b88af4d)\n- chore(release): version.json -> v1.9.6 (57a79af)\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
 }
