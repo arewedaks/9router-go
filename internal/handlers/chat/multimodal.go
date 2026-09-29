@@ -15,6 +15,17 @@ import (
 	"9router/proxy/internal/providers"
 )
 
+// MultimodalPath exposes multimodalPath to the media handlers, which serve the
+// same service endpoints (/images/generations, /audio/*, /videos/*) from a
+// second code path. Those handlers previously built BaseURL + endpoint by hand,
+// which lands on a URL that does not exist for every provider carrying a
+// dedicated ImageURL/TTSURL/VideoURL — xai, recraft, fal-ai, runwayml,
+// stability-ai, huggingface, comfyui, black-forest-labs, zenmux — and skips the
+// sub-URL entirely for providers that have none.
+func MultimodalPath(cfg *providers.ProviderConfig, path string) string {
+	return multimodalPath(cfg, path)
+}
+
 // multimodalPath returns the sub-endpoint URL for a multimodal service.
 // It checks provider-specific sub-endpoint URLs first, then falls back to
 // swapping /chat/completions suffix in the base URL.

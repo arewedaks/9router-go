@@ -203,6 +203,13 @@ func (h *ChatHandler) refreshOAuthTokenIfExpired(connectionID, currentToken stri
 // Like refreshOAuthTokenIfExpired it goes through oauth.RefreshStoredConnection,
 // so the forced refresh is serialised against every other refresh of the same
 // connection.
+// ForceRefreshOAuthToken refreshes a stored OAuth connection and returns the new
+// access token plus the project id. Exported for the media image path, which
+// reaches the provider without going through the chat handler's own refresh.
+func (h *ChatHandler) ForceRefreshOAuthToken(connectionID string) (string, string, error) {
+	return h.forceRefreshOAuthToken(connectionID)
+}
+
 func (h *ChatHandler) forceRefreshOAuthToken(connectionID string) (string, string, error) {
 	if connectionID == "" {
 		return "", "", nil

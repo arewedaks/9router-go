@@ -3,6 +3,7 @@ package media
 import (
 	"bytes"
 	"encoding/base64"
+	"errors"
 	json "encoding/json/v2"
 	"fmt"
 	"io"
@@ -18,7 +19,9 @@ import (
 	"9router/proxy/internal/handlerutil"
 	"9router/proxy/internal/log"
 	"9router/proxy/internal/providers"
+	"9router/proxy/internal/proxy"
 	"9router/proxy/internal/proxy/executor"
+	"9router/proxy/internal/translator"
 )
 
 // MediaHandler handles embeddings, responses, audio, video, image, and web tool endpoints.
@@ -587,7 +590,10 @@ func (h *MediaHandler) forwardMediaRequest(w http.ResponseWriter, r *http.Reques
 			}
 
 			finalBody := handlerutil.UpdateModelInBody(body, subInfo.Model)
-			targetURL := strings.TrimRight(providerCfg.BaseURL, "/") + endpoint
+			// Multiplexed endpoints resolve to the provider's dedicated sub-URL
+			// (ImageURL/TTSURL/VideoURL) when it has one. Concatenating
+			// BaseURL + endpoint lands on a path the provider does not serve.
+			targetURL := chat.MultimodalPath(providerCfg, endpoint)
 			method := r.Method
 			// Use provider FetchURL for web/fetch when configured (e.g., ollama cloud)
 			if endpoint == "/v1/web/fetch" && providerCfg.FetchURL != "" {
@@ -701,6 +707,78 @@ func (h *MediaHandler) forwardMediaRequest(w http.ResponseWriter, r *http.Reques
 	finalBody := handlerutil.UpdateModelInBody(body, modelInfo.Model)
 	client := h.ChatH.GetClientForConnection(connData)
 
+	// Antigravity image models are not served by BaseURL + "/images/generations";
+	// they go through the Gemini executor envelope (project + requestType +
+	// inlineData parts). ForwardGemini already wraps the request and the
+	// response normally happens inside the chat path, which the media route
+	// never reaches. Detect the image model here and let the proxy handle it.
+	if endpoint == "/v1/images/generations" && translator.IsAntigravityImageModel(modelInfo.Model) &&
+		(modelInfo.Provider == "antigravity" || modelInfo.Provider == "antigravity-go") {
+		if bodyPrompt(finalBody) == "" {
+			handlerutil.WriteJSONError(w, http.StatusBadRequest, "Missing required field: prompt")
+			return
+		}
+		if pid := antigravityProjectID(conn, connData); pid != "" {
+			// A stored OAuth token is often just past expiry. The chat path
+			// refreshes and retries on 401/403; the image path has to do the same
+			// or it answers with Google's UNAUTHENTICATED text instead of an
+			// image. ForwardGemini surfaces non-200 as *proxy.UpstreamError, so
+			// read the status off the error rather than the response.
+			// The caller's size (1024x1500 etc.) reaches Antigravity as an
+			// aspect-ratio suffix on the model name; ForwardGemini reads it back
+			// out via translator.ParseImageConfig. Without this the size is
+			// dropped and everything renders 1:1.
+			imageModel := modelWithSizeSuffix(modelInfo.Model, sizeFromImageBody(body))
+
+			callUpstream := func(key string) (*http.Response, error) {
+				resp, err := proxy.ForwardGemini(r.Context(), client, providerCfg, key, string(finalBody), false, pid, imageModel)
+				if err != nil {
+					var upErr *proxy.UpstreamError
+					if errors.As(err, &upErr) && (upErr.StatusCode == http.StatusUnauthorized || upErr.StatusCode == http.StatusForbidden) {
+						return nil, upErr
+					}
+					return nil, err
+				}
+				return resp, nil
+			}
+
+			resp, err := callUpstream(apiKey)
+			if err != nil {
+				var upErr *proxy.UpstreamError
+				if errors.As(err, &upErr) {
+					if connID := connectionIDOf(conn); connID != "" {
+						if freshKey, _, rErr := h.ChatH.ForceRefreshOAuthToken(connID); rErr == nil && freshKey != "" {
+							log.Info("media", "retry antigravity image after token refresh", "conn", connID)
+							resp, err = callUpstream(freshKey)
+						}
+					}
+				}
+			}
+			if err != nil {
+				log.Error("media", "antigravity image forward failed", "provider", modelInfo.Provider, "model", modelInfo.Model, "error", err)
+				handlerutil.WriteJSONError(w, http.StatusBadGateway, err.Error())
+				return
+			}
+			defer resp.Body.Close()
+			raw, _ := io.ReadAll(resp.Body)
+			if resp.StatusCode != http.StatusOK {
+				log.Error("media", "antigravity image upstream error", "status", resp.StatusCode, "body", string(raw[:min(len(raw), 300)]))
+				if ct := resp.Header.Get(constants.HeaderContentType); ct != "" {
+					w.Header().Set(constants.HeaderContentType, ct)
+				}
+				w.WriteHeader(resp.StatusCode)
+				w.Write(raw)
+				return
+			}
+			if conn != nil {
+				h.Repo.UpdateConnectionLastUsed(conn.ID, false)
+			}
+			writeImageResponse(w, r, raw, finalBody, modelInfo, resp.Header.Get(constants.HeaderContentType))
+			return
+		}
+		log.Warn("media", "antigravity image without projectId, falling through", "model", modelInfo.Model)
+	}
+
 	// A compaction request is the same Responses payload sent to a different
 	// upstream path. The reference implementation strips the client-only marker
 	// and appends "/compact" to the URL; leaving it in the body makes the
@@ -772,7 +850,9 @@ func (h *MediaHandler) forwardMediaRequest(w http.ResponseWriter, r *http.Reques
 			endpoint = responsesPath + codexCompactPath
 		}
 	}
-	targetURL := baseURL + endpoint
+	// Same rule as the combo path above: a provider with a dedicated media
+	// sub-URL is addressed through it, not through BaseURL + endpoint.
+	targetURL := chat.MultimodalPath(providerCfg, endpoint)
 	method := r.Method
 	if endpoint == "/v1/web/fetch" && providerCfg.FetchURL != "" {
 		targetURL = providerCfg.FetchURL

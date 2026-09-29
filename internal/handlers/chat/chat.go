@@ -947,6 +947,50 @@ func (h *ChatHandler) HandleModelsByKind(w http.ResponseWriter, r *http.Request)
 			endpoint = "/v1/chat/completions"
 		}
 
+		// For image generation the provider name alone is not a usable id: the
+		// generation endpoint resolves "{alias}/{model}" and rejects a bare
+		// alias ("could not resolve model: xai"). List the provider's actual
+		// image models so discovery output can be fed straight back into
+		// POST /v1/images/generations, with the params each one accepts.
+		if kind == "image" {
+			catalog := providers.ProviderModels[id]
+			if len(catalog) == 0 {
+				catalog = providers.ProviderModels[providers.ProviderAliasFor(id)]
+			}
+			emitted := false
+			for _, modelID := range catalog {
+				if !providers.IsImageModelID(modelID) {
+					continue
+				}
+				data = append(data, map[string]any{
+					"id":         id + "/" + modelID,
+					"object":     "model",
+					"kind":       kind,
+					"owned_by":   id,
+					"endpoint":   endpoint,
+					"created":    now,
+					"params":     []string{"n", "size", "quality", "response_format"},
+					"capability": "image",
+				})
+				emitted = true
+			}
+			if emitted {
+				continue
+			}
+			// Providers with an ImageURL but no catalog entries (recraft, xai
+			// latest ids, user-defined nodes) still need an addressable id.
+			data = append(data, map[string]any{
+				"id":       id + "/" + providers.DefaultImageModel(id),
+				"object":   "model",
+				"kind":     kind,
+				"owned_by": id,
+				"endpoint": endpoint,
+				"created":  now,
+				"params":   []string{"n", "size", "quality", "response_format"},
+			})
+			continue
+		}
+
 		data = append(data, map[string]any{
 			"id":       id,
 			"object":   "model",

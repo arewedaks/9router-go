@@ -65,6 +65,7 @@ var KnownProviders = map[string]ProviderConfig{
 		BaseURL:    "https://api.openai.com/v1/chat/completions",
 		AuthHeader: "Authorization",
 		AuthScheme: "bearer",
+		ImageURL:   "https://api.openai.com/v1/images/generations",
 	},
 	"anthropic": {
 		BaseURL:    "https://api.anthropic.com/v1/messages",
@@ -127,6 +128,10 @@ var KnownProviders = map[string]ProviderConfig{
 		BaseURL:    "https://openrouter.ai/api/v1/chat/completions",
 		AuthHeader: "Authorization",
 		AuthScheme: "bearer",
+		// Chat base carries /chat/completions, so image requests need their own
+		// URL; without it the multimodal fallback builds
+		// ".../chat/completions/images/generations" and OpenRouter answers 404.
+		ImageURL: "https://openrouter.ai/api/v1/images/generations",
 		StaticHeaders: map[string]string{
 			"HTTP-Referer": "https://endpoint-proxy.local",
 			"X-Title":      "Endpoint Proxy",
@@ -165,12 +170,20 @@ var KnownProviders = map[string]ProviderConfig{
 		AuthHeader: "Authorization",
 		AuthScheme: "bearer",
 		Format:     "gemini-openai",
+		// Advertises Gemini's image models on /v1/models/image; generation goes
+		// through the same chat path. Without it the endpoint omits the provider
+		// even though its catalogue (registry_models.go:gemini) lists them.
+		ImageURL: "https://generativelanguage.googleapis.com/v1beta/models",
 	},
 	"antigravity": {
 		BaseURL:    "https://daily-cloudcode-pa.googleapis.com",
 		AuthHeader: "Authorization",
 		AuthScheme: "bearer",
 		Format:     "gemini-native",
+		// Image requests never touch BaseURL: the media handler routes image
+		// models through the Gemini executor envelope. The URL is carried only
+		// so /v1/models/image advertises the provider's image models at all.
+		ImageURL: "https://daily-cloudcode-pa.googleapis.com/v1internal:generateContent",
 		// The quota RPCs live on cloudcode-pa, not on the chat host above.
 		// fetchAvailableModels answers per-model remaining fractions and
 		// retrieveUserQuotaSummary the weekly/5h buckets.
@@ -275,6 +288,7 @@ var KnownProviders = map[string]ProviderConfig{
 		BaseURL:    "https://ai-gateway.vercel.sh/v1/chat/completions",
 		AuthHeader: "Authorization",
 		AuthScheme: "bearer",
+		ImageURL:   "https://ai-gateway.vercel.sh/v1/images/generations",
 	},
 	"volcengine-ark": {
 		BaseURL:    "https://ark.cn-beijing.volces.com/api/coding/v3/chat/completions",
@@ -417,6 +431,7 @@ var KnownProviders = map[string]ProviderConfig{
 		BaseURL:    "https://api.minimax.io/v1/chat/completions",
 		AuthHeader: "Authorization",
 		AuthScheme: "bearer",
+		ImageURL:   "https://api.minimax.io/v1/images/generations",
 	},
 	"kimi": {
 		BaseURL:    "https://api.kimi.com/coding/v1/chat/completions",
@@ -489,6 +504,9 @@ var KnownProviders = map[string]ProviderConfig{
 		BaseURL:    "https://chatgpt.com/backend-api/codex/responses",
 		AuthHeader: "Authorization",
 		AuthScheme: "bearer",
+		// Same reason as antigravity/gemini: the gpt-*-image models are reached
+		// through the chat envelope, and this URL only makes them discoverable.
+		ImageURL: "https://chatgpt.com/backend-api/codex/responses",
 		StaticHeaders: map[string]string{
 			"originator": "codex_cli_rs",
 			"User-Agent": "codex_cli_rs/0.154.0",
