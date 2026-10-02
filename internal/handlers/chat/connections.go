@@ -1,6 +1,9 @@
 package chat
 
 import (
+	"context"
+	"net"
+
 	"9router/proxy/internal/constants"
 	"9router/proxy/internal/db"
 	"9router/proxy/internal/log"
@@ -17,6 +20,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"golang.org/x/net/proxy"
 )
 
 // CredentialFallbacks maps search/tool providers to the primary chat provider whose API key can be reused.
@@ -389,6 +394,13 @@ func (h *ChatHandler) getClientForConnection(connData *ConnectionData) *http.Cli
 	}
 
 	if proxyURLStr == "" {
+		// Falling back to the host's own IP is a routing decision the operator
+		// cannot see from the dashboard, which keeps showing the pool attached.
+		// Say it out loud so "why is my egress direct?" has an answer in the log.
+		if connData.ProxyPoolID != "" {
+			log.Warn("proxy", "configured pool not applied; request egresses directly",
+				"pool", connData.ProxyPoolID, "reason", proxyPoolSkipReason(h, connData.ProxyPoolID))
+		}
 		return h.Client
 	}
 
@@ -401,33 +413,109 @@ func (h *ChatHandler) getClientForConnection(connData *ConnectionData) *http.Cli
 		return h.Client
 	}
 
-	if proxyType == "http" || proxyType == "" {
-		proxyClientsMu.RLock()
-		client, ok := proxyClients[proxyURLStr]
-		proxyClientsMu.RUnlock()
-		if ok {
+	// Edge Relays rewrite the request URL and add x-relay headers per request,
+	// so they deliberately ride the standard client. Everything else that
+	// NormalizeProxyURL accepts is a forward proxy and must get a proxied
+	// transport; classifying by stored type alone is what let an "https" or
+	// "socks5" pool egress over the host's own IP without a single warning.
+	switch proxyType {
+	case "vercel", "cloudflare", "deno":
+		// fall through to the relay return below
+	default:
+		if isProxyScheme(parsedURL.Scheme) {
+			proxyClientsMu.RLock()
+			client, ok := proxyClients[proxyURLStr]
+			proxyClientsMu.RUnlock()
+			if ok {
+				return client
+			}
+
+			proxyClientsMu.Lock()
+			defer proxyClientsMu.Unlock()
+			if client, ok = proxyClients[proxyURLStr]; ok {
+				return client
+			}
+
+			baseTransport := http.DefaultTransport.(*http.Transport).Clone()
+			if dialer, ok := proxyDialer(parsedURL); ok {
+				// SOCKS proxies are negotiated by the dialer, not by the transport's
+				// Proxy hook — http.Transport.Proxy only speaks HTTP CONNECT. Setting
+				// both would send the SOCKS CONNECT to the SOCKS port as HTTP.
+				baseTransport.Proxy = nil
+				baseTransport.DialContext = dialer
+			} else {
+				baseTransport.Proxy = http.ProxyURL(parsedURL)
+			}
+			client = &http.Client{
+				Transport: baseTransport,
+				Timeout:   h.Client.Timeout,
+			}
+			proxyClients[proxyURLStr] = client
 			return client
 		}
-
-		proxyClientsMu.Lock()
-		defer proxyClientsMu.Unlock()
-		if client, ok = proxyClients[proxyURLStr]; ok {
-			return client
-		}
-
-		baseTransport := http.DefaultTransport.(*http.Transport).Clone()
-		baseTransport.Proxy = http.ProxyURL(parsedURL)
-		client = &http.Client{
-			Transport: baseTransport,
-			Timeout:   h.Client.Timeout,
-		}
-		proxyClients[proxyURLStr] = client
-		return client
 	}
 
 	// For Edge Relays (vercel, cloudflare, deno), standard client is used because
 	// URL rewriting and x-relay headers are handled at request time.
 	return h.Client
+}
+
+// isProxyScheme reports whether a URL scheme names a forward proxy this client
+// can speak. It is what keeps a pool whose stored type drifted from its URL from
+// silently egressing directly.
+func isProxyScheme(scheme string) bool {
+	switch scheme {
+	case "http", "https", "socks5", "socks5h", "socks4":
+		return true
+	}
+	return false
+}
+
+// proxyDialer returns a CONNECT-time dialer for SOCKS proxies. The second result
+// is false for HTTP proxies, which use the transport's Proxy hook instead.
+func proxyDialer(u *url.URL) (func(ctx context.Context, network, addr string) (net.Conn, error), bool) {
+	scheme := strings.ToLower(u.Scheme)
+	if !strings.HasPrefix(scheme, "socks") {
+		return nil, false
+	}
+	// x/net/proxy reads credentials from the URL itself; strip them so the
+	// address it dials is host:port.
+	addr := u.Host
+	var auth *proxy.Auth
+	if u.User != nil {
+		if pass, ok := u.User.Password(); ok {
+			auth = &proxy.Auth{User: u.User.Username(), Password: pass}
+		} else {
+			auth = &proxy.Auth{User: u.User.Username()}
+		}
+	}
+	d, err := proxy.SOCKS5("tcp", addr, auth, proxy.Direct)
+	if err != nil {
+		return nil, false
+	}
+	cd, ok := d.(proxy.ContextDialer)
+	if !ok {
+		return nil, false
+	}
+	return cd.DialContext, true
+}
+
+// proxyPoolSkipReason explains why a configured pool did not produce a client.
+// The distinction matters: a missing pool row is a deleted pool, an inactive one
+// is a pool the health check failed (or that was paused), and an empty URL list
+// is a pool that was stored without addresses.
+func proxyPoolSkipReason(h *ChatHandler, poolID string) string {
+	pool, err := h.Repo.GetProxyPool(poolID)
+	if err != nil || pool == nil {
+		return "pool not found"
+	}
+	if !pool.IsActive {
+		return "pool is inactive (paused, or failed its last health check)"
+	}
+	if len(pool.URLs) == 0 {
+		return "pool has no proxy URLs"
+	}
+	return "unknown"
 }
 
 // canonicalLockModel normalizes model names for providers sharing a backend

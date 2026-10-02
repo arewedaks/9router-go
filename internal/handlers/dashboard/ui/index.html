@@ -3177,7 +3177,7 @@
     if (tabId === "endpoint") loadEndpointTab();
     if (tabId === "usage") loadUsage();
     else stopUsageRefresh();
-    if (tabId === "providers") loadProviders();
+    if (tabId === "providers") { loadProviders(); loadProviderStrategies(); }
     if (tabId === "combos") loadCombos();
     if (tabId === "console") startConsoleLogs();
     else stopConsoleLogs();
@@ -3982,8 +3982,13 @@
       }
       const d = await res.json();
       window.__agConnCount = (d.connections || []).length;
-      // no-auth providers render the Proxy tab, which needs the pool list.
-      if (d.noConnection) await loadProxyPools(false);
+      // no-auth providers render the Proxy tab, which needs the pool list
+      // and the saved per-provider strategy. Without the latter the
+      // dropdown falls back to "None (direct)" on a fresh load.
+      if (d.noConnection) {
+        await loadProxyPools(false);
+        await loadProviderStrategies();
+      }
       // The Antigravity client profile is a provider-wide setting the hero
       // dropdown must show. Load it once here, before the single render: doing
       // it inside renderProviderDetail would re-render from render, replacing
@@ -4565,6 +4570,23 @@
       return proxyPoolCache;
     } catch (e) {
       return [];
+    }
+  }
+
+  // loadProviderStrategies fetches just settings.providerStrategies for the
+  // provider Proxy tab. loadSettings() is bound to the Settings tab, so on a
+  // fresh load the provider page rendered from an empty map and showed "None
+  // (direct)" even though the binding was stored; picking a pool then looked
+  // like it had been forgotten on the next refresh. Kept separate so the
+  // provider tab does not pull in the whole settings payload.
+  async function loadProviderStrategies() {
+    try {
+      const res = await api("/api/dashboard/settings");
+      if (!res.ok) return;
+      const s = await res.json();
+      providerStrategies = s.providerStrategies || {};
+    } catch (e) {
+      console.error(e);
     }
   }
 
