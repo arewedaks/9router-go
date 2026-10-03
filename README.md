@@ -6,7 +6,25 @@
 
 High-performance Go proxy gateway for [9Router](https://github.com/decolua/9router) LLM routing — with its own **built-in dashboard** (providers, usage, console log, model import) served directly from the binary.
 
-> **Current:** `v1.9.4` — Go proxy + embedded dashboard in one binary; shares the same SQLite DB as the original [9Router dashboard](https://github.com/decolua/9router).
+> **Current:** `v1.9.8` — Go proxy + embedded dashboard in one binary; shares the same SQLite DB as the original [9Router dashboard](https://github.com/decolua/9router).
+
+## Contents
+
+- [Dashboard](#dashboard) — what the embedded UI gives you
+- [Architecture](#architecture) — diagram and request flow
+- [Download and installation](#download-and-installation) — installer, binaries, Docker, source
+- [Running 9Router-Go](#running-9router-go) — ports, flags, Cloudflare
+- [Client setup](#client-setup) — cURL, Claude Code, editors
+- [Combo strategies](#combo-strategies) — fallback, round-robin, sticky, fusion
+- [Error classification](#error-classification) — retry rules and backoff
+- [Model locking](#model-locking) · [SSE stall detection](#sse-stall-detection)
+- [Token savers](#token-savers) — RTK, Caveman, Ponytail, Headroom
+- [Environment variables](#environment-variables) · [Database](#database)
+- [API endpoints](#api-endpoints) — the full route list
+- [Docker](#docker) · [Cross-compile](#cross-compile) · [Test](#test) · [Benchmark](#benchmark)
+- [Roadmap](#roadmap) · [Credits](#credits)
+
+---
 
 ## Dashboard
 
@@ -30,19 +48,36 @@ The Go binary serves the full management UI on the same port — no separate Nex
 
 ### Features
 
+**Performance**
+
 - **32K+ RPS** peak throughput (Go vs Next.js ~500 RPS)
 - **42 MB** memory footprint
 - **SQLite WAL mode** with non-blocking concurrency (shared with [9Router dashboard](https://github.com/decolua/9router))
+
+**Routing & reliability**
+
+- **Combo strategies**: sticky round-robin, round-robin, fallback, fusion (multi-panel + judge), weight
+- **Auto-capability-switch**: floats vision/pdf/audio-capable models to front based on request content
+- **Turn & Tool-Calling Stickiness**: locks multi-turn tool calling to the same provider/model to preserve thought signatures
+- **Error classification**: text-based error rules + exponential backoff matching Next.js
+- **Per-connection model locks**: DB-compatible with Next.js dashboard
+- **SSE stall detection**: 6-minute timeout with per-chunk reset
+- **Reactive 401 Unauthorized Auto-Refresh**: auto-refreshes OAuth tokens on 401 and retries once before fallback
 - **OpenAI, Claude, and Gemini native format support** with bidirectional SSE translation
-- **One-command service install**: `sudo 9router-go service install` writes the systemd unit, enables boot start, verifies it, and starts now
+- **Defer-Lowering Cache Fix**: `LastCacheableToolIndex` untuk MCP `defer_loading:true` tail (#3567)
+
+**Proxy & egress**
+
+- **Dynamic Egress Proxy Pools & Edge Relays**: round-robin IP rotation via active HTTP/HTTPS/SOCKS5 pools + Vercel/Cloudflare/Deno edge relays (`x-relay-target` / `x-relay-path`)
+- **No-Auth Provider Proxy Strategies**: automatic proxy pool routing & rotation for free-tier/public providers (`settings.providerStrategies`)
+- **SSRF Hardening**: `CGNAT 100.64/10`, `trailing dot`, IPv6 `::ffff:7f00:1` hex, `64:ff9b::`, `normalizeHost`
+
+**Providers & models**
+
 - **Dashboard model import with live catalogues**: Grok CLI (reasoning-effort expansion), TwinMind (`/api/v3/chat/models`), Cline, ClinePass, GitHub Copilot, Antigravity and more — Free/Regular categories, alphabetized, one-click Select-all-free
 - **Live auto-disable**: Test-All modes (Safe skips 429/timeouts, Full removes every no-ping) drop dead models per-row the moment their ping fails — no manual refresh
 - **Antigravity Tool Cloaking & Anti-Ban Decoy System**: 21 official IDE decoy tools (`run_command`, `replace_file_content`, etc.) with `_ide` suffix cloaking and protobuf validation safeguards
 - **Antigravity Anti-Competitive Prompt Stripping**: strips competitor identity prompts to prevent synthetic 429 quota exhaustion errors
-- **Dynamic Egress Proxy Pools & Edge Relays**: round-robin IP rotation via active HTTP/HTTPS/SOCKS5 pools + Vercel/Cloudflare/Deno edge relays (`x-relay-target` / `x-relay-path`)
-- **No-Auth Provider Proxy Strategies**: automatic proxy pool routing & rotation for free-tier/public providers (`settings.providerStrategies`)
-- **Realtime SSE Usage Stream (`/api/usage/stream`)**: in-memory in-flight request tracker powering live glowing pulse & marching-ants animations on the Next.js Usage Topology graph
-- **Snake_case Token Limits (`/v1/models` & `/v1/models/info`)**: exposes `context_length`, `max_completion_tokens`, `max_input_tokens`, and `max_output_tokens`
 - **Gemini 3.8 / 3.7 Flash Model Family**: alias `gemini-3.8-flash-high/medium/low` → `gemini-3.8-flash-tiered` (1M ctx) + `2.11.0` fingerprint, `prefixItems` cleaning
 - **Gemini Multimodal Vision & Audio**: base64 inline images, remote `fileData` URLs, `input_audio`, `thoughtSignature` backfill
 - **Opencode Muse-Spark 1.2/1.3 + Vision**: `Responses API /v1/responses` routing, `Vision:true`, `oc/` prefix, `reasoning max→xhigh`
@@ -51,21 +86,20 @@ The Go binary serves the full management UI on the same port — no separate Nex
 - **Groq Usage via x-ratelimit***: `GET /openai/v1/models` headers `limit/requests/tokens` + Go duration `2m59.56s` → `ProviderQuotaInfo`
 - **Custom Models with Caps Toggle**: `kv customModels` upsert + `SetCustomModelCaps` live refresh, merge di `HandleModels` + `GetCapabilitiesForModel`
 - **Single Model Lookup**: `GET /v1/models/*` catch-all `cc/claude-sonnet-4-6` + kind `image/tts/web` (`#3588`)
-- **SSRF Hardening**: `CGNAT 100.64/10`, `trailing dot`, IPv6 `::ffff:7f00:1` hex, `64:ff9b::`, `normalizeHost`
-- **Defer-Lowering Cache Fix**: `LastCacheableToolIndex` untuk MCP `defer_loading:true` tail (#3567)
 - **Kimchi Dual Authentication**: seamless API key + OAuth token resolution
 - **Dedicated High-Performance Executors**: Qoder COSY signing (RSA-2048 + AES-128 + MD5), CodeBuddy CN/INTL streaming, Trae SOLO remote agent, Windsurf gRPC-web
-- **Combo strategies**: sticky round-robin, round-robin, fallback, fusion (multi-panel + judge), weight
-- **Auto-capability-switch**: floats vision/pdf/audio-capable models to front based on request content
-- **Turn & Tool-Calling Stickiness**: locks multi-turn tool calling to the same provider/model to preserve thought signatures
-- **Error classification**: text-based error rules + exponential backoff matching Next.js
-- **Per-connection model locks**: DB-compatible with Next.js dashboard
-- **SSE stall detection**: 6-minute timeout with per-chunk reset
-- **Reactive 401 Unauthorized Auto-Refresh**: auto-refreshes OAuth tokens on 401 and retries once before fallback
+
+**Token savers**
+
 - **Token savers**: RTK input compression, Caveman terse output (`lite`, `full`, `ultra`, `wenyan-ultra`), Ponytail minimal-code bias (`lite`, `full`, `ultra`), auto-synced from SQLite `settings` table
 - **Headroom Lifecycle Proxy**: token compression proxy management & dashboard reverse proxy
+
+**Observability & ops**
+
+- **Realtime SSE Usage Stream (`/api/usage/stream`)**: in-memory in-flight request tracker powering live glowing pulse & marching-ants animations on the Next.js Usage Topology graph
+- **Snake_case Token Limits (`/v1/models` & `/v1/models/info`)**: exposes `context_length`, `max_completion_tokens`, `max_input_tokens`, and `max_output_tokens`
 - **Live Console Logs**: in-process ring buffer + SSE streaming for dashboard console monitoring
-- CGO-free, cross-compile to any platform
+- **One-command service install**: `sudo 9router-go service install` writes the systemd unit, enables boot start, verifies it, and starts now
 
 ## Architecture
 
@@ -83,7 +117,7 @@ The Go binary serves the full management UI on the same port — no separate Nex
 │  • Usage        │     │  • Auto-capability    │
 │  • Console Log  │     │  • SSE streaming      │
 │  • Token Saver  │     │  • Stall detection    │
-│  • Import       │     │  • Error klasifikasi  │
+│  • Import       │     │  • Error classification  │
 └─────────────────┘     │  • Translation        │
                         └───────┬──────────┘
                                 │
@@ -92,7 +126,7 @@ The Go binary serves the full management UI on the same port — no separate Nex
                         └──────────────────┘
 ```
 
-### Request Flow
+### Request flow
 
 ```
 Client → Auth → resolveModel() → [Combo?]
@@ -121,7 +155,7 @@ tryForwardWithConnection()
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed flow diagrams (combo, fusion, error classification, locking, SSE stall, etc.).
 
-## 📥 Download & Installation
+## Download and installation
 
 ### Option 0: One-line installer (recommended)
 
@@ -135,7 +169,7 @@ curl -fsSL https://raw.githubusercontent.com/arewedaks/9router-go/HEAD/scripts/i
 Pin a specific version:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/arewedaks/9router-go/HEAD/scripts/install.sh | bash -s -- --version 1.9.4
+curl -fsSL https://raw.githubusercontent.com/arewedaks/9router-go/HEAD/scripts/install.sh | bash -s -- --version 1.9.8
 ```
 
 Auto-start on boot (systemd unit + enable, run as root):
@@ -152,7 +186,7 @@ sudo 9router-go service install     # write unit + enable at boot + start now
 sudo 9router-go service uninstall   # stop + disable + remove unit
 ```
 
-### Option 1: Pre-built Binaries (Recommended)
+### Option 1: Pre-built binaries
 Download the latest binary for your OS and architecture from [GitHub Releases](https://github.com/arewedaks/9router-go/releases/latest):
 
 | Platform | Architecture | Binary |
@@ -182,12 +216,12 @@ docker build -t 9router-go . && docker run -d \
   9router-go
 ```
 
-### Option 3: Go Install
+### Option 3: Go install
 ```bash
 go install github.com/arewedaks/9router-go/cmd/9router-go@latest
 ```
 
-### Option 4: Build from Source
+### Option 4: Build from source
 ```bash
 git clone https://github.com/arewedaks/9router-go.git
 cd 9router-go
@@ -196,7 +230,7 @@ go build -o 9router-go ./cmd/9router-go/
 
 ---
 
-## 🚀 Running 9Router-Go
+## Running 9Router-Go
 
 ```bash
 # Run with default settings (port 20128, automatically locates ~/.9router/db/data.sqlite)
@@ -223,11 +257,11 @@ and troubleshooting. For a from-scratch deployment see [DEPLOY.md](DEPLOY.md).
 
 ---
 
-## 🔌 How to Use (Client Setup)
+## Client setup
 
 9Router-Go provides an **OpenAI-compatible `/v1` endpoint** (plus native Claude `/v1/messages` and Gemini format translation).
 
-### 1. Direct cURL Example
+### 1. Direct cURL example
 ```bash
 curl http://localhost:20128/v1/chat/completions \
   -H "Content-Type: application/json" \
@@ -262,7 +296,7 @@ providers:
 - **API Key**: `sk-your-api-key` (or any string if authentication is public/single-user)
 - **Model**: Select any configured model or combo (e.g., `ag/gemini-3.8-flash-high`, `deepseek/deepseek-chat`, combo name).
 
-## Combo Strategies
+## Combo strategies
 
 Combo models support multiple routing strategies, configurable per combo:
 
@@ -284,7 +318,7 @@ Fusion runs multiple models as a panel in parallel:
 3. **Degrade gracefully**: If 0 answers → 503; if 1 answer → answer directly
 4. **Judge synthesis**: Build anonymized panel responses → send to judge model → final answer streamed to client
 
-## Error Classification
+## Error classification
 
 Errors are classified using the same rule system as Next.js:
 
@@ -303,7 +337,7 @@ Errors are classified using the same rule system as Next.js:
 **Exponential backoff**: 2s base, doubled per level, max 5 minutes, 15 levels max.
 Backoff level is tracked per-connection in `providerConnections.data.backoffLevel` (DB-compatible with Next.js dashboard).
 
-## Model Locking
+## Model locking
 
 **Per-connection model locks** — stored as `modelLock_<model>` fields in `providerConnections.data` JSON blob.
 Same format as Next.js, readable by the shared dashboard.
@@ -312,7 +346,7 @@ Same format as Next.js, readable by the shared dashboard.
 - Successful request → `UnlockConnectionModel(id, model)` → `data.modelLock_gpt-4 = null`, `backoffLevel = 0`
 - Connection selection → skips connections with active model lock
 
-## SSE Stall Detection
+## SSE stall detection
 
 Each SSE stream is wrapped with a `StallReader` (6-minute timeout by default).
 
@@ -320,7 +354,7 @@ Each SSE stream is wrapped with a `StallReader` (6-minute timeout by default).
 - If timer fires (no data for 6 minutes) → underlying connection is closed → `Read` unblocks with error → stream terminated
 - No goroutine leak on clean stream close (timer stopped)
 
-## Token Savers
+## Token savers
 
 Reduce token usage on routed LLM traffic. Each saver is independently toggleable
 via CLI flag or environment variable (CLI flag overrides env), and all four are
@@ -357,7 +391,7 @@ the global settings alone:
 curl -H 'X-9Router-Token-Saver: off' http://localhost:20128/v1/chat/completions ...
 ```
 
-## Environment Variables
+## Environment variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -377,14 +411,14 @@ Uses the same SQLite DB as [9Router dashboard](https://github.com/decolua/9route
 
 See [DATABASE.md](DATABASE.md) for full schema documentation, JSON blob structure, and Go vs Next.js differences.
 
-### Custom DB Location
+### Custom DB location
 
 ```bash
 # Use custom SQLite path
 DB_PATH=/mnt/shared/9router/data.sqlite PORT=20128 ./9router-go
 ```
 
-## API Endpoints
+## API endpoints
 
 ```
 # Core Chat & Completion Endpoints
@@ -473,7 +507,7 @@ volumes:
 docker compose up -d
 ```
 
-## Cross-Compile
+## Cross-compile
 
 ```bash
 GOOS=linux GOARCH=amd64 go build -o 9router-go-linux ./cmd/9router-go/
