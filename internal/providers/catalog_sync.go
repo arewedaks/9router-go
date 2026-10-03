@@ -85,13 +85,7 @@ func GetCatalogModalities(model string) *SyncedModelModalities {
 	if model == "" {
 		return nil
 	}
-	base := strings.ToLower(model)
-	if idx := strings.Index(base, "/"); idx != -1 {
-		base = base[idx+1:]
-	}
-	if idx := strings.Index(base, ":"); idx != -1 {
-		base = base[:idx]
-	}
+	base := normalizeModelKey(model)
 
 	catalogMu.RLock()
 	defer catalogMu.RUnlock()
@@ -102,6 +96,60 @@ func GetCatalogModalities(model string) *SyncedModelModalities {
 		return &m
 	}
 	return nil
+}
+
+// normalizeModelKey strips a provider prefix and any :tag suffix so the result
+// matches the keys stored in SyncedCatalog (see SyncModelCatalog).
+func normalizeModelKey(model string) string {
+	base := strings.ToLower(model)
+	if idx := strings.Index(base, "/"); idx != -1 {
+		base = base[idx+1:]
+	}
+	if idx := strings.Index(base, ":"); idx != -1 {
+		base = base[:idx]
+	}
+	return base
+}
+
+// GetCatalogLimits returns the token limits synced from models.dev for a
+// provider/model pair, or (0, 0) when the catalog has no entry. The provider
+// argument may be a 9router provider id (aliased through ProviderAliases) or a
+// models.dev provider id.
+//
+// The catalog only carries an exact match: a model the upstream catalogue does
+// not list yields zeros and the caller falls back to pattern guessing, rather
+// than silently attributing another provider's limits to this model.
+func GetCatalogLimits(provider, model string) (contextWindow int, maxOutput int) {
+	if model == "" {
+		return 0, 0
+	}
+	base := normalizeModelKey(model)
+
+	catalogMu.RLock()
+	defer catalogMu.RUnlock()
+	if globalCatalog == nil || globalCatalog.Providers == nil {
+		return 0, 0
+	}
+
+	// Try the provider as given, then its models.dev alias.
+	provIDs := []string{strings.ToLower(provider)}
+	if alias, ok := ProviderAliases[strings.ToLower(provider)]; ok {
+		provIDs = append(provIDs, alias)
+	}
+
+	for _, pid := range provIDs {
+		if pid == "" {
+			continue
+		}
+		byModel, ok := globalCatalog.Providers[pid]
+		if !ok {
+			continue
+		}
+		if lim, ok := byModel[base]; ok {
+			return lim.ContextWindow, lim.MaxOutput
+		}
+	}
+	return 0, 0
 }
 
 // LoadCatalogFromFile loads cached catalog from disk if it exists.

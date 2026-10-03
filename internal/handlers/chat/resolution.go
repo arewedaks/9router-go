@@ -26,7 +26,7 @@ func NewChatHandler(repo *db.Repo, ts ...*shared.TokenSaverConfig) *ChatHandler 
 	// ClampToModelCeiling rules. Injected rather than imported so paramfix stays
 	// free of a provider-registry dependency.
 	paramfix.SetMaxOutputCeilingFunc(func(provider, model string) int {
-		if _, maxOut := providers.GetModelTokenLimits(model); maxOut > 0 {
+		if _, maxOut := providers.GetModelTokenLimitsFor(provider, model); maxOut > 0 {
 			return maxOut
 		}
 		return 0

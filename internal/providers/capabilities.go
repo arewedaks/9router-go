@@ -96,48 +96,48 @@ var DefaultCapabilities = Capabilities{
 }
 
 var modelCapabilities = map[string]Capabilities{
-	"claude-opus-5":                  {Vision: true, Reasoning: true, Search: true, Tools: true},
-	"claude-opus-5-thinking":         {Vision: true, Reasoning: true, Search: true, Tools: true},
-	"claude-opus-5-agentic":          {Vision: true, Reasoning: true, Search: true, Tools: true},
-	"claude-opus-5-thinking-agentic": {Vision: true, Reasoning: true, Search: true, Tools: true},
-	"claude-opus-4.6":                {Vision: true, Reasoning: true, Search: true, Tools: true},
-	"claude-opus-4.7":                {Vision: true, Reasoning: true, Search: true, Tools: true},
-	"claude-opus-4-7":                {Vision: true, Reasoning: true, Search: true, Tools: true},
-	"claude-opus-4.8":                {Vision: true, Reasoning: true, Search: true, Tools: true},
-	"claude-opus-4-6":                {Vision: true, Reasoning: true, Search: true, Tools: true},
-	"claude-opus-4-8":                {Vision: true, Reasoning: true, Search: true, Tools: true},
-	"claude-opus-4.8-thinking":       {Vision: true, Reasoning: true, Search: true, Tools: true},
-	"claude-opus-4-8-thinking":       {Vision: true, Reasoning: true, Search: true, Tools: true},
-	"claude-sonnet-4.6":              {Vision: true, Reasoning: true, Search: true, Tools: true},
-	"claude-sonnet-4-6":              {Vision: true, Reasoning: true, Search: true, Tools: true},
-	"claude-sonnet-5":                {Vision: true, Reasoning: true, Search: true, Tools: true},
-	"claude-sonnet-5-thinking":       {Vision: true, Reasoning: true, Search: true, Tools: true},
-	"claude-sonnet-5-agentic":        {Vision: true, Reasoning: true, Search: true, Tools: true},
+	"claude-opus-5":                    {Vision: true, Reasoning: true, Search: true, Tools: true},
+	"claude-opus-5-thinking":           {Vision: true, Reasoning: true, Search: true, Tools: true},
+	"claude-opus-5-agentic":            {Vision: true, Reasoning: true, Search: true, Tools: true},
+	"claude-opus-5-thinking-agentic":   {Vision: true, Reasoning: true, Search: true, Tools: true},
+	"claude-opus-4.6":                  {Vision: true, Reasoning: true, Search: true, Tools: true},
+	"claude-opus-4.7":                  {Vision: true, Reasoning: true, Search: true, Tools: true},
+	"claude-opus-4-7":                  {Vision: true, Reasoning: true, Search: true, Tools: true},
+	"claude-opus-4.8":                  {Vision: true, Reasoning: true, Search: true, Tools: true},
+	"claude-opus-4-6":                  {Vision: true, Reasoning: true, Search: true, Tools: true},
+	"claude-opus-4-8":                  {Vision: true, Reasoning: true, Search: true, Tools: true},
+	"claude-opus-4.8-thinking":         {Vision: true, Reasoning: true, Search: true, Tools: true},
+	"claude-opus-4-8-thinking":         {Vision: true, Reasoning: true, Search: true, Tools: true},
+	"claude-sonnet-4.6":                {Vision: true, Reasoning: true, Search: true, Tools: true},
+	"claude-sonnet-4-6":                {Vision: true, Reasoning: true, Search: true, Tools: true},
+	"claude-sonnet-5":                  {Vision: true, Reasoning: true, Search: true, Tools: true},
+	"claude-sonnet-5-thinking":         {Vision: true, Reasoning: true, Search: true, Tools: true},
+	"claude-sonnet-5-agentic":          {Vision: true, Reasoning: true, Search: true, Tools: true},
 	"claude-sonnet-5-thinking-agentic": {Vision: true, Reasoning: true, Search: true, Tools: true},
-	"gpt-6-astra":                    {Vision: true, Reasoning: true, Search: true, Tools: true},
-	"gpt-5.6-sol-image":              {ImageOutput: true, Tools: true},
-	"gpt-5.6-terra-image":            {ImageOutput: true, Tools: true},
-	"gpt-5.6-luna-image":             {ImageOutput: true, Tools: true},
-	"gpt-image-1":                    {ImageOutput: true},
-	"glm-5.3-flash":                  {Vision: true, Reasoning: true, Tools: true},
-	"glm-5.3":                        {Reasoning: true, Tools: true},
-	"glm-4.6v":                       {Vision: true, Reasoning: true, Tools: true},
-	"deepseek-v4-vision":             {Vision: true, Reasoning: true, Tools: true},
-	"deepseek-v4.1-flash":             {Vision: true, Reasoning: true, Tools: true},
-	"deepseek-flash":                  {Vision: true, Reasoning: true, Tools: true},
-	"grok-4.6":                       {Vision: true, Reasoning: true, Search: true, Tools: true},
-	"grok-4.5":                       {Vision: true, Reasoning: true, Search: true, Tools: true},
-	"muse-spark-1.2-contributor-free": {Vision: true, Reasoning: true, Tools: true},
-	"muse-spark-1.3-contributor-free": {Vision: true, Reasoning: true, Tools: true},
-	"union-alpha":                     {Reasoning: true, Tools: true},
-	"vision-model":                   {Vision: true, Reasoning: true, Tools: true},
-	"coder-model":                    {Reasoning: true, Tools: true},
-	"kimi-k3":                        {Vision: true, VideoInput: true, Reasoning: true, Tools: true},
-	"k3":                             {Vision: true, VideoInput: true, Reasoning: true, Tools: true},
-	"kimi-for-coding":                {Vision: true, VideoInput: true, Reasoning: true, Tools: true},
-	"kimi-for-coding-highspeed":      {Vision: true, VideoInput: true, Reasoning: true, Tools: true},
-	"kimi-k2.7-code":                 {Vision: true, VideoInput: true, Reasoning: true, Tools: true},
-	"kimi-k2.7-code-highspeed":       {Vision: true, VideoInput: true, Reasoning: true, Tools: true},
+	"gpt-6-astra":                      {Vision: true, Reasoning: true, Search: true, Tools: true},
+	"gpt-5.6-sol-image":                {ImageOutput: true, Tools: true},
+	"gpt-5.6-terra-image":              {ImageOutput: true, Tools: true},
+	"gpt-5.6-luna-image":               {ImageOutput: true, Tools: true},
+	"gpt-image-1":                      {ImageOutput: true},
+	"glm-5.3-flash":                    {Vision: true, Reasoning: true, Tools: true},
+	"glm-5.3":                          {Reasoning: true, Tools: true},
+	"glm-4.6v":                         {Vision: true, Reasoning: true, Tools: true},
+	"deepseek-v4-vision":               {Vision: true, Reasoning: true, Tools: true},
+	"deepseek-v4.1-flash":              {Vision: true, Reasoning: true, Tools: true},
+	"deepseek-flash":                   {Vision: true, Reasoning: true, Tools: true},
+	"grok-4.6":                         {Vision: true, Reasoning: true, Search: true, Tools: true},
+	"grok-4.5":                         {Vision: true, Reasoning: true, Search: true, Tools: true},
+	"muse-spark-1.2-contributor-free":  {Vision: true, Reasoning: true, Tools: true},
+	"muse-spark-1.3-contributor-free":  {Vision: true, Reasoning: true, Tools: true},
+	"union-alpha":                      {Reasoning: true, Tools: true},
+	"vision-model":                     {Vision: true, Reasoning: true, Tools: true},
+	"coder-model":                      {Reasoning: true, Tools: true},
+	"kimi-k3":                          {Vision: true, VideoInput: true, Reasoning: true, Tools: true},
+	"k3":                               {Vision: true, VideoInput: true, Reasoning: true, Tools: true},
+	"kimi-for-coding":                  {Vision: true, VideoInput: true, Reasoning: true, Tools: true},
+	"kimi-for-coding-highspeed":        {Vision: true, VideoInput: true, Reasoning: true, Tools: true},
+	"kimi-k2.7-code":                   {Vision: true, VideoInput: true, Reasoning: true, Tools: true},
+	"kimi-k2.7-code-highspeed":         {Vision: true, VideoInput: true, Reasoning: true, Tools: true},
 }
 
 var providerCapabilities = map[string]map[string]Capabilities{
@@ -149,59 +149,59 @@ var providerCapabilities = map[string]map[string]Capabilities{
 		"deepseek-ai/deepseek-v4-flash": {Reasoning: true, Tools: true},
 	},
 	"codex": {
-		"gpt-6-astra":          {Vision: true, Reasoning: true, Search: true, Tools: true},
-		"gpt-5.6-sol":          {Vision: true, Reasoning: true, Search: true, Tools: true},
-		"gpt-5.6-sol-review":   {Vision: true, Reasoning: true, Search: true, Tools: true},
-		"gpt-5.6-terra":        {Vision: true, Reasoning: true, Search: true, Tools: true},
-		"gpt-5.6-terra-review": {Vision: true, Reasoning: true, Search: true, Tools: true},
-		"gpt-5.6-luna":         {Vision: true, Reasoning: true, Search: true, Tools: true},
-		"gpt-5.6-luna-review":  {Vision: true, Reasoning: true, Search: true, Tools: true},
-		"gpt-5.6-sol-image":    {ImageOutput: true, Tools: true},
-		"gpt-5.6-terra-image":  {ImageOutput: true, Tools: true},
-		"gpt-5.6-luna-image":   {ImageOutput: true, Tools: true},
-		"gpt-image-2.5":        {ImageOutput: true, Tools: true},
-		"gpt-image-2.5-flare":  {ImageOutput: true, Tools: true},
+		"gpt-6-astra":            {Vision: true, Reasoning: true, Search: true, Tools: true},
+		"gpt-5.6-sol":            {Vision: true, Reasoning: true, Search: true, Tools: true},
+		"gpt-5.6-sol-review":     {Vision: true, Reasoning: true, Search: true, Tools: true},
+		"gpt-5.6-terra":          {Vision: true, Reasoning: true, Search: true, Tools: true},
+		"gpt-5.6-terra-review":   {Vision: true, Reasoning: true, Search: true, Tools: true},
+		"gpt-5.6-luna":           {Vision: true, Reasoning: true, Search: true, Tools: true},
+		"gpt-5.6-luna-review":    {Vision: true, Reasoning: true, Search: true, Tools: true},
+		"gpt-5.6-sol-image":      {ImageOutput: true, Tools: true},
+		"gpt-5.6-terra-image":    {ImageOutput: true, Tools: true},
+		"gpt-5.6-luna-image":     {ImageOutput: true, Tools: true},
+		"gpt-image-2.5":          {ImageOutput: true, Tools: true},
+		"gpt-image-2.5-flare":    {ImageOutput: true, Tools: true},
 		"gpt-image-2.5-sunburst": {ImageOutput: true, Tools: true},
-		"gpt-image-2":          {ImageOutput: true, Tools: true},
-		"gpt-image-1.5":        {ImageOutput: true, Tools: true},
+		"gpt-image-2":            {ImageOutput: true, Tools: true},
+		"gpt-image-1.5":          {ImageOutput: true, Tools: true},
 	},
 	"codebuddy-cn": {
-		"glm-5.2":            {Vision: true, Reasoning: true, Tools: true},
-		"glm-5.1":            {Vision: true, Reasoning: true, Tools: true},
-		"glm-5.0-turbo":      {Reasoning: true, Tools: true},
-		"glm-5v-turbo":       {Vision: true, Reasoning: true, Tools: true},
-		"minimax-m3":         {Vision: true, Reasoning: true, Tools: true},
-		"minimax-m2.7":       {Vision: true, Reasoning: true, Tools: true},
-		"kimi-k2.7":          {Vision: true, Reasoning: true, Tools: true},
-		"kimi-k2.6":          {Vision: true, Reasoning: true, Tools: true},
-		"kimi-k2.5":          {Vision: true, Reasoning: true, Tools: true},
-		"hy3-preview":        {Vision: true, Reasoning: true, Tools: true},
-		"hy3":                {Vision: true, Reasoning: true, Tools: true},
-		"hy3-x":              {Vision: true, Reasoning: true, Tools: true},
-		"hy4-preview":        {Vision: true, Reasoning: true, Tools: true},
-		"hy4-preview-x":      {Vision: true, Reasoning: true, Tools: true},
-		"glm-5.3":            {Vision: true, Reasoning: true, Tools: true},
-		"glm-5.3-flash":      {Vision: true, Reasoning: true, Tools: true},
-		"kimi-k3-1":          {Vision: true, Reasoning: true, Tools: true},
-		"deepseek-v4-pro":    {Vision: true, Reasoning: true, Tools: true},
+		"glm-5.2":             {Vision: true, Reasoning: true, Tools: true},
+		"glm-5.1":             {Vision: true, Reasoning: true, Tools: true},
+		"glm-5.0-turbo":       {Reasoning: true, Tools: true},
+		"glm-5v-turbo":        {Vision: true, Reasoning: true, Tools: true},
+		"minimax-m3":          {Vision: true, Reasoning: true, Tools: true},
+		"minimax-m2.7":        {Vision: true, Reasoning: true, Tools: true},
+		"kimi-k2.7":           {Vision: true, Reasoning: true, Tools: true},
+		"kimi-k2.6":           {Vision: true, Reasoning: true, Tools: true},
+		"kimi-k2.5":           {Vision: true, Reasoning: true, Tools: true},
+		"hy3-preview":         {Vision: true, Reasoning: true, Tools: true},
+		"hy3":                 {Vision: true, Reasoning: true, Tools: true},
+		"hy3-x":               {Vision: true, Reasoning: true, Tools: true},
+		"hy4-preview":         {Vision: true, Reasoning: true, Tools: true},
+		"hy4-preview-x":       {Vision: true, Reasoning: true, Tools: true},
+		"glm-5.3":             {Vision: true, Reasoning: true, Tools: true},
+		"glm-5.3-flash":       {Vision: true, Reasoning: true, Tools: true},
+		"kimi-k3-1":           {Vision: true, Reasoning: true, Tools: true},
+		"deepseek-v4-pro":     {Vision: true, Reasoning: true, Tools: true},
 		"deepseek-v4.1-flash": {Vision: true, Reasoning: true, Tools: true},
 		"deepseek-v4-flash":   {Vision: true, Reasoning: true, Tools: true},
-		"deepseek-v3-2-volc": {Reasoning: true, Tools: true},
+		"deepseek-v3-2-volc":  {Reasoning: true, Tools: true},
 	},
 	"qoder": {
-		"ultimate":       {Vision: true, Reasoning: true, Tools: true},
-		"performance":    {Vision: true, Reasoning: true, Tools: true},
-		"dmodel":         {Reasoning: true, Tools: true},
-		"dfmodel":        {Reasoning: true, Tools: true},
-		"gmodel":         {Reasoning: true, Tools: true},
-		"gfmodel":        {Vision: true, Reasoning: true, Tools: true},
-		"kmodel_latest":  {Vision: true, Reasoning: true, Tools: true},
-		"kmodel":         {Vision: true, Reasoning: true, Tools: true},
-		"mmodel":         {Reasoning: true, Tools: true},
-		"qmodel_latest":  {Vision: true, Reasoning: true, Tools: true},
-		"qmodel":         {Vision: true, Reasoning: true, Tools: true},
-		"qfmodel":        {Vision: true, Reasoning: true, Tools: true},
-		"qmodel_38max":   {Vision: true, Reasoning: true, Tools: true},
+		"ultimate":      {Vision: true, Reasoning: true, Tools: true},
+		"performance":   {Vision: true, Reasoning: true, Tools: true},
+		"dmodel":        {Reasoning: true, Tools: true},
+		"dfmodel":       {Reasoning: true, Tools: true},
+		"gmodel":        {Reasoning: true, Tools: true},
+		"gfmodel":       {Vision: true, Reasoning: true, Tools: true},
+		"kmodel_latest": {Vision: true, Reasoning: true, Tools: true},
+		"kmodel":        {Vision: true, Reasoning: true, Tools: true},
+		"mmodel":        {Reasoning: true, Tools: true},
+		"qmodel_latest": {Vision: true, Reasoning: true, Tools: true},
+		"qmodel":        {Vision: true, Reasoning: true, Tools: true},
+		"qfmodel":       {Vision: true, Reasoning: true, Tools: true},
+		"qmodel_38max":  {Vision: true, Reasoning: true, Tools: true},
 	},
 	"poolside": {
 		"laguna-s-2.1":  {Reasoning: true, Tools: true},
@@ -212,18 +212,18 @@ var providerCapabilities = map[string]map[string]Capabilities{
 func init() {
 	kiroGpt56 := Capabilities{Vision: true, Reasoning: true, Search: true, Tools: true}
 	providerCapabilities["kiro"] = map[string]Capabilities{
-		"gpt-5.6-sol":                  kiroGpt56,
-		"gpt-5.6-terra":                kiroGpt56,
-		"gpt-5.6-luna":                 kiroGpt56,
-		"gpt-5.6-sol-thinking":         kiroGpt56,
-		"gpt-5.6-terra-thinking":       kiroGpt56,
-		"gpt-5.6-luna-thinking":        kiroGpt56,
-		"gpt-5.6-sol-agentic":          kiroGpt56,
-		"gpt-5.6-terra-agentic":        kiroGpt56,
-		"gpt-5.6-luna-agentic":         kiroGpt56,
-		"gpt-5.6-sol-thinking-agentic": kiroGpt56,
+		"gpt-5.6-sol":                    kiroGpt56,
+		"gpt-5.6-terra":                  kiroGpt56,
+		"gpt-5.6-luna":                   kiroGpt56,
+		"gpt-5.6-sol-thinking":           kiroGpt56,
+		"gpt-5.6-terra-thinking":         kiroGpt56,
+		"gpt-5.6-luna-thinking":          kiroGpt56,
+		"gpt-5.6-sol-agentic":            kiroGpt56,
+		"gpt-5.6-terra-agentic":          kiroGpt56,
+		"gpt-5.6-luna-agentic":           kiroGpt56,
+		"gpt-5.6-sol-thinking-agentic":   kiroGpt56,
 		"gpt-5.6-terra-thinking-agentic": kiroGpt56,
-		"gpt-5.6-luna-thinking-agentic": kiroGpt56,
+		"gpt-5.6-luna-thinking-agentic":  kiroGpt56,
 	}
 }
 
@@ -364,7 +364,38 @@ func matchPattern(pattern, s string) bool {
 }
 
 // GetModelTokenLimits returns the context window and maximum output tokens for a model.
+//
+// It resolves from the model name alone, so prefer GetModelTokenLimitsFor when
+// the provider is known: the synced catalog is keyed by provider/model and
+// carries the authoritative upstream figures.
 func GetModelTokenLimits(model string) (contextWindow int, maxOutput int) {
+	return getModelTokenLimitsByPattern(model)
+}
+
+// GetModelTokenLimitsFor resolves token limits for a provider/model pair.
+//
+// Resolution order:
+//  1. The models.dev catalog synced into the local database, which is keyed by
+//     provider and so is the only source that distinguishes two providers
+//     serving the same model name.
+//  2. Name-pattern matching, for models the catalog does not list.
+//
+// The catalog is consulted first because pattern matching is a guess: it maps
+// any unrecognised name to a single default, so a small model could otherwise
+// advertise a 128K window it cannot serve.
+func GetModelTokenLimitsFor(provider, model string) (contextWindow int, maxOutput int) {
+	if cw, mo := GetCatalogLimits(provider, model); cw > 0 || mo > 0 {
+		return cw, mo
+	}
+	return getModelTokenLimitsByPattern(model)
+}
+
+// getModelTokenLimitsByPattern guesses token limits from the model name.
+//
+// This is a fallback for models absent from the synced catalog. It matches
+// substrings, so ordering matters and the default branch is a guess rather than
+// a measurement — see GetModelTokenLimitsFor.
+func getModelTokenLimitsByPattern(model string) (contextWindow int, maxOutput int) {
 	m := strings.ToLower(model)
 
 	switch {
@@ -597,7 +628,7 @@ type CapabilitiesDetail struct {
 // GetCapabilitiesDetailForModel returns the full JSON-serializable capabilities map for /v1/models.
 func GetCapabilitiesDetailForModel(provider, model string) CapabilitiesDetail {
 	caps := GetCapabilitiesForModel(provider, model)
-	cw, _ := GetModelTokenLimits(model)
+	cw, _ := GetModelTokenLimitsFor(provider, model)
 	if cw == 0 {
 		cw, _ = GetModelTokenLimits(provider + "/" + model)
 	}

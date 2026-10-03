@@ -114,7 +114,7 @@ The Go binary serves the full management UI on the same port — no separate Nex
 **Observability & ops**
 
 - **Realtime SSE Usage Stream (`/api/usage/stream`)**: in-memory in-flight request tracker powering live glowing pulse & marching-ants animations on the Next.js Usage Topology graph
-- **Snake_case Token Limits (`/v1/models` & `/v1/models/info`)**: exposes `context_length`, `max_completion_tokens`, `max_input_tokens`, and `max_output_tokens`
+- **Snake_case Token Limits (`/v1/models` & `/v1/models/info`)**: exposes `context_length`, `max_completion_tokens`, `max_input_tokens`, and `max_output_tokens`, resolved from the synced models.dev catalogue per provider before falling back to name-pattern matching
 - **Live Console Logs**: in-process ring buffer + SSE streaming for dashboard console monitoring
 - **One-command service install**: `sudo 9router-go service install` writes the systemd unit, enables boot start, verifies it, and starts now
 

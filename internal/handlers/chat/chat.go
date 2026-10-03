@@ -468,9 +468,9 @@ func (h *ChatHandler) buildModelsList() []ModelInfoObject {
 				}
 				seen[fullID] = true
 
-				ctxLen, maxOut := providers.GetModelTokenLimits(mID)
+				ctxLen, maxOut := providers.GetModelTokenLimitsFor(provID, mID)
 				if ctxLen == 0 && maxOut == 0 {
-					ctxLen, maxOut = providers.GetModelTokenLimits(fullID)
+					ctxLen, maxOut = providers.GetModelTokenLimitsFor(provID, fullID)
 				}
 				caps := providers.GetCapabilitiesDetailForModel(provID, mID)
 				if caps.ContextWindows > 0 && ctxLen == 0 {
@@ -541,9 +541,9 @@ func (h *ChatHandler) buildModelsList() []ModelInfoObject {
 				}
 				seen[fullID] = true
 
-				ctxLen, maxOut := providers.GetModelTokenLimits(mID)
+				ctxLen, maxOut := providers.GetModelTokenLimitsFor(provID, mID)
 				if ctxLen == 0 && maxOut == 0 {
-					ctxLen, maxOut = providers.GetModelTokenLimits(fullID)
+					ctxLen, maxOut = providers.GetModelTokenLimitsFor(provID, fullID)
 				}
 				caps := providers.GetCapabilitiesDetailForModel(provID, mID)
 				if caps.ContextWindows > 0 && ctxLen == 0 {
@@ -577,7 +577,7 @@ func (h *ChatHandler) buildModelsList() []ModelInfoObject {
 					continue
 				}
 				seen[alias] = true
-				ctxLen, maxOut := providers.GetModelTokenLimits(alias)
+				ctxLen, maxOut := providers.GetModelTokenLimitsFor("", alias)
 				caps := providers.GetCapabilitiesDetailForModel("", alias)
 				if caps.ContextWindows > 0 && ctxLen == 0 {
 					ctxLen = caps.ContextWindows
@@ -611,7 +611,7 @@ func (h *ChatHandler) buildModelsList() []ModelInfoObject {
 				}
 				seen[c.Name] = true
 				comboIDs[c.Name] = true
-				ctxLen, maxOut := providers.GetModelTokenLimits(c.Name)
+				ctxLen, maxOut := providers.GetModelTokenLimitsFor("", c.Name)
 				caps := providers.GetCapabilitiesDetailForModel("combo", c.Name)
 				if caps.ContextWindows > 0 && ctxLen == 0 {
 					ctxLen = caps.ContextWindows
@@ -662,9 +662,9 @@ func (h *ChatHandler) buildModelsList() []ModelInfoObject {
 				}
 				seen[fullModel] = true
 
-				ctxLen, maxOut := providers.GetModelTokenLimits(fullModel)
+				ctxLen, maxOut := providers.GetModelTokenLimitsFor(prefix, cm.ID)
 				if ctxLen == 0 && maxOut == 0 {
-					ctxLen, maxOut = providers.GetModelTokenLimits(cm.ID)
+					ctxLen, maxOut = providers.GetModelTokenLimitsFor(prefix, fullModel)
 				}
 				if len(cm.Caps) > 0 {
 					var caps providers.Capabilities
@@ -867,7 +867,7 @@ func (h *ChatHandler) HandleModelsInfo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctxLen, maxOut := providers.GetModelTokenLimits(modelID)
+	ctxLen, maxOut := providers.GetModelTokenLimitsFor(modelInfo.Provider, modelID)
 
 	// owned_by must be the short alias clients already receive from
 	// /v1/models, never a generated node key. handleModels exports
