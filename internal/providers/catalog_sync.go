@@ -152,6 +152,43 @@ func GetCatalogLimits(provider, model string) (contextWindow int, maxOutput int)
 	return 0, 0
 }
 
+// GetCatalogLimitsAnyProvider returns the catalogue limits for a model whose
+// provider is unknown (a combo seat written as a bare model id). Providers
+// differ only in what they resell, so the most generous listing is the model's
+// real capability; the caller takes the largest across the combo's seats.
+func GetCatalogLimitsAnyProvider(model string) (contextWindow int, maxOutput int) {
+	if model == "" {
+		return 0, 0
+	}
+	base := normalizeModelKey(model)
+
+	catalogMu.RLock()
+	defer catalogMu.RUnlock()
+	if globalCatalog == nil {
+		return 0, 0
+	}
+	for _, byModel := range globalCatalog.Providers {
+		lim, ok := byModel[base]
+		if !ok {
+			continue
+		}
+		// Upstream carries entries whose max output equals the whole context
+		// window (cortecs/digitalocean/wandb/nebius deepseek-v4.1-flash),
+		// which is physically impossible. Drop them, equals included, rather
+		// than let one bad row win.
+		if lim.ContextWindow > 0 && lim.MaxOutput >= lim.ContextWindow {
+			continue
+		}
+		if lim.ContextWindow > contextWindow {
+			contextWindow = lim.ContextWindow
+		}
+		if lim.MaxOutput > maxOutput {
+			maxOutput = lim.MaxOutput
+		}
+	}
+	return contextWindow, maxOutput
+}
+
 // LoadCatalogFromFile loads cached catalog from disk if it exists.
 func LoadCatalogFromFile(filePath string) error {
 	if filePath == "" {

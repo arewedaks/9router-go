@@ -611,7 +611,7 @@ func (h *ChatHandler) buildModelsList() []ModelInfoObject {
 				}
 				seen[c.Name] = true
 				comboIDs[c.Name] = true
-				ctxLen, maxOut := providers.GetModelTokenLimitsFor("", c.Name)
+				ctxLen, maxOut := h.comboTokenLimits(c)
 				caps := providers.GetCapabilitiesDetailForModel("combo", c.Name)
 				if caps.ContextWindows > 0 && ctxLen == 0 {
 					ctxLen = caps.ContextWindows
@@ -1287,6 +1287,91 @@ func contentBlockChars(block any) int {
 
 // HandleOllamaChat handles Ollama-compatible /v1/api/chat endpoint.
 // POST /v1/api/chat
+// comboTokenLimits resolves the token limits to publish for a combo.
+//
+// A combo has no limits of its own, and asking by name alone falls through to
+// the name-pattern guess, which reports the 128000/4096 default for every combo
+// whose name is not a model id. That understates what the combo can serve: a
+// combo of 1M-window models advertised 128K.
+//
+// Seats are fallbacks, not a pipeline: a request needs one seat, not all of
+// them. The published figure is therefore the largest window any seat offers,
+// because that is what the combo can actually serve. Taking the smallest would
+// let one 4B helper model drag a 1M combo down to 128K. Seats are
+// "provider/model" and the provider half is a UI alias, so it goes through
+// resolveProviderAlias before the catalogue lookup.
+func (h *ChatHandler) comboTokenLimits(c *models.Combo) (contextWindow int, maxOutput int) {
+	var seats []string
+	if err := json.Unmarshal([]byte(c.Models), &seats); err != nil {
+		return providers.GetModelTokenLimitsFor("", c.Name)
+	}
+
+	var ctxWindow, outWindow int
+	best := false
+	for _, seat := range seats {
+		// A seat is usually "provider/model", but the UI also accepts a bare
+		// model id ("gemini-3.8-flash"), which belongs to no provider here.
+		// Anything after the first '/' stays part of the model: seat ids such
+		// as "z-ai/glm-5.2-free/nvidia/nemotron-3-..." carry a sub-route and
+		// truncating to one segment would attribute another model's limits.
+		prefix, model := "", seat
+		if p, m, found := strings.Cut(seat, "/"); found && m != "" {
+			prefix, model = p, m
+		}
+		if model == "" {
+			continue
+		}
+		// Catalogue only: a seat the catalogue does not carry must not pin the
+		// combo to a name-pattern guess, or "glm-5.2-free/..." would report
+		// glm's limits for a model it does not host. A bare seat carries no
+		// provider, so any provider listing the model is authoritative.
+		ctx, out := lookupSeatLimits(resolveProviderAlias(prefix), model)
+		if ctx <= 0 && out <= 0 {
+			continue
+		}
+		if !best {
+			ctxWindow, outWindow, best = ctx, out, true
+			continue
+		}
+		if ctx > ctxWindow {
+			ctxWindow = ctx
+		}
+		if out > outWindow {
+			outWindow = out
+		}
+	}
+	if !best {
+		// No seat in the catalogue: fall back to the old name-based guess.
+		return providers.GetModelTokenLimitsFor("", c.Name)
+	}
+	return ctxWindow, outWindow
+}
+
+// lookupSeatLimits resolves one combo seat against the catalogue. Seats are
+// written as "provider/model" but the model half may itself carry a route
+// ("glm-5.2-free/nvidia/nemotron-3-..."), and a seat may omit the provider
+// entirely. The full model string is tried first; a route in front of it names
+// the real host, so the segment after the last slash wins when the full string
+// does not match.
+func lookupSeatLimits(provider, model string) (contextWindow int, maxOutput int) {
+	if ctx, out := providers.GetCatalogLimits(provider, model); ctx > 0 || out > 0 {
+		return ctx, out
+	}
+	if idx := strings.LastIndex(model, "/"); idx != -1 {
+		tail := model[idx+1:]
+		if ctx, out := providers.GetCatalogLimits(provider, tail); ctx > 0 || out > 0 {
+			return ctx, out
+		}
+		// The sub-route names the real host, not the seat's provider, so the
+		// declaring provider is irrelevant once the tail is the whole model.
+		return providers.GetCatalogLimitsAnyProvider(tail)
+	}
+	if provider == "" {
+		return providers.GetCatalogLimitsAnyProvider(model)
+	}
+	return 0, 0
+}
+
 func (h *ChatHandler) HandleOllamaChat(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
