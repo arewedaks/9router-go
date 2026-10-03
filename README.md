@@ -4,25 +4,41 @@
 [![Release](https://github.com/arewedaks/9router-go/actions/workflows/release.yml/badge.svg)](https://github.com/arewedaks/9router-go/actions/workflows/release.yml)
 [![Latest release](https://img.shields.io/github/v/release/arewedaks/9router-go)](https://github.com/arewedaks/9router-go/releases/latest)
 
-High-performance Go proxy gateway for [9Router](https://github.com/decolua/9router) LLM routing — with its own **built-in dashboard** (providers, usage, console log, model import) served directly from the binary.
+A drop-in replacement for the [9Router](https://github.com/decolua/9router) Next.js gateway, rewritten in Go. Same SQLite database, same routing behaviour, dashboard included.
 
-> **Current:** `v1.9.8` — Go proxy + embedded dashboard in one binary; shares the same SQLite DB as the original [9Router dashboard](https://github.com/decolua/9router).
+> **v1.9.8** · no CGO · Linux, macOS, Windows
 
-## Contents
+| | Go | Next.js |
+|---|---|---|
+| Peak throughput | **5,920 RPS** | 505 RPS |
+| Memory | **42 MB** | 271 MB |
+| Startup | **<100 ms** | 3–5 s |
 
-- [Dashboard](#dashboard) — what the embedded UI gives you
-- [Architecture](#architecture) — diagram and request flow
-- [Download and installation](#download-and-installation) — installer, binaries, Docker, source
-- [Running 9Router-Go](#running-9router-go) — ports, flags, Cloudflare
-- [Client setup](#client-setup) — cURL, Claude Code, editors
-- [Combo strategies](#combo-strategies) — fallback, round-robin, sticky, fusion
-- [Error classification](#error-classification) — retry rules and backoff
-- [Model locking](#model-locking) · [SSE stall detection](#sse-stall-detection)
-- [Token savers](#token-savers) — RTK, Caveman, Ponytail, Headroom
-- [Environment variables](#environment-variables) · [Database](#database)
-- [API endpoints](#api-endpoints) — the full route list
-- [Docker](#docker) · [Cross-compile](#cross-compile) · [Test](#test) · [Benchmark](#benchmark)
-- [Roadmap](#roadmap) · [Credits](#credits)
+---
+
+## Quick start
+
+```bash
+# install
+curl -fsSL https://raw.githubusercontent.com/arewedaks/9router-go/HEAD/scripts/install.sh | bash
+
+# run
+9router-go
+
+# open the dashboard, add a provider account
+open http://localhost:20128        # xdg-open on Linux, start on Windows
+```
+
+Point any OpenAI-compatible client at `http://localhost:20128/v1`:
+
+```bash
+curl http://localhost:20128/v1/chat/completions \
+  -H "Authorization: Bearer sk-your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"ag/gemini-3.8-flash-high","messages":[{"role":"user","content":"hi"}]}'
+```
+
+Claude Code, Cursor, Cline and the rest: **[Client setup](#client-setup)**.
 
 ---
 
@@ -50,7 +66,7 @@ The Go binary serves the full management UI on the same port — no separate Nex
 
 **Performance**
 
-- **32K+ RPS** peak throughput (Go vs Next.js ~500 RPS)
+- **5,920 RPS** peak throughput (up to 13,216 on native), vs ~500 RPS for Next.js
 - **42 MB** memory footprint
 - CGO-free, cross-compile to any platform
 - **SQLite WAL mode** with non-blocking concurrency (shared with [9Router dashboard](https://github.com/decolua/9router))
@@ -102,61 +118,9 @@ The Go binary serves the full management UI on the same port — no separate Nex
 - **Live Console Logs**: in-process ring buffer + SSE streaming for dashboard console monitoring
 - **One-command service install**: `sudo 9router-go service install` writes the systemd unit, enables boot start, verifies it, and starts now
 
-## Architecture
+---
 
-```
-┌─────────────────┐     ┌──────────────────────┐     ┌─────────────────┐
-│   CLI Client    │────▶│   9router-go binary   │────▶│  Upstream LLM   │
-│  (Claude Code,  │     │                       │     │  (OpenAI, etc.) │
-│   Codex, etc.)  │     │  • Auth (SQLite)      │     └─────────────────┘
-│                 │     │  • Model resolution   │
-└─────────────────┘     │  • Combo strategies   │
-┌─────────────────┐     │    - sticky           │
-│    Browser      │────▶│    - round-robin      │
-│  (Dashboard)    │     │    - fallback         │
-│  • Providers    │     │    - fusion           │
-│  • Usage        │     │  • Auto-capability    │
-│  • Console Log  │     │  • SSE streaming      │
-│  • Token Saver  │     │  • Stall detection    │
-│  • Import       │     │  • Error classification  │
-└─────────────────┘     │  • Translation        │
-                        └───────┬──────────┘
-                                │
-                        ┌───────▼──────────┐
-                        │  SQLite (WAL)    │
-                        └──────────────────┘
-```
-
-### Request flow
-
-```
-Client → Auth → resolveModel() → [Combo?]
-    │                              │
-    │ Yes                          │ No
-    ▼                              ▼
-Combo Handler                 Single Model
-    │                              │
-    ├─ sticky/round-robin          │
-    ├─ fallback                    │
-    └─ fusion (parallel panel)     │
-    │                              │
-    ▼                              ▼
-detectRequiredCapabilities()
-    │
-    ▼
-tryForwardWithConnection()
-    │
-    ├─ Success → unlockModel + logUsage
-    └─ Error  → classifyError() → lockConnectionModel()
-                                       │
-                                  Fallback model?
-                                       │ Yes → retry next model
-                                       │ No  → error response
-```
-
-See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed flow diagrams (combo, fusion, error classification, locking, SSE stall, etc.).
-
-## Download and installation
+## Install
 
 ### Option 0: One-line installer (recommended)
 
@@ -231,7 +195,9 @@ go build -o 9router-go ./cmd/9router-go/
 
 ---
 
-## Running 9Router-Go
+---
+
+## Running
 
 ```bash
 # Run with default settings (port 20128, automatically locates ~/.9router/db/data.sqlite)
@@ -255,6 +221,8 @@ the socket bind needs a restart (`HOST=127.0.0.1`).
 
 See [CLOUDFLARE.md](CLOUDFLARE.md) for the full walkthrough, verification steps
 and troubleshooting. For a from-scratch deployment see [DEPLOY.md](DEPLOY.md).
+
+---
 
 ---
 
@@ -297,7 +265,14 @@ providers:
 - **API Key**: `sk-your-api-key` (or any string if authentication is public/single-user)
 - **Model**: Select any configured model or combo (e.g., `ag/gemini-3.8-flash-high`, `deepseek/deepseek-chat`, combo name).
 
-## Combo strategies
+---
+
+## Routing
+
+How a request picks a provider, and what happens when one fails.
+
+<details>
+<summary><b>Combo strategies — fallback, round-robin, sticky, fusion</b></summary>
 
 Combo models support multiple routing strategies, configurable per combo:
 
@@ -310,7 +285,7 @@ Combo models support multiple routing strategies, configurable per combo:
 
 All strategies support **auto-capability-switch**: if the request body contains images or PDFs, capable models (OpenAI, Anthropic, Gemini, etc.) are floated to the front automatically.
 
-### Fusion
+#### Fusion
 
 Fusion runs multiple models as a panel in parallel:
 
@@ -319,7 +294,10 @@ Fusion runs multiple models as a panel in parallel:
 3. **Degrade gracefully**: If 0 answers → 503; if 1 answer → answer directly
 4. **Judge synthesis**: Build anonymized panel responses → send to judge model → final answer streamed to client
 
-## Error classification
+</details>
+
+<details>
+<summary><b>Error classification — retry rules and backoff</b></summary>
 
 Errors are classified using the same rule system as Next.js:
 
@@ -338,7 +316,10 @@ Errors are classified using the same rule system as Next.js:
 **Exponential backoff**: 2s base, doubled per level, max 5 minutes, 15 levels max.
 Backoff level is tracked per-connection in `providerConnections.data.backoffLevel` (DB-compatible with Next.js dashboard).
 
-## Model locking
+</details>
+
+<details>
+<summary><b>Model locking — per-connection model cooldowns</b></summary>
 
 **Per-connection model locks** — stored as `modelLock_<model>` fields in `providerConnections.data` JSON blob.
 Same format as Next.js, readable by the shared dashboard.
@@ -347,7 +328,10 @@ Same format as Next.js, readable by the shared dashboard.
 - Successful request → `UnlockConnectionModel(id, model)` → `data.modelLock_gpt-4 = null`, `backoffLevel = 0`
 - Connection selection → skips connections with active model lock
 
-## SSE stall detection
+</details>
+
+<details>
+<summary><b>SSE stall detection — 6-minute timeout</b></summary>
 
 Each SSE stream is wrapped with a `StallReader` (6-minute timeout by default).
 
@@ -355,7 +339,17 @@ Each SSE stream is wrapped with a `StallReader` (6-minute timeout by default).
 - If timer fires (no data for 6 minutes) → underlying connection is closed → `Read` unblocks with error → stream terminated
 - No goroutine leak on clean stream close (timer stopped)
 
+</details>
+
+
+---
+
 ## Token savers
+
+Optional compression that cuts tokens on routed traffic. All four are switchable from the dashboard.
+
+<details>
+<summary><b>RTK, Caveman, Ponytail and Headroom — details</b></summary>
 
 Reduce token usage on routed LLM traffic. Each saver is independently toggleable
 via CLI flag or environment variable (CLI flag overrides env), and all four are
@@ -383,7 +377,7 @@ slow proxy costs the request its compression, never its success.
 
 > RTK is on by default. Disable with `RTK_ENABLED=false` or `--rtk=false`.
 
-### Per-request bypass
+#### Per-request bypass
 
 Send `X-9Router-Token-Saver: off` to skip every saver for one request, leaving
 the global settings alone:
@@ -392,34 +386,71 @@ the global settings alone:
 curl -H 'X-9Router-Token-Saver: off' http://localhost:20128/v1/chat/completions ...
 ```
 
-## Environment variables
+</details>
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `PORT` | `20128` | Server port |
-| `DATA_DIR` | `~/.9router/` | Data directory (DB, JWT secret) |
-| `DB_PATH` | `DATA_DIR/db/data.sqlite` | Custom SQLite DB path (overrides DATA_DIR) |
-| `LOG_FILE` | stderr | Log output file (defaults to stderr when unset) |
-| `RTK_ENABLED` | `true` | Enable RTK input compression |
-| `CAVEMAN_ENABLED` | `false` | Enable Caveman terse output style |
-| `PONYTAIL_ENABLED` | `false` | Enable Ponytail minimal-code bias |
 
-## Database
+---
 
-Uses the same SQLite DB as [9Router dashboard](https://github.com/decolua/9router) (`~/.9router/db/data.sqlite`) with WAL mode.
+## Architecture
 
-**Tables:** `apiKeys`, `providerConnections`, `providerNodes`, `combos`, `kv`, `settings`, `usageHistory`, `usageDaily`, `requestDetails`, `proxyPools`, `_meta`
-
-See [DATABASE.md](DATABASE.md) for full schema documentation, JSON blob structure, and Go vs Next.js differences.
-
-### Custom DB location
-
-```bash
-# Use custom SQLite path
-DB_PATH=/mnt/shared/9router/data.sqlite PORT=20128 ./9router-go
+```
+┌─────────────────┐     ┌──────────────────────┐     ┌─────────────────┐
+│   CLI Client    │────▶│   9router-go binary   │────▶│  Upstream LLM   │
+│  (Claude Code,  │     │                       │     │  (OpenAI, etc.) │
+│   Codex, etc.)  │     │  • Auth (SQLite)      │     └─────────────────┘
+│                 │     │  • Model resolution   │
+└─────────────────┘     │  • Combo strategies   │
+┌─────────────────┐     │    - sticky           │
+│    Browser      │────▶│    - round-robin      │
+│  (Dashboard)    │     │    - fallback         │
+│  • Providers    │     │    - fusion           │
+│  • Usage        │     │  • Auto-capability    │
+│  • Console Log  │     │  • SSE streaming      │
+│  • Token Saver  │     │  • Stall detection    │
+│  • Import       │     │  • Error classification  │
+└─────────────────┘     │  • Translation        │
+                        └───────┬──────────┘
+                                │
+                        ┌───────▼──────────┐
+                        │  SQLite (WAL)    │
+                        └──────────────────┘
 ```
 
-## API endpoints
+### Request flow
+
+```
+Client → Auth → resolveModel() → [Combo?]
+    │                              │
+    │ Yes                          │ No
+    ▼                              ▼
+Combo Handler                 Single Model
+    │                              │
+    ├─ sticky/round-robin          │
+    ├─ fallback                    │
+    └─ fusion (parallel panel)     │
+    │                              │
+    ▼                              ▼
+detectRequiredCapabilities()
+    │
+    ▼
+tryForwardWithConnection()
+    │
+    ├─ Success → unlockModel + logUsage
+    └─ Error  → classifyError() → lockConnectionModel()
+                                       │
+                                  Fallback model?
+                                       │ Yes → retry next model
+                                       │ No  → error response
+```
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed flow diagrams (combo, fusion, error classification, locking, SSE stall, etc.).
+
+---
+
+## Reference
+
+<details>
+<summary><b>API endpoints — full route list</b></summary>
 
 ```
 # Core Chat & Completion Endpoints
@@ -467,15 +498,51 @@ GET  /api/version              # Proxy version & update check
 GET  /api/translator/stream    # Dashboard live console log SSE stream
 ```
 
-## Docker
+</details>
 
-### Build the image locally
+<details>
+<summary><b>Environment variables</b></summary>
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PORT` | `20128` | Server port |
+| `DATA_DIR` | `~/.9router/` | Data directory (DB, JWT secret) |
+| `DB_PATH` | `DATA_DIR/db/data.sqlite` | Custom SQLite DB path (overrides DATA_DIR) |
+| `LOG_FILE` | stderr | Log output file (defaults to stderr when unset) |
+| `RTK_ENABLED` | `true` | Enable RTK input compression |
+| `CAVEMAN_ENABLED` | `false` | Enable Caveman terse output style |
+| `PONYTAIL_ENABLED` | `false` | Enable Ponytail minimal-code bias |
+
+</details>
+
+<details>
+<summary><b>Database — schema and file layout</b></summary>
+
+Uses the same SQLite DB as [9Router dashboard](https://github.com/decolua/9router) (`~/.9router/db/data.sqlite`) with WAL mode.
+
+**Tables:** `apiKeys`, `providerConnections`, `providerNodes`, `combos`, `kv`, `settings`, `usageHistory`, `usageDaily`, `requestDetails`, `proxyPools`, `_meta`
+
+See [DATABASE.md](DATABASE.md) for full schema documentation, JSON blob structure, and Go vs Next.js differences.
+
+#### Custom DB location
+
+```bash
+# Use custom SQLite path
+DB_PATH=/mnt/shared/9router/data.sqlite PORT=20128 ./9router-go
+```
+
+</details>
+
+<details>
+<summary><b>Docker — image and compose</b></summary>
+
+#### Build the image locally
 
 ```bash
 docker build -t 9router-go .
 ```
 
-### Docker Compose (`docker-compose.yml`)
+#### Docker Compose (`docker-compose.yml`)
 
 The repo's compose file builds the image from source and mounts a named volume
 for the SQLite data dir:
@@ -508,7 +575,10 @@ volumes:
 docker compose up -d
 ```
 
-## Cross-compile
+</details>
+
+<details>
+<summary><b>Cross-compile</b></summary>
 
 ```bash
 GOOS=linux GOARCH=amd64 go build -o 9router-go-linux ./cmd/9router-go/
@@ -516,7 +586,10 @@ GOOS=darwin GOARCH=arm64 go build -o 9router-go-mac ./cmd/9router-go/
 GOOS=windows GOARCH=amd64 go build -o 9router-go.exe ./cmd/9router-go/
 ```
 
-## Test
+</details>
+
+<details>
+<summary><b>Test</b></summary>
 
 ```bash
 go test ./... -v
@@ -524,7 +597,10 @@ go test ./... -v
 
 Run with `-count=1` to bypass test caching.
 
-## Benchmark
+</details>
+
+<details>
+<summary><b>Benchmark — numbers and methodology</b></summary>
 
 Run the native self-contained Go benchmark runner (zero external dependencies):
 
@@ -541,6 +617,11 @@ go run ./benchmark/runner.go
 | Startup | <100ms | 3–5s | **30–50x** |
 
 See [`benchmark/RESULTS.md`](benchmark/RESULTS.md) for full methodology and reproduction steps.
+
+</details>
+
+
+---
 
 ## Roadmap
 
