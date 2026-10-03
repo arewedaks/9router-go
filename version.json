@@ -1,5 +1,5 @@
 {
-  "latestVersion": "1.9.8",
+  "latestVersion": "1.9.9",
   "downloadUrl": "https://github.com/arewedaks/9router-go/releases/latest",
-  "releaseNotes": "- chore(release): version.json -> v1.9.8 (af7a74d)\n- fix(proxy): stop pools silently egressing over the host IP (bb98ec3)\n- chore(release): version.json -> v1.9.7 (4c9e6ce)\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
+  "releaseNotes": "- fix(providers): token limits were guessed from the model name, so 50 of 84 models advertised an identical 128000/4096 window; they now resolve per provider from the synced models.dev catalogue (49878e7)\n- gpt-5.6 128000 -> 1050000, claude-sonnet-5 200000 -> 1000000, qwen-turbo 131072 -> 1000000, qwen3-coder-480b 131072 -> 262144\n- output ceilings corrected too: claude-sonnet-5 was clamped to 8192 tokens against a real 128000\n- test(translator): the streaming inline-image test asserted against the wrong return type, so it had never passed and masked real failures; the translator package is green again (dfc86b4)\n- docs: Cloudflare / reverse-proxy deployment guide, and a README restructure\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
 }
