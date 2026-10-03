@@ -35,16 +35,31 @@ func TestProviderTabLoadsStrategies(t *testing.T) {
 		t.Error("providers tab does not call loadProviderStrategies(); the binding will render as direct on a fresh load")
 	}
 
-	// And before the no-auth detail render, so the first paint is already correct.
-	detail := strings.Index(html, "if (d.noConnection) {")
-	if detail == -1 {
-		t.Fatal("no-auth detail branch not found")
+	// And it must run for EVERY provider detail, not only no-auth ones: the
+	// Round Robin toggle lives on connected providers and reads the same map,
+	// so gating the load on noConnection left it rendering as off after a
+	// refresh. Both call sites are asserted, and neither may sit inside the
+	// no-auth branch.
+	if !strings.Contains(html, "await loadProviderStrategies();\n      // The Proxy tab also needs the pool list") {
+		t.Error("provider detail does not load strategies unconditionally; the Round Robin toggle will render as off")
 	}
-	branch := html[detail:]
-	if end := strings.Index(branch, "\n      }"); end != -1 {
-		branch = branch[:end]
+	if strings.Contains(html, "if (d.noConnection) {\n          await loadProxyPools(false);\n          await loadProviderStrategies();") {
+		t.Error("strategies are still loaded only for no-auth providers; connected providers lose the toggle state")
 	}
-	if !strings.Contains(branch, "await loadProviderStrategies();") {
-		t.Error("provider detail renders before loading strategies; first paint shows the wrong pool")
+
+	// The Round Robin control and the proxy pool picker must both read the map
+	// the loader fills, otherwise loading it has no effect on either.
+	for _, fn := range []string{"accountRoundRobinControls", "renderNoAuthProxyCard"} {
+		idx := strings.Index(html, "function "+fn+"(d)")
+		if idx == -1 {
+			t.Fatalf("%s() not found", fn)
+		}
+		body := html[idx:]
+		if end := strings.Index(body, "\n  }"); end != -1 {
+			body = body[:end]
+		}
+		if !strings.Contains(body, "providerStrategies[d.provider]") {
+			t.Errorf("%s() does not read providerStrategies[d.provider]", fn)
+		}
 	}
 }

@@ -3982,13 +3982,14 @@
       }
       const d = await res.json();
       window.__agConnCount = (d.connections || []).length;
-      // no-auth providers render the Proxy tab, which needs the pool list
-      // and the saved per-provider strategy. Without the latter the
-      // dropdown falls back to "None (direct)" on a fresh load.
-      if (d.noConnection) {
-        await loadProxyPools(false);
-        await loadProviderStrategies();
-      }
+      // Every provider detail reads providerStrategies: no-auth ones for the
+      // proxy pool dropdown, connected ones for the Round Robin toggle and
+      // its sticky limit. Loading it only for no-auth providers left the
+      // toggle rendering as off after a refresh even though the strategy
+      // was stored.
+      await loadProviderStrategies();
+      // The Proxy tab also needs the pool list to label its options.
+      if (d.noConnection) await loadProxyPools(false);
       // The Antigravity client profile is a provider-wide setting the hero
       // dropdown must show. Load it once here, before the single render: doing
       // it inside renderProviderDetail would re-render from render, replacing
