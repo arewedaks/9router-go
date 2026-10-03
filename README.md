@@ -211,6 +211,16 @@ PORT=20128 ./9router-go
 curl http://localhost:20128/health
 ```
 
+### Behind Cloudflare (Tunnel or reverse proxy)
+
+The server speaks plain HTTP and has no TLS of its own, so Cloudflare supplies
+it. One click in **Settings → 🌐 Cloudflare / Reverse Proxy → Enable Cloudflare
+mode** turns on both the proxy-header trust and the `Secure` cookie flag; only
+the socket bind needs a restart (`HOST=127.0.0.1`).
+
+See [CLOUDFLARE.md](CLOUDFLARE.md) for the full walkthrough, verification steps
+and troubleshooting. For a from-scratch deployment see [DEPLOY.md](DEPLOY.md).
+
 ---
 
 ## 🔌 How to Use (Client Setup)
