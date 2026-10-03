@@ -52,6 +52,7 @@ The Go binary serves the full management UI on the same port — no separate Nex
 
 - **32K+ RPS** peak throughput (Go vs Next.js ~500 RPS)
 - **42 MB** memory footprint
+- CGO-free, cross-compile to any platform
 - **SQLite WAL mode** with non-blocking concurrency (shared with [9Router dashboard](https://github.com/decolua/9router))
 
 **Routing & reliability**
