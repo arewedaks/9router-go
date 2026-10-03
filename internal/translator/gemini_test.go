@@ -791,18 +791,36 @@ func TestGeminiStreamInlineImageEmitted(t *testing.T) {
 		}]
 	}`
 	state := &GeminiStreamState{MessageId: "chatcmpl-test", Model: "gemini"}
-	results, err := TranslateGeminiChunkToOpenAI([]byte(chunk), state)
+	out, err := TranslateGeminiChunkToOpenAI([]byte(chunk), state)
 	if err != nil {
 		t.Fatalf("TranslateGeminiChunkToOpenAI failed: %v", err)
 	}
+
+	// The translator returns the SSE payload for this chunk, not a slice of
+	// chunk structs, so scan the "data: " lines for the emitted delta.
 	found := false
-	for _, r := range results {
-		b, _ := json.Marshal(r)
-		if strings.Contains(string(b), "![generated image](data:image/png;base64,c3RyZWFt)") {
-			found = true
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		var parsed struct {
+			Choices []struct {
+				Delta struct {
+					Content string `json:"content"`
+				} `json:"delta"`
+			} `json:"choices"`
+		}
+		if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &parsed); err != nil {
+			t.Fatalf("unmarshal stream chunk: %v", err)
+		}
+		for _, c := range parsed.Choices {
+			if strings.Contains(c.Delta.Content, "![generated image](data:image/png;base64,c3RyZWFt)") {
+				found = true
+			}
 		}
 	}
 	if !found {
-		t.Error("streamed inline image part dropped")
+		t.Errorf("streamed inline image part dropped; got:\n%s", string(out))
 	}
 }
