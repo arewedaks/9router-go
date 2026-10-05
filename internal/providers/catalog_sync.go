@@ -23,10 +23,13 @@ const (
 
 // SyncedModelModalities holds extracted capabilities from models.dev for a single model ID.
 type SyncedModelModalities struct {
-	Vision     bool `json:"vision"`
-	PDF        bool `json:"pdf"`
-	AudioInput bool `json:"audioInput"`
-	VideoInput bool `json:"videoInput"`
+	Vision      bool `json:"vision"`
+	PDF         bool `json:"pdf"`
+	AudioInput  bool `json:"audioInput"`
+	VideoInput  bool `json:"videoInput"`
+	ImageOutput bool `json:"imageOutput,omitempty"`
+	Tools       bool `json:"tools,omitempty"`
+	Reasoning   bool `json:"reasoning,omitempty"`
 }
 
 // SyncedModelLimits holds token limits for a provider/model pair.
@@ -37,9 +40,12 @@ type SyncedModelLimits struct {
 
 // SyncedCatalog represents the processed catalog file written to disk / kept in memory.
 type SyncedCatalog struct {
-	SyncedAt  string                                  `json:"syncedAt"`
-	Models    map[string]SyncedModelModalities        `json:"models"`
-	Providers map[string]map[string]SyncedModelLimits `json:"providers"`
+	SyncedAt string `json:"syncedAt"`
+	// Models is the cross-provider majority vote per bare model name; see
+	// majorityModalities. ProviderModels is the exact per-provider listing.
+	Models         map[string]SyncedModelModalities            `json:"models"`
+	ProviderModels map[string]map[string]SyncedModelModalities `json:"providerModels,omitempty"`
+	Providers      map[string]map[string]SyncedModelLimits     `json:"providers"`
 }
 
 type CatalogSyncState struct {
@@ -80,8 +86,13 @@ func GetCatalogState() CatalogSyncState {
 	return syncState
 }
 
-// GetCatalogModalities looks up dynamically synced modalities for a model ID.
-func GetCatalogModalities(model string) *SyncedModelModalities {
+// GetCatalogModalities looks up synced modalities for a provider/model pair.
+//
+// The provider's own listing wins. Otherwise the cross-provider majority is
+// used, but only for names containing a digit: generic router names such as
+// "auto" or "free" mean a different model on every provider, so borrowing
+// another provider's entry for them would be a guess dressed up as data.
+func GetCatalogModalities(provider, model string) *SyncedModelModalities {
 	if model == "" {
 		return nil
 	}
@@ -89,7 +100,19 @@ func GetCatalogModalities(model string) *SyncedModelModalities {
 
 	catalogMu.RLock()
 	defer catalogMu.RUnlock()
-	if globalCatalog == nil || globalCatalog.Models == nil {
+	if globalCatalog == nil {
+		return nil
+	}
+	prov := strings.ToLower(provider)
+	for _, pid := range []string{prov, ProviderAliases[prov]} {
+		if pid == "" {
+			continue
+		}
+		if m, ok := globalCatalog.ProviderModels[pid][base]; ok {
+			return &m
+		}
+	}
+	if !strings.ContainsAny(base, "0123456789") {
 		return nil
 	}
 	if m, ok := globalCatalog.Models[base]; ok {
@@ -274,72 +297,15 @@ func SyncModelCatalog(ctx context.Context, client *http.Client, filePath string)
 		return fmt.Errorf("read catalog body: %w", err)
 	}
 
-	// models.dev format: map of providerID -> providerData { models: map[modelID]modelData }
-	var rawData map[string]struct {
-		Models map[string]struct {
-			Modality map[string]bool `json:"modality"`
-			Limit    *struct {
-				Context int `json:"context"`
-				Output  int `json:"output"`
-			} `json:"limit"`
-		} `json:"models"`
-	}
-
-	if err := json.Unmarshal(body, &rawData); err != nil {
+	synced, err := parseModelsDevCatalog(body)
+	if err != nil {
 		syncStateMu.Lock()
 		syncState.LastError = err.Error()
 		syncStateMu.Unlock()
 		return fmt.Errorf("decode catalog json: %w", err)
 	}
-
-	modelsMap := make(map[string]SyncedModelModalities)
-	providersMap := make(map[string]map[string]SyncedModelLimits)
-
-	for provID, provData := range rawData {
-		for modelID, mData := range provData.Models {
-			base := strings.ToLower(modelID)
-			if idx := strings.Index(base, "/"); idx != -1 {
-				base = base[idx+1:]
-			}
-			if idx := strings.Index(base, ":"); idx != -1 {
-				base = base[:idx]
-			}
-
-			// Aggregate modalities
-			cur := modelsMap[base]
-			if mData.Modality["image"] || mData.Modality["vision"] {
-				cur.Vision = true
-			}
-			if mData.Modality["pdf"] {
-				cur.PDF = true
-			}
-			if mData.Modality["audio"] {
-				cur.AudioInput = true
-			}
-			if mData.Modality["video"] {
-				cur.VideoInput = true
-			}
-			modelsMap[base] = cur
-
-			// Limits
-			if mData.Limit != nil && (mData.Limit.Context > 0 || mData.Limit.Output > 0) {
-				if providersMap[provID] == nil {
-					providersMap[provID] = make(map[string]SyncedModelLimits)
-				}
-				providersMap[provID][base] = SyncedModelLimits{
-					ContextWindow: mData.Limit.Context,
-					MaxOutput:     mData.Limit.Output,
-				}
-			}
-		}
-	}
-
 	nowStr := time.Now().UTC().Format(time.RFC3339)
-	synced := &SyncedCatalog{
-		SyncedAt:  nowStr,
-		Models:    modelsMap,
-		Providers: providersMap,
-	}
+	synced.SyncedAt = nowStr
 
 	catalogMu.Lock()
 	globalCatalog = synced
@@ -351,7 +317,7 @@ func SyncModelCatalog(ctx context.Context, client *http.Client, filePath string)
 	syncState.LastSync = nowStr
 	syncState.LastError = ""
 	syncState.ETag = newEtag
-	syncState.ModelCount = len(modelsMap)
+	syncState.ModelCount = len(synced.Models)
 	syncStateMu.Unlock()
 
 	// Write to disk if filePath configured
@@ -362,7 +328,7 @@ func SyncModelCatalog(ctx context.Context, client *http.Client, filePath string)
 		}
 	}
 
-	log.Info("catalog_sync", "catalog synchronized successfully", "models", len(modelsMap), "providers", len(providersMap))
+	log.Info("catalog_sync", "catalog synchronized successfully", "models", len(synced.Models), "providers", len(synced.Providers))
 	return nil
 }
 
@@ -396,4 +362,124 @@ func StartBackgroundCatalogSync(ctx context.Context, client *http.Client, filePa
 			}
 		}
 	}()
+}
+
+// parseModelsDevCatalog turns the models.dev api.json payload into a
+// SyncedCatalog. The payload is providerID -> {models: modelID -> model}, where
+// a model carries modalities.input/output lists plus tool_call and reasoning.
+func parseModelsDevCatalog(body []byte) (*SyncedCatalog, error) {
+	var raw map[string]struct {
+		Models map[string]struct {
+			Modalities struct {
+				Input  []string `json:"input"`
+				Output []string `json:"output"`
+			} `json:"modalities"`
+			ToolCall  bool `json:"tool_call"`
+			Reasoning bool `json:"reasoning"`
+			Limit     *struct {
+				Context int `json:"context"`
+				Output  int `json:"output"`
+			} `json:"limit"`
+		} `json:"models"`
+	}
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return nil, err
+	}
+
+	cat := &SyncedCatalog{
+		ProviderModels: make(map[string]map[string]SyncedModelModalities),
+		Providers:      make(map[string]map[string]SyncedModelLimits),
+	}
+	for provID, provData := range raw {
+		for modelID, m := range provData.Models {
+			base := normalizeModelKey(modelID)
+			if base == "" {
+				continue
+			}
+			// One provider can list the same base twice (route prefixes,
+			// :free tags); OR them so the provider's entry is its best listing.
+			if cat.ProviderModels[provID] == nil {
+				cat.ProviderModels[provID] = make(map[string]SyncedModelModalities)
+			}
+			cur := cat.ProviderModels[provID][base]
+			for _, in := range m.Modalities.Input {
+				switch in {
+				case "image":
+					cur.Vision = true
+				case "pdf":
+					cur.PDF = true
+				case "audio":
+					cur.AudioInput = true
+				case "video":
+					cur.VideoInput = true
+				}
+			}
+			for _, out := range m.Modalities.Output {
+				if out == "image" {
+					cur.ImageOutput = true
+				}
+			}
+			cur.Tools = cur.Tools || m.ToolCall
+			cur.Reasoning = cur.Reasoning || m.Reasoning
+			cat.ProviderModels[provID][base] = cur
+
+			if m.Limit != nil && (m.Limit.Context > 0 || m.Limit.Output > 0) {
+				if cat.Providers[provID] == nil {
+					cat.Providers[provID] = make(map[string]SyncedModelLimits)
+				}
+				cat.Providers[provID][base] = SyncedModelLimits{
+					ContextWindow: m.Limit.Context,
+					MaxOutput:     m.Limit.Output,
+				}
+			}
+		}
+	}
+	cat.Models = majorityModalities(cat.ProviderModels)
+	return cat, nil
+}
+
+// majorityModalities folds per-provider listings into one entry per base name,
+// keeping a capability only when more than half of the providers listing that
+// name agree. A plain OR let one reseller's typo (or a router that happens to
+// reuse the name) switch a capability on for everyone.
+func majorityModalities(byProv map[string]map[string]SyncedModelModalities) map[string]SyncedModelModalities {
+	type tally struct{ n, vis, pdf, aud, vid, img, tools, reason int }
+	counts := make(map[string]*tally)
+	b2i := func(b bool) int {
+		if b {
+			return 1
+		}
+		return 0
+	}
+	for _, models := range byProv {
+		for base, m := range models {
+			t := counts[base]
+			if t == nil {
+				t = &tally{}
+				counts[base] = t
+			}
+			t.n++
+			t.vis += b2i(m.Vision)
+			t.pdf += b2i(m.PDF)
+			t.aud += b2i(m.AudioInput)
+			t.vid += b2i(m.VideoInput)
+			t.img += b2i(m.ImageOutput)
+			t.tools += b2i(m.Tools)
+			t.reason += b2i(m.Reasoning)
+		}
+	}
+	out := make(map[string]SyncedModelModalities, len(counts))
+	for base, t := range counts {
+		maj := func(c int) bool { return c*2 > t.n }
+		out[base] = SyncedModelModalities{
+			Vision:      maj(t.vis),
+			PDF:         maj(t.pdf),
+			AudioInput:  maj(t.aud),
+			VideoInput:  maj(t.vid),
+			ImageOutput: maj(t.img),
+			Tools:       maj(t.tools),
+			Reasoning:   maj(t.reason),
+		}
+	}
+	return out
 }

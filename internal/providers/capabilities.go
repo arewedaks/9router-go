@@ -482,20 +482,18 @@ func GetCapabilitiesForModel(provider, model string) Capabilities {
 		res = DefaultCapabilities
 	}
 
-	// 5. Dynamic synced catalog overlay (only ever turns capabilities ON)
-	if dynamic := GetCatalogModalities(model); dynamic != nil {
-		if dynamic.Vision {
-			res.Vision = true
-		}
-		if dynamic.PDF {
-			res.PDF = true
-		}
-		if dynamic.AudioInput {
-			res.AudioInput = true
-		}
-		if dynamic.VideoInput {
-			res.VideoInput = true
-		}
+	// 5. Synced models.dev overlay. It only ever turns capabilities ON: the
+	// hand-written tables above still win where models.dev lags (kimi video),
+	// and switching Tools off on a catalogue miss would make clients stop
+	// sending tools to a model that handles them.
+	if dynamic := GetCatalogModalities(provider, model); dynamic != nil {
+		res.Vision = res.Vision || dynamic.Vision
+		res.PDF = res.PDF || dynamic.PDF
+		res.AudioInput = res.AudioInput || dynamic.AudioInput
+		res.VideoInput = res.VideoInput || dynamic.VideoInput
+		res.ImageOutput = res.ImageOutput || dynamic.ImageOutput
+		res.Tools = res.Tools || dynamic.Tools
+		res.Reasoning = res.Reasoning || dynamic.Reasoning
 	}
 
 	// 6. Custom model caps (from kv customModels) — additive, like dynamic
