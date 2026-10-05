@@ -3989,7 +3989,7 @@
       // was stored.
       await loadProviderStrategies();
       // The Proxy tab also needs the pool list to label its options.
-      if (d.noConnection) await loadProxyPools(false);
+      await loadProxyPools(false);
       // The Antigravity client profile is a provider-wide setting the hero
       // dropdown must show. Load it once here, before the single render: doing
       // it inside renderProviderDetail would re-render from render, replacing
@@ -4664,6 +4664,12 @@
     { value: "sticky", label: "Sticky (stay on one pool)" },
   ];
 
+  function proxyScopeNote(d) {
+    return d.noConnection
+      ? "This provider needs no credential, so exit routing is what you configure here."
+      : "Applies to every account of this provider that has no proxy of its own.";
+  }
+
   function renderNoAuthProxyCard(d) {
     const strat = (providerStrategies[d.provider] || {});
     const strategy = strat.rotateStrategy || "none";
@@ -4718,7 +4724,7 @@
           </div>
           <div style="flex:1; min-width:0;">
             <div style="font-size:0.85rem; color:#ededed;">Proxy Routing &amp; Strategy</div>
-            <div style="font-size:0.72rem; color:var(--muted);">This provider needs no credential, so exit routing is what you configure here.</div>
+            <div style="font-size:0.72rem; color:var(--muted);">${proxyScopeNote(d)}</div>
           </div>
         </div>
         <div class="add-form-grid" style="grid-template-columns:repeat(auto-fit,minmax(210px,1fr));">
@@ -5207,11 +5213,9 @@
     // Built-in providers have no node and stay exactly as before.
     const nodeHtml = renderCompatibleNodeCard(d);
 
-    // Proxy routing is meaningful only for no-auth providers: they own no
-    // connection row, so this card is their only configurable surface. Mirrors
-    // VansRouter's providers/[id]/page.js, which renders NoAuthProxyCard in
-    // place of the Connections list for FREE_PROVIDERS[id].noAuth.
-    const showProxyTab = !!d.noConnection;
+    // Every provider gets Proxy Routing: no-auth ones have no other surface,
+    // and account providers apply it to each account that has no pool of its own.
+    const showProxyTab = true;
     const proxyTabBtn = showProxyTab
       ? `<button class="detail-tab ${activeDetailTab === 'proxy' ? 'active' : ''}" onclick="showDetailTab(this,'proxy')"><span class="msym">lan</span>Proxy Routing</button>`
       : "";

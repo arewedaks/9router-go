@@ -146,6 +146,17 @@ func (h *ChatHandler) getBestConnection(provider string, connectionID string, ex
 			return nil, nil, fmt.Errorf("failed to parse connection data: %w", err)
 		}
 	}
+	// An account without its own pool inherits the provider-level pool from
+	// Proxy Routing. Without this, a pool attached to an account provider
+	// (antigravity, codex, …) was stored but never applied: every request
+	// egressed over the host IP.
+	if connData.ProxyPoolID == "" && h.Repo != nil {
+		if settings, sErr := h.Repo.GetSettings(); sErr == nil && settings != nil {
+			if strat, ok := settings.ProviderStrategies[provider]; ok {
+				connData.ProxyPoolID = h.resolveNoAuthProxyPoolID(provider, strat)
+			}
+		}
+	}
 
 	return conn, &connData, nil
 }

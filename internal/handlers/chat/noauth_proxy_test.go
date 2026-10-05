@@ -213,3 +213,32 @@ func TestGetBestConnection_NoAuth_RotationWithoutPoolsIsDirect(t *testing.T) {
 		t.Errorf("expected direct connection (empty pool id), got %q", connData.ProxyPoolID)
 	}
 }
+
+// An account provider (antigravity) with Proxy Routing set must send each
+// account through the provider pool, while an account's own pool still wins.
+func TestGetBestConnection_AccountInheritsProviderPool(t *testing.T) {
+	database, cleanup := setupChatTestDB(t)
+	defer cleanup()
+	repo := db.NewRepo(database)
+
+	providerPool := seedPool(t, repo, "webshare", "http://ws.example.com:8080")
+	ownPool := seedPool(t, repo, "own", "http://own.example.com:8080")
+	setStrategy(t, database, "antigravity", map[string]any{"proxyPoolId": providerPool, "rotateStrategy": "none"})
+
+	if _, err := database.Exec(`INSERT INTO providerConnections (id, provider, authType, name, priority, isActive, data, createdAt, updatedAt) VALUES
+		('ag-plain', 'antigravity', 'oauth', 'a', 1, 1, '{"accessToken":"t"}', datetime('now'), datetime('now')),
+		('ag-own', 'antigravity', 'oauth', 'b', 2, 1, '{"accessToken":"t","proxyPoolId":"` + ownPool + `"}', datetime('now'), datetime('now'))`); err != nil {
+		t.Fatalf("insert connections: %v", err)
+	}
+
+	h := NewChatHandler(repo)
+	for id, want := range map[string]string{"ag-plain": providerPool, "ag-own": ownPool} {
+		_, connData, err := h.GetBestConnection("antigravity", id, nil, "")
+		if err != nil {
+			t.Fatalf("GetBestConnection(%s): %v", id, err)
+		}
+		if connData.ProxyPoolID != want {
+			t.Errorf("%s: pool = %q, want %q", id, connData.ProxyPoolID, want)
+		}
+	}
+}

@@ -778,24 +778,6 @@ func TestUIDetailHeroUsesNoConnection(t *testing.T) {
 	}
 }
 
-// The Proxy Routing tab is the only configurable surface a keyless provider has
-// (it owns no connection row), so it must be gated on the same noConnection flag
-// the hero uses — never shown for providers that have connections.
-func TestUIProxyTabGatedOnNoConnection(t *testing.T) {
-	body := readEmbeddedUI(t)
-	idx := strings.Index(body, "const showProxyTab")
-	if idx == -1 {
-		t.Fatal("renderProviderDetail must gate the Proxy tab on showProxyTab")
-	}
-	arm := body[idx:]
-	if end := strings.Index(arm, "\n"); end != -1 {
-		arm = arm[:end]
-	}
-	if !strings.Contains(arm, "d.noConnection") {
-		t.Errorf("the Proxy tab must be gated on d.noConnection, got: %s", arm)
-	}
-}
-
 // The Proxy tab must hide itself inside showDetailTab's panel list, or switching
 // away from it would leave the panel visible.
 func TestUIProxyPanelRegisteredInTabSwitcher(t *testing.T) {
