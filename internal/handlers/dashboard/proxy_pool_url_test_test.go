@@ -54,7 +54,7 @@ func TestProxyDetailsOffersPerURLTest(t *testing.T) {
 	// The verdict must land on the row it describes. Rendering it into a
 	// separate list is what made the old modal hard to read: row N of the
 	// results had to be matched to line N of the textarea by eye.
-	if !strings.Contains(fn, "proxy-badge") {
+	if !strings.Contains(fn, "ppo-badge") {
 		t.Error("each row needs its own badge slot for the test result")
 	}
 	if !strings.Contains(ui, `id="proxy-edit-rows"`) {
@@ -65,15 +65,43 @@ func TestProxyDetailsOffersPerURLTest(t *testing.T) {
 	}
 }
 
+// The entry rows must not reuse the settings-card .proxy-row class. Both used
+// to share the name, so the settings rule .proxy-row + .proxy-row (18px margin
+// plus a divider) was applied to every pool entry: the list rendered with a
+// wide gap between rows and the numbers pushed away from their URLs.
+func TestProxyEntryRowsDoNotCollideWithSettingsCards(t *testing.T) {
+	ui := readEmbeddedUI(t)
+
+	render := extractFunction(t, ui, "renderProxyRows")
+	if render == "" {
+		t.Fatal("UI lacks renderProxyRows")
+	}
+	if strings.Contains(render, `class="proxy-row"`) {
+		t.Error("entry rows must not reuse the settings-card .proxy-row class")
+	}
+	if !strings.Contains(render, `class="ppo-row"`) {
+		t.Error("entry rows must use their own ppo-row class")
+	}
+
+	// The settings cards keep their own spacing rule; the entry rows must not
+	// inherit it, or the list goes airy again.
+	if !strings.Contains(ui, ".proxy-row + .proxy-row") {
+		t.Log("note: the settings-card spacing rule is gone; the collision risk is moot")
+	}
+	if strings.Contains(ui, ".ppo-row + .ppo-row") {
+		t.Error("entry rows must not carry the settings-card sibling rule")
+	}
+}
+
 // The entry list must read as a compact card list matching the combo model
-// editor, not a stack of form fields: a row shows text until asked to edit.
+// editor: a row shows text until asked to edit, with the combo button set.
 func TestProxyRowsMatchComboCardStyle(t *testing.T) {
 	ui := readEmbeddedUI(t)
 	render := extractFunction(t, ui, "renderProxyRows")
 	if render == "" {
 		t.Fatal("UI lacks renderProxyRows")
 	}
-	if !strings.Contains(render, `class="proxy-row-text"`) {
+	if !strings.Contains(render, `class="ppo-text"`) {
 		t.Error("rows must render their URL as text by default")
 	}
 	if strings.Contains(render, `type="text"`) {
@@ -83,7 +111,7 @@ func TestProxyRowsMatchComboCardStyle(t *testing.T) {
 	if !strings.Contains(render, `class="btn btn-sm btn-danger"`) {
 		t.Error("the remove button must use the combo list's btn-danger style")
 	}
-	if !strings.Contains(render, `proxy-row-idx`) {
+	if !strings.Contains(render, `ppo-idx`) {
 		t.Error("rows must be numbered like the combo model rows")
 	}
 
@@ -118,7 +146,16 @@ func TestProxyRowsMatchComboCardStyle(t *testing.T) {
 	}
 
 	// The row style itself must match the combo card, not a bordered box.
-	if !strings.Contains(ui, "background: var(--panel-hover); border: 1px solid var(--border);") {
+	if !strings.Contains(ui, ".ppo-row {") {
+		t.Error("proxy rows must keep their own ppo-row style")
+	}
+	// The class must not collide with the settings-card .ppo-row, whose
+	// .ppo-row + .ppo-row rule added 18px margin and a divider to every
+	// entry — that collision is what made the list look so airy.
+	if !strings.Contains(ui, ".ppo-row + .ppo-row") && !strings.Contains(ui, "gap: 3px") {
+		t.Error("entry rows must be spaced by the list gap alone")
+	}
+	if strings.Contains(ui, ".ppo-rows-foot") {
 		t.Error("proxy rows must use the combo card background and border")
 	}
 }

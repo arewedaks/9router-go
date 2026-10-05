@@ -1232,39 +1232,41 @@
     /* Proxy pool entries: cards matching the combo model list, so the two
        editors in the dashboard read the same way. Tighter padding than the
        combo rows because a proxy URL is long and needs the horizontal room. */
-    .proxy-rows {
+    .ppo-list {
       display: flex; flex-direction: column; gap: 4px; margin: 4px 0;
       max-height: 230px; overflow-y: auto; padding: 1px;
     }
-    .proxy-row {
-      display: flex; align-items: center; gap: 4px;
+    .ppo-row {
+      display: flex; align-items: center; gap: 3px;
       background: var(--panel-hover); border: 1px solid var(--border);
-      border-radius: 6px; padding: 3px 7px 3px 5px;
+      border-radius: 6px; padding: 3px 7px 3px 4px;
     }
-    .proxy-row:hover { border-color: var(--glass-border); }
-    .proxy-row-idx { flex: 0 0 auto; color: var(--muted); font-size: 0.7rem; text-align: right; }
+    .ppo-row:hover { border-color: var(--glass-border); }
+    /* min-width keeps one- and two-digit numbers on the same left edge while
+       staying close to the URL they label. */
+    .ppo-idx { flex: 0 0 auto; min-width: 9px; color: var(--muted); font-size: 0.7rem; text-align: right; }
     /* min-width:0 lets the flex child shrink below its content width; without
        it a long proxy URL forces the row (and the modal) wider. */
-    .proxy-row-text {
+    .ppo-text {
       flex: 1 1 auto; min-width: 0; font-family: monospace; font-size: 0.74rem;
       color: #f4b59c;
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
-    .proxy-row input {
+    .ppo-row input {
       flex: 1 1 auto; min-width: 0; font-family: monospace; font-size: 0.74rem;
       background: #1e1e1e; color: #ededed; border: 1px solid var(--primary);
       border-radius: 5px; padding: 2px 6px;
     }
-    .proxy-row input:focus { outline: none; }
-    .proxy-row .btn {
+    .ppo-row input:focus { outline: none; }
+    .ppo-row .btn {
       flex: 0 0 auto; padding: 1px 7px; line-height: 1.4; opacity: 0;
     }
-    .proxy-row:hover .btn, .proxy-row .btn:focus { opacity: 1; }
-    .proxy-badge {
+    .ppo-row:hover .btn, .ppo-row .btn:focus { opacity: 1; }
+    .ppo-badge {
       flex: 0 0 58px; font-family: monospace; font-size: 0.66rem; text-align: right;
       color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
-    .proxy-rows-foot { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+    .ppo-foot { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
     .add-form input, .add-form select { width: 100%; background: var(--glass); border: 1px solid var(--glass-border); border-radius: var(--radius-field); padding: 9px 12px; color: #ededed; font-size: 0.82rem; font-family: inherit; }
     .add-form input:focus, .add-form select:focus { outline: none; border-color: var(--primary); }
     .msg-ok { color: #3fb950 !important; }
@@ -2633,8 +2635,8 @@
            style="width:100%; background:var(--glass); color:#ededed; border:1px solid var(--border); border-radius:7px; padding:7px 9px; font-size:0.8rem; margin-bottom:12px;">
 
     <label class="field-label">Proxies — one per line</label>
-    <div id="proxy-edit-rows" class="proxy-rows"></div>
-    <div class="proxy-rows-foot">
+    <div id="proxy-edit-rows" class="ppo-list"></div>
+    <div class="ppo-foot">
       <button class="btn btn-sm" type="button" onclick="addProxyRow()">+ Add proxy</button>
       <button class="btn btn-sm" id="proxy-edit-test" type="button" onclick="testProxyEditList()" style="margin-left:auto;">Test all</button>
     </div>
@@ -4566,25 +4568,25 @@
     const box = document.getElementById("proxy-edit-rows");
     if (!box) return;
     box.innerHTML = urls.map((u, i) => `
-      <div class="proxy-row">
-        <span class="proxy-row-idx">${i + 1}</span>
-        <span class="proxy-row-text" title="${escapeHtml(u)}">${escapeHtml(u)}</span>
-        <span class="proxy-badge"></span>
+      <div class="ppo-row">
+        <span class="ppo-idx">${i + 1}</span>
+        <span class="ppo-text" title="${escapeHtml(u)}">${escapeHtml(u)}</span>
+        <span class="ppo-badge"></span>
         <button class="btn btn-sm" type="button" title="Edit" onclick="editProxyRow(this)">Edit</button>
-        <button class="btn btn-sm btn-danger" type="button" title="Remove" onclick="this.closest('.proxy-row').remove()">✕</button>
+        <button class="btn btn-sm btn-danger" type="button" title="Remove" onclick="this.closest('.ppo-row').remove()">✕</button>
       </div>`).join("");
-    box.querySelectorAll(".proxy-row").forEach(r => r.dataset.url = r.querySelector(".proxy-row-text").title);
+    box.querySelectorAll(".ppo-row").forEach(r => r.dataset.url = r.querySelector(".ppo-text").title);
   }
 
   function addProxyRow() {
     const box = document.getElementById("proxy-edit-rows");
     if (!box) return;
     const row = document.createElement("div");
-    row.className = "proxy-row";
-    row.innerHTML = `<span class="proxy-row-idx">${box.querySelectorAll(".proxy-row").length + 1}</span>
+    row.className = "ppo-row";
+    row.innerHTML = `<span class="ppo-idx">${box.querySelectorAll(".ppo-row").length + 1}</span>
       <input type="text" spellcheck="false" placeholder="http://user:pass@host:port">
-      <span class="proxy-badge"></span>
-      <button class="btn btn-sm btn-danger" type="button" title="Remove" onclick="this.closest('.proxy-row').remove()">✕</button>`;
+      <span class="ppo-badge"></span>
+      <button class="btn btn-sm btn-danger" type="button" title="Remove" onclick="this.closest('.ppo-row').remove()">✕</button>`;
     box.appendChild(row);
     commitOnBlur(row);
   }
@@ -4592,8 +4594,8 @@
   // editProxyRow swaps the row's text for an input, keeping the badge and the
   // delete button so the verdict stays attached to the entry being edited.
   function editProxyRow(btn) {
-    const row = btn.closest(".proxy-row");
-    const text = row.querySelector(".proxy-row-text");
+    const row = btn.closest(".ppo-row");
+    const text = row.querySelector(".ppo-text");
     const input = document.createElement("input");
     input.type = "text";
     input.spellcheck = false;
@@ -4614,12 +4616,12 @@
       const val = input.value.trim();
       if (!val) { row.remove(); return; }
       const text = document.createElement("span");
-      text.className = "proxy-row-text";
+      text.className = "ppo-text";
       text.textContent = val;
       text.title = val;
       input.replaceWith(text);
       row.dataset.url = val;
-      const badge = row.querySelector(".proxy-badge");
+      const badge = row.querySelector(".ppo-badge");
       if (badge) { badge.textContent = ""; badge.title = ""; }
       const edit = document.createElement("button");
       edit.type = "button"; edit.className = "btn btn-sm";
@@ -4638,7 +4640,7 @@
   function proxyRowValue(row) {
     const input = row.querySelector("input");
     if (input) return input.value.trim();
-    const text = row.querySelector(".proxy-row-text");
+    const text = row.querySelector(".ppo-text");
     return text ? text.textContent.trim() : "";
   }
 
@@ -4647,7 +4649,7 @@
   function proxyEditURLs() {
     const box = document.getElementById("proxy-edit-rows");
     if (!box) return [];
-    return Array.from(box.querySelectorAll(".proxy-row"))
+    return Array.from(box.querySelectorAll(".ppo-row"))
       .map(proxyRowValue).filter(Boolean);
   }
 
@@ -4658,13 +4660,13 @@
     const box = document.getElementById("proxy-edit-rows");
     const btn = document.getElementById("proxy-edit-test");
     if (!box) return;
-    const rows = Array.from(box.querySelectorAll(".proxy-row"));
+    const rows = Array.from(box.querySelectorAll(".ppo-row"));
     const urls = rows.map(r => proxyRowValue(r));
     if (!urls.length || !urls.some(Boolean)) return;
 
     if (btn) btn.disabled = true;
     const setBadge = (row, text, color) => {
-      const b = row.querySelector(".proxy-badge");
+      const b = row.querySelector(".ppo-badge");
       if (b) { b.textContent = text; b.style.color = color; b.title = text; }
     };
     rows.forEach(r => setBadge(r, "…", "var(--muted)"));
@@ -11243,3 +11245,4 @@
 </script>
 </body>
 </html>
+
