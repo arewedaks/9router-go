@@ -1229,6 +1229,28 @@
 
     @media (min-width: 720px) { .oauth-grid { grid-template-columns: 1fr 1fr auto; align-items: end; } }
     .field-label { display: block; font-size: 0.72rem; color: var(--muted); margin-bottom: 5px; }
+    /* Proxy pool rows: each URL is its own line with a slot for its test
+       result, so a verdict sits next to the entry it describes instead of in
+       a separate list the eye has to line up by hand. */
+    .proxy-rows { display: flex; flex-direction: column; gap: 5px; max-height: 230px; overflow-y: auto; }
+    .proxy-row { display: flex; align-items: center; gap: 8px; }
+    .proxy-row input {
+      flex: 1; min-width: 0; font-family: monospace; font-size: 0.75rem;
+      background: var(--glass); color: #ededed; border: 1px solid var(--border);
+      border-radius: 7px; padding: 6px 9px;
+    }
+    .proxy-row input:focus { outline: none; border-color: var(--primary); }
+    .proxy-row .proxy-row-del {
+      background: none; border: none; color: var(--muted); cursor: pointer;
+      font-size: 0.95rem; line-height: 1; padding: 3px 5px; border-radius: 5px;
+    }
+    .proxy-row .proxy-row-del:hover { color: var(--danger); background: rgba(218, 54, 51, 0.12); }
+    .proxy-badge {
+      flex: 0 0 108px; font-family: monospace; font-size: 0.68rem; text-align: right;
+      color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .proxy-rows-foot { display: flex; align-items: center; gap: 10px; margin-top: 7px; flex-wrap: wrap; }
+    .proxy-rows-hint { font-size: 0.7rem; color: var(--muted); flex: 1 1 180px; }
     .add-form input, .add-form select { width: 100%; background: var(--glass); border: 1px solid var(--glass-border); border-radius: var(--radius-field); padding: 9px 12px; color: #ededed; font-size: 0.82rem; font-family: inherit; }
     .add-form input:focus, .add-form select:focus { outline: none; border-color: var(--primary); }
     .msg-ok { color: #3fb950 !important; }
@@ -2597,15 +2619,12 @@
            style="width:100%; background:var(--glass); color:#ededed; border:1px solid var(--border); border-radius:7px; padding:7px 9px; font-size:0.8rem; margin-bottom:12px;">
 
     <label class="field-label">Proxies — one per line</label>
-    <textarea id="proxy-edit-list" rows="7" spellcheck="false"
-      style="width:100%; font-family:monospace; font-size:0.75rem; background:var(--glass); color:#ededed; border:1px solid var(--border); border-radius:7px; padding:8px; resize:vertical;"></textarea>
-    <div style="display:flex; align-items:center; gap:8px; margin-top:5px; flex-wrap:wrap;">
-      <span style="font-size:0.7rem; color:var(--muted);">
-        Several entries rotate per request. One entry means every request uses it.
-      </span>
-      <button class="btn btn-sm" id="proxy-edit-test" onclick="testProxyEditList()" style="margin-left:auto;">Test all</button>
+    <div id="proxy-edit-rows" class="proxy-rows"></div>
+    <div class="proxy-rows-foot">
+      <button class="btn btn-sm" type="button" onclick="addProxyRow()">+ Add proxy</button>
+      <span class="proxy-rows-hint">Several entries rotate per request. One entry means every request uses it.</span>
+      <button class="btn btn-sm" id="proxy-edit-test" type="button" onclick="testProxyEditList()" style="margin-left:auto;">Test all</button>
     </div>
-    <div id="proxy-edit-results" style="margin-top:8px; font-size:0.72rem; font-family:monospace; max-height:150px; overflow:auto;"></div>
 
     <div class="add-form-grid" style="grid-template-columns:1fr 1fr; margin-top:12px;">
       <div>
@@ -4523,66 +4542,87 @@
     document.getElementById("proxy-edit-noproxy").value = p.noProxy || "";
     document.getElementById("proxy-edit-strict").checked = p.strictProxy === true;
     const urls = Array.isArray(p.urls) && p.urls.length ? p.urls : (p.proxyUrl ? [p.proxyUrl] : []);
-    document.getElementById("proxy-edit-list").value = urls.join("\n");
+    renderProxyRows(urls.length ? urls : [""]);
     document.getElementById("proxy-edit-msg").textContent = "";
-    const results = document.getElementById("proxy-edit-results");
-    if (results) results.innerHTML = "";
     m.classList.add("active");
   }
 
-  // Tests every proxy in the textarea, one at a time, and marks each result
-  // next to its own URL so a single dead entry is obvious among a healthy list.
+  // renderProxyRows rebuilds the per-URL editor. Each row owns its own test
+  // badge, so "which proxy is dead" is answered on the line itself.
+  function renderProxyRows(urls) {
+    const box = document.getElementById("proxy-edit-rows");
+    if (!box) return;
+    box.innerHTML = urls.map(u => `
+      <div class="proxy-row">
+        <input type="text" spellcheck="false" value="${escapeHtml(u)}" placeholder="http://user:pass@host:port">
+        <span class="proxy-badge"></span>
+        <button class="proxy-row-del" type="button" title="Remove" onclick="this.closest('.proxy-row').remove()">&times;</button>
+      </div>`).join("");
+  }
+
+  function addProxyRow() {
+    const box = document.getElementById("proxy-edit-rows");
+    if (!box) return;
+    const row = document.createElement("div");
+    row.className = "proxy-row";
+    row.innerHTML = `<input type="text" spellcheck="false" placeholder="http://user:pass@host:port">
+      <span class="proxy-badge"></span>
+      <button class="proxy-row-del" type="button" title="Remove" onclick="this.closest('.proxy-row').remove()">&times;</button>`;
+    box.appendChild(row);
+    const inputs = box.querySelectorAll("input");
+    if (inputs.length) inputs[inputs.length - 1].focus();
+  }
+
+  // proxyEditURLs reads the editor back into the newline-joined list the API
+  // expects; empty rows are dropped so a stray blank line cannot be saved.
+  function proxyEditURLs() {
+    const box = document.getElementById("proxy-edit-rows");
+    if (!box) return [];
+    return Array.from(box.querySelectorAll(".proxy-row input"))
+      .map(i => i.value.trim()).filter(Boolean);
+  }
+
+  // Tests every proxy in the editor, one at a time, and marks each result on
+  // its own row so a single dead entry is obvious among a healthy list.
   async function testProxyEditList() {
     const id = document.getElementById("proxy-edit-id").value;
-    const list = document.getElementById("proxy-edit-list").value;
-    const out = document.getElementById("proxy-edit-results");
+    const box = document.getElementById("proxy-edit-rows");
     const btn = document.getElementById("proxy-edit-test");
-    const urls = list.split("\n").map(u => u.trim()).filter(Boolean);
-    if (!urls.length || !out) return;
+    if (!box) return;
+    const rows = Array.from(box.querySelectorAll(".proxy-row"));
+    const urls = rows.map(r => r.querySelector("input").value.trim());
+    if (!urls.length || !urls.some(Boolean)) return;
 
     if (btn) btn.disabled = true;
-    const rows = urls.map(() => null);
-    const paint = () => {
-      out.innerHTML = urls.map((u, i) => {
-        const r = rows[i];
-        const label = r === null ? "…" : (r.ok ? "OK" : `GAGAL: ${escapeHtml(r.error || "")}`);
-        const color = r === null ? "var(--muted)" : (r.ok ? "#3fb950" : "#f85149");
-        return `<div style="display:flex; gap:8px; padding:2px 0;">
-          <span style="color:${color}; min-width:74px;">${label}</span>
-          <span style="color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(hostOfProxy(u))}</span>
-        </div>`;
-      }).join("");
+    const setBadge = (row, text, color) => {
+      const b = row.querySelector(".proxy-badge");
+      if (b) { b.textContent = text; b.style.color = color; b.title = text; }
     };
-    paint();
+    rows.forEach(r => setBadge(r, "…", "var(--muted)"));
 
     // Sequential on purpose: a pool can hold dozens of proxies and firing them
     // all at once is exactly the load the health check already bounds.
-    for (let i = 0; i < urls.length; i++) {
+    for (let i = 0; i < rows.length; i++) {
+      if (!urls[i]) continue;
       try {
         const res = await api(`/api/dashboard/proxy-pools/${encodeURIComponent(id)}/test`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ url: urls[i] }),
         });
-        rows[i] = { ok: !!(res && res.ok), error: (res && res.error) || "" };
+        const ok = !!(res && res.ok);
+        setBadge(rows[i], ok ? "OK" : "GAGAL", ok ? "#3fb950" : "#f85149");
       } catch (e) {
-        rows[i] = { ok: false, error: String(e && e.message ? e.message : e) };
+        setBadge(rows[i], "GAGAL", "#f85149");
       }
-      paint();
     }
     if (btn) btn.disabled = false;
-  }
-
-  // hostOfProxy shows the address without the credentials baked into the URL.
-  function hostOfProxy(raw) {
-    const at = raw.lastIndexOf("@");
-    return at === -1 ? raw : raw.slice(at + 1);
   }
 
   async function submitProxyEdit() {
     const id = document.getElementById("proxy-edit-id").value;
     const name = document.getElementById("proxy-edit-name").value;
-    const list = document.getElementById("proxy-edit-list").value;
+    const list = proxyEditURLs().join("\n");
     const type = document.getElementById("proxy-edit-type").value;
     const noProxy = document.getElementById("proxy-edit-noproxy").value;
     const strict = document.getElementById("proxy-edit-strict").checked;

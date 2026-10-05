@@ -51,4 +51,33 @@ func TestProxyDetailsOffersPerURLTest(t *testing.T) {
 	if !strings.Contains(ui, `id="proxy-edit-test"`) {
 		t.Error("the details modal needs a Test all button")
 	}
+	// The verdict must land on the row it describes. Rendering it into a
+	// separate list is what made the old modal hard to read: row N of the
+	// results had to be matched to line N of the textarea by eye.
+	if !strings.Contains(fn, "proxy-badge") {
+		t.Error("each row needs its own badge slot for the test result")
+	}
+	if !strings.Contains(ui, `id="proxy-edit-rows"`) {
+		t.Error("the details modal needs the per-row proxy editor")
+	}
+	if strings.Contains(ui, `id="proxy-edit-results"`) {
+		t.Error("the detached results list must be gone")
+	}
+}
+
+// Saving must read the rows back into the newline-joined list the API takes,
+// and blank rows must not become empty proxy entries.
+func TestProxyEditSavesFromRows(t *testing.T) {
+	ui := readEmbeddedUI(t)
+	submit := extractFunction(t, ui, "submitProxyEdit")
+	if !strings.Contains(submit, "proxyEditURLs()") {
+		t.Error("submitProxyEdit must read the URL list from the row editor")
+	}
+	reader := extractFunction(t, ui, "proxyEditURLs")
+	if reader == "" {
+		t.Fatal("UI lacks proxyEditURLs")
+	}
+	if !strings.Contains(reader, ".filter(Boolean)") {
+		t.Error("blank rows must be dropped before saving")
+	}
 }
