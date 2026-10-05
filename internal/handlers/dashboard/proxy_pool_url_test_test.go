@@ -65,6 +65,54 @@ func TestProxyDetailsOffersPerURLTest(t *testing.T) {
 	}
 }
 
+// The entry list must read as a plain list, not a stack of form fields: a row
+// shows text until asked to edit, and only then becomes an input.
+func TestProxyRowsReadAsPlainList(t *testing.T) {
+	ui := readEmbeddedUI(t)
+	render := extractFunction(t, ui, "renderProxyRows")
+	if render == "" {
+		t.Fatal("UI lacks renderProxyRows")
+	}
+	if !strings.Contains(render, `class="proxy-row-text"`) {
+		t.Error("rows must render their URL as text by default")
+	}
+	if strings.Contains(render, `type="text"`) {
+		t.Error("rows must not all render as inputs — that is the spacing problem")
+	}
+
+	edit := extractFunction(t, ui, "editProxyRow")
+	if edit == "" {
+		t.Fatal("UI lacks editProxyRow")
+	}
+	if !strings.Contains(edit, "createElement(\"input\")") {
+		t.Error("Edit must swap the row into an input")
+	}
+	if !strings.Contains(render, "editProxyRow(") {
+		t.Error("each row needs an Edit button")
+	}
+
+	// Editing must not leave a verdict that describes the old value.
+	commit := extractFunction(t, ui, "commitOnBlur")
+	if commit == "" {
+		t.Fatal("UI lacks commitOnBlur")
+	}
+	if !strings.Contains(commit, `badge.textContent = ""`) {
+		t.Error("editing a row must clear its stale test verdict")
+	}
+	if !strings.Contains(commit, "row.remove()") {
+		t.Error("clearing a row must remove it, not save a blank entry")
+	}
+
+	// Adding must append, never rebuild: a rebuild would drop in-progress edits.
+	add := extractFunction(t, ui, "addProxyRow")
+	if add == "" {
+		t.Fatal("UI lacks addProxyRow")
+	}
+	if strings.Contains(add, "renderProxyRows(") {
+		t.Error("Add proxy must append a row, not re-render the whole list")
+	}
+}
+
 // Saving must read the rows back into the newline-joined list the API takes,
 // and blank rows must not become empty proxy entries.
 func TestProxyEditSavesFromRows(t *testing.T) {

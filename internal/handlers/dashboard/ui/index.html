@@ -1229,28 +1229,41 @@
 
     @media (min-width: 720px) { .oauth-grid { grid-template-columns: 1fr 1fr auto; align-items: end; } }
     .field-label { display: block; font-size: 0.72rem; color: var(--muted); margin-bottom: 5px; }
-    /* Proxy pool rows: each URL is its own line with a slot for its test
-       result, so a verdict sits next to the entry it describes instead of in
-       a separate list the eye has to line up by hand. */
-    .proxy-rows { display: flex; flex-direction: column; gap: 5px; max-height: 230px; overflow-y: auto; }
-    .proxy-row { display: flex; align-items: center; gap: 8px; }
+    /* Proxy pool rows: a compact list. Each line is plain text until you ask
+       to edit it, so a pool of ten reads as a list instead of ten form fields. */
+    .proxy-rows {
+      display: flex; flex-direction: column; max-height: 220px; overflow-y: auto;
+      border: 1px solid var(--border); border-radius: 7px; background: var(--glass);
+    }
+    .proxy-row {
+      display: flex; align-items: center; gap: 6px; padding: 3px 6px 3px 9px;
+      border-bottom: 1px solid var(--border);
+    }
+    .proxy-row:last-child { border-bottom: none; }
+    .proxy-row:hover { background: rgba(255, 255, 255, 0.03); }
+    .proxy-row-text {
+      flex: 1; min-width: 0; font-family: monospace; font-size: 0.74rem;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
     .proxy-row input {
-      flex: 1; min-width: 0; font-family: monospace; font-size: 0.75rem;
-      background: var(--glass); color: #ededed; border: 1px solid var(--border);
-      border-radius: 7px; padding: 6px 9px;
+      flex: 1; min-width: 0; font-family: monospace; font-size: 0.74rem;
+      background: #1e1e1e; color: #ededed; border: 1px solid var(--primary);
+      border-radius: 5px; padding: 2px 6px;
     }
-    .proxy-row input:focus { outline: none; border-color: var(--primary); }
-    .proxy-row .proxy-row-del {
+    .proxy-row input:focus { outline: none; }
+    .proxy-row .proxy-row-btn {
       background: none; border: none; color: var(--muted); cursor: pointer;
-      font-size: 0.95rem; line-height: 1; padding: 3px 5px; border-radius: 5px;
+      font-size: 0.68rem; line-height: 1; padding: 3px 5px; border-radius: 5px;
+      opacity: 0;
     }
-    .proxy-row .proxy-row-del:hover { color: var(--danger); background: rgba(218, 54, 51, 0.12); }
+    .proxy-row:hover .proxy-row-btn { opacity: 1; }
+    .proxy-row .proxy-row-btn:hover { color: var(--primary); background: rgba(229, 106, 74, 0.14); }
+    .proxy-row .proxy-row-del:hover { color: var(--danger); background: rgba(218, 54, 51, 0.14); }
     .proxy-badge {
-      flex: 0 0 108px; font-family: monospace; font-size: 0.68rem; text-align: right;
+      flex: 0 0 74px; font-family: monospace; font-size: 0.66rem; text-align: right;
       color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
-    .proxy-rows-foot { display: flex; align-items: center; gap: 10px; margin-top: 7px; flex-wrap: wrap; }
-    .proxy-rows-hint { font-size: 0.7rem; color: var(--muted); flex: 1 1 180px; }
+    .proxy-rows-foot { display: flex; align-items: center; gap: 10px; margin-top: 7px; }
     .add-form input, .add-form select { width: 100%; background: var(--glass); border: 1px solid var(--glass-border); border-radius: var(--radius-field); padding: 9px 12px; color: #ededed; font-size: 0.82rem; font-family: inherit; }
     .add-form input:focus, .add-form select:focus { outline: none; border-color: var(--primary); }
     .msg-ok { color: #3fb950 !important; }
@@ -2622,7 +2635,6 @@
     <div id="proxy-edit-rows" class="proxy-rows"></div>
     <div class="proxy-rows-foot">
       <button class="btn btn-sm" type="button" onclick="addProxyRow()">+ Add proxy</button>
-      <span class="proxy-rows-hint">Several entries rotate per request. One entry means every request uses it.</span>
       <button class="btn btn-sm" id="proxy-edit-test" type="button" onclick="testProxyEditList()" style="margin-left:auto;">Test all</button>
     </div>
 
@@ -4547,17 +4559,19 @@
     m.classList.add("active");
   }
 
-  // renderProxyRows rebuilds the per-URL editor. Each row owns its own test
-  // badge, so "which proxy is dead" is answered on the line itself.
+  // renderProxyRows rebuilds the per-URL editor. Rows read as a plain list;
+  // a row becomes an input only while you are editing it.
   function renderProxyRows(urls) {
     const box = document.getElementById("proxy-edit-rows");
     if (!box) return;
     box.innerHTML = urls.map(u => `
       <div class="proxy-row">
-        <input type="text" spellcheck="false" value="${escapeHtml(u)}" placeholder="http://user:pass@host:port">
+        <span class="proxy-row-text">${escapeHtml(u)}</span>
         <span class="proxy-badge"></span>
-        <button class="proxy-row-del" type="button" title="Remove" onclick="this.closest('.proxy-row').remove()">&times;</button>
+        <button class="proxy-row-btn" type="button" title="Edit" onclick="editProxyRow(this)">Edit</button>
+        <button class="proxy-row-btn proxy-row-del" type="button" title="Remove" onclick="this.closest('.proxy-row').remove()">&times;</button>
       </div>`).join("");
+    box.querySelectorAll(".proxy-row").forEach(r => r.dataset.url = r.querySelector(".proxy-row-text").textContent);
   }
 
   function addProxyRow() {
@@ -4567,10 +4581,61 @@
     row.className = "proxy-row";
     row.innerHTML = `<input type="text" spellcheck="false" placeholder="http://user:pass@host:port">
       <span class="proxy-badge"></span>
-      <button class="proxy-row-del" type="button" title="Remove" onclick="this.closest('.proxy-row').remove()">&times;</button>`;
+      <button class="proxy-row-btn proxy-row-del" type="button" title="Remove" onclick="this.closest('.proxy-row').remove()">&times;</button>`;
     box.appendChild(row);
-    const inputs = box.querySelectorAll("input");
-    if (inputs.length) inputs[inputs.length - 1].focus();
+    commitOnBlur(row);
+  }
+
+  // editProxyRow swaps the row's text for an input, keeping the badge and the
+  // delete button so the verdict stays attached to the entry being edited.
+  function editProxyRow(btn) {
+    const row = btn.closest(".proxy-row");
+    const text = row.querySelector(".proxy-row-text");
+    const input = document.createElement("input");
+    input.type = "text";
+    input.spellcheck = false;
+    input.value = text.textContent;
+    text.replaceWith(input);
+    btn.remove();
+    input.focus();
+    input.select();
+    commitOnBlur(row);
+  }
+
+  // commitOnBlur turns an input row back into a plain list row. A row left
+  // empty is removed, so a cleared entry does not survive as a blank line.
+  function commitOnBlur(row) {
+    const input = row.querySelector("input");
+    if (!input) return;
+    const commit = () => {
+      const val = input.value.trim();
+      if (!val) { row.remove(); return; }
+      const text = document.createElement("span");
+      text.className = "proxy-row-text";
+      text.textContent = val;
+      input.replaceWith(text);
+      row.dataset.url = val;
+      const badge = row.querySelector(".proxy-badge");
+      if (badge) { badge.textContent = ""; badge.title = ""; }
+      const edit = document.createElement("button");
+      edit.type = "button"; edit.className = "proxy-row-btn";
+      edit.title = "Edit"; edit.textContent = "Edit";
+      edit.onclick = function () { editProxyRow(this); };
+      row.insertBefore(edit, badge);
+    };
+    input.addEventListener("blur", commit);
+    input.addEventListener("keydown", e => {
+      if (e.key === "Enter") input.blur();
+      if (e.key === "Escape") { input.value = row.dataset.url || ""; input.blur(); }
+    });
+  }
+
+  // proxyRowValue reads a row whether it is showing text or an open input.
+  function proxyRowValue(row) {
+    const input = row.querySelector("input");
+    if (input) return input.value.trim();
+    const text = row.querySelector(".proxy-row-text");
+    return text ? text.textContent.trim() : "";
   }
 
   // proxyEditURLs reads the editor back into the newline-joined list the API
@@ -4578,8 +4643,8 @@
   function proxyEditURLs() {
     const box = document.getElementById("proxy-edit-rows");
     if (!box) return [];
-    return Array.from(box.querySelectorAll(".proxy-row input"))
-      .map(i => i.value.trim()).filter(Boolean);
+    return Array.from(box.querySelectorAll(".proxy-row"))
+      .map(proxyRowValue).filter(Boolean);
   }
 
   // Tests every proxy in the editor, one at a time, and marks each result on
@@ -4590,7 +4655,7 @@
     const btn = document.getElementById("proxy-edit-test");
     if (!box) return;
     const rows = Array.from(box.querySelectorAll(".proxy-row"));
-    const urls = rows.map(r => r.querySelector("input").value.trim());
+    const urls = rows.map(r => proxyRowValue(r));
     if (!urls.length || !urls.some(Boolean)) return;
 
     if (btn) btn.disabled = true;
