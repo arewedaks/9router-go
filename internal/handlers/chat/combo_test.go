@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"reflect"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -12,14 +13,27 @@ import (
 
 func TestApplyComboStrategy_capacity(t *testing.T) {
 	h := NewChatHandler(nil)
-	models := []string{"gpt-4", "claude-3", "gemini-pro"}
+
+	// The picker promises ">200K context only, then priority", so the earlier
+	// assertion here — that capacity returns the input untouched — encoded the
+	// bug where the strategy was accepted and then ignored.
+	models := []string{"deepseek-chat", "claude-3", "gemini-pro"}
 	got := h.ApplyComboStrategy("capacity", models, "", 1)
-	if !reflect.DeepEqual(got, models) {
-		t.Errorf("capacity: got %v, want %v", got, models)
+	if len(got) != len(models) {
+		t.Fatalf("capacity changed the number of entries: %v", got)
+	}
+	if !reflect.DeepEqual(sortedCopy(got), sortedCopy(models)) {
+		t.Errorf("capacity must not drop or invent entries: got %v, want the same set as %v", got, models)
 	}
 	if len(got) > 0 && &got[0] == &models[0] {
 		t.Error("capacity: returned same backing array, not a copy")
 	}
+}
+
+func sortedCopy(in []string) []string {
+	out := append([]string(nil), in...)
+	sort.Strings(out)
+	return out
 }
 
 func TestApplyComboStrategy_roundRobin(t *testing.T) {

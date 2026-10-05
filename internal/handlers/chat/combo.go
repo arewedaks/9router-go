@@ -325,12 +325,47 @@ func (h *ChatHandler) applyComboStrategy(strategy string, models []string, combo
 
 		return rotated
 	case "capacity":
-		fallthrough
+		// The picker labels this ">200K context only, then priority", so the
+		// entries whose context window fits a long prompt go first and the
+		// rest keep their configured order behind them. Without this the
+		// strategy was indistinguishable from fallback, and the label lied.
+		return orderByContextCapacity(models)
 	default:
 		out := make([]string, len(models))
 		copy(out, models)
 		return out
 	}
+}
+
+// capacityContextFloor is the window the "capacity" strategy is advertised to
+// prefer. Entries at or above it are promoted, in their configured order.
+const capacityContextFloor = 200000
+
+// orderByContextCapacity puts entries that clear capacityContextFloor first,
+// preserving the configured order within each group. A stable partition, not a
+// sort: two big-context entries must keep their priority.
+func orderByContextCapacity(models []string) []string {
+	out := make([]string, 0, len(models))
+	var rest []string
+	for _, entry := range models {
+		if entryContextWindow(entry) >= capacityContextFloor {
+			out = append(out, entry)
+		} else {
+			rest = append(rest, entry)
+		}
+	}
+	return append(out, rest...)
+}
+
+// entryContextWindow resolves the context window for a "provider/model" combo
+// entry, falling back to 0 so an unparseable entry never displaces a known one.
+func entryContextWindow(entry string) int {
+	provider, model, ok := strings.Cut(entry, "/")
+	if !ok || model == "" {
+		return 0
+	}
+	cw, _ := providers.GetModelTokenLimitsFor(provider, model)
+	return cw
 }
 
 // keysString returns a comma-separated list of map keys.
