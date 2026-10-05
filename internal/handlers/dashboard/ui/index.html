@@ -1237,12 +1237,12 @@
       max-height: 230px; overflow-y: auto; padding: 1px;
     }
     .proxy-row {
-      display: flex; align-items: center; gap: 6px;
+      display: flex; align-items: center; gap: 4px;
       background: var(--panel-hover); border: 1px solid var(--border);
-      border-radius: 6px; padding: 3px 7px;
+      border-radius: 6px; padding: 3px 7px 3px 5px;
     }
     .proxy-row:hover { border-color: var(--glass-border); }
-    .proxy-row-idx { flex: 0 0 14px; color: var(--muted); font-size: 0.7rem; text-align: right; }
+    .proxy-row-idx { flex: 0 0 auto; color: var(--muted); font-size: 0.7rem; text-align: right; }
     /* min-width:0 lets the flex child shrink below its content width; without
        it a long proxy URL forces the row (and the modal) wider. */
     .proxy-row-text {
@@ -1261,7 +1261,7 @@
     }
     .proxy-row:hover .btn, .proxy-row .btn:focus { opacity: 1; }
     .proxy-badge {
-      flex: 0 0 62px; font-family: monospace; font-size: 0.66rem; text-align: right;
+      flex: 0 0 58px; font-family: monospace; font-size: 0.66rem; text-align: right;
       color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
     .proxy-rows-foot { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
