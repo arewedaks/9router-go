@@ -372,15 +372,25 @@ func (h *ChatHandler) getClientForConnection(connData *ConnectionData) *http.Cli
 	var proxyURLStr string
 	var proxyType string
 	var strictProxy bool
+	var pool *db.ProxyPool
 
 	// 1. Resolve from ProxyPool
 	if connData.ProxyPoolID != "" {
-		pool, err := h.Repo.GetProxyPool(connData.ProxyPoolID)
-		if err == nil && pool != nil && pool.IsActive {
-			proxyURLStr = pool.NextURL()
-			proxyType = pool.Type
-			strictProxy = pool.StrictProxy
+		if p, err := h.Repo.GetProxyPool(connData.ProxyPoolID); err == nil && p != nil && p.IsActive {
+			pool = p
+			proxyType = p.Type
+			strictProxy = p.StrictProxy
 		}
+	}
+
+	// A pool keeps rotating inside its own transport so a dead entry fails over
+	// to a live one instead of failing the request. Handled before the
+	// single-URL path below, which cannot fail over.
+	if pool != nil && len(pool.URLs) > 0 && !isRelayType(proxyType) {
+		return h.poolClient(pool)
+	}
+	if pool != nil {
+		proxyURLStr = pool.NextURL()
 	}
 
 	// 2. Fallback to legacy connection proxy
@@ -509,6 +519,17 @@ func proxyDialer(u *url.URL) (func(ctx context.Context, network, addr string) (n
 		return nil, false
 	}
 	return cd.DialContext, true
+}
+
+// isRelayType reports whether the pool is an Edge Relay rather than a forward
+// proxy. Relays rewrite the request URL per request and carry no proxy address,
+// so they never take the rotating transport.
+func isRelayType(proxyType string) bool {
+	switch proxyType {
+	case "vercel", "cloudflare", "deno":
+		return true
+	}
+	return false
 }
 
 // proxyPoolSkipReason explains why a configured pool did not produce a client.

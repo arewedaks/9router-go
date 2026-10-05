@@ -164,6 +164,13 @@ func (h *Handler) HandleDeleteProxyPool(w http.ResponseWriter, r *http.Request) 
 // HandleTestProxyPool dials one proxy from the pool and reports the result.
 // The outcome is persisted so the list can show a pool that failed without
 // re-testing it on every page load.
+// HandleTestProxyPool dials one proxy from the pool and reports the result.
+//
+// The body may carry {"url": "..."} to test one specific entry, which is what
+// the per-entry Test button in the pool details sends. Without it the first
+// URL is tested, as before. A single-URL test does not touch the pool's active
+// flag: one dead entry must not take the whole pool offline when the pool can
+// fail over to the rest.
 func (h *Handler) HandleTestProxyPool(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if id == "" {
@@ -173,6 +180,22 @@ func (h *Handler) HandleTestProxyPool(w http.ResponseWriter, r *http.Request) {
 	pool, err := h.repo.GetProxyPoolDetail(id)
 	if err != nil {
 		handlerutil.WriteJSONError(w, http.StatusNotFound, "Proxy pool not found")
+		return
+	}
+
+	var payload struct {
+		URL string `json:"url"`
+	}
+	if r.Body != nil {
+		_ = json.Unmarshal(readLimited(r), &payload)
+	}
+
+	if target := strings.TrimSpace(payload.URL); target != "" {
+		if err := probeProxy(r.Context(), target); err != nil {
+			handlerutil.WriteJSON(w, http.StatusOK, map[string]any{"ok": false, "url": target, "error": err.Error()})
+			return
+		}
+		handlerutil.WriteJSON(w, http.StatusOK, map[string]any{"ok": true, "url": target})
 		return
 	}
 
@@ -190,6 +213,16 @@ func (h *Handler) HandleTestProxyPool(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.recordAndRespond(w, id, true, "")
+}
+
+// readLimited reads a small JSON body, bounded so a hostile caller cannot make
+// the dashboard buffer an unbounded payload.
+func readLimited(r *http.Request) []byte {
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<16))
+	if err != nil {
+		return nil
+	}
+	return body
 }
 
 func (h *Handler) recordAndRespond(w http.ResponseWriter, id string, ok bool, msg string) {

@@ -51,13 +51,19 @@ func TestGetClientForConnection_ProxyPool(t *testing.T) {
 		t.Fatal("expected new client with custom proxy transport, got default client")
 	}
 
-	transport, ok := client.Transport.(*http.Transport)
+	transport, ok := client.Transport.(*poolTransport)
 	if !ok || transport == nil {
-		t.Fatal("expected *http.Transport")
+		t.Fatal("expected *poolTransport so a dead entry can fail over")
 	}
 
+	// The proxy is chosen per attempt, so assert the pool's URL reaches the
+	// transport rather than a URL captured when the client was built.
+	inner, err := transport.transportFor("http://user:pass@proxy.example.com:8080")
+	if err != nil {
+		t.Fatalf("transportFor: %v", err)
+	}
 	req, _ := http.NewRequest("GET", "https://api.openai.com/v1/models", nil)
-	proxyURL, err := transport.Proxy(req)
+	proxyURL, err := inner.Proxy(req)
 	if err != nil {
 		t.Fatalf("proxy resolve error: %v", err)
 	}

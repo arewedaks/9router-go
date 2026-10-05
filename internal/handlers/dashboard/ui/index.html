@@ -2599,9 +2599,13 @@
     <label class="field-label">Proxies — one per line</label>
     <textarea id="proxy-edit-list" rows="7" spellcheck="false"
       style="width:100%; font-family:monospace; font-size:0.75rem; background:var(--glass); color:#ededed; border:1px solid var(--border); border-radius:7px; padding:8px; resize:vertical;"></textarea>
-    <div style="font-size:0.7rem; color:var(--muted); margin-top:5px;">
-      Several entries rotate per request. One entry means every request uses it.
+    <div style="display:flex; align-items:center; gap:8px; margin-top:5px; flex-wrap:wrap;">
+      <span style="font-size:0.7rem; color:var(--muted);">
+        Several entries rotate per request. One entry means every request uses it.
+      </span>
+      <button class="btn btn-sm" id="proxy-edit-test" onclick="testProxyEditList()" style="margin-left:auto;">Test all</button>
     </div>
+    <div id="proxy-edit-results" style="margin-top:8px; font-size:0.72rem; font-family:monospace; max-height:150px; overflow:auto;"></div>
 
     <div class="add-form-grid" style="grid-template-columns:1fr 1fr; margin-top:12px;">
       <div>
@@ -4521,7 +4525,58 @@
     const urls = Array.isArray(p.urls) && p.urls.length ? p.urls : (p.proxyUrl ? [p.proxyUrl] : []);
     document.getElementById("proxy-edit-list").value = urls.join("\n");
     document.getElementById("proxy-edit-msg").textContent = "";
+    const results = document.getElementById("proxy-edit-results");
+    if (results) results.innerHTML = "";
     m.classList.add("active");
+  }
+
+  // Tests every proxy in the textarea, one at a time, and marks each result
+  // next to its own URL so a single dead entry is obvious among a healthy list.
+  async function testProxyEditList() {
+    const id = document.getElementById("proxy-edit-id").value;
+    const list = document.getElementById("proxy-edit-list").value;
+    const out = document.getElementById("proxy-edit-results");
+    const btn = document.getElementById("proxy-edit-test");
+    const urls = list.split("\n").map(u => u.trim()).filter(Boolean);
+    if (!urls.length || !out) return;
+
+    if (btn) btn.disabled = true;
+    const rows = urls.map(() => null);
+    const paint = () => {
+      out.innerHTML = urls.map((u, i) => {
+        const r = rows[i];
+        const label = r === null ? "…" : (r.ok ? "OK" : `GAGAL: ${escapeHtml(r.error || "")}`);
+        const color = r === null ? "var(--muted)" : (r.ok ? "#3fb950" : "#f85149");
+        return `<div style="display:flex; gap:8px; padding:2px 0;">
+          <span style="color:${color}; min-width:74px;">${label}</span>
+          <span style="color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(hostOfProxy(u))}</span>
+        </div>`;
+      }).join("");
+    };
+    paint();
+
+    // Sequential on purpose: a pool can hold dozens of proxies and firing them
+    // all at once is exactly the load the health check already bounds.
+    for (let i = 0; i < urls.length; i++) {
+      try {
+        const res = await api(`/api/dashboard/proxy-pools/${encodeURIComponent(id)}/test`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: urls[i] }),
+        });
+        rows[i] = { ok: !!(res && res.ok), error: (res && res.error) || "" };
+      } catch (e) {
+        rows[i] = { ok: false, error: String(e && e.message ? e.message : e) };
+      }
+      paint();
+    }
+    if (btn) btn.disabled = false;
+  }
+
+  // hostOfProxy shows the address without the credentials baked into the URL.
+  function hostOfProxy(raw) {
+    const at = raw.lastIndexOf("@");
+    return at === -1 ? raw : raw.slice(at + 1);
   }
 
   async function submitProxyEdit() {
