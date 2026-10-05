@@ -65,9 +65,9 @@ func TestProxyDetailsOffersPerURLTest(t *testing.T) {
 	}
 }
 
-// The entry list must read as a plain list, not a stack of form fields: a row
-// shows text until asked to edit, and only then becomes an input.
-func TestProxyRowsReadAsPlainList(t *testing.T) {
+// The entry list must read as a compact card list matching the combo model
+// editor, not a stack of form fields: a row shows text until asked to edit.
+func TestProxyRowsMatchComboCardStyle(t *testing.T) {
 	ui := readEmbeddedUI(t)
 	render := extractFunction(t, ui, "renderProxyRows")
 	if render == "" {
@@ -79,6 +79,13 @@ func TestProxyRowsReadAsPlainList(t *testing.T) {
 	if strings.Contains(render, `type="text"`) {
 		t.Error("rows must not all render as inputs — that is the spacing problem")
 	}
+	// Same button vocabulary as the combo model rows, so both editors match.
+	if !strings.Contains(render, `class="btn btn-sm btn-danger"`) {
+		t.Error("the remove button must use the combo list's btn-danger style")
+	}
+	if !strings.Contains(render, `proxy-row-idx`) {
+		t.Error("rows must be numbered like the combo model rows")
+	}
 
 	edit := extractFunction(t, ui, "editProxyRow")
 	if edit == "" {
@@ -87,11 +94,9 @@ func TestProxyRowsReadAsPlainList(t *testing.T) {
 	if !strings.Contains(edit, "createElement(\"input\")") {
 		t.Error("Edit must swap the row into an input")
 	}
-	if !strings.Contains(render, "editProxyRow(") {
-		t.Error("each row needs an Edit button")
-	}
 
-	// Editing must not leave a verdict that describes the old value.
+	// Editing must not leave a verdict that describes the old value, and
+	// clearing a row must remove it rather than save a blank entry.
 	commit := extractFunction(t, ui, "commitOnBlur")
 	if commit == "" {
 		t.Fatal("UI lacks commitOnBlur")
@@ -110,6 +115,11 @@ func TestProxyRowsReadAsPlainList(t *testing.T) {
 	}
 	if strings.Contains(add, "renderProxyRows(") {
 		t.Error("Add proxy must append a row, not re-render the whole list")
+	}
+
+	// The row style itself must match the combo card, not a bordered box.
+	if !strings.Contains(ui, "background: var(--panel-hover); border: 1px solid var(--border);") {
+		t.Error("proxy rows must use the combo card background and border")
 	}
 }
 

@@ -1,5 +1,5 @@
 {
-  "latestVersion": "1.9.13",
+  "latestVersion": "1.9.14",
   "downloadUrl": "https://github.com/arewedaks/9router-go/releases/latest",
   "releaseNotes": "- chore(release): v1.9.10 (7a55340)\n- fix(combos): publish the catalogue window a combo can actually serve (676037f)\n- chore(release): version.json -> v1.9.9 (fc9af69)\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
 }
