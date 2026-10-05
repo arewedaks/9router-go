@@ -1,5 +1,5 @@
 {
   "latestVersion": "1.9.16",
   "downloadUrl": "https://github.com/arewedaks/9router-go/releases/latest",
-  "releaseNotes": "- chore(release): v1.9.10 (7a55340)\n- fix(combos): publish the catalogue window a combo can actually serve (676037f)\n- chore(release): version.json -> v1.9.9 (fc9af69)\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
+  "releaseNotes": "## Proxy pool failover\n- A dead first pool entry no longer fails the request: the pool rotates to a live entry.\n- Requests with a body that cannot be rewound are not resent, so an upstream never sees a truncated payload.\n\n## Provider capabilities\n- The models.dev overlay now also covers image output, tools, and reasoning, keyed by provider as well as model.\n- The overlay stays additive: a catalogue miss never switches a capability off.\n\n## Dashboard\n- Proxy pool entries render as compact cards matching the combo model list.\n- Fixed a class-name collision with the settings cards that forced 18px of extra spacing and a divider onto every entry.\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
 }
