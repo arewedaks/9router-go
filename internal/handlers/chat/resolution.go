@@ -247,6 +247,14 @@ func (h *ChatHandler) resolveModel(modelStr string) (*ModelInfo, error) {
 		prefix := parts[0]
 		model := parts[1]
 
+		// A model the operator removed must not serve, whatever spelling the
+		// request uses. This is the main inference path (ResolveModel and every
+		// request handler call resolveModel, not resolveModelEntry), so a removal
+		// that only guarded the combo path still let the model be called by name.
+		if h.isModelHidden(resolveProviderAlias(prefix), model) {
+			return nil, fmt.Errorf("model %q was removed from provider %q", model, resolveProviderAlias(prefix))
+		}
+
 		// Check custom prefix provider node first (before built-in alias resolution shadows it, e.g. "oa" or "cc")
 		if info := h.resolvePrefixProvider(prefix, model); info != nil {
 			return info, nil
@@ -282,6 +290,11 @@ func (h *ChatHandler) resolveModel(modelStr string) (*ModelInfo, error) {
 				parts := strings.SplitN(aliasTarget, "/", 2)
 				prefix := parts[0]
 				model := parts[1]
+
+				// An alias pointing at a removed model is still a route to it.
+				if h.isModelHidden(resolveProviderAlias(prefix), model) {
+					return nil, fmt.Errorf("model %q was removed from provider %q", model, resolveProviderAlias(prefix))
+				}
 
 				if info := h.resolvePrefixProvider(prefix, model); info != nil {
 					return info, nil

@@ -171,3 +171,39 @@ func TestHiddenModelRefusesToServe(t *testing.T) {
 		t.Error("removing one model also blocked its siblings on the same provider")
 	}
 }
+
+// TestHiddenModelRefusesMainPath covers the inference path specifically.
+//
+// There are two resolvers: resolveModel (what every request handler calls) and
+// resolveModelEntry (used while expanding combo leaves). Guarding only the
+// combo side left the direct route wide open — hiding a model removed it from
+// /v1/models and from combos, yet a plain "cl/model" request still got through
+// and was billed. Both paths must refuse it.
+func TestHiddenModelRefusesMainPath(t *testing.T) {
+	database, cleanup := setupChatTestDB(t)
+	defer cleanup()
+
+	repo := db.NewRepo(database)
+	h := &ChatHandler{Repo: repo}
+
+	for _, entry := range []string{"workbuddy/some-model", "wb/some-model"} {
+		if _, err := h.resolveModel(entry); err != nil {
+			t.Fatalf("%s did not resolve before the removal: %v", entry, err)
+		}
+	}
+
+	if err := repo.HideModel([]string{"workbuddy", "wb"}, "some-model"); err != nil {
+		t.Fatalf("HideModel: %v", err)
+	}
+
+	for _, entry := range []string{"workbuddy/some-model", "wb/some-model"} {
+		info, err := h.resolveModel(entry)
+		if err == nil || info != nil {
+			t.Errorf("%s still resolves on the main path after removal (info=%v, err=%v)", entry, info, err)
+		}
+	}
+
+	if _, err := h.resolveModel("workbuddy/other-model"); err != nil {
+		t.Errorf("removing one model also blocked its siblings on the same provider: %v", err)
+	}
+}
