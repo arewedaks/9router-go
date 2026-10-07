@@ -1,5 +1,5 @@
 {
-  "latestVersion": "1.9.16",
+  "latestVersion": "1.9.17",
   "downloadUrl": "https://github.com/arewedaks/9router-go/releases/latest",
   "releaseNotes": "- chore(release): version.json -> v1.9.16 (c65fd2d)\n- feat(providers): extend the models.dev overlay to image, tools, reasoning (fc56ce0)\n- ui(proxy): scope pool entry rows away from the settings-card proxy-row (762f860)\n- ui(proxy): tighten the gap between the row number and its URL (ab76080)\n- ui(proxy): style pool entries as cards like the combo model list (e56665d)\n- ui(proxy): compact entry list with per-row edit instead of inline inputs (db8435a)\n- ui(proxy): show each pool entry as its own row with its test result (007cb99)\n- chore: bump version to 1.9.11 (21396e4)\n- fix(proxy): fail over to a live pool entry instead of failing the request (a5e6237)\n- fix(proxy): apply provider Proxy Routing to account providers (8c39f95)\n- chore(release): version.json -> v1.9.10 (3d2e28d)\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
 }
