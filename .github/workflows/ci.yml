@@ -15,14 +15,25 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.27"
+          # Go 1.27 is not released, so the toolchain silently resolved to
+          # 1.26 while the code compiles against the encoding/json/v2 API —
+          # every vet run failed with "requires go1.27 or later".
+          go-version: "1.26"
           cache: true
 
+      # The project builds with the v2 JSON experiment enabled; without it the
+      # encoding/json/v2 import is rejected outright.
       - name: Vet
+        env:
+          GOEXPERIMENT: jsonv2
         run: go vet ./...
 
       - name: Test
-        run: go test ./... -v
+        env:
+          GOEXPERIMENT: jsonv2
+        run: go test ./...
 
       - name: Build
+        env:
+          GOEXPERIMENT: jsonv2
         run: go build -ldflags="-s -w" -o /tmp/9router-go ./cmd/9router-go/
