@@ -1090,6 +1090,13 @@
 
     .prov-card { background: var(--glass); border: 1px solid var(--glass-border); border-radius: 12px; padding: 14px; cursor: pointer; transition: border-color .15s, transform .15s; position: relative; overflow: hidden; display: flex; align-items: center; gap: 12px; }
     .prov-card:hover { border-color: var(--muted); transform: translateY(-1px); }
+    /* A disabled provider is still reachable (its detail page has the accounts
+       and the Delete buttons), so it is dimmed rather than hidden or greyed
+       out of existence. */
+    .prov-card-off { opacity: 0.55; }
+    .prov-card-off:hover { opacity: 0.8; }
+    .prov-card-switch { flex-shrink: 0; }
+    .prov-card-partial { font-size: 0.68rem; color: var(--muted); background: var(--panel-hover); border: 1px solid var(--border); border-radius: 999px; padding: 1px 7px; }
     .prov-card-main { flex: 1; min-width: 0; }
     .prov-card-icon { width: 38px; height: 38px; border-radius: 10px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
     .prov-card-icon .msym { font-size: 21px; color: #fff; }
@@ -8441,6 +8448,14 @@
     return p.isActive === 1 ? (p.testStatus || "idle") : "disabled";
   }
 
+  // A card's switch reflects the switch POSITION, not account health. The two
+  // are different questions: a credit-exhausted account is still switched on
+  // (isActive=1) and must not make the provider card read as off. Health is
+  // shown per account inside the card, via isEffectivelyActive.
+  function isSwitchOff(p) {
+    return p.isActive !== 1;
+  }
+
   function isEffectivelyActive(p) {
     if (typeof p.isEffectivelyActive === "boolean") return p.isEffectivelyActive;
     if (p.isActive !== 1) return false;
@@ -8753,13 +8768,26 @@
       const countLine = head.noConnection
         ? `<div class="prov-card-sub">no key needed</div>`
         : `<div class="prov-card-sub">connection ${accounts.length}</div>`;
+      // A provider is off when none of its connections is active. Partial
+      // states exist (one account paused, another live) and must not read as
+      // "off" — the provider still serves. The switch treats only the
+      // all-off case as off, so clicking it back on restores every account.
+      const activeCount = accounts.filter(a => !isSwitchOff(a)).length;
+      const allOff = activeCount === 0 && !head.noConnection;
+      const partial = activeCount > 0 && activeCount < accounts.length;
+      const toggle = head.noConnection ? "" : `
+        <label class="switch prov-card-switch" title="${allOff ? "Disabled — click to enable all accounts" : partial ? `Partially enabled (${activeCount}/${accounts.length} accounts)` : "Enabled — click to disable all accounts"}" onclick="event.stopPropagation()">
+          <input type="checkbox" ${allOff ? "" : "checked"} onchange="toggleProviderAll('${prov}', this.checked);">
+          <span class="slider"></span>
+        </label>`;
       return `
-        <div class="prov-card" onclick="openProviderDetail('${prov}')">
+        <div class="prov-card${allOff ? " prov-card-off" : ""}" onclick="openProviderDetail('${prov}')">
           ${providerIconHtml(prov, icon, { size: 24, color: color, label: head.displayName || prov })}
           <div class="prov-card-main">
             <div class="prov-card-title">${escapeHtml(head.displayName || prov)}</div>
-            ${countLine}
+            ${countLine}${partial ? ` <span class="prov-card-partial">${activeCount}/${accounts.length} active</span>` : ""}
           </div>
+          ${toggle}
           ${isOpen ? `<div class="prov-expand-body" onclick="event.stopPropagation()">${accountsExpanded(prov, accounts)}</div>` : ""}
         </div>`;
     };
@@ -8810,6 +8838,22 @@
       );
     });
     renderProviders(filtered);
+  }
+
+  // ---- Enable / disable every account of a provider ---------------------
+  // The card switch is a bulk control, so it posts the explicit target state
+  // instead of flipping: a click that raced a stale card (one account toggled
+  // on the detail page meanwhile) would otherwise write the opposite of what
+  // the operator just asked for. `${...}` in the handler keeps the checkbox
+  // checked state authoritative.
+  async function toggleProviderAll(prov, active) {
+    try {
+      await api(`/api/dashboard/providers/${encodeURIComponent(prov)}/toggle-all`, {
+        method: "POST",
+        body: JSON.stringify({ active: active ? 1 : 0 }),
+      });
+      loadProviders();
+    } catch(e) { toast(e.message, true); loadProviders(); }
   }
 
   async function toggleProvider(id) {
@@ -10385,9 +10429,27 @@
   function topologyProviders() {
     const seen = new Set();
     const out = [];
+    // Resolve through the connection list so an alias key in byProvider (cl/…)
+    // matches the canonical connection row (cline) instead of slipping past the
+    // filter. A provider stays in the graph while ANY of its accounts is on:
+    // two live accounts out of three still serve traffic.
+    const isDisabled = (id) => {
+      const key = String(id || "").toLowerCase();
+      if (!key) return false;
+      const owned = (usageState.providers || []).filter(x => {
+        const own = String(x.provider || x.id || "").toLowerCase();
+        if (own === key) return true;
+        return Array.isArray(x.aliases) && x.aliases.some(a => String(a).toLowerCase() === key);
+      });
+      if (!owned.length) return false; // unknown provider, not a disabled one
+      if (owned.every(x => x.noConnection)) return false; // keyless route
+      // The API sends isActive as a number, not a boolean, so `=== false`
+      // never matched and every disabled provider stayed in the graph.
+      return owned.every(x => Number(x.isActive) === 0);
+    };
     const push = (id) => {
       const key = String(id || "").toLowerCase();
-      if (!key || seen.has(key)) return;
+      if (!key || seen.has(key) || isDisabled(key)) return;
       seen.add(key);
       out.push({ provider: key, label: providerLabel(key) });
     };
@@ -10395,12 +10457,7 @@
     if (usageState.stats) Object.keys(usageState.stats.byProvider || {}).forEach(push);
 
     if (usageState.topologyMode === "all") {
-      (usageState.providers || []).forEach(p => {
-        // Skip a connection the operator switched off; a keyless provider has
-        // no isActive flag and is always eligible.
-        if (!p.noConnection && p.isActive === false) return;
-        push(p.provider || p.id);
-      });
+      (usageState.providers || []).forEach(p => push(p.provider || p.id));
     }
 
     return out.sort((a, b) => a.provider.localeCompare(b.provider));

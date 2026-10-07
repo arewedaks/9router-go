@@ -129,3 +129,45 @@ func TestHideModelMatchesAliasSpellings(t *testing.T) {
 		t.Errorf("removal recorded as canonical id was not honoured: %v", ids)
 	}
 }
+
+// TestHiddenModelRefusesToServe pins the other half of "Remove model".
+//
+// Hiding a model is a routing decision, not a display preference: the operator
+// is saying "never send traffic here". The list endpoints honoured the marker,
+// but resolveModelEntry did not, so a hidden model stayed callable by name and
+// — worse — stayed in service inside a combo, which is exactly the place an
+// operator would go to remove a bad route.
+//
+// The check lives in resolveModelEntry because every combo leaf and every
+// direct "provider/model" request funnels through it.
+func TestHiddenModelRefusesToServe(t *testing.T) {
+	database, cleanup := setupChatTestDB(t)
+	defer cleanup()
+
+	repo := db.NewRepo(database)
+	h := &ChatHandler{Repo: repo}
+
+	// Both spellings must resolve before the removal, or the test would pass
+	// for the wrong reason (a missing model is not a filtered one).
+	for _, entry := range []string{"workbuddy/some-model", "wb/some-model"} {
+		if h.resolveModelEntry(entry) == nil {
+			t.Fatalf("%s did not resolve before the removal; test setup is wrong", entry)
+		}
+	}
+
+	if err := repo.HideModel([]string{"workbuddy", "wb"}, "some-model"); err != nil {
+		t.Fatalf("HideModel: %v", err)
+	}
+
+	for _, entry := range []string{"workbuddy/some-model", "wb/some-model"} {
+		if info := h.resolveModelEntry(entry); info != nil {
+			t.Errorf("%s still resolves to %s/%s after being removed", entry, info.Provider, info.Model)
+		}
+	}
+
+	// A sibling on the same provider must keep working: the removal is per
+	// model, and blanking the whole provider would be a different bug.
+	if h.resolveModelEntry("workbuddy/other-model") == nil {
+		t.Error("removing one model also blocked its siblings on the same provider")
+	}
+}

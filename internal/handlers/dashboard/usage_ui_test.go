@@ -326,8 +326,19 @@ func TestUsageTopologyModes(t *testing.T) {
 	}
 	// Keyless providers carry no connection but are still real LLM routes, so
 	// the only connection filtered out is one the operator switched off.
-	if !strings.Contains(ui, "if (!p.noConnection && p.isActive === false) return;") {
-		t.Error("the graph no longer admits keyless providers, or no longer skips inactive connections")
+	//
+	// This used to assert `p.isActive === false`, which is what let the bug ship:
+	// the API sends isActive as a NUMBER (0/1), so comparing against the boolean
+	// false never matched and disabled providers stayed in the graph. The check
+	// now goes through isDisabled, which normalises with Number().
+	if strings.Contains(ui, "p.isActive === false") {
+		t.Error("topology compares isActive to a boolean, but the API sends 0/1")
+	}
+	if !strings.Contains(ui, "if (!key || seen.has(key) || isDisabled(key)) return;") {
+		t.Error("the graph no longer skips providers the operator switched off")
+	}
+	if !strings.Contains(ui, "owned.every(x => x.noConnection)") {
+		t.Error("the graph no longer admits keyless providers")
 	}
 }
 

@@ -103,6 +103,13 @@ func (h *ChatHandler) resolveModelEntry(entry string) *ModelInfo {
 	prefix := parts[0]
 	model := parts[1]
 
+	// A model the operator removed must not resolve at all. This is the single
+	// funnel every combo leaf and every "provider/model" request passes through,
+	// so the check belongs here rather than at each caller.
+	if h.isModelHidden(resolveProviderAlias(prefix), model) {
+		return nil
+	}
+
 	if info := h.resolvePrefixProvider(prefix, model); info != nil {
 		return info
 	}
@@ -125,6 +132,39 @@ func (h *ChatHandler) resolveModelEntry(entry string) *ModelInfo {
 		provider = "opencode"
 	}
 	return &ModelInfo{Provider: provider, Model: model}
+}
+
+// hiddenModelKeys returns the provider keys a hidden marker may be recorded
+// under for provID: the id itself, its aliases, and any node prefix it
+// advertises models under. Removal writes to every one of these, so a lookup
+// has to check them all or a model removed under one alias keeps routing under
+// another.
+func (h *ChatHandler) hiddenModelKeys(provID string) []string {
+	keys := []string{provID}
+	keys = append(keys, providers.AliasesFor(provID)...)
+	return keys
+}
+
+// isModelHidden reports whether the operator removed modelID from provID.
+//
+// Hiding a model is a routing decision, not a display preference: the model is
+// gone from the picker AND must refuse to serve, including when a combo or a
+// direct "provider/model" request names it. Only the list endpoints consulted
+// this before, so a hidden model stayed reachable through resolveModelEntry.
+func (h *ChatHandler) isModelHidden(provID, modelID string) bool {
+	if h.Repo == nil || modelID == "" {
+		return false
+	}
+	hidden, err := h.Repo.GetAllHiddenModels()
+	if err != nil || len(hidden) == 0 {
+		return false
+	}
+	for _, k := range h.hiddenModelKeys(provID) {
+		if k != "" && hidden[k+"|"+modelID] {
+			return true
+		}
+	}
+	return false
 }
 
 // flattenComboModels recursively expands combo-name entries into concrete
