@@ -207,3 +207,47 @@ func TestHiddenModelRefusesMainPath(t *testing.T) {
 		t.Errorf("removing one model also blocked its siblings on the same provider: %v", err)
 	}
 }
+
+// TestComboDropsRemovedLeaf pins combo behaviour after a model is removed.
+//
+// The combo resolver used to try only the first leaf, so hiding the head of a
+// combo made every request fail with "could not resolve model" even though the
+// remaining leaves were healthy. The removed leaf is now dropped while
+// flattening, so the combo keeps serving through what is left.
+func TestComboDropsRemovedLeaf(t *testing.T) {
+	database, cleanup := setupChatTestDB(t)
+	defer cleanup()
+
+	repo := db.NewRepo(database)
+	h := &ChatHandler{Repo: repo}
+
+	comboModels := []string{"workbuddy/head-model", "workbuddy/tail-model"}
+	flat, err := h.flattenComboModels(comboModels)
+	if err != nil {
+		t.Fatalf("flatten before removal: %v", err)
+	}
+	if len(flat) != 2 {
+		t.Fatalf("expected both leaves before any removal, got %v", flat)
+	}
+
+	if err := repo.HideModel([]string{"workbuddy", "wb"}, "head-model"); err != nil {
+		t.Fatalf("HideModel: %v", err)
+	}
+
+	flat, err = h.flattenComboModels(comboModels)
+	if err != nil {
+		t.Fatalf("flatten must not fail just because a leaf was removed: %v", err)
+	}
+	if len(flat) != 1 || flat[0] != "workbuddy/tail-model" {
+		t.Errorf("expected only the surviving leaf, got %v", flat)
+	}
+
+	// A combo whose every leaf is removed is genuinely unresolvable, and that
+	// must stay an error rather than an empty model list.
+	if err := repo.HideModel([]string{"workbuddy", "wb"}, "tail-model"); err != nil {
+		t.Fatalf("HideModel: %v", err)
+	}
+	if _, err := h.flattenComboModels(comboModels); err == nil {
+		t.Error("a combo with every leaf removed should report an error, not resolve to nothing")
+	}
+}

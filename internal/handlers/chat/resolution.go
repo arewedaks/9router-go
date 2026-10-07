@@ -176,6 +176,28 @@ func (h *ChatHandler) isModelHidden(provID, modelID string) bool {
 func (h *ChatHandler) flattenComboModels(models []string) ([]string, error) {
 	out := make([]string, 0, len(models))
 	seen := make(map[string]bool)
+	// Read the removal markers once for the whole walk. isModelHidden re-reads
+	// the table on every call, and with ~1134 markers the largest combo paid
+	// that round trip once per leaf.
+	var hidden map[string]bool
+	if h.Repo != nil {
+		hidden, _ = h.Repo.GetAllHiddenModels()
+	}
+	isRemoved := func(entry string) bool {
+		if len(hidden) == 0 {
+			return false
+		}
+		p, md, ok := strings.Cut(entry, "/")
+		if !ok || md == "" {
+			return false
+		}
+		for _, k := range h.hiddenModelKeys(resolveProviderAlias(p)) {
+			if hidden[k+"|"+md] {
+				return true
+			}
+		}
+		return false
+	}
 	var walk func([]string) error
 	walk = func(ms []string) error {
 		for _, m := range ms {
@@ -198,6 +220,15 @@ func (h *ChatHandler) flattenComboModels(models []string) ([]string, error) {
 				if aliasTarget, err := h.Repo.GetModelAlias(m); err == nil && aliasTarget != "" && strings.Contains(aliasTarget, "/") {
 					m = aliasTarget
 				}
+			}
+			// Drop a leaf whose model the operator removed. Leaving it in would
+			// make every request pay a failed resolve before the next leaf is
+			// tried, and a combo whose head leaf is hidden would fail outright.
+			// An unreadable repo must not silently gut the combo, so only drop
+			// on an explicit match.
+			if strings.Contains(m, "/") && isRemoved(m) {
+				log.Warn("combo", "skipping removed model", "model", m)
+				continue
 			}
 			if len(out) == 0 || out[len(out)-1] != m {
 				out = append(out, m)
@@ -336,9 +367,20 @@ func (h *ChatHandler) resolveModel(modelStr string) (*ModelInfo, error) {
 					return nil, flatErr
 				}
 				if len(flattened) > 0 {
-					firstInfo := h.resolveModelEntry(flattened[0])
-					if firstInfo == nil {
-						firstInfo, _ = h.resolveModel(flattened[0])
+					// Try each leaf in order: a removed (hidden) model must not take
+					// the whole combo down, since the remaining leaves are valid
+					// routes. Only the first used to be tried, so hiding the head
+					// of a combo turned every request to that combo into "could not
+					// resolve model" even though the rest were healthy.
+					var firstInfo *ModelInfo
+					for _, leaf := range flattened {
+						firstInfo = h.resolveModelEntry(leaf)
+						if firstInfo == nil {
+							firstInfo, _ = h.resolveModel(leaf)
+						}
+						if firstInfo != nil {
+							break
+						}
 					}
 					if firstInfo != nil {
 						firstInfo.ComboModels = flattened
