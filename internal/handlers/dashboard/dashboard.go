@@ -1401,12 +1401,78 @@ func (h *Handler) HandleUpsertProvider(w http.ResponseWriter, r *http.Request) {
 		Data:     dataStr,
 	}
 
+	// Refuse a key that this provider already has, before writing anything.
+	//
+	// The same credential added twice is never useful: the router round-robins
+	// between two connections that are really one upstream account, so a single
+	// rate limit is hit twice as fast while the dashboard shows redundancy that
+	// does not exist. Re-adding a key the operator already has is almost always a
+	// paste of the same value rather than a second account.
+	//
+	// Scoped to the same provider on purpose: an identical string under two
+	// different providers is normal, and blocking that would break a legitimate
+	// setup where one gateway key is reused across endpoints.
+	if key := apiKeyOf(dataStr); key != "" {
+		dup, err := h.findDuplicateAPIKey(payload.Provider, id, key)
+		if err != nil {
+			handlerutil.WriteJSONError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if dup != nil {
+			label := dup.ID[:8]
+			if dup.Name != nil && *dup.Name != "" {
+				label = *dup.Name
+			}
+			handlerutil.WriteJSONError(w, http.StatusConflict,
+				"This API key is already connected for "+payload.Provider+" ("+label+")")
+			return
+		}
+	}
+
 	if err := h.repo.UpsertProviderConnection(conn); err != nil {
 		handlerutil.WriteJSONError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
 	handlerutil.WriteJSON(w, http.StatusOK, conn)
+}
+
+// apiKeyOf pulls the credential out of a connection's JSON blob. Provider
+// connections store the secret under different names depending on how they were
+// created (API-key entry, OAuth exchange, imported backup), so all three are
+// checked rather than assuming "apiKey".
+func apiKeyOf(data string) string {
+	var d map[string]any
+	if json.Unmarshal([]byte(data), &d) != nil {
+		return ""
+	}
+	for _, field := range []string{"apiKey", "accessToken", "refreshToken"} {
+		if s, ok := d[field].(string); ok && strings.TrimSpace(s) != "" {
+			return strings.TrimSpace(s)
+		}
+	}
+	return ""
+}
+
+// findDuplicateAPIKey returns an existing connection of the same provider that
+// already holds this key, or nil when the key is new.
+//
+// skipID excludes the row being updated: editing an account without touching its
+// key must not be reported as a duplicate of itself.
+func (h *Handler) findDuplicateAPIKey(provider, skipID, key string) (*models.ProviderConnection, error) {
+	conns, err := h.repo.GetProviderConnections(provider, false)
+	if err != nil {
+		return nil, err
+	}
+	for _, c := range conns {
+		if c.ID == skipID {
+			continue
+		}
+		if apiKeyOf(c.Data) == key {
+			return c, nil
+		}
+	}
+	return nil, nil
 }
 
 // HandleToggleProvider toggles active state.
