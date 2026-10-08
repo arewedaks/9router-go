@@ -5243,7 +5243,7 @@
                 <input type="checkbox" ${p.isActive === 1 ? 'checked' : ''} onchange="toggleProvider('${p.id}');">
                 <span class="slider"></span>
               </label>
-              <button class="btn btn-sm btn-danger" onclick="deleteProvider('${p.id}');closeProviderDetail();">Delete</button>
+              <button class="btn btn-sm btn-danger" onclick="deleteProvider('${p.id}')">Delete</button>
             </span>
           </div>`;
         }).join("")
@@ -8994,29 +8994,36 @@
     if (!(await appConfirm("Are you sure you want to delete this provider connection?", { title: "Delete connection", okText: "Delete", danger: true }))) return;
     try {
       await api(`/api/dashboard/providers/${id}`, { method: "DELETE" });
-      dropProviderLocally(id);
+      await dropProviderLocally(id);
     } catch(e) { toast(e.message, true); }
   }
 
-  // Removes one connection from the cached list and repaints, without refetching
-  // the whole provider catalogue.
+  // Removes one connection from the view, without refetching the whole provider
+  // catalogue.
   //
-  // Deleting an account used to call loadProviders(), which refetches every
-  // provider and rebuilds the entire grid: the page visibly flashed, scroll
-  // position and expanded cards were lost, and the operator was bounced out of
-  // the context they were working in. The row is already gone on the server, so
-  // dropping it from the local list gives the same result with none of that.
-  function dropProviderLocally(id) {
-    const before = allProviders.length;
+  // An account is not a provider. This list (`allProviders`) holds one entry per
+  // provider, so filtering it by a connection id matches nothing — the account
+  // was already gone on the server, but the row stayed on screen and the detail
+  // pane kept showing it until a manual reload.
+  //
+  // So: drop the matching provider entry only when the id really is one (the
+  // grid's delete button passes a provider id), and always repaint the open
+  // detail pane from the server, which is the view that actually changed. That
+  // second refresh is the whole point — it is what turns the deleted row into
+  // the empty state instead of navigating away.
+  async function dropProviderLocally(id) {
+    const hadProvider = allProviders.some(p => p.id === id);
     allProviders = allProviders.filter(p => p.id !== id);
-    if (allProviders.length === before) return; // nothing matched: leave the view alone
-    updateCategoryCounts(allProviders);
-    filterProviders();
-    // The detail pane for this provider may still be open behind the grid; its
-    // remaining account list is now stale, so refresh just that pane.
+    if (hadProvider) {
+      updateCategoryCounts(allProviders);
+      filterProviders();
+    }
+    // Refresh the open provider page in place. Deliberately does NOT call
+    // closeProviderDetail(): that navigates back to the provider grid, which
+    // bounced the operator out of the page they were working on every time
+    // they deleted an account (reported on mistral).
     if (currentProviderId && document.getElementById("tab-provider-detail")?.classList.contains("active")) {
-      const stillHas = allProviders.some(p => p.provider === currentProviderId);
-      if (stillHas) openProviderDetail(currentProviderId, true);
+      await openProviderDetail(currentProviderId, true);
     }
   }
 
