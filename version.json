@@ -1,5 +1,5 @@
 {
-  "latestVersion": "1.9.19",
+  "latestVersion": "1.9.20",
   "downloadUrl": "https://github.com/arewedaks/9router-go/releases/latest",
-  "releaseNotes": "- chore: bump version to 1.9.19 (ea44393)\n- fix(chat): let a combo survive a removed member (e549be1)\n- chore(release): version.json -> v1.9.18 (3aa2b2b)\n- ci: also run on this branch so the workflow fix is verified (75d1e05)\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
+  "releaseNotes": "- fix(providers): refuse an API key that is already connected (093b19e)\n- fix(providers): deleting one account no longer reloads the page (b35c79a)\n- fix(chat): let a combo survive a removed member (e549be1)\n- fix(chat): block removed models on the main inference path (24c9ae4)\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
 }
