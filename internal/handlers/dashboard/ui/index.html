@@ -4913,11 +4913,12 @@
         ${targetsHtml}
         <div id="proxy-save-msg" style="font-size:0.72rem; margin-top:10px; color:var(--muted);">
           ${!canRotate
-            ? `Rotation needs at least 2 active pools with a URL (you have ${activePoolCount}). `
-              + "Paste one list per pool, or put several proxies in one pool to rotate per request."
+            ? `Rotation needs at least 2 active pools with a URL (you have ${activePoolCount}). ` +
+              "Paste one list per pool — each pool can hold many proxies."
             : strategy === "none"
-              ? "Traffic uses the selected pool for every request. Multiple proxies in a pool rotate per request."
-              : "Traffic rotates across the eligible pools; individual pool choice is bypassed."}
+              ? "Traffic uses the selected pool for every request. Proxies in the pool rotate per request."
+              : `Traffic rotates among the ${activePoolCount} eligible pools — one request per pool, in order. ` +
+                "Add more pools and enable rotation to spread traffic across them."}
         </div>
 
         <div style="margin-top:14px; border-top:1px solid var(--border); padding-top:12px; font-size:0.75rem; color:var(--muted);">
