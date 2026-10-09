@@ -146,6 +146,12 @@ type CachedModel struct {
 	// provider free-tier membership, which the Repo does not know). It is not
 	// stored.
 	IsFree bool `json:"isFree"`
+	// ContextWindow and MaxOutput are computed per request by the provider
+	// handler from the synced catalog, which the Repo cannot reach. Zero means
+	// unknown (a custom or brand-new model the catalog has never listed), and
+	// the UI renders no label rather than a misleading number.
+	ContextWindow int `json:"contextWindow,omitempty"`
+	MaxOutput     int `json:"maxOutput,omitempty"`
 }
 
 // modelCachePayload is the JSON blob stored in cachedProviderModels.capabilities.

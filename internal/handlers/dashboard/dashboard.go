@@ -886,11 +886,16 @@ func (h *Handler) HandleProviderDetail(w http.ResponseWriter, r *http.Request) {
 		models = kept
 		// Free-ness is a property of the (provider, model) pair, so it is
 		// computed here rather than in the Repo: see providers.IsModelFreeBadge.
+		// Context window is the same story — it resolves through the synced
+		// catalog, which the Repo has no access to.
 		for i := range models {
 			models[i].IsFree = providers.IsModelFreeBadge(canonical, providers.FreeModelCandidate{
 				ID:          models[i].ModelID,
 				DisplayName: models[i].DisplayName,
 			})
+			// Catalogue first, then a known model family; never the pattern
+			// matcher's 128K default. See providers.GetDisplayTokenLimits.
+			models[i].ContextWindow, models[i].MaxOutput = providers.GetDisplayTokenLimits(canonical, models[i].ModelID)
 		}
 		detail.Models = models
 	}

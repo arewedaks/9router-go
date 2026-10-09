@@ -115,3 +115,39 @@ func TestKatalogTidakBocorAntarProvider(t *testing.T) {
 		t.Error("batas katalog bocor antar provider")
 	}
 }
+
+// GetDisplayTokenLimits backs the dashboard's model list. It must label a
+// model whose family is known even when models.dev has no entry (antigravity
+// is absent from the 225-provider catalog, so its Gemini and Claude models
+// would otherwise read blank despite well-known windows), and must stay silent
+// for a name no family matches instead of printing the 128K routing default.
+func TestDisplayTokenLimits(t *testing.T) {
+	clearCatalog()
+	defer clearCatalog()
+
+	// A known family, absent from the catalog: fallback value is genuine.
+	if cw, _ := GetDisplayTokenLimits("antigravity", "gemini-3-flash"); cw != 1048576 {
+		t.Errorf("known family must be labelled, got %d", cw)
+	}
+	if cw, _ := GetDisplayTokenLimits("antigravity", "claude-opus-4-6-thinking"); cw != 200000 {
+		t.Errorf("known family must be labelled, got %d", cw)
+	}
+
+	// No family matches: report nothing rather than inventing 128K.
+	for _, m := range []string{"totally-made-up-model-xyz", "custom-endpoint-v2"} {
+		if cw, mo := GetDisplayTokenLimits("antigravity", m); cw != 0 || mo != 0 {
+			t.Errorf("%s: unknown model must be unlabelled, got ctx=%d out=%d", m, cw, mo)
+		}
+	}
+}
+
+// The routing fallback keeps its default: a rough cap beats none when choosing
+// a connection, which is why GetDisplayTokenLimits cannot simply be
+// GetModelTokenLimitsFor.
+func TestRoutingLimitsKeepDefault(t *testing.T) {
+	clearCatalog()
+	defer clearCatalog()
+	if cw, mo := GetModelTokenLimitsFor("antigravity", "totally-made-up-model-xyz"); cw != 128000 || mo != 4096 {
+		t.Errorf("routing fallback must keep its default, got ctx=%d out=%d", cw, mo)
+	}
+}

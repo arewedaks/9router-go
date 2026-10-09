@@ -390,36 +390,78 @@ func GetModelTokenLimitsFor(provider, model string) (contextWindow int, maxOutpu
 	return getModelTokenLimitsByPattern(model)
 }
 
+// GetDisplayTokenLimits is GetModelTokenLimitsFor for the dashboard's model
+// list, where a number the operator reads as fact is worse than a blank.
+//
+// It differs in one place: when the synced catalog has nothing AND the name
+// matches no known model family, it returns 0 instead of the pattern matcher's
+// default of 128K. That default is a placeholder for routing, where any cap
+// beats none — but rendered as "128K context" beside a custom or brand-new
+// model it is an invented limit, and the operator has no way to tell it apart
+// from a measured one. A match on a real family (gemini-3, claude-opus, …) is
+// genuine information and is returned as-is: providers like antigravity are
+// absent from models.dev, so their models would otherwise carry no label at
+// all despite the family window being well known.
+func GetDisplayTokenLimits(provider, model string) (contextWindow int, maxOutput int) {
+	if cw, mo := GetCatalogLimits(provider, model); cw > 0 || mo > 0 {
+		return cw, mo
+	}
+	if _, ok := matchTokenFamily(model); !ok {
+		return 0, 0
+	}
+	return getModelTokenLimitsByPattern(model)
+}
+
 // getModelTokenLimitsByPattern guesses token limits from the model name.
 //
 // This is a fallback for models absent from the synced catalog. It matches
 // substrings, so ordering matters and the default branch is a guess rather than
 // a measurement — see GetModelTokenLimitsFor.
-func getModelTokenLimitsByPattern(model string) (contextWindow int, maxOutput int) {
-	m := strings.ToLower(model)
+// tokenFamily is one row of the name-pattern table: a set of substrings
+// identifying a model family, and the limits that family serves.
+type tokenFamily struct {
+	substr []string
+	ctx    int
+	out    int
+}
 
-	switch {
-	case strings.Contains(m, "deepseek-v4.1-flash") || strings.Contains(m, "deepseek-v4-flash"):
-		return 1000000, 128000
-	case strings.Contains(m, "gemini-1.5") || strings.Contains(m, "gemini-2.0") || strings.Contains(m, "gemini-2.5") || strings.Contains(m, "gemini-3") || strings.Contains(m, "glm-5.3-flash"):
-		return 1048576, 65536
-	case strings.Contains(m, "grok-4.5") || strings.Contains(m, "grok-4.6"):
-		return 524288, 32768
-	case strings.Contains(m, "gpt-6"):
-		return 272000, 128000
-	case strings.Contains(m, "claude-3") || strings.Contains(m, "claude-sonnet") || strings.Contains(m, "claude-opus") || strings.Contains(m, "claude-haiku"):
-		return 200000, 8192
-	case strings.Contains(m, "gpt-4o") || strings.Contains(m, "gpt-4-turbo") || strings.Contains(m, "gpt-4.1") || strings.Contains(m, "gpt-5"):
-		return 128000, 16384
-	case strings.Contains(m, "solar-pro") || strings.Contains(m, "longcat"):
-		return 200000, 32000
-	case strings.Contains(m, "o1") || strings.Contains(m, "o3"):
-		return 200000, 100000
-	case strings.Contains(m, "deepseek") || strings.Contains(m, "qwen") || strings.Contains(m, "glm") || strings.Contains(m, "kimi"):
-		return 131072, 8192
-	default:
-		return 128000, 4096
+// tokenFamilies is the single source of truth for name-pattern matching. Order
+// matters: the first row whose substring matches wins, so the most specific
+// names must come first. getModelTokenLimitsByPattern and matchesKnownFamily
+// both read it, which is what keeps the routing fallback and the dashboard
+// label from drifting apart.
+var tokenFamilies = []tokenFamily{
+	{[]string{"deepseek-v4.1-flash", "deepseek-v4-flash"}, 1000000, 128000},
+	{[]string{"gemini-1.5", "gemini-2.0", "gemini-2.5", "gemini-3", "glm-5.3-flash"}, 1048576, 65536},
+	{[]string{"grok-4.5", "grok-4.6"}, 524288, 32768},
+	{[]string{"gpt-6"}, 272000, 128000},
+	{[]string{"claude-3", "claude-sonnet", "claude-opus", "claude-haiku"}, 200000, 8192},
+	{[]string{"gpt-4o", "gpt-4-turbo", "gpt-4.1", "gpt-5"}, 128000, 16384},
+	{[]string{"solar-pro", "longcat"}, 200000, 32000},
+	{[]string{"o1", "o3"}, 200000, 100000},
+	{[]string{"deepseek", "qwen", "glm", "kimi"}, 131072, 8192},
+}
+
+// matchTokenFamily returns the family a model name belongs to, or false when no
+// family matches. The false case is what getModelTokenLimitsByPattern turns
+// into its 128K default, and what GetDisplayTokenLimits refuses to label.
+func matchTokenFamily(model string) (tokenFamily, bool) {
+	m := strings.ToLower(model)
+	for _, f := range tokenFamilies {
+		for _, s := range f.substr {
+			if strings.Contains(m, s) {
+				return f, true
+			}
+		}
 	}
+	return tokenFamily{}, false
+}
+
+func getModelTokenLimitsByPattern(model string) (contextWindow int, maxOutput int) {
+	if f, ok := matchTokenFamily(model); ok {
+		return f.ctx, f.out
+	}
+	return 128000, 4096
 }
 
 // GetCapabilitiesForModel resolves capabilities using the fallback chain.

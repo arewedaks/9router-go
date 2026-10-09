@@ -5304,6 +5304,14 @@
           const fullModel = currentModelAlias ? `${currentModelAlias}/${m.modelId}` : m.modelId;
           const upstreamName = (m.displayName && m.displayName !== m.modelId && m.displayName !== fullModel)
             ? m.displayName : '';
+          // Context window and output cap, shown only when the catalog knows
+          // them: a custom model has neither, and printing "0" would read as a
+          // real limit. Values arrive pre-formatted ("128K") from fmtTokensShort.
+          const ctxBits = [];
+          if (m.contextWindow) ctxBits.push(fmtTokensShort(m.contextWindow) + ' context');
+          if (m.maxOutput) ctxBits.push(fmtTokensShort(m.maxOutput) + ' out');
+          const ctxLabel = ctxBits.length
+            ? `<span class="msub" title="Context window / maximum output tokens">${escapeHtml(ctxBits.join(' \u00b7 '))}</span>` : '';
           const freeBadge = m.isFree ? `<span class="mfree" title="Free tier model">Free</span>` : '';
           return `<div class="model-row" style="${rowBorder}" title="${escapeHtml(modelTestError[m.modelId] || fullModel)}">
             <span class="mrow-main">
@@ -5311,6 +5319,7 @@
               <span class="mnames">
                 <span class="mid">${escapeHtml(fullModel)}</span>
                 ${upstreamName ? `<span class="msub">${escapeHtml(upstreamName)}</span>` : ''}
+                ${ctxLabel}
               </span>
             </span>
             <span class="mrow-actions">
