@@ -1,5 +1,5 @@
 {
-  "latestVersion": "1.9.21",
+  "latestVersion": "1.9.22",
   "downloadUrl": "https://github.com/arewedaks/9router-go/releases/latest",
-  "releaseNotes": "- chore: bump version to 1.9.21 (2be170f)\n- fix(mistral): drop the store parameter that made every call 422 (74aa116)\n- chore(release): version.json -> v1.9.20 (3119c05)\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
+  "releaseNotes": "- test(chat): pin down how a 20-entry proxy pool is used (c11e9b4)\n- feat(providers): show each model's context window in the model list (413b8ff)\n- chore(release): version.json -> v1.9.21 (9abf1ae)\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
 }
