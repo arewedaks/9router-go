@@ -44,6 +44,16 @@ var Rules = []Rule{
 	{Provider: "mistral", DropMessageFields: []string{"reasoning_content", "reasoning", "reasoning_details"}},
 	{Provider: "cerebras", DropMessageFields: []string{"reasoning_content", "reasoning", "reasoning_details"}},
 
+	// Mistral rejects `store` at the top level with a 422:
+	//   {"type":"extra_forbidden","loc":["body","store"],
+	//    "msg":"Extra inputs are not permitted"}
+	// OpenAI's own clients and several agent frameworks set store:false on every
+	// request, so the field arrives on perfectly ordinary traffic and the whole
+	// call fails — not just the first turn. Dropping it is the only option:
+	// Mistral has no equivalent parameter, and sending it is always fatal while
+	// omitting it is always safe (Mistral does not persist by default).
+	{Provider: "mistral", Drop: []string{"store"}},
+
 	// ─── Cloudflare Workers AI ──────────────────────────────────────────────
 	// Its oneOf root schema accepts content only as a plain string and rejects
 	// the OpenAI content-part array. (9Router #1926)

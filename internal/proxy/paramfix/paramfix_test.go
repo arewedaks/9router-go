@@ -162,3 +162,44 @@ func TestUnmatchedProviderIsUntouched(t *testing.T) {
 		t.Error("gemini has no rule and must keep max_tokens")
 	}
 }
+
+// Mistral answers 422 to a top-level `store`:
+//
+//	{"type":"extra_forbidden","loc":["body","store"],
+//	 "msg":"Extra inputs are not permitted","input":false}
+//
+// OpenAI clients and several agent frameworks set store:false on every request,
+// so the field arrives on ordinary traffic. Verified against the live endpoint:
+// without `store` the same request returns 200, with it 422.
+func TestStripsStoreForMistral(t *testing.T) {
+	got := apply(t, "mistral", "codestral-latest", map[string]any{
+		"model":      "codestral-latest",
+		"store":      false,
+		"max_tokens": 100,
+		"messages": []any{
+			map[string]any{"role": "user", "content": "hi"},
+		},
+	})
+	if _, present := got["store"]; present {
+		t.Error("store must be dropped for Mistral or the call 422s")
+	}
+	if got["max_tokens"] == nil {
+		t.Error("unrelated params must survive")
+	}
+	if got["messages"] == nil {
+		t.Error("messages must survive")
+	}
+}
+
+// The rule is scoped to Mistral: `store` is a legitimate OpenAI parameter and
+// dropping it elsewhere would silently change behaviour for providers that
+// support it.
+func TestStoreSurvivesForOpenAI(t *testing.T) {
+	got := apply(t, "openai", "gpt-5.4", map[string]any{
+		"model": "gpt-5.4",
+		"store": true,
+	})
+	if got["store"] != true {
+		t.Errorf("store must survive for providers that accept it, got %v", got["store"])
+	}
+}
