@@ -1,5 +1,5 @@
 {
   "latestVersion": "1.9.23",
   "downloadUrl": "https://github.com/arewedaks/9router-go/releases/latest",
-  "releaseNotes": "- test(chat): pin down how a 20-entry proxy pool is used (c11e9b4)\n- feat(providers): show each model's context window in the model list (413b8ff)\n- chore(release): version.json -> v1.9.21 (9abf1ae)\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
+  "releaseNotes": "- chore: bump version to 1.9.23 (2a0f0dc)\n- feat(providers): add Wally (RunAnywhere) as a built-in API-key provider (44702aa)\n- chore(release): version.json -> v1.9.22 (768cf95)\n- Clarify proxy rotation help text in dashboard (1bb54fa)\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
 }
