@@ -333,6 +333,12 @@ var patternCapabilities = []patternCapability{
 	{"*mistral-large*", Capabilities{Vision: true, Tools: true}},
 	{"*mistral*", Capabilities{Tools: true}},
 
+	// Wally (RunAnywhere) serves three models behind one host, and only
+	// deepseek-v4.1-flash takes image input. The provider is deliberately not
+	// in chat.visionProviders, which is all-or-nothing per provider; the
+	// per-model split lives here instead.
+	{"*deepseek-v4.1*", Capabilities{Vision: true, Tools: true}},
+
 	{"*command-a-vision*", Capabilities{Vision: true, Tools: true}},
 	{"*command*", Capabilities{Tools: true}},
 

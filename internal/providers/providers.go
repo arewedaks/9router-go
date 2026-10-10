@@ -204,6 +204,17 @@ var KnownProviders = map[string]ProviderConfig{
 		AuthHeader: "Authorization",
 		AuthScheme: "bearer",
 	},
+	// Wally is RunAnywhere's inference gateway. It speaks the OpenAI chat shape
+	// on /v1, so it needs the same transport as any other compatible endpoint;
+	// only the host and the key differ.
+	"wally": {
+		BaseURL:    "https://inference.runanywhere.ai/v1/chat/completions",
+		AuthHeader: "Authorization",
+		AuthScheme: "bearer",
+		// /v1/me is the only usage surface RunAnywhere exposes; the OpenAI-shaped
+		// /v1/credits and /v1/usage paths are 401/404 for an API key.
+		UsageURL: "https://inference.runanywhere.ai/v1/me",
+	},
 	"perplexity": {
 		BaseURL:    "https://api.perplexity.ai/chat/completions",
 		AuthHeader: "Authorization",

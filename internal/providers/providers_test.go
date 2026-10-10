@@ -10,7 +10,7 @@ func TestKnownProviders_HasExpectedEntries(t *testing.T) {
 		"openai", "anthropic", "deepseek", "groq", "nvidia", "openrouter",
 		"cerebras", "together", "fireworks", "opencode", "gemini", "github",
 		"mistral", "perplexity", "xai", "cohere", "ollama", "siliconflow",
-		"cloudflare-ai", "mimo-free",
+		"cloudflare-ai", "mimo-free", "wally",
 	}
 	for _, p := range wantProviders {
 		cfg, ok := KnownProviders[p]

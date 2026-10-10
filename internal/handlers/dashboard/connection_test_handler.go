@@ -852,6 +852,11 @@ var genericProbeModels = map[string]string{
 	// credits; a free-tier flash model gets a clean 200 on a drained account.
 	"cline":      "google/gemma-4-26b-a4b-it:free",
 	"clinepass":  "cline-pass/deepseek-v4-flash",
+	// RunAnywhere rejects models outside the key's entitlement with HTTP 403
+	// model_not_entitled, which the probe path reads as a bad credential. The
+	// default gpt-4o-mini is not served here, so the probe would fail on every
+	// healthy Wally key.
+	"wally": "glm-5.3-flash",
 }
 
 // setProbeAuthHeader applies the provider's configured auth header/scheme.

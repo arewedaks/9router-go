@@ -159,3 +159,39 @@ func TestTopologySkipsDisabledProviders(t *testing.T) {
 		t.Error("the disabled check must be defined before the usage-history keys are pushed")
 	}
 }
+
+// The connection count under a provider's name is the number an operator scans
+// the grid for, so it carries the green accent. "no key needed" is an absence
+// rather than a count and must stay muted — giving it the same emphasis would
+// make keyless providers look like they had connections.
+func TestProviderCardConnectionCountIsAccented(t *testing.T) {
+	ui := readEmbeddedUI(t)
+
+	if !strings.Contains(ui, `.prov-card-sub.conn { color: #3fb950;`) {
+		t.Error("missing the green accent rule for the connection count")
+	}
+	if !strings.Contains(ui, `<div class="prov-card-sub conn">connection <b>${accounts.length}</b></div>`) {
+		t.Error("the connection count does not use the accented class")
+	}
+	// The glow must target the number, not the row: shading the word
+	// "connection" too would light up the label and bury the value.
+	if !strings.Contains(ui, `.prov-card-sub.conn b {`) || !strings.Contains(ui, `text-shadow: 0 0 6px rgba(63,185,80,0.75)`) {
+		t.Error("missing the glow on the connection number")
+	}
+	// The pulse is a CSS keyframe, so a markup-only regression would leave the
+	// number glowing at a fixed intensity and silently drop the animation.
+	if !strings.Contains(ui, `animation: connPulse 2s ease-in-out infinite`) {
+		t.Error("the connection number is not animated")
+	}
+	if !strings.Contains(ui, `@keyframes connPulse {`) {
+		t.Error("missing the connPulse keyframes")
+	}
+	// Animation here is emphasis, not information. Dropping it under a
+	// reduced-motion preference must not also drop the green number.
+	if !strings.Contains(ui, `@media (prefers-reduced-motion: reduce)`) {
+		t.Error("the pulse ignores prefers-reduced-motion")
+	}
+	if strings.Contains(ui, `class="prov-card-sub conn">no key needed`) {
+		t.Error("'no key needed' must not use the accented class")
+	}
+}

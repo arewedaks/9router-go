@@ -101,6 +101,11 @@ var knownModelFetchers = map[string]modelFetcher{
 		method: http.MethodGet,
 		bearer: true,
 	},
+	"wally": {
+		url:    "https://inference.runanywhere.ai/v1/models",
+		method: http.MethodGet,
+		bearer: true,
+	},
 	"xai": {
 		url:    "https://api.x.ai/v1/models",
 		method: http.MethodGet,

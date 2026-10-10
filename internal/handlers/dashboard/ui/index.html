@@ -1108,6 +1108,23 @@
     /* Sub-line under the provider name: the connection count, or the no-key
        notice. Muted so it reads as metadata rather than a second title. */
     .prov-card-sub { font-size: 0.74rem; color: var(--muted); line-height: 1.3; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    /* The connection count is the one number an operator scans for, so it gets
+       the green accent instead of the muted metadata colour. "no key needed"
+       stays muted: it is an absence, not a count. */
+    .prov-card-sub.conn { color: #3fb950; font-weight: 600; }
+    /* Glow sits on the number, not the whole line: `connection 5` reads as a
+       label plus a value, and only the value is what the eye should catch.
+       Wrapped in a span so the shadow cannot bleed onto the word "connection". */
+    .prov-card-sub.conn b { color: inherit; font: inherit; text-shadow: 0 0 6px rgba(63,185,80,0.75); animation: connPulse 2s ease-in-out infinite; }
+    @keyframes connPulse {
+      0%, 100% { text-shadow: 0 0 6px rgba(63,185,80,0.75); }
+      50%      { text-shadow: 0 0 2px rgba(63,185,80,0.35); }
+    }
+    /* Motion is decoration, never information: an operator who asked the OS for
+       reduced motion still gets the green number, just a steady one. */
+    @media (prefers-reduced-motion: reduce) {
+      .prov-card-sub.conn b { animation: none; }
+    }
     .kind-chip { display: inline-flex; align-items: center; gap: 3px; background: #242424; border: 1px solid var(--border); border-radius: 5px; padding: 2px 6px; font-size: 0.66rem; color: var(--muted); }
     .kind-chip .msym { font-size: 12px; }
     .risk-banner { background: #3d2b12; border: 1px solid #9e6a03; color: #e3b341; border-radius: 8px; padding: 8px 10px; font-size: 0.72rem; line-height: 1.4; margin-top: 10px; display: flex; gap: 7px; }
@@ -8785,7 +8802,7 @@
       // what is actually true instead.
       const countLine = head.noConnection
         ? `<div class="prov-card-sub">no key needed</div>`
-        : `<div class="prov-card-sub">connection ${accounts.length}</div>`;
+        : `<div class="prov-card-sub conn">connection <b>${accounts.length}</b></div>`;
       // A provider is off when none of its connections is active. Partial
       // states exist (one account paused, another live) and must not read as
       // "off" — the provider still serves. The switch treats only the

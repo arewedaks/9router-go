@@ -23,6 +23,7 @@ func RegisterAll() {
 	Register("gemini", func() Executor { return ForwardOpenAI })
 	Register("github", func() Executor { return ForwardOpenAI })
 	Register("mistral", func() Executor { return ForwardOpenAI })
+	Register("wally", func() Executor { return ForwardOpenAI })
 	Register("perplexity", func() Executor { return ForwardOpenAI })
 	Register("xai", func() Executor { return ForwardOpenAI })
 	Register("cohere", func() Executor { return ForwardOpenAI })

@@ -358,7 +358,7 @@ func TestUIProviderCountsUseEffectiveStatus(t *testing.T) {
 	// under the provider name. It deliberately does not show an active/total
 	// pill: the operator asked "how many accounts does this provider have?", and
 	// the active subset is visible per-account once the card is expanded.
-	if !strings.Contains(ui, "connection ${accounts.length}") {
+	if !strings.Contains(ui, "connection <b>${accounts.length}</b>") {
 		t.Error("provider card must label the total connection count as 'connection N'")
 	}
 	if strings.Contains(ui, "accounts.filter(a => a.isActive === 1).length") {

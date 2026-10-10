@@ -624,3 +624,23 @@ func restoreClineCatalogURL(t *testing.T, url string) {
 	clineModelsURL = url
 	t.Cleanup(func() { clineModelsURL = orig })
 }
+
+// A provider the probe cannot name a model for silently falls back to
+// gpt-4o-mini. RunAnywhere answers 403 model_not_entitled for any model outside
+// the key's entitlement, and the probe path reads 403 as a rejected credential —
+// so every healthy Wally key tested as invalid until wally got its own entry.
+func TestGenericProbeModel_WallyProbesAModelItServes(t *testing.T) {
+	got := genericProbeModel("wally")
+	if got == "gpt-4o-mini" {
+		t.Fatal("wally fell back to the gpt-4o-mini default, which RunAnywhere rejects with 403")
+	}
+	var served bool
+	for _, m := range providers.ProviderModels["wally"] {
+		if m == got {
+			served = true
+		}
+	}
+	if !served {
+		t.Errorf("probe model %q is not one of the models wally serves (%v)", got, providers.ProviderModels["wally"])
+	}
+}
