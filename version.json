@@ -1,5 +1,5 @@
 {
   "latestVersion": "1.9.24",
   "downloadUrl": "https://github.com/arewedaks/9router-go/releases/latest",
-  "releaseNotes": "- feat(proxy): auto-failover and 60s cooldown for rate-limited (429) & dead proxies\n- feat(proxy): compact, clean proxy endpoints details view with health badges\n- fix(proxy): persist eligible pool target checkboxes in provider routing strategy\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
+  "releaseNotes": "- feat(proxy): smart failover cooldown, compact pool details UI, and persistent routing targets (f0c7035)\n- chore(release): version.json -> v1.9.23 (2ada094)\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
 }
