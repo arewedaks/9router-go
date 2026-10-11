@@ -1,5 +1,5 @@
 {
-  "latestVersion": "1.9.25",
+  "latestVersion": "1.9.26",
   "downloadUrl": "https://github.com/arewedaks/9router-go/releases/latest",
-  "releaseNotes": "- fix(proxy): repair rejected parameters on OpenAI-compatible endpoints (580752a)\n- chore(release): version.json -> v1.9.24 (61fab15)\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
+  "releaseNotes": "- fix(proxy): models that cap images per request (Wally/RunAnywhere `glm-5.3-flash`, 8 max) no longer fail with 400 — the excess is trimmed oldest-first and the request retried, so the newest turn keeps its images\n- fix(proxy): custom OpenAI-compatible nodes no longer fail on rejected parameters — paramfix applies on the chat forward path, a provider-prefix rule drops `store` for every `openai-compatible-*` node, and unknown parameters are repaired from the upstream error and retried\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go update`."
 }
