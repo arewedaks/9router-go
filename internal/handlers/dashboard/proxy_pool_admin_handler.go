@@ -38,7 +38,34 @@ func (h *Handler) HandleGetProxyPool(w http.ResponseWriter, r *http.Request) {
 		handlerutil.WriteJSONError(w, http.StatusNotFound, "Proxy pool not found")
 		return
 	}
+	// Attach the router's live per-proxy state (cooling down after a refusal,
+	// and why). The pool row itself only stores what was configured; this is
+	// what the router currently believes, so an operator can see which entries
+	// are being skipped instead of guessing from failures.
+	if urls := proxyPoolURLs(pool); len(urls) > 0 {
+		pool["proxyHealth"] = db.ProxyHealthSnapshot(urls)
+	}
 	handlerutil.WriteJSON(w, http.StatusOK, pool)
+}
+
+// proxyPoolURLs collapses the two stored shapes (single proxyUrl, or a list)
+// into one slice, so callers need not care which one the pool was saved with.
+func proxyPoolURLs(pool map[string]any) []string {
+	if raw, ok := pool["urls"].([]any); ok && len(raw) > 0 {
+		out := make([]string, 0, len(raw))
+		for _, v := range raw {
+			if s, ok := v.(string); ok && s != "" {
+				out = append(out, s)
+			}
+		}
+		if len(out) > 0 {
+			return out
+		}
+	}
+	if s, ok := pool["proxyUrl"].(string); ok && s != "" {
+		return []string{s}
+	}
+	return nil
 }
 
 // proxyPoolUpdatePayload is the body of PUT /proxy-pools/{id}. Every field is a

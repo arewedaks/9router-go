@@ -1253,44 +1253,66 @@
 
     @media (min-width: 720px) { .oauth-grid { grid-template-columns: 1fr 1fr auto; align-items: end; } }
     .field-label { display: block; font-size: 0.72rem; color: var(--muted); margin-bottom: 5px; }
-    /* Proxy pool entries: cards matching the combo model list, so the two
-       editors in the dashboard read the same way. Tighter padding than the
-       combo rows because a proxy URL is long and needs the horizontal room. */
+    /* Proxy pool entries: clean, readable data list with clear columns */
     .ppo-list {
-      display: flex; flex-direction: column; gap: 4px; margin: 4px 0;
-      max-height: 230px; overflow-y: auto; padding: 1px;
+      display: flex; flex-direction: column; margin: 6px 0;
+      max-height: 320px; overflow-y: auto; padding: 0;
+      border: 1px solid var(--border); border-radius: 8px;
+      background: rgba(18, 20, 24, 0.6);
     }
     .ppo-row {
-      display: flex; align-items: center; gap: 3px;
-      background: var(--panel-hover); border: 1px solid var(--border);
-      border-radius: 6px; padding: 3px 7px 3px 4px;
+      display: flex; align-items: center; gap: 8px; padding: 6px 10px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      transition: background 0.15s ease;
     }
-    .ppo-row:hover { border-color: var(--glass-border); }
-    /* min-width keeps one- and two-digit numbers on the same left edge while
-       staying close to the URL they label. */
-    .ppo-idx { flex: 0 0 auto; min-width: 9px; color: var(--muted); font-size: 0.7rem; text-align: right; }
-    /* min-width:0 lets the flex child shrink below its content width; without
-       it a long proxy URL forces the row (and the modal) wider. */
+    .ppo-row:last-child { border-bottom: none; }
+    .ppo-row:hover { background: rgba(255, 255, 255, 0.04); }
+    .ppo-idx {
+      flex: 0 0 24px; color: var(--muted);
+      font-size: 0.72rem; font-family: monospace; text-align: right;
+    }
+    /* Host is the main visual element: clean, high-contrast, uncluttered */
     .ppo-text {
-      flex: 1 1 auto; min-width: 0; font-family: monospace; font-size: 0.74rem;
-      color: #f4b59c;
-      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      flex: 1 1 auto; min-width: 0; font-family: monospace; font-size: 0.78rem;
+      color: #e6edf3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      user-select: all;
+    }
+    .ppo-proto {
+      flex: 0 0 auto; font-size: 0.62rem; text-transform: uppercase;
+      color: var(--muted); background: rgba(255, 255, 255, 0.06);
+      padding: 1px 5px; border-radius: 4px; font-weight: 500;
     }
     .ppo-row input {
-      flex: 1 1 auto; min-width: 0; font-family: monospace; font-size: 0.74rem;
-      background: #1e1e1e; color: #ededed; border: 1px solid var(--primary);
-      border-radius: 5px; padding: 2px 6px;
+      flex: 1 1 auto; min-width: 0; font-family: monospace; font-size: 0.75rem;
+      background: #161b22; color: #ededed; border: 1px solid var(--primary);
+      border-radius: 5px; padding: 3px 8px;
     }
     .ppo-row input:focus { outline: none; }
-    .ppo-row .btn {
-      flex: 0 0 auto; padding: 1px 7px; line-height: 1.4; opacity: 0;
+    .ppo-actions {
+      display: flex; align-items: center; gap: 4px; flex: 0 0 auto;
     }
-    .ppo-row:hover .btn, .ppo-row .btn:focus { opacity: 1; }
+    .ppo-actions .btn {
+      padding: 2px 7px; line-height: 1.3; font-size: 0.68rem;
+      opacity: 0.6; transition: opacity 0.15s ease;
+    }
+    .ppo-row:hover .ppo-actions .btn, .ppo-actions .btn:focus { opacity: 1; }
+    /* Badges */
     .ppo-badge {
-      flex: 0 0 58px; font-family: monospace; font-size: 0.66rem; text-align: right;
-      color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      flex: 0 0 68px; text-align: center; font-size: 0.65rem; font-family: monospace;
+      letter-spacing: 0.02em; color: var(--muted);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
-    .ppo-foot { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+    .ppo-badge.is-limited {
+      color: #f0883e; background: rgba(240, 136, 62, 0.15);
+      border: 1px solid rgba(240, 136, 62, 0.4); border-radius: 12px; padding: 1px 6px;
+      font-weight: 600;
+    }
+    .ppo-badge.is-ok {
+      color: #3fb950; background: rgba(63, 185, 80, 0.15);
+      border: 1px solid rgba(63, 185, 80, 0.35); border-radius: 12px; padding: 1px 6px;
+      font-weight: 600;
+    }
+    .ppo-foot { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
     .add-form input, .add-form select { width: 100%; background: var(--glass); border: 1px solid var(--glass-border); border-radius: var(--radius-field); padding: 9px 12px; color: #ededed; font-size: 0.82rem; font-family: inherit; }
     .add-form input:focus, .add-form select:focus { outline: none; border-color: var(--primary); }
     .msg-ok { color: #3fb950 !important; }
@@ -2650,19 +2672,27 @@
 
 <!-- PROXY POOL EDIT -->
 <div class="modal-overlay" id="proxy-edit-modal">
-  <div class="modal-box" style="max-width: 620px;">
-    <h2 style="font-size: 1.15rem; margin-bottom: 12px;" id="proxy-edit-title">Edit Proxy Pool</h2>
+  <div class="modal-box" style="max-width: 680px;">
+    <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:12px;">
+      <div>
+        <h2 style="font-size: 1.15rem; margin-bottom: 2px;" id="proxy-edit-title">Edit Proxy Pool</h2>
+        <div style="font-size: 0.74rem; color: var(--muted);" id="proxy-edit-subtitle">Manage proxy nodes, monitor health, and set pool options.</div>
+      </div>
+    </div>
     <input type="hidden" id="proxy-edit-id">
 
-    <label class="field-label">Name</label>
+    <label class="field-label">Pool Name</label>
     <input type="text" id="proxy-edit-name"
            style="width:100%; background:var(--glass); color:#ededed; border:1px solid var(--border); border-radius:7px; padding:7px 9px; font-size:0.8rem; margin-bottom:12px;">
 
-    <label class="field-label">Proxies — one per line</label>
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+      <label class="field-label" style="margin-bottom:0;">Proxy Endpoints</label>
+      <div id="proxy-edit-stats" style="font-size:0.72rem; color:var(--muted); font-family:monospace;"></div>
+    </div>
     <div id="proxy-edit-rows" class="ppo-list"></div>
     <div class="ppo-foot">
-      <button class="btn btn-sm" type="button" onclick="addProxyRow()">+ Add proxy</button>
-      <button class="btn btn-sm" id="proxy-edit-test" type="button" onclick="testProxyEditList()" style="margin-left:auto;">Test all</button>
+      <button class="btn btn-sm" type="button" onclick="addProxyRow()">+ Add endpoint</button>
+      <button class="btn btn-sm" id="proxy-edit-test" type="button" onclick="testProxyEditList()" style="margin-left:auto;">Test all endpoints</button>
     </div>
 
     <div class="add-form-grid" style="grid-template-columns:1fr 1fr; margin-top:12px;">
@@ -4296,6 +4326,7 @@
       const name = escapeHtml(p.name || "(unnamed)");
       const id = escapeHtml(p.id);
       const count = p.urlCount || 0;
+      const cooling = p.coolingCount || 0;
       return `
       <div class="card" style="margin-bottom:10px; padding:14px 16px;">
         <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
@@ -4308,6 +4339,9 @@
             <div style="font-size:0.72rem; color:var(--muted); margin-top:4px; font-family:monospace;">
               ${count} prox${count === 1 ? "y" : "ies"} · ${escapeHtml(p.type || "http")} · ${id.substring(0, 8)}
             </div>
+            ${cooling ? `<div style="font-size:0.7rem; color:#f0883e; margin-top:4px;">
+              ${cooling} of ${count} prox${count === 1 ? "y" : "ies"} skipped — rate-limited or unreachable. Open Details to see which.
+            </div>` : ""}
             ${p.lastError ? `<div style="font-size:0.7rem; color:#f85149; margin-top:4px; word-break:break-word;">${escapeHtml(p.lastError)}</div>` : ""}
             ${p.lastTestedAt ? `<div style="font-size:0.68rem; color:var(--muted); margin-top:3px;">last tested ${escapeHtml(p.lastTestedAt)}</div>` : ""}
           </div>
@@ -4582,24 +4616,119 @@
     document.getElementById("proxy-edit-strict").checked = p.strictProxy === true;
     const urls = Array.isArray(p.urls) && p.urls.length ? p.urls : (p.proxyUrl ? [p.proxyUrl] : []);
     renderProxyRows(urls.length ? urls : [""]);
+    applyProxyHealth(p.proxyHealth);
     document.getElementById("proxy-edit-msg").textContent = "";
     m.classList.add("active");
   }
 
-  // renderProxyRows rebuilds the per-URL editor. Rows read as a plain list;
-  // a row becomes an input only while you are editing it.
+  // applyProxyHealth paints what the router currently believes about each entry.
+  // The pool row stores only what was configured, so without this a proxy that
+  // is being skipped for a 429 looks identical to a healthy one until it fails
+  // in front of the operator. Health is keyed by URL, not by row position, so
+  // reordering or editing a row cannot mislabel it.
+  //
+  // lastProxyHealth keeps the most recent report so an edited row can be
+  // repainted without re-fetching; nothing here probes the network itself.
+  var lastProxyHealth = [];
+
+  function applyProxyHealthLast() {
+    applyProxyHealth(lastProxyHealth);
+  }
+
+  function applyProxyHealth(health) {
+    const box = document.getElementById("proxy-edit-rows");
+    if (!box) return;
+    lastProxyHealth = health || [];
+    const byUrl = new Map();
+    (health || []).forEach(h => { if (h && h.url) byUrl.set(h.url, h); });
+
+    box.querySelectorAll(".ppo-row").forEach(row => {
+      const badge = row.querySelector(".ppo-badge");
+      if (!badge) return;
+      const h = byUrl.get(row.dataset.url);
+      if (h && h.cooling) {
+        badge.textContent = "limited";
+        badge.classList.add("is-limited");
+        badge.title = h.lastError
+          ? `Skipped until ${h.until} — ${h.lastError}`
+          : `Skipped until ${h.until}`;
+      } else if (badge.textContent === "limited") {
+        badge.textContent = "";
+        badge.classList.remove("is-limited");
+        badge.title = "";
+      }
+    });
+    updateProxyStats();
+  }
+
+  // renderProxyRows rebuilds the clean proxy endpoint list.
+  // Each entry displays protocol, host, health badge, and quick actions.
+  // The full sensitive URL (including credentials) is stored in dataset.url
+  // and accessible via tooltip or the inline editor.
   function renderProxyRows(urls) {
     const box = document.getElementById("proxy-edit-rows");
     if (!box) return;
-    box.innerHTML = urls.map((u, i) => `
-      <div class="ppo-row">
+    box.innerHTML = urls.map((u, i) => {
+      const parsed = parseProxyInfo(u);
+      return `
+      <div class="ppo-row" data-url="${escapeHtml(u)}">
         <span class="ppo-idx">${i + 1}</span>
-        <span class="ppo-text" title="${escapeHtml(u)}">${escapeHtml(u)}</span>
+        <span class="ppo-proto">${escapeHtml(parsed.proto)}</span>
+        <span class="ppo-text" title="Full URL: ${escapeHtml(u)}">${escapeHtml(parsed.host)}</span>
         <span class="ppo-badge"></span>
-        <button class="btn btn-sm" type="button" title="Edit" onclick="editProxyRow(this)">Edit</button>
-        <button class="btn btn-sm btn-danger" type="button" title="Remove" onclick="this.closest('.ppo-row').remove()">✕</button>
-      </div>`).join("");
-    box.querySelectorAll(".ppo-row").forEach(r => r.dataset.url = r.querySelector(".ppo-text").title);
+        <div class="ppo-actions">
+          <button class="btn btn-sm" type="button" title="Edit URL" onclick="editProxyRow(this)">Edit</button>
+          <button class="btn btn-sm btn-danger" type="button" title="Remove endpoint" onclick="removeProxyRow(this)">✕</button>
+        </div>
+      </div>`;
+    }).join("");
+    updateProxyStats();
+  }
+
+  function removeProxyRow(btn) {
+    const row = btn.closest(".ppo-row");
+    if (row) row.remove();
+    updateProxyStats();
+  }
+
+  // parseProxyInfo extracts the protocol and host:port safely.
+  function parseProxyInfo(raw) {
+    if (!raw) return { proto: "http", host: "(empty)" };
+    try {
+      const u = new URL(raw);
+      return {
+        proto: u.protocol ? u.protocol.replace(":", "") : "http",
+        host: u.host || raw
+      };
+    } catch (e) {
+      // Fallback for non-standard or malformed entries
+      const m = raw.match(/^(?:([a-z0-9]+):\/\/)?(?:[^@/]*@)?([^/?#]+)/i);
+      if (m) {
+        return { proto: m[1] || "http", host: m[2] };
+      }
+      return { proto: "http", host: raw };
+    }
+  }
+
+  function updateProxyStats() {
+    const box = document.getElementById("proxy-edit-rows");
+    const stats = document.getElementById("proxy-edit-stats");
+    if (!box || !stats) return;
+    const rows = box.querySelectorAll(".ppo-row");
+    const total = rows.length;
+    let limited = 0;
+    rows.forEach(r => {
+      const b = r.querySelector(".ppo-badge");
+      if (b && b.classList.contains("is-limited")) limited++;
+    });
+    const ready = total - limited;
+    if (total === 0) {
+      stats.textContent = "0 endpoints";
+    } else if (limited > 0) {
+      stats.innerHTML = `<span style="color:#ededed;">${total} total</span> · <span style="color:#3fb950;">${ready} ready</span> · <span style="color:#f0883e;">${limited} limited</span>`;
+    } else {
+      stats.innerHTML = `<span style="color:#ededed;">${total} total</span> · <span style="color:#3fb950;">all ready</span>`;
+    }
   }
 
   function addProxyRow() {
@@ -4607,51 +4736,63 @@
     if (!box) return;
     const row = document.createElement("div");
     row.className = "ppo-row";
-    row.innerHTML = `<span class="ppo-idx">${box.querySelectorAll(".ppo-row").length + 1}</span>
-      <input type="text" spellcheck="false" placeholder="http://user:pass@host:port">
+    row.dataset.url = "";
+    row.innerHTML = `
+      <span class="ppo-idx">${box.querySelectorAll(".ppo-row").length + 1}</span>
+      <input type="text" spellcheck="false" placeholder="http://user:pass@host:port" style="flex:1;">
       <span class="ppo-badge"></span>
-      <button class="btn btn-sm btn-danger" type="button" title="Remove" onclick="this.closest('.ppo-row').remove()">✕</button>`;
+      <div class="ppo-actions">
+        <button class="btn btn-sm btn-danger" type="button" title="Remove" onclick="removeProxyRow(this)">✕</button>
+      </div>`;
     box.appendChild(row);
     commitOnBlur(row);
+    const input = row.querySelector("input");
+    if (input) input.focus();
   }
 
-  // editProxyRow swaps the row's text for an input, keeping the badge and the
-  // delete button so the verdict stays attached to the entry being edited.
+  // editProxyRow swaps the host for an input to edit the complete URL.
   function editProxyRow(btn) {
     const row = btn.closest(".ppo-row");
-    const text = row.querySelector(".ppo-text");
+    if (!row) return;
+    const currentUrl = row.dataset.url || "";
+    const text = row.querySelector(".ppo-text") || row.querySelector(".ppo-host");
     const input = document.createElement("input");
     input.type = "text";
     input.spellcheck = false;
-    input.value = text.title || text.textContent;
-    text.replaceWith(input);
-    btn.remove();
+    input.value = currentUrl;
+    input.placeholder = "http://user:pass@host:port";
+    input.style.flex = "1";
+    if (text) text.replaceWith(input);
+    const actions = row.querySelector(".ppo-actions");
+    if (actions) actions.style.display = "none";
+    commitOnBlur(row);
     input.focus();
     input.select();
-    commitOnBlur(row);
   }
 
-  // commitOnBlur turns an input row back into a plain list row. A row left
-  // empty is removed, so a cleared entry does not survive as a blank line.
+  // commitOnBlur restores the row into the structured host+proto display when done.
   function commitOnBlur(row) {
     const input = row.querySelector("input");
     if (!input) return;
     const commit = () => {
       const val = input.value.trim();
-      if (!val) { row.remove(); return; }
-      const text = document.createElement("span");
-      text.className = "ppo-text";
-      text.textContent = val;
-      text.title = val;
-      input.replaceWith(text);
+      if (!val) { row.remove(); updateProxyStats(); return; }
       row.dataset.url = val;
+      const idx = row.querySelector(".ppo-idx")?.textContent || "";
+      const parsed = parseProxyInfo(val);
       const badge = row.querySelector(".ppo-badge");
-      if (badge) { badge.textContent = ""; badge.title = ""; }
-      const edit = document.createElement("button");
-      edit.type = "button"; edit.className = "btn btn-sm";
-      edit.title = "Edit"; edit.textContent = "Edit";
-      edit.onclick = function () { editProxyRow(this); };
-      row.insertBefore(edit, badge);
+      if (badge) { badge.textContent = ""; badge.className = "ppo-badge"; }
+      row.innerHTML = `
+        <span class="ppo-idx">${idx}</span>
+        <span class="ppo-proto">${escapeHtml(parsed.proto)}</span>
+        <span class="ppo-text" title="Full URL: ${escapeHtml(val)}">${escapeHtml(parsed.host)}</span>
+        <span class="ppo-badge"></span>
+        <div class="ppo-actions">
+          <button class="btn btn-sm" type="button" title="Edit URL" onclick="editProxyRow(this)">Edit</button>
+          <button class="btn btn-sm btn-danger" type="button" title="Remove endpoint" onclick="removeProxyRow(this)">✕</button>
+        </div>`;
+      applyProxyHealthLast();
+      updateProxyStats();
     };
     input.addEventListener("blur", commit);
     input.addEventListener("keydown", e => {
@@ -4664,8 +4805,7 @@
   function proxyRowValue(row) {
     const input = row.querySelector("input");
     if (input) return input.value.trim();
-    const text = row.querySelector(".ppo-text");
-    return text ? text.textContent.trim() : "";
+    return row.dataset.url || "";
   }
 
   // proxyEditURLs reads the editor back into the newline-joined list the API
@@ -4689,11 +4829,28 @@
     if (!urls.length || !urls.some(Boolean)) return;
 
     if (btn) btn.disabled = true;
-    const setBadge = (row, text, color) => {
+    const setBadge = (row, text, status, msg) => {
       const b = row.querySelector(".ppo-badge");
-      if (b) { b.textContent = text; b.style.color = color; b.title = text; }
+      if (!b) return;
+      b.textContent = text;
+      b.title = msg || text;
+      b.className = "ppo-badge";
+      if (status === "ok") {
+        b.classList.add("is-ok");
+      } else if (status === "err") {
+        b.style.color = "#f85149";
+        b.style.background = "rgba(248, 81, 73, 0.15)";
+        b.style.border = "1px solid rgba(248, 81, 73, 0.35)";
+        b.style.borderRadius = "12px";
+        b.style.padding = "1px 6px";
+        b.style.fontWeight = "600";
+      } else {
+        b.style.color = "var(--muted)";
+        b.style.background = "none";
+        b.style.border = "none";
+      }
     };
-    rows.forEach(r => setBadge(r, "…", "var(--muted)"));
+    rows.forEach(r => setBadge(r, "…", "wait", "Testing connection..."));
 
     // Sequential on purpose: a pool can hold dozens of proxies and firing them
     // all at once is exactly the load the health check already bounds.
@@ -4705,10 +4862,11 @@
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ url: urls[i] }),
         });
+        const data = await res.json().catch(() => ({}));
         const ok = !!(res && res.ok);
-        setBadge(rows[i], ok ? "OK" : "GAGAL", ok ? "#3fb950" : "#f85149");
+        setBadge(rows[i], ok ? "OK" : "DEAD", ok ? "ok" : "err", data.error || (ok ? "Endpoint active" : "Test failed"));
       } catch (e) {
-        setBadge(rows[i], "GAGAL", "#f85149");
+        setBadge(rows[i], "DEAD", "err", String(e));
       }
     }
     if (btn) btn.disabled = false;
@@ -4900,7 +5058,7 @@
           ? `<div style="font-size:0.75rem; color:var(--muted);">No proxy pools found.</div>`
           : (proxyPoolCache || []).map(p => `
             <label style="display:flex; align-items:center; gap:8px; padding:5px 0; font-size:0.78rem; cursor:pointer;">
-              <input type="checkbox" data-pool-target="${escapeHtml(p.id)}" ${targets.includes(p.id) ? "checked" : ""}>
+              <input type="checkbox" data-pool-target="${escapeHtml(p.id)}" ${targets.includes(p.id) ? "checked" : ""} onchange="onPoolTargetToggle('${escapeHtml(d.provider)}')">
               <span style="flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(p.name || p.id)}</span>
               <span style="color:var(--muted); font-family:monospace; font-size:0.7rem;">${escapeHtml(p.id.substring(0, 8))}</span>
             </label>`).join("")}
@@ -4931,9 +5089,10 @@
         <div id="proxy-save-msg" style="font-size:0.72rem; margin-top:10px; color:var(--muted);">
           ${!canRotate
             ? `Rotation needs at least 2 active pools with a URL (you have ${activePoolCount}). ` +
-              "Paste one list per pool — each pool can hold many proxies."
+              "Multiple proxies in a pool rotate per request, so a single pool already spreads load — " +
+              "add more pools only to spread across different exit networks."
             : strategy === "none"
-              ? "Traffic uses the selected pool for every request. Proxies in the pool rotate per request."
+              ? "Traffic uses the selected pool for every request. Multiple proxies in a pool rotate per request."
               : `Traffic rotates among the ${activePoolCount} eligible pools — one request per pool, in order. ` +
                 "Add more pools and enable rotation to spread traffic across them."}
         </div>
@@ -4954,24 +5113,49 @@
   async function onProxyStrategyChange(value) {
     const sel = document.getElementById("proxy-pool");
     if (sel) sel.disabled = value !== "none";
-    await saveNoAuthProxyStrategy(currentProviderId);
+    await saveNoAuthProxyStrategy(currentProviderId, value);
     if (lastProviderDetail) renderProviderDetail(lastProviderDetail);
   }
 
-  async function saveNoAuthProxyStrategy(providerId) {
+  // onPoolTargetToggle fires whenever an eligible pool checkbox is clicked.
+  // Updates the visual counter immediately and persists the new selection.
+  async function onPoolTargetToggle(providerId) {
+    const pill = document.querySelector(".prov-count-pill");
+    const total = (proxyPoolCache || []).length;
+    const checked = Array.from(document.querySelectorAll("[data-pool-target]")).filter(cb => cb.checked).length;
+    if (pill) {
+      pill.textContent = (checked || total) + " / " + total;
+    }
+    await saveNoAuthProxyStrategy(providerId);
+  }
+
+  async function saveNoAuthProxyStrategy(providerId, overrideStrategy) {
     if (!providerId) return;
     const strategyEl = document.getElementById("proxy-strategy");
     const poolEl = document.getElementById("proxy-pool");
-    const strategy = strategyEl ? strategyEl.value : "none";
+    const strategy = overrideStrategy !== undefined ? overrideStrategy : (strategyEl ? strategyEl.value : "none");
     const poolId = poolEl ? poolEl.value : "__none__";
-    const targets = Array.from(document.querySelectorAll("[data-pool-target]"))
-      .filter(cb => cb.checked)
-      .map(cb => cb.getAttribute("data-pool-target"));
 
-    // Full-replace map, matching the server contract: it drops entries that end
-    // up with no fields, so clearing everything removes the provider key.
+    const targetCbs = Array.from(document.querySelectorAll("[data-pool-target]"));
+    let targets;
+    if (targetCbs.length > 0) {
+      // Checkboxes exist in DOM: capture their exact checked state
+      targets = targetCbs.filter(cb => cb.checked).map(cb => cb.getAttribute("data-pool-target"));
+    } else {
+      // Checkboxes are not rendered yet (e.g. strategy just switched from "none"):
+      // preserve existing targets so switching strategy doesn't wipe them.
+      const existing = providerStrategies[providerId];
+      targets = (existing && Array.isArray(existing.targetProxyPoolIds)) ? existing.targetProxyPoolIds : [];
+    }
+
+    // Full-replace map, matching the server contract: merge with existing provider
+    // options so other properties (e.g. account rotation) are not destroyed.
     const next = Object.assign({}, providerStrategies);
-    next[providerId] = { proxyPoolId: poolId, rotateStrategy: strategy, targetProxyPoolIds: targets };
+    next[providerId] = Object.assign({}, providerStrategies[providerId] || {}, {
+      proxyPoolId: poolId,
+      rotateStrategy: strategy,
+      targetProxyPoolIds: targets,
+    });
 
     const msg = document.getElementById("proxy-save-msg");
     try {
@@ -4982,7 +5166,7 @@
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
-        providerStrategies = data.providerStrategies || {};
+        providerStrategies = data.providerStrategies || next;
         if (msg) { msg.textContent = "Saved."; msg.style.color = "#3fb950"; }
         setTimeout(() => { if (msg) { msg.style.color = "var(--muted)"; } }, 1500);
       } else {

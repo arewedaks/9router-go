@@ -2,10 +2,12 @@ package chat
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"9router/proxy/internal/db"
 	"9router/proxy/internal/log"
@@ -42,15 +44,25 @@ func (t *poolTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	// across every entry, then walk the rest on failure.
 	start := int(t.cursor.Add(1)-1) % len(urls)
 	var lastErr error
+	// attempted counts entries actually tried, and doubles as the rewind guard:
+	// once anything has been sent the body may be half-consumed, so every later
+	// attempt starts from a fresh copy. It is never reset inside the loop — a
+	// proxy that answers 429 has still had its body written to it.
+	attempted := 0
 	for i := 0; i < len(urls); i++ {
 		proxyURL := urls[(start+i)%len(urls)]
-		if i > 0 {
-			// The previous attempt may have consumed part of the body before
-			// failing, so every retry starts from a fresh copy.
+		// Skip an entry that recently refused a request. Without this the next
+		// request simply redraws the same rate-limited proxy, which is the
+		// symptom this whole path exists to remove.
+		if db.ProxyCoolingDown(proxyURL) {
+			continue
+		}
+		if attempted > 0 {
 			if err := rewind(req); err != nil {
 				return nil, err
 			}
 		}
+		attempted++
 		transport, err := t.transportFor(proxyURL)
 		if err != nil {
 			lastErr = err
@@ -58,7 +70,22 @@ func (t *poolTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		}
 		resp, err := transport.RoundTrip(req)
 		if err == nil {
-			return resp, nil
+			if !exhaustedProxyStatus(resp.StatusCode) {
+				// A real answer from the upstream. Only now is the proxy proven
+				// good, so one success clears an earlier cool-off.
+				db.ClearProxyCooling(proxyURL)
+				return resp, nil
+			}
+			// The proxy answered on its own behalf (rate limit, auth, dead
+			// upstream). That is not the upstream's answer, so another entry may
+			// still carry the request. The body is rewound at the top of the
+			// next pass, exactly as it is for a dial failure.
+			resp.Body.Close()
+			parkProxy(proxyURL, resp.StatusCode)
+			lastErr = fmt.Errorf("proxy %s returned %d", redactProxy(proxyURL), resp.StatusCode)
+			log.Warn("proxy", "pool entry exhausted, trying next",
+				"pool", t.pool.ID, "proxy", redactProxy(proxyURL), "status", resp.StatusCode)
+			continue
 		}
 		lastErr = err
 		// Only proxy-level failures are worth another entry. A request that
@@ -67,10 +94,32 @@ func (t *poolTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		if !canFailover(err) {
 			return nil, err
 		}
+		db.MarkProxyCooling(proxyURL)
+		db.SetProxyError(proxyURL, err.Error())
 		log.Warn("proxy", "pool entry failed, trying next",
 			"pool", t.pool.ID, "proxy", redactProxy(proxyURL), "error", err)
 	}
+	if attempted == 0 {
+		// Every entry is cooling down. Serving through a parked proxy beats
+		// failing outright: a rate limit usually still carries the request, so
+		// the caller sees a degraded path rather than an outage.
+		log.Warn("proxy", "all pool entries cooling down; using one anyway", "pool", t.pool.ID)
+		proxyURL := urls[start]
+		if transport, err := t.transportFor(proxyURL); err == nil {
+			if resp, err := transport.RoundTrip(req); err == nil {
+				return resp, nil
+			}
+		}
+		return nil, errors.New("every proxy in the pool is cooling down after failures")
+	}
 	return nil, lastErr
+}
+
+// parkProxy records a refusal: the entry is skipped for proxyCooloff and the
+// reason is kept so the dashboard can show it.
+func parkProxy(proxyURL string, status int) {
+	db.MarkProxyCooling(proxyURL)
+	db.SetProxyError(proxyURL, fmt.Sprintf("HTTP %d from proxy", status))
 }
 
 // transportFor returns a transport bound to one proxy URL. The per-URL cache is
@@ -120,6 +169,39 @@ var (
 // are — so any error here is safe to retry once the body is rewound.
 func canFailover(err error) bool {
 	return !errors.Is(err, errBodyUnrewindable)
+}
+
+// proxyCooloff is how long a proxy is skipped after it refuses a request.
+// Long enough that a rate-limited entry is not drawn again on the next few
+// requests, short enough that a transient limit does not park the entry for
+// the rest of the session. Declared as a var so tests need not sleep.
+var proxyCooloff = 60 * time.Second
+
+// exhaustedProxyStatus reports whether a response came from the proxy itself
+// rather than from the upstream.
+//
+// A proxy that is rate-limited, out of credit or refusing the CONNECT answers
+// on its own behalf, and http.Transport reports that as a perfectly successful
+// round trip — so the old code handed it back as the upstream's answer and
+// never tried the other entries. These statuses are what a spent proxy returns:
+//
+//   - 429: rate limit / quota on the proxy account.
+//   - 407: proxy authentication required (expired credentials).
+//   - 502, 503, 504: the proxy could not reach the upstream (dead or overloaded).
+//
+// Statuses the upstream itself can return (including 401 and 403, which belong
+// to the API key) are deliberately absent: retrying those on another proxy
+// would repeat a non-proxy failure and burn pool capacity doing it.
+func exhaustedProxyStatus(code int) bool {
+	switch code {
+	case http.StatusTooManyRequests,
+		http.StatusProxyAuthRequired,
+		http.StatusBadGateway,
+		http.StatusServiceUnavailable,
+		http.StatusGatewayTimeout:
+		return true
+	}
+	return false
 }
 
 // errBodyUnrewindable marks a request whose body cannot be resent, which makes

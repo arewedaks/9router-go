@@ -164,6 +164,12 @@ type ProxyPoolSummary struct {
 	// needs in order to fix it.
 	LastError    string `json:"lastError,omitempty"`
 	LastTestedAt string `json:"lastTestedAt,omitempty"`
+	// CoolingCount reports how many of the pool's proxies the router is
+	// currently skipping because they refused a request (rate limit, dead
+	// upstream). It is the one field here that reflects live routing rather than
+	// stored configuration, so the pool list can show a degraded pool without
+	// opening it. The URLs themselves stay server-side.
+	CoolingCount int `json:"coolingCount,omitempty"`
 }
 
 // ListProxyPools returns every pool, newest name-first, optionally restricted to
@@ -206,11 +212,19 @@ func (r *Repo) ListProxyPools(onlyActiveWithURL bool) ([]ProxyPoolSummary, error
 			for _, u := range urls {
 				if s, ok := u.(string); ok && s != "" {
 					sum.URLCount++
+					if ProxyCoolingDown(s) {
+						sum.CoolingCount++
+					}
 				}
 			}
 		}
-		if sum.URLCount == 0 && handlerutil.GetString(raw, "proxyUrl") != "" {
-			sum.URLCount = 1
+		if sum.URLCount == 0 {
+			if single := handlerutil.GetString(raw, "proxyUrl"); single != "" {
+				sum.URLCount = 1
+				if ProxyCoolingDown(single) {
+					sum.CoolingCount = 1
+				}
+			}
 		}
 		sum.HasURL = sum.URLCount > 0
 		if onlyActiveWithURL && (!sum.IsActive || !sum.HasURL) {
