@@ -2,6 +2,9 @@ package paramfix
 
 import (
 	"encoding/json/v2"
+	"io"
+	"net/http"
+	"strings"
 	"testing"
 )
 
@@ -128,5 +131,53 @@ func TestConvertedBlocksAreTrimmed(t *testing.T) {
 	}
 	if c := countImagesIn(t, trimmed); c != 8 {
 		t.Errorf("remaining images = %d, want 8", c)
+	}
+}
+
+// The conversion must happen inside ForwardWithRepair, not only in one caller.
+// Three separate call sites reach this function (the chat handler, the executor,
+// and executor/providers), and an earlier fix that hooked only the first left the
+// other two broken — the exact failure this pins.
+func TestForwardWithRepairConvertsBeforeFirstSend(t *testing.T) {
+	var attempts int
+	var sent string
+
+	doer := func(b []byte) (*http.Response, error) {
+		attempts++
+		sent = string(b)
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader("{}"))}, nil
+	}
+
+	body := []byte(`{"model":"glm-5.3-flash","messages":[{"role":"user","content":[{"type":"image","source":{"type":"base64","media_type":"image/png","data":"AAAA"}}]}]}`)
+	result := ForwardWithRepair(body, doer, testTransport{})
+
+	if result.Err != nil {
+		t.Fatalf("unexpected error: %v", result.Err)
+	}
+	if attempts != 1 {
+		t.Errorf("expected one attempt, got %d", attempts)
+	}
+	if strings.Contains(sent, `"type":"image"`) {
+		t.Error("the Anthropic block reached the upstream: the conversion is not inside ForwardWithRepair")
+	}
+	if !strings.Contains(sent, `"type":"image_url"`) {
+		t.Errorf("the block must have been converted, got %s", sent)
+	}
+	// The caller must be able to see the body that was actually sent.
+	if strings.Contains(string(result.Body), `"type":"image"`) {
+		t.Error("result.Body must carry the converted body")
+	}
+}
+
+// A refusal that names a nested path but is not the Anthropic shape must still
+// reach the caller untouched: converting is not a licence to guess.
+func TestForwardWithRepairLeavesUnrelatedNestedRejection(t *testing.T) {
+	doer := func(b []byte) (*http.Response, error) {
+		return nil, &upstreamTestError{status: 400, body: []byte(`{"error":{"message":"field required","param":"messages[0].content[0].text"}}`)}
+	}
+	body := []byte(`{"model":"m","messages":[{"role":"user","content":[{"type":"text","text":"hi"}]}]}`)
+	result := ForwardWithRepair(body, doer, testTransport{})
+	if result.Err == nil {
+		t.Fatal("an unrelated rejection must be returned to the caller")
 	}
 }

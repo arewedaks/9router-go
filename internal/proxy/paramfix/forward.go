@@ -62,6 +62,16 @@ type RepairResult struct {
 // caller untouched, because silently removing it would serve a different request
 // than the one that was asked for.
 func ForwardWithRepair(body []byte, doer Doer, transport Transport) RepairResult {
+	// A client speaking the Anthropic dialect can be pointed at the
+	// OpenAI-compatible endpoint instead of /v1/messages, and the translator only
+	// runs on the latter. Converting up front means the upstream never sees a
+	// shape it refuses with a nested `param` neither repair below can act on.
+	// The call is idempotent, so an already-translated /v1/messages body is
+	// unaffected.
+	if converted, n := ConvertAnthropicImageBlocks(body); n > 0 {
+		body = converted
+	}
+
 	var lastErr error
 	var dropped []string
 	imagesTrimmed := 0

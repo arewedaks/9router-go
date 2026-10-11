@@ -2,6 +2,7 @@ package paramfix
 
 import (
 	"encoding/json/v2"
+	"errors"
 	"testing"
 )
 
@@ -104,4 +105,26 @@ func TestIsSafeToDropAllowlist(t *testing.T) {
 			t.Errorf("%q must never be dropped automatically", f)
 		}
 	}
+}
+
+// upstreamTestError is the minimal upstream error shape ForwardWithRepair needs
+// to classify a refusal, so tests can exercise the retry loop without a server.
+type upstreamTestError struct {
+	status int
+	body   []byte
+}
+
+func (e *upstreamTestError) Error() string     { return "upstream: " + string(e.body) }
+func (e *upstreamTestError) Status() int       { return e.status }
+func (e *upstreamTestError) ErrorBody() []byte { return e.body }
+
+// testTransport reports the test error as an upstream rejection.
+type testTransport struct{}
+
+func (testTransport) AsUpstream(err error) (UpstreamError, bool) {
+	var u *upstreamTestError
+	if errors.As(err, &u) {
+		return u, true
+	}
+	return nil, false
 }
