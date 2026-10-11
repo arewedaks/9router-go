@@ -72,7 +72,7 @@ func (h *ChatHandler) handleAccountFallback(
 			// has to be resolved with the connection rather than left empty.
 			return h.tryForwardWithConnection(ctx, w, provider, model, "default", h.NewNoAuthConnectionData(provider, apiKey), body, isStream, translateResponse, endpoint)
 		}
-		return fmt.Errorf("no active connections for provider: %s", provider)
+		return fmt.Errorf("no active connections for provider %s (model %s)", provider, model)
 	}
 
 	// Apply the provider's account routing strategy. Two settings feed this:
@@ -151,7 +151,7 @@ func (h *ChatHandler) handleAccountFallback(
 	if lastErr != nil {
 		return lastErr
 	}
-	return fmt.Errorf("no available connections for provider: %s", provider)
+	return fmt.Errorf("no available connections for provider %s (model %s): every connection is cooling down, disabled, or quota-exhausted", provider, model)
 }
 
 // tryForwardWithConnection attempts a single upstream request using the given connection data.
@@ -213,6 +213,7 @@ func (h *ChatHandler) tryForwardWithConnection(
 	endpoint string,
 ) error {
 	ctx = translator.WithUsageCapture(ctx)
+	attemptStart := time.Now()
 
 	// Cap concurrent requests to this account before doing any work. Released
 	// by the deferred call below, which runs on every return path.
@@ -452,7 +453,11 @@ func (h *ChatHandler) tryForwardWithConnection(
 			log.Debug("fallback", "upstream skipped (cached no-project)", "provider", provider, "model", model, "conn", connectionID, "error", fwdErr)
 			recordProviderOutcome(provider, statusCode, true)
 		} else {
-			log.Warn("fallback", "upstream failed", "provider", provider, "model", model, "conn", connectionID, "status", statusCode, "error", fwdErr)
+			// "upstream failed" without a duration cannot be told apart from an
+			// upstream that answered slowly and was cut off, so the elapsed time is
+			// part of the record.
+			log.Warn("fallback", "upstream failed", "provider", provider, "model", model, "conn", connectionID,
+				"status", statusCode, "duration", time.Since(attemptStart).String(), "error", fwdErr)
 			recordProviderOutcome(provider, statusCode, statusCode == 0)
 		}
 	}

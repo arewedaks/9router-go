@@ -3,8 +3,13 @@ package middleware
 import "net/http"
 
 // MaxBodySize limits the maximum size of request bodies to prevent OOM attacks.
-// Default limit: 10MB. Media endpoints may need higher limits.
-const DefaultMaxBodySize = 10 * 1024 * 1024 // 10MB
+//
+// 10MB was too small for the requests this proxy actually serves: a vision or
+// agent harness sends screenshots inline as base64, and a single PNG can be
+// several megabytes, so a multi-image turn blew the cap and surfaced as a bare
+// 400. 64MB holds a realistic multi-image turn with headroom while still
+// bounding one connection's memory.
+const DefaultMaxBodySize = 64 * 1024 * 1024 // 64MB
 
 // MaxBody returns a middleware that limits request body size.
 func MaxBody(maxBytes int64) func(http.Handler) http.Handler {

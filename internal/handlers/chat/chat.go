@@ -27,7 +27,23 @@ import (
 func (h *ChatHandler) HandleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		handlerutil.WriteJSONError(w, http.StatusBadRequest, "failed to read request body")
+		// Reading the body fails for reasons that are not the caller's fault as
+		// often as not: a client that hung up mid-upload, a truncated connection,
+		// a request over MaxBytesReader's limit. Reporting 400 "invalid request"
+		// sent every one of those down the same blind alley, so the cause is
+		// reported instead, along with how much arrived before it stopped.
+		log.Warn("chat", "failed to read request body", "error", err, "bytes_read", len(body), "path", r.URL.Path)
+		if errors.Is(err, http.ErrBodyReadAfterClose) || errors.Is(err, io.ErrUnexpectedEOF) {
+			handlerutil.WriteJSONError(w, http.StatusBadRequest, "request body was truncated")
+			return
+		}
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			handlerutil.WriteJSONError(w, http.StatusRequestEntityTooLarge,
+				fmt.Sprintf("request body exceeds the %d byte limit", maxErr.Limit))
+			return
+		}
+		handlerutil.WriteJSONError(w, http.StatusBadRequest, fmt.Sprintf("failed to read request body: %v", err))
 		return
 	}
 	defer r.Body.Close()
@@ -37,12 +53,17 @@ func (h *ChatHandler) HandleChatCompletions(w http.ResponseWriter, r *http.Reque
 		Stream bool   `json:"stream"`
 	}
 	if err := json.Unmarshal(body, &reqBody); err != nil {
-		handlerutil.WriteJSONError(w, http.StatusBadRequest, "invalid JSON body")
+		// The decoder names the offending offset and field, which is the most
+		// useful thing either the caller or the log can have. Returning a bare
+		// "invalid JSON body" threw that away on both sides.
+		log.Warn("chat", "invalid JSON body", "error", err, "bytes", len(body))
+		handlerutil.WriteJSONError(w, http.StatusBadRequest, fmt.Sprintf("invalid JSON body: %v", err))
 		return
 	}
 
 	if reqBody.Model == "" {
-		handlerutil.WriteJSONError(w, http.StatusBadRequest, "missing model")
+		log.Warn("chat", "request has no model", "bytes", len(body))
+		handlerutil.WriteJSONError(w, http.StatusBadRequest, "missing model: the request must name the model to use")
 		return
 	}
 
@@ -53,6 +74,10 @@ func (h *ChatHandler) HandleChatCompletions(w http.ResponseWriter, r *http.Reque
 
 	modelInfo, err := h.resolveModel(reqBody.Model)
 	if err != nil {
+		// The status alone is not enough to act on: a rejected model name and a
+		// malformed request both surface as 400. Naming the model and the reason
+		// is what makes the log usable.
+		log.Warn("chat", "model resolution failed", "model", reqBody.Model, "error", err)
 		handlerutil.WriteJSONError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -128,8 +153,14 @@ func (h *ChatHandler) handleSingleModel(ctx context.Context, w http.ResponseWrit
 func (h *ChatHandler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		log.Error("chat", "read body failed", "error", err)
-		handlerutil.WriteJSONError(w, http.StatusBadRequest, "failed to read request body")
+		log.Warn("chat", "failed to read request body", "error", err, "bytes_read", len(body), "path", r.URL.Path)
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			handlerutil.WriteJSONError(w, http.StatusRequestEntityTooLarge,
+				fmt.Sprintf("request body exceeds the %d byte limit", maxErr.Limit))
+			return
+		}
+		handlerutil.WriteJSONError(w, http.StatusBadRequest, fmt.Sprintf("failed to read request body: %v", err))
 		return
 	}
 	defer r.Body.Close()
@@ -139,19 +170,20 @@ func (h *ChatHandler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 		Stream bool   `json:"stream"`
 	}
 	if err := json.Unmarshal(body, &reqBody); err != nil {
-		log.Error("chat", "parse JSON failed", "error", err)
-		handlerutil.WriteJSONError(w, http.StatusBadRequest, "invalid JSON body")
+		log.Warn("chat", "invalid JSON body", "error", err, "bytes", len(body))
+		handlerutil.WriteJSONError(w, http.StatusBadRequest, fmt.Sprintf("invalid JSON body: %v", err))
 		return
 	}
 
 	if reqBody.Model == "" {
-		handlerutil.WriteJSONError(w, http.StatusBadRequest, "missing model")
+		log.Warn("chat", "request has no model", "bytes", len(body))
+		handlerutil.WriteJSONError(w, http.StatusBadRequest, "missing model: the request must name the model to use")
 		return
 	}
 
 	modelInfo, err := h.resolveModel(reqBody.Model)
 	if err != nil {
-		log.Error("chat", "resolve model failed", "error", err, "model", reqBody.Model)
+		log.Warn("chat", "model resolution failed", "model", reqBody.Model, "error", err)
 		handlerutil.WriteJSONError(w, http.StatusBadRequest, err.Error())
 		return
 	}

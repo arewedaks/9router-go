@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"9router/proxy/internal/constants"
+	"9router/proxy/internal/log"
 )
 
 // errorTypes maps HTTP status codes to OpenAI-compatible error types and codes.
@@ -31,6 +32,13 @@ var errorTypes = map[int]struct {
 // WriteJSONError writes a standardized JSON error response with status-code-aware
 // error types matching OpenAI API conventions.
 func WriteJSONError(w http.ResponseWriter, status int, message string) {
+	// Every JSON error in the proxy funnels through here, so this is the one place
+	// that can name a 4xx the caller saw. Without it a rejected request leaves the
+	// access log with a bare status and no reason, which cannot be acted on.
+	if status >= 400 {
+		log.Warn("http_error", "status", status, "message", message)
+	}
+
 	w.Header().Set(constants.HeaderContentType, constants.ContentTypeJSON)
 	w.WriteHeader(status)
 
