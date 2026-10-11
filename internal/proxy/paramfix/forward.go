@@ -42,6 +42,9 @@ type RepairResult struct {
 	// Dropped lists the top-level fields removed, in the order they were. Empty
 	// when the request went through untouched. Callers use it for logging.
 	Dropped []string
+	// ImagesTrimmed is how many images were removed to fit the model's
+	// per-request ceiling. Zero when the request carried none to spare.
+	ImagesTrimmed int
 }
 
 // ForwardWithRepair sends the request, and when the upstream refuses it over a
@@ -61,34 +64,51 @@ type RepairResult struct {
 func ForwardWithRepair(body []byte, doer Doer, transport Transport) RepairResult {
 	var lastErr error
 	var dropped []string
+	imagesTrimmed := 0
 
 	for attempt := 0; attempt <= MaxRepairs; attempt++ {
 		resp, err := doer(body)
 		if err == nil {
-			return RepairResult{Resp: resp, Body: body, Dropped: dropped}
+			return RepairResult{Resp: resp, Body: body, Dropped: dropped, ImagesTrimmed: imagesTrimmed}
 		}
 		lastErr = err
 
 		uErr, ok := transport.AsUpstream(err)
 		if !ok || uErr.Status() != http.StatusBadRequest {
-			return RepairResult{Err: err, Body: body, Dropped: dropped}
+			return RepairResult{Err: err, Body: body, Dropped: dropped, ImagesTrimmed: imagesTrimmed}
+		}
+		errBody := uErr.ErrorBody()
+
+		// Two independent kinds of 400 are repairable, and they need different
+		// repairs: a field the upstream does not know is removed, while an image
+		// count over the model's ceiling is trimmed. The count check comes first
+		// because its `param` is `messages`, which the field path correctly
+		// refuses to touch.
+		if limit, isLimit := ImageLimitFromErrorBody(errBody); isLimit {
+			trimmed, removed := TrimImagesToLimit(body, limit)
+			if removed == 0 {
+				return RepairResult{Err: err, Body: body, Dropped: dropped, ImagesTrimmed: imagesTrimmed}
+			}
+			body = trimmed
+			imagesTrimmed += removed
+			continue
 		}
 
-		field := UnknownArgumentFromErrorBody(uErr.ErrorBody())
+		field := UnknownArgumentFromErrorBody(errBody)
 		if field == "" || !IsSafeToDrop(field) {
-			return RepairResult{Err: err, Body: body, Dropped: dropped}
+			return RepairResult{Err: err, Body: body, Dropped: dropped, ImagesTrimmed: imagesTrimmed}
 		}
 		repaired, changed := DropFields(body, field)
 		if !changed {
 			// The upstream named a field the request does not carry, so a retry
 			// would send an identical request and get an identical answer.
-			return RepairResult{Err: err, Body: body, Dropped: dropped}
+			return RepairResult{Err: err, Body: body, Dropped: dropped, ImagesTrimmed: imagesTrimmed}
 		}
 		body = repaired
 		dropped = append(dropped, field)
 	}
 
-	return RepairResult{Err: lastErr, Body: body, Dropped: dropped}
+	return RepairResult{Err: lastErr, Body: body, Dropped: dropped, ImagesTrimmed: imagesTrimmed}
 }
 
 // ReplayResponse rebuilds a response around an already-read body so callers can

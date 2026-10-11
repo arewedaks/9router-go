@@ -47,9 +47,9 @@ func (h *ChatHandler) forwardWithParamRepair(
 		return internalproxy.ForwardOpenAI(ctx, h.Client, cfg, apiKey, b, isStream)
 	}, upstreamTransport{})
 
-	if len(result.Dropped) > 0 && result.Err == nil {
-		log.Info("paramfix", "dropped rejected parameters",
-			"provider", provider, "fields", result.Dropped)
+	if result.Err == nil && (len(result.Dropped) > 0 || result.ImagesTrimmed > 0) {
+		log.Info("paramfix", "repaired rejected request",
+			"provider", provider, "fields", result.Dropped, "images_trimmed", result.ImagesTrimmed)
 	}
 	return result.Resp, result.Err
 }

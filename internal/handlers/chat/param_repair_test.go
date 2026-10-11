@@ -67,6 +67,52 @@ func TestForwardRequestRepairsRejectedParam(t *testing.T) {
 	}
 }
 
+// An upstream that caps images per request must not fail the call: the excess is
+// trimmed and the request retried.
+func TestForwardRequestTrimsExcessImages(t *testing.T) {
+	var attempts int
+	var lastBody string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		raw, _ := io.ReadAll(r.Body)
+		lastBody = string(raw)
+		if strings.Count(string(raw), `"type":"image_url"`) > 2 {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"message":"This request carries 3 images; m takes at most 2 per request.","type":"invalid_request_error","code":"bad_request","param":"messages"}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"ok"}}]}`))
+	}))
+	defer srv.Close()
+
+	h := &ChatHandler{Client: srv.Client()}
+	cfg := &providers.ProviderConfig{BaseURL: srv.URL}
+	img := `{"type":"image_url","image_url":{"url":"x"}}`
+	body := []byte(`{"model":"glm-5.3-flash","messages":[{"role":"user","content":[` + img + `,` + img + `,` + img + `]}]}`)
+
+	rec := httptest.NewRecorder()
+	provider := "openai-compatible-chat-5ec3404c-7e60-4eab-a9f5-c7d8f4723a87"
+	if err := h.forwardRequest(context.Background(), rec, provider, cfg, "k", body, false, false, nil); err != nil {
+		t.Fatalf("forward failed: %v", err)
+	}
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("the trimmed request must succeed, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if attempts != 2 {
+		t.Errorf("expected original + repair, got %d attempts", attempts)
+	}
+	if n := strings.Count(lastBody, `"type":"image_url"`); n != 2 {
+		t.Errorf("the retry must carry 2 images, got %d", n)
+	}
+	// The conversation must survive the trim.
+	if !strings.Contains(lastBody, `"messages"`) || !strings.Contains(lastBody, `"model":"glm-5.3-flash"`) {
+		t.Errorf("trimming images must not damage the request, got %s", lastBody)
+	}
+}
+
 // The prefix rule covers custom nodes even when the upstream does not complain:
 // the field never reaches it in the first place.
 func TestForwardRequestAppliesPrefixRule(t *testing.T) {
