@@ -27,6 +27,11 @@ import (
 type Rule struct {
 	// Provider limits the rule to one provider id. Empty means any provider.
 	Provider string
+	// ProviderPrefix limits the rule to a family of provider ids sharing a
+	// prefix, for endpoints whose id is generated and therefore unnameable —
+	// custom compatible nodes ("openai-compatible-chat-<uuid>") are the reason
+	// this exists. Ignored when Provider is set.
+	ProviderPrefix string
 	// Match is tested against the model id (already lowercased).
 	Match func(model string) bool
 	// MatchSubstr is the simple substring form of Match.
@@ -55,6 +60,9 @@ type Rule struct {
 // ruleMatch reports whether the rule applies to this provider/model pair.
 func (r Rule) ruleMatch(provider, model string) bool {
 	if r.Provider != "" && r.Provider != provider {
+		return false
+	}
+	if r.ProviderPrefix != "" && r.Provider == "" && !strings.HasPrefix(provider, r.ProviderPrefix) {
 		return false
 	}
 	if r.MatchSubstr != "" {

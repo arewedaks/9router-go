@@ -54,6 +54,32 @@ var Rules = []Rule{
 	// omitting it is always safe (Mistral does not persist by default).
 	{Provider: "mistral", Drop: []string{"store"}},
 
+	// Freebuff's gateway carries models from several vendors, including Upstage
+	// Solar Pro 4 (upstage/solar-pro4). Those strict OpenAI validators answer
+	// 400 with:
+	//   {"message":"Unrecognized request arguments supplied: store",
+	//    "type":"invalid_request_error"}
+	// The field is never sent by Freebuff itself — OpenAI SDK clients add
+	// store:false by default — so it is dropped for the whole provider. None of
+	// the models behind it expose a persistence flag, making the drop always safe.
+	// Both spellings are listed: paramfix sees whatever the caller resolved, and
+	// the short alias reaches it on paths that skip alias canonicalisation.
+	{Provider: "freebuff", Drop: []string{"store"}},
+	{Provider: "fb", Drop: []string{"store"}},
+
+	// Custom OpenAI-compatible endpoints ("openai-compatible-chat-<uuid>") are
+	// opaque by construction: the id is a generated UUID, so a per-provider rule
+	// can never name what is behind it. Upstage, TokenHarbor and friends all sit
+	// behind one of these ids, and the strictest of them answer the same 400 as
+	// Freebuff — "Unrecognized request arguments supplied: store". A rule keyed on
+	// the id prefix covers every node at once, including ones added later, which
+	// a hand-written list never would.
+	//
+	// `store` is safe to drop for any OpenAI-compatible endpoint: it is a
+	// persistence toggle that no proxy needs to pass through, and the field only
+	// ever arrives because a client SDK sets it by default.
+	{ProviderPrefix: "openai-compatible-", Drop: []string{"store"}},
+
 	// ─── Cloudflare Workers AI ──────────────────────────────────────────────
 	// Its oneOf root schema accepts content only as a plain string and rejects
 	// the OpenAI content-part array. (9Router #1926)

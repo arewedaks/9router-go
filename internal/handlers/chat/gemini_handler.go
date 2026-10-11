@@ -105,7 +105,7 @@ func (h *ChatHandler) forwardGeminiNativeRequest(
 		}
 		// gemini-cli keeps its OpenAI-style fallback.
 		log.Info("gemini", "no projectID, fallback to OpenAI", "provider", provider)
-		return h.forwardRequest(ctx, w, cfg, apiKey, body, isStream, translateResponse, metrics)
+		return h.forwardRequest(ctx, w, provider, cfg, apiKey, body, isStream, translateResponse, metrics)
 	}
 
 	resp, err := proxy.ForwardGemini(ctx, h.Client, cfg, apiKey, string(body), isStream, projectID, modelName)

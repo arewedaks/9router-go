@@ -22,6 +22,7 @@ import (
 func (h *ChatHandler) forwardRequest(
 	ctx context.Context,
 	w http.ResponseWriter,
+	provider string,
 	cfg *providers.ProviderConfig,
 	apiKey string,
 	body []byte,
@@ -52,7 +53,7 @@ func (h *ChatHandler) forwardRequest(
 			}
 		}
 	}
-	resp, err := internalproxy.ForwardOpenAI(ctx, h.Client, cfg, apiKey, body, isStream)
+	resp, err := h.forwardWithParamRepair(ctx, cfg, provider, apiKey, body, isStream)
 	if err != nil {
 		return fmt.Errorf("forward to upstream: %w", err)
 	}

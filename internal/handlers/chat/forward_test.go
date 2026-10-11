@@ -62,7 +62,7 @@ func TestForwardRequest_BearerAuth(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	body := []byte(`{"model":"x","messages":[{"role":"user","content":"hi"}]}`)
-	err := h.forwardRequest(context.Background(), rec, cfg, "sk-secret", body, false, false, nil)
+	err := h.forwardRequest(context.Background(), rec, "test", cfg, "sk-secret", body, false, false, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -90,7 +90,7 @@ func TestForwardRequest_RawAuth(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	body := []byte(`{"model":"x","messages":[]}`)
-	err := h.forwardRequest(context.Background(), rec, cfg, "raw-key", body, false, false, nil)
+	err := h.forwardRequest(context.Background(), rec, "test", cfg, "raw-key", body, false, false, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -114,7 +114,7 @@ func TestForwardRequest_DefaultAuthWhenUnknownScheme(t *testing.T) {
 	}
 
 	rec := httptest.NewRecorder()
-	err := h.forwardRequest(context.Background(), rec, cfg, "k", []byte(`{}`), false, false, nil)
+	err := h.forwardRequest(context.Background(), rec, "test", cfg, "k", []byte(`{}`), false, false, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -138,7 +138,7 @@ func TestForwardRequest_NoAuth(t *testing.T) {
 	}
 
 	rec := httptest.NewRecorder()
-	err := h.forwardRequest(context.Background(), rec, cfg, "should-not-be-sent", []byte(`{}`), false, false, nil)
+	err := h.forwardRequest(context.Background(), rec, "test", cfg, "should-not-be-sent", []byte(`{}`), false, false, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -161,7 +161,7 @@ func TestForwardRequest_StaticHeadersApplied(t *testing.T) {
 	}
 
 	rec := httptest.NewRecorder()
-	err := h.forwardRequest(context.Background(), rec, cfg, "k", []byte(`{}`), false, false, nil)
+	err := h.forwardRequest(context.Background(), rec, "test", cfg, "k", []byte(`{}`), false, false, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -187,7 +187,7 @@ func TestForwardRequest_UpstreamError(t *testing.T) {
 	}
 
 	rec := httptest.NewRecorder()
-	err := h.forwardRequest(context.Background(), rec, cfg, "k", []byte(`{}`), false, false, nil)
+	err := h.forwardRequest(context.Background(), rec, "test", cfg, "k", []byte(`{}`), false, false, nil)
 	if err == nil {
 		t.Fatal("expected upstream error")
 	}
@@ -304,7 +304,7 @@ func TestForwardRequest_StreamSetsAcceptHeader(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	body, _ := json.Marshal(map[string]any{"model": "x", "messages": []any{}})
-	err := h.forwardRequest(context.Background(), rec, cfg, "k", body, true, false, &streamMetrics{})
+	err := h.forwardRequest(context.Background(), rec, "test", cfg, "k", body, true, false, &streamMetrics{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

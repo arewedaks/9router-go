@@ -357,7 +357,7 @@ func (h *ChatHandler) tryForwardWithConnection(
 	} else if providerCfg.IsGeminiNative() {
 		fwdErr = h.forwardGeminiNativeRequest(ctx, w, provider, providerCfg, apiKey, connectionID, pipedBody, isStream, translateResponse, metrics)
 	} else {
-		fwdErr = h.forwardRequest(ctx, w, providerCfg, apiKey, pipedBody, isStream, translateResponse, metrics)
+		fwdErr = h.forwardRequest(ctx, w, provider, providerCfg, apiKey, pipedBody, isStream, translateResponse, metrics)
 	}
 
 	var ue *upstreamError
@@ -386,7 +386,7 @@ func (h *ChatHandler) tryForwardWithConnection(
 			} else if providerCfg.IsGeminiNative() {
 				fwdErr = h.forwardGeminiNativeRequest(ctx, w, provider, providerCfg, apiKey, connectionID, pipedBody, isStream, translateResponse, metrics)
 			} else {
-				fwdErr = h.forwardRequest(ctx, w, providerCfg, apiKey, pipedBody, isStream, translateResponse, metrics)
+				fwdErr = h.forwardRequest(ctx, w, provider, providerCfg, apiKey, pipedBody, isStream, translateResponse, metrics)
 			}
 		}
 	}

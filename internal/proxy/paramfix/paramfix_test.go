@@ -131,7 +131,7 @@ func TestClampsVolcengineKimi(t *testing.T) {
 // a rule with no effect is dead weight that reads as if it does something.
 func TestEveryRuleIsScopedAndHasAnEffect(t *testing.T) {
 	for i, r := range Rules {
-		if r.Provider == "" && r.MatchSubstr == "" && r.Match == nil {
+		if r.Provider == "" && r.ProviderPrefix == "" && r.MatchSubstr == "" && r.Match == nil {
 			t.Errorf("Rules[%d]: unscoped rules would rewrite all traffic", i)
 		}
 		hasEffect := len(r.Drop) > 0 || len(r.DropMessageFields) > 0 || r.FlattenContent ||
@@ -191,6 +191,39 @@ func TestStripsStoreForMistral(t *testing.T) {
 	}
 }
 
+// Custom OpenAI-compatible nodes carry a generated id, so the vendor behind one
+// cannot be named in a rule. Upstage (and any similar strict validator) sits
+// behind such an id and 400s on `store` exactly like Freebuff does, which is why
+// the rule keys on the id prefix instead of a provider name.
+func TestStripsStoreForCustomCompatibleNodes(t *testing.T) {
+	for _, provider := range []string{
+		"openai-compatible-chat-4427a7c2-1329-4aa1-bddc-6bcb581f29b8", // Upstage
+		"openai-compatible-chat-136352c4-5b91-4ce6-ba56-aa94c7fe946c", // TokenHarbor
+		"openai-compatible-responses-00000000-0000-0000-0000-000000000000",
+	} {
+		got := apply(t, provider, "solar-pro4", map[string]any{
+			"model":  "solar-pro4",
+			"store":  false,
+			"stream": true,
+		})
+		if _, present := got["store"]; present {
+			t.Errorf("store must be dropped for custom node %s or the upstream 400s", provider)
+		}
+		if got["stream"] != true {
+			t.Errorf("unrelated params must survive for %s", provider)
+		}
+	}
+}
+
+// The prefix rule must not leak onto built-in providers that legitimately accept
+// `store`, or it would silently change persistence behaviour for them.
+func TestStorePrefixRuleDoesNotLeakToBuiltins(t *testing.T) {
+	got := apply(t, "openai", "gpt-5.4", map[string]any{"model": "gpt-5.4", "store": true})
+	if got["store"] != true {
+		t.Errorf("store must survive for the built-in openai provider, got %v", got["store"])
+	}
+}
+
 // The rule is scoped to Mistral: `store` is a legitimate OpenAI parameter and
 // dropping it elsewhere would silently change behaviour for providers that
 // support it.
@@ -201,5 +234,30 @@ func TestStoreSurvivesForOpenAI(t *testing.T) {
 	})
 	if got["store"] != true {
 		t.Errorf("store must survive for providers that accept it, got %v", got["store"])
+	}
+}
+
+// Freebuff's gateway fronts Upstage Solar Pro 4, whose OpenAI validator answers
+// 400 "Unrecognized request arguments supplied: store" when the field is
+// present. The field comes from OpenAI SDK clients (store:false by default),
+// never from Freebuff itself, so it is dropped provider-wide. Both the canonical
+// id and the short alias must drop it: paramfix runs after alias resolution on
+// some paths and before it on others.
+func TestStripsStoreForFreebuff(t *testing.T) {
+	for _, provider := range []string{"freebuff", "fb"} {
+		got := apply(t, provider, "upstage/solar-pro4", map[string]any{
+			"model":  "upstage/solar-pro4",
+			"store":  false,
+			"stream": true,
+			"messages": []any{
+				map[string]any{"role": "user", "content": "hi"},
+			},
+		})
+		if _, present := got["store"]; present {
+			t.Errorf("store must be dropped for %s or Upstage 400s", provider)
+		}
+		if got["stream"] != true || got["messages"] == nil {
+			t.Errorf("unrelated params must survive for %s", provider)
+		}
 	}
 }

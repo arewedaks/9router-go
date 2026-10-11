@@ -43,10 +43,17 @@ func ForwardOpenAI(w http.ResponseWriter, req *Request) error {
 	// instead of having to be repeated per executor.
 	req.Body = paramfix.Apply(paramfixProvider(req), paramfixModel(req), req.Body)
 
-	resp, err := proxy.ForwardOpenAI(req.Ctx, req.Client, req.Config, req.APIKey, req.Body, req.IsStream)
-	if err != nil {
-		return fmt.Errorf("ForwardOpenAI upstream: %w", err)
+	// A strict OpenAI-compatible gateway rejects the whole request over a single
+	// parameter it does not know, and the field is almost always one a client SDK
+	// added by default rather than something the caller asked for. The rule table
+	// above cannot cover these endpoints: their provider id is a generated UUID,
+	// so there is no name to write a rule against. Repairing the response instead
+	// of predicting it covers every compatible node, including ones added later.
+	result := forwardWithParamRepair(req)
+	if result.err != nil {
+		return fmt.Errorf("ForwardOpenAI upstream: %w", result.err)
 	}
+	resp := result.resp
 
 	var bodyCloser io.Closer = resp.Body
 	defer func() {

@@ -18,6 +18,11 @@ type UpstreamError struct {
 	Body       []byte
 }
 
+// Status and ErrorBody expose the rejection to packages that classify upstream
+// failures without importing this one's concrete type (paramfix.UpstreamError).
+func (e *UpstreamError) Status() int      { return e.StatusCode }
+func (e *UpstreamError) ErrorBody() []byte { return e.Body }
+
 func (e *UpstreamError) Error() string {
 	// Include the upstream body (truncated) so 4xx/5xx failures are diagnosable
 	// from the fallback log alone — the body often carries Google/Antigravity's
