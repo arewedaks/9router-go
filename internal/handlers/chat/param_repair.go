@@ -43,6 +43,15 @@ func (h *ChatHandler) forwardWithParamRepair(
 	// Same corrections the executor applies, so a rule reaches this path too.
 	body = paramfix.Apply(provider, modelFromBody(body), body)
 
+	// A client speaking the Anthropic dialect can be pointed at this endpoint
+	// instead of /v1/messages, and the translator does not run here. Converting
+	// the blocks up front is what keeps such a request from reaching an
+	// OpenAI-compatible upstream in a shape it refuses.
+	if converted, n := paramfix.ConvertAnthropicImageBlocks(body); n > 0 {
+		body = converted
+		log.Info("paramfix", "converted anthropic image blocks", "provider", provider, "count", n)
+	}
+
 	result := paramfix.ForwardWithRepair(body, func(b []byte) (*http.Response, error) {
 		return internalproxy.ForwardOpenAI(ctx, h.Client, cfg, apiKey, b, isStream)
 	}, upstreamTransport{})

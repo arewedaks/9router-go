@@ -143,3 +143,55 @@ func TestForwardRequestAppliesPrefixRule(t *testing.T) {
 		t.Errorf("unrelated parameters must survive, got %s", got)
 	}
 }
+
+// A client speaking the Anthropic dialect pointed at the OpenAI-compatible
+// endpoint must have its image blocks translated, not forwarded verbatim: the
+// upstream refuses the Anthropic shape with a nested `param` the field repair
+// cannot act on.
+func TestForwardRequestConvertsAnthropicImageBlocks(t *testing.T) {
+	var attempts int
+	var lastBody string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		raw, _ := io.ReadAll(r.Body)
+		lastBody = string(raw)
+		// Refuse exactly what a strict compatible endpoint refuses.
+		if strings.Contains(lastBody, `"type":"image"`) {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":{"message":"glm-5.3-flash takes images only, each as a top-level image_url content part, so this image part is refused.","type":"invalid_request_error","code":"bad_request","param":"messages[0].content[1]"}}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"ok"}}]}`))
+	}))
+	defer srv.Close()
+
+	h := &ChatHandler{Client: srv.Client()}
+	cfg := &providers.ProviderConfig{BaseURL: srv.URL}
+	body := []byte(`{"model":"glm-5.3-flash","messages":[{"role":"user","content":[{"type":"text","text":"what is this"},{"type":"image","source":{"type":"base64","media_type":"image/png","data":"AAAA"}}]}]}`)
+
+	rec := httptest.NewRecorder()
+	provider := "openai-compatible-chat-5ec3404c-7e60-4eab-a9f5-c7d8f4723a87"
+	if err := h.forwardRequest(context.Background(), rec, provider, cfg, "k", body, false, false, nil); err != nil {
+		t.Fatalf("forward failed: %v", err)
+	}
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("the converted request must succeed, got %d: %s", rec.Code, rec.Body.String())
+	}
+	// Conversion happens before the first attempt, so the upstream must never
+	// have seen the Anthropic shape at all.
+	if attempts != 1 {
+		t.Errorf("expected a single attempt, got %d — conversion should precede the send", attempts)
+	}
+	if strings.Contains(lastBody, `"type":"image"`) {
+		t.Error("the Anthropic block must not reach the upstream")
+	}
+	if !strings.Contains(lastBody, `"type":"image_url"`) {
+		t.Errorf("the block must have been converted, got %s", lastBody)
+	}
+	if !strings.Contains(lastBody, `data:image/png;base64,AAAA`) {
+		t.Errorf("the data URL must carry the original base64, got %s", lastBody)
+	}
+}
