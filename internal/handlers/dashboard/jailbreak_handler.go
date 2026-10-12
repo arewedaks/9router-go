@@ -5,8 +5,6 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/go-chi/chi/v5"
-
 	"9router/proxy/internal/db"
 	"9router/proxy/internal/handlerutil"
 )
@@ -54,26 +52,31 @@ func (h *Handler) HandleListJailbreakModels(w http.ResponseWriter, r *http.Reque
 }
 
 func (h *Handler) HandleSetJailbreakModel(w http.ResponseWriter, r *http.Request) {
-	modelID := chi.URLParam(r, "id")
-	if modelID == "" || len(modelID) > 300 {
-		handlerutil.WriteJSONError(w, http.StatusBadRequest, "invalid model id")
-		return
-	}
-	body, err := io.ReadAll(io.LimitReader(r.Body, 1024))
+	body, err := io.ReadAll(io.LimitReader(r.Body, 4*1024))
 	if err != nil {
 		handlerutil.WriteJSONError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	// The id travels in the body rather than the path on purpose: model ids
+	// contain "/" and ":" ("tkh/mimo-v2.6-flash:free"), and chi hands back the
+	// still-encoded segment for those, so a path parameter silently stored a key
+	// that never matched the real id again — the toggle looked on, then came
+	// back off after a reload.
 	var req struct {
-		Enabled bool `json:"enabled"`
+		ID      string `json:"id"`
+		Enabled bool   `json:"enabled"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		handlerutil.WriteJSONError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := h.repo.SetJailbreakModel(modelID, req.Enabled); err != nil {
+	if req.ID == "" || len(req.ID) > 300 {
+		handlerutil.WriteJSONError(w, http.StatusBadRequest, "invalid model id")
+		return
+	}
+	if err := h.repo.SetJailbreakModel(req.ID, req.Enabled); err != nil {
 		handlerutil.WriteJSONError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	handlerutil.WriteJSON(w, http.StatusOK, map[string]any{"ok": true, "enabled": req.Enabled})
+	handlerutil.WriteJSON(w, http.StatusOK, map[string]any{"ok": true, "id": req.ID, "enabled": req.Enabled})
 }

@@ -2210,8 +2210,8 @@
         harness sends. Combo ai: arming one combo arms every leg of it.
         Requests through a model left off leave untouched — byte-identical, no prompt, no log.
       </p>
-      <input type="text" id="jb-model-filter" class="prov-toolbar-search" placeholder="Filter models…"
-        style="width:100%;max-width:420px;margin-bottom:10px;"
+      <input type="text" id="jb-model-filter" placeholder="Filter models…"
+        style="width:240px;max-width:100%;height:32px;padding:0 10px;margin-bottom:10px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;font-size:0.82rem;box-sizing:border-box;"
         oninput="renderJailbreakModels(jbToggles)">
       <div id="jb-models" style="display:flex;flex-direction:column;gap:6px;max-height:420px;overflow-y:auto;">Loading models…</div>
     </div>
@@ -10229,8 +10229,11 @@
 
   async function toggleJailbreakModel(modelId, enabled) {
     try {
-      const res = await api("/api/dashboard/jailbreak/models/" + encodeURIComponent(modelId),
-        { method: "PUT", body: JSON.stringify({ enabled }) });
+      // id in the body, never the path: model ids carry "/" and ":", and an
+      // encoded path segment came back still-encoded, storing a key that never
+      // matched the model again.
+      const res = await api("/api/dashboard/jailbreak/models",
+        { method: "PUT", body: JSON.stringify({ id: modelId, enabled }) });
       if (!res.ok) {
         const data = await res.json().catch(() => null);
         throw new Error(errorMessage(data, res.status));

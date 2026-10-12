@@ -190,7 +190,7 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 		dr.Get("/jailbreak", h.HandleGetJailbreak)
 		dr.Put("/jailbreak", h.HandlePutJailbreak)
 		dr.Get("/jailbreak/models", h.HandleListJailbreakModels)
-		dr.Put("/jailbreak/models/{id}", h.HandleSetJailbreakModel)
+		dr.Put("/jailbreak/models", h.HandleSetJailbreakModel)
 
 		// Self-update. status/check read the release source; apply replaces the
 		// running binary and restarts, so it re-checks the dashboard password.
