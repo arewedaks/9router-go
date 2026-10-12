@@ -10443,8 +10443,11 @@
       label.style.cssText = "display:flex;align-items:center;gap:9px;min-width:0;";
       const dot = document.createElement("span");
       dot.className = "msym";
-      dot.style.cssText = "font-size:17px;flex-shrink:0;color:" + (on ? "#3fb950" : "var(--muted)") + ";";
-      dot.textContent = on ? "shield" : "shield_outlined";
+      // "shield_outlined" is not a glyph name in Material Symbols — it renders as
+      // 170px of literal text next to every model. The outlined look comes from
+      // the FILL axis on the real "shield" glyph instead.
+      dot.style.cssText = "font-size:17px;flex-shrink:0;color:" + (on ? "#3fb950" : "var(--muted)") + ";font-variation-settings:'FILL' " + (on ? 1 : 0) + ";";
+      dot.textContent = "shield";
       const name = document.createElement("div");
       name.style.cssText = "font-family:ui-monospace,SFMono-Regular,monospace;font-size:0.8rem;color:" + (on ? "#fff" : "var(--muted)") + ";min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";
       name.textContent = id;
@@ -10460,7 +10463,8 @@
         jbToggles[id] = input.checked;
         row.style.borderColor = input.checked ? "#238636" : "var(--border)";
         dot.style.color = input.checked ? "#3fb950" : "var(--muted)";
-        dot.textContent = input.checked ? "shield" : "shield_outlined";
+        dot.style.fontVariationSettings = "'FILL' " + (input.checked ? 1 : 0);
+        dot.textContent = "shield";
         name.style.color = input.checked ? "#fff" : "var(--muted)";
         const n = jbModelList.filter(m => jbToggles[m] === true).length;
         countBadge.textContent = n + " / " + jbModelList.length + " armed";
