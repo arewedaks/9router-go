@@ -22,7 +22,9 @@ func (h *Handler) HandleGetJailbreak(w http.ResponseWriter, r *http.Request) {
 	handlerutil.WriteJSON(w, http.StatusOK, doc)
 }
 
-const maxJailbreakBodyBytes = 64 * 1024
+// A jailbreak prompt is often an uploaded .md document rather than a typed
+// line, so the ceiling is generous while still bounded.
+const maxJailbreakBodyBytes = 512 * 1024
 
 func (h *Handler) HandlePutJailbreak(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(io.LimitReader(r.Body, maxJailbreakBodyBytes+1))

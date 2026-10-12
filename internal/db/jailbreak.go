@@ -13,6 +13,9 @@ import (
 type JailbreakDoc struct {
 	Prompt       string `json:"prompt"`
 	GeminiSafety bool   `json:"geminiSafety"`
+	// Source is the .md file the prompt was uploaded from, kept for display so
+	// the operator can tell an uploaded agents.md from something typed inline.
+	Source string `json:"source,omitempty"`
 }
 
 const (

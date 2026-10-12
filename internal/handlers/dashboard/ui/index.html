@@ -2183,23 +2183,29 @@
     </div>
 
     <div class="card" style="margin-bottom:16px;">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:12px;flex-wrap:wrap;">
         <h3 style="margin:0;font-size:1rem;color:#fff;">📜 Prompt (agents.md)</h3>
-        <label class="switch" title="Turn the Gemini-native safety filters off via the official safetySettings field">
-          <input type="checkbox" id="jb-gemini-safety">
-          <span class="slider"></span>
-        </label>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <button class="btn btn-sm" onclick="openJbEditor('edit')">✏️ Edit</button>
+          <button class="btn btn-sm" onclick="openJbEditor('view')">👁 View MD</button>
+          <button class="btn btn-sm" onclick="document.getElementById('jb-file-input').click()">📂 Upload .md</button>
+          <input type="file" id="jb-file-input" accept=".md,.markdown,.txt,text/markdown,text/plain" style="display:none" onchange="uploadJailbreakFile(this)">
+          <label class="switch" title="Turn the Gemini-native safety filters off via the official safetySettings field">
+            <input type="checkbox" id="jb-gemini-safety" onchange="onJbSafetyChange()">
+            <span class="slider"></span>
+          </label>
+        </div>
       </div>
       <p style="font-size:0.82rem;color:var(--muted);margin-bottom:10px;">
-        The toggle above arms the Gemini-native <code>safetySettings BLOCK_NONE</code> switch.
-        For OpenAI-compatible providers the prompt itself is the lever.
+        Prepended as the system message of every request for an armed model. The
+        switch arms the Gemini-native <code>safetySettings BLOCK_NONE</code> toggle;
+        for OpenAI-compatible providers the prompt itself is the lever.
       </p>
-      <textarea id="jb-prompt" spellcheck="false" oninput="updateJbPromptSize()"
-        style="width:100%;min-height:190px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px;font-family:ui-monospace,SFMono-Regular,monospace;font-size:0.82rem;line-height:1.5;padding:10px;box-sizing:border-box;"
-        placeholder="System prompt injected ahead of the original content…"></textarea>
+      <div id="jb-source-line" style="font-size:0.78rem;color:var(--muted);margin-bottom:8px;"></div>
+      <div id="jb-preview" onclick="openJbEditor('edit')" title="Click to edit"
+        style="max-height:210px;overflow:auto;cursor:text;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px;font-family:ui-monospace,SFMono-Regular,monospace;font-size:0.8rem;line-height:1.55;white-space:pre-wrap;word-break:break-word;"></div>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px;">
         <span class="badge badge-dim" id="jb-prompt-size">0 chars</span>
-        <button class="btn btn-primary" onclick="saveJailbreakDoc()">💾 Save Prompt</button>
       </div>
     </div>
 
@@ -2214,6 +2220,35 @@
         style="width:240px;max-width:100%;height:32px;padding:0 10px;margin-bottom:10px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;font-size:0.82rem;box-sizing:border-box;"
         oninput="renderJailbreakModels(jbToggles)">
       <div id="jb-models" style="display:flex;flex-direction:column;gap:6px;max-height:420px;overflow-y:auto;">Loading models…</div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="jb-editor-modal">
+    <div class="modal-box" style="max-width: 860px; width: 100%;">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:4px;">
+        <h2 style="font-size:1.15rem;margin:0;">Jailbreak prompt</h2>
+        <div style="display:flex;gap:6px;">
+          <button class="btn btn-sm" id="jb-tab-edit" onclick="setJbEditorTab('edit')">Edit</button>
+          <button class="btn btn-sm" id="jb-tab-view" onclick="setJbEditorTab('view')">Preview</button>
+        </div>
+      </div>
+      <div style="font-size:0.78rem;color:var(--muted);margin-bottom:12px;" id="jb-editor-subtitle">
+        Upload an .md file or type the prompt. Preview renders the markdown.
+      </div>
+      <div id="jb-editor-pane-edit">
+        <textarea id="jb-editor-text" spellcheck="false" oninput="updateJbPromptSize()"
+          style="width:100%;min-height:340px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px;font-family:ui-monospace,SFMono-Regular,monospace;font-size:0.82rem;line-height:1.55;padding:10px;box-sizing:border-box;"
+          placeholder="# Agents&#10;&#10;System prompt injected ahead of the original content…"></textarea>
+      </div>
+      <div id="jb-editor-pane-view" style="display:none;max-height:340px;overflow:auto;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px;font-size:0.86rem;line-height:1.6;"></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;gap:10px;flex-wrap:wrap;">
+        <span class="badge badge-dim" id="jb-editor-size">0 chars</span>
+        <div style="display:flex;gap:8px;">
+          <button class="btn" onclick="document.getElementById('jb-file-input').click()">📂 Upload .md</button>
+          <button class="btn" onclick="closeModal('jb-editor-modal')">Cancel</button>
+          <button class="btn btn-primary" onclick="saveJailbreakDoc()">💾 Save</button>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -10134,6 +10169,7 @@
   // Default off: without a toggle the request is untouched.
   let jbModelList = [];
   let jbToggles = {};
+  let jbDoc = { prompt: "", geminiSafety: false, source: "" };
 
   async function loadJailbreakTab() {
     try {
@@ -10147,9 +10183,13 @@
       ]);
       if (docRes.ok) {
         const d = await docRes.json();
-        document.getElementById("jb-prompt").value = d.prompt || "";
-        document.getElementById("jb-gemini-safety").checked = d.geminiSafety === true;
-        updateJbPromptSize();
+        jbDoc = {
+          prompt: d.prompt || "",
+          geminiSafety: d.geminiSafety === true,
+          source: d.source || "",
+        };
+        document.getElementById("jb-gemini-safety").checked = jbDoc.geminiSafety;
+        renderJbPreview();
       }
       if (modelsRes.ok) {
         const payload = await modelsRes.json();
@@ -10167,17 +10207,129 @@
     }
   }
 
+  // The card shows what will be sent without a 200-line textarea competing with
+  // the rest of the page; the popup is where editing happens.
+  function renderJbPreview() {
+    const text = jbDoc.prompt || "";
+    const box = document.getElementById("jb-preview");
+    box.textContent = text ? (text.length > 1400 ? text.slice(0, 1400) + "\n…" : text)
+      : "(empty — click to write a prompt or upload an .md file)";
+    if (!text) box.style.color = "var(--muted)"; else box.style.color = "var(--text)";
+    const src = document.getElementById("jb-source-line");
+    src.textContent = jbDoc.source ? "📄 loaded from " + jbDoc.source : "";
+    updateJbPromptSize();
+  }
+
   function updateJbPromptSize() {
-    const v = document.getElementById("jb-prompt").value;
+    const v = (document.getElementById("jb-editor-text").value) || jbDoc.prompt || "";
     const approxTok = v.length ? Math.max(1, Math.round(v.length / 4)) : 0;
-    document.getElementById("jb-prompt-size").textContent =
-      v.length + " chars ≈ " + approxTok + " tok per request";
+    const label = v.length + " chars ≈ " + approxTok + " tok per request";
+    document.getElementById("jb-prompt-size").textContent = label;
+    const ed = document.getElementById("jb-editor-size");
+    if (ed) ed.textContent = label;
+  }
+
+  function openJbEditor(mode) {
+    document.getElementById("jb-editor-text").value = jbDoc.prompt || "";
+    document.getElementById("jb-editor-modal").classList.add("active");
+    setJbEditorTab(mode === "view" ? "view" : "edit");
+    updateJbPromptSize();
+  }
+
+  function setJbEditorTab(tab) {
+    const isView = tab === "view";
+    document.getElementById("jb-editor-pane-edit").style.display = isView ? "none" : "block";
+    document.getElementById("jb-editor-pane-view").style.display = isView ? "block" : "none";
+    document.getElementById("jb-tab-edit").classList.toggle("btn-primary", !isView);
+    document.getElementById("jb-tab-view").classList.toggle("btn-primary", isView);
+    if (isView) {
+      document.getElementById("jb-editor-pane-view").innerHTML =
+        mdToHtml(document.getElementById("jb-editor-text").value || "");
+    }
+  }
+
+  function uploadJailbreakFile(input) {
+    const file = input.files && input.files[0];
+    if (!file) return;
+    if (file.size > 512 * 1024) {
+      toast("File is larger than 512 KB", true);
+      input.value = "";
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      jbDoc.prompt = String(reader.result || "");
+      jbDoc.source = file.name;
+      document.getElementById("jb-editor-text").value = jbDoc.prompt;
+      openJbEditor("edit");
+      toast("Loaded " + file.name + " — press Save to store", false);
+    };
+    reader.onerror = () => toast("Could not read the file", true);
+    reader.readAsText(file);
+    input.value = ""; // same file can be picked again
+  }
+
+  // Renders the markdown the prompt is written in. Escaping happens first so a
+  // prompt containing <tags> shows them instead of injecting markup into the
+  // dashboard; only the formatting below is applied on top.
+  function mdToHtml(md) {
+    const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const lines = esc(md).split(/\r?\n/);
+    let html = "", inCode = false, inList = false;
+    const closeList = () => { if (inList) { html += "</ul>"; inList = false; } };
+    for (const line of lines) {
+      if (/^```/.test(line)) {
+        closeList();
+        html += inCode ? "</code></pre>" : '<pre style="background:var(--panel-hover);padding:8px 10px;border-radius:6px;overflow:auto;"><code>';
+        inCode = !inCode;
+        continue;
+      }
+      if (inCode) { html += line + "\n"; continue; }
+      const h = line.match(/^(#{1,6})\s+(.*)$/);
+      if (h) {
+        closeList();
+        const lvl = h[1].length;
+        html += `<div style="font-weight:700;color:#fff;font-size:${1.35 - lvl * 0.08}rem;margin:${lvl === 1 ? "4" : "10"}px 0 4px;">${inline(h[2])}</div>`;
+        continue;
+      }
+      const li = line.match(/^\s*[-*+]\s+(.*)$/);
+      if (li) {
+        if (!inList) { html += '<ul style="margin:6px 0;padding-left:22px;">'; inList = true; }
+        html += "<li>" + inline(li[1]) + "</li>";
+        continue;
+      }
+      closeList();
+      if (/^\s*(---|\*\*\*)\s*$/.test(line)) { html += '<hr style="border:none;border-top:1px solid var(--border);margin:10px 0;">'; continue; }
+      const bq = line.match(/^\s*&gt;\s?(.*)$/);
+      if (bq) {
+        html += '<div style="border-left:3px solid var(--border);padding-left:10px;color:var(--muted);margin:6px 0;">' + inline(bq[1]) + "</div>";
+        continue;
+      }
+      if (!line.trim()) { html += '<div style="height:8px;"></div>'; continue; }
+      html += "<div>" + inline(line) + "</div>";
+    }
+    closeList();
+    if (inCode) html += "</code></pre>";
+    return html;
+
+    function inline(s) {
+      return s
+        .replace(/`([^`]+)`/g, '<code style="background:var(--panel-hover);padding:1px 5px;border-radius:4px;">$1</code>')
+        .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+        .replace(/(^|[^*])\*([^*]+)\*/g, "$1<em>$2</em>")
+        .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener" style="color:var(--primary);">$1</a>');
+    }
+  }
+
+  async function onJbSafetyChange() {
+    saveJailbreakDoc();
   }
 
   async function saveJailbreakDoc() {
     const body = {
-      prompt: document.getElementById("jb-prompt").value,
+      prompt: document.getElementById("jb-editor-text").value,
       geminiSafety: document.getElementById("jb-gemini-safety").checked,
+      source: jbDoc.source || "",
     };
     try {
       const res = await api("/api/dashboard/jailbreak", { method: "PUT", body: JSON.stringify(body) });
@@ -10185,8 +10337,10 @@
         const data = await res.json().catch(() => null);
         throw new Error(errorMessage(data, res.status));
       }
+      jbDoc = { prompt: body.prompt, geminiSafety: body.geminiSafety, source: body.source };
+      renderJbPreview();
+      closeModal("jb-editor-modal");
       toast("Jailbreak prompt saved", false);
-      updateJbPromptSize();
     } catch (e) {
       toast("Save failed: " + e.message, true);
     }
