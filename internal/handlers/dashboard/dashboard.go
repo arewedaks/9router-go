@@ -185,12 +185,12 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 		dr.Get("/settings", h.HandleGetSettings)
 		dr.Post("/settings", h.HandleUpdateSettings)
 
-		// Jailbreak: global agents.md-style prompt document, applied globally;
-		// per-provider toggles gate where it is injected. Default off.
+		// Jailbreak: global agents.md-style prompt document; on/off toggles keyed
+		// by the model ids /v1/models serves. Default off.
 		dr.Get("/jailbreak", h.HandleGetJailbreak)
 		dr.Put("/jailbreak", h.HandlePutJailbreak)
-		dr.Get("/jailbreak/providers", h.HandleListJailbreakProviders)
-		dr.Put("/jailbreak/providers/{id}", h.HandleSetJailbreakProvider)
+		dr.Get("/jailbreak/models", h.HandleListJailbreakModels)
+		dr.Put("/jailbreak/models/{id}", h.HandleSetJailbreakModel)
 
 		// Self-update. status/check read the release source; apply replaces the
 		// running binary and restarts, so it re-checks the dashboard password.

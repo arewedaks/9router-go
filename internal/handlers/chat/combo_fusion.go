@@ -135,7 +135,7 @@ func collectPanel(calls []func() *fusionResult, ft FusionTuning) []*fusionResult
 
 // makePanelCall returns a closure that resolves one panel model and forwards the
 // request. The closure signature matches what collectPanel expects.
-func (h *ChatHandler) makePanelCall(body []byte, entry string) func() *fusionResult {
+func (h *ChatHandler) makePanelCall(body []byte, entry, comboName string) func() *fusionResult {
 	return func() *fusionResult {
 		modelInfo := h.resolveModelEntry(entry)
 		if modelInfo == nil {
@@ -162,7 +162,7 @@ func (h *ChatHandler) makePanelCall(body []byte, entry string) func() *fusionRes
 			return &fusionResult{model: entry, err: err}
 		}
 		upstreamBody["model"] = modelInfo.Model
-		panelCtx := h.applyJailbreak(context.Background(), upstreamBody, modelInfo.Model, modelInfo.Provider)
+		panelCtx := h.applyJailbreak(context.Background(), upstreamBody, comboName)
 		upstreamJSON, err := json.Marshal(upstreamBody)
 		if err != nil {
 			return &fusionResult{model: entry, err: err}

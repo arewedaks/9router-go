@@ -5,7 +5,7 @@ import "testing"
 func TestJailbreakDocRoundTrip(t *testing.T) {
 	repo := newSettingsRepo(t)
 
-	// No doc saved yet: every provider is silently left alone.
+	// No doc saved yet: every model is silently left alone.
 	doc, err := repo.GetJailbreakDoc()
 	if err != nil {
 		t.Fatalf("get missing: %v", err)
@@ -27,12 +27,16 @@ func TestJailbreakDocRoundTrip(t *testing.T) {
 	}
 }
 
-func TestJailbreakProviderToggleOptIn(t *testing.T) {
+func TestJailbreakModelToggleOptIn(t *testing.T) {
 	repo := newSettingsRepo(t)
 
-	// Missing entry must read as off: a provider never gets injected just
-	// because it exists.
-	on, err := repo.JailbreakProviderEnabled("gemini")
+	// The key is the id /v1/models lists — prefixes and suffixes are part of
+	// the id, exactly as the client sends them.
+	const model = "tkh/mimo-v2.6-flash:free"
+
+	// Missing entry must read as off: a model never gets injected just because
+	// it exists.
+	on, err := repo.JailbreakModelEnabled(model)
 	if err != nil {
 		t.Fatalf("enabled(missing): %v", err)
 	}
@@ -40,37 +44,37 @@ func TestJailbreakProviderToggleOptIn(t *testing.T) {
 		t.Fatal("default must be off")
 	}
 
-	if err := repo.SetJailbreakProvider("gemini", true); err != nil {
+	if err := repo.SetJailbreakModel(model, true); err != nil {
 		t.Fatalf("set on: %v", err)
 	}
-	on, err = repo.JailbreakProviderEnabled("gemini")
+	on, err = repo.JailbreakModelEnabled(model)
 	if err != nil || !on {
 		t.Fatalf("after enable: on=%v err=%v", on, err)
 	}
 
-	// Other providers stay off.
-	on, _ = repo.JailbreakProviderEnabled("wally")
+	// A different model id stays off — no prefix/wildcard bleed.
+	on, _ = repo.JailbreakModelEnabled("tkh/mimo-v2.6-flash")
 	if on {
-		t.Fatal("unrelated provider must stay off")
+		t.Fatal("nearby model id must stay off")
 	}
 
-	if err := repo.SetJailbreakProvider("gemini", false); err != nil {
+	if err := repo.SetJailbreakModel(model, false); err != nil {
 		t.Fatalf("set off: %v", err)
 	}
-	on, err = repo.JailbreakProviderEnabled("gemini")
+	on, err = repo.JailbreakModelEnabled(model)
 	if err != nil || on {
 		t.Fatalf("after disable: on=%v err=%v", on, err)
 	}
 
-	// List only reflects providers currently opted in.
-	if err := repo.SetJailbreakProvider("opencode", true); err != nil {
-		t.Fatalf("set opencode: %v", err)
+	// List only reflects models currently opted in.
+	if err := repo.SetJailbreakModel("gemini-flash", true); err != nil {
+		t.Fatalf("set gemini-flash: %v", err)
 	}
-	list, err := repo.ListJailbreakProviders()
+	list, err := repo.ListJailbreakModels()
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
-	if len(list) != 1 || !list["opencode"] {
-		t.Fatalf("list = %v, want only opencode", list)
+	if len(list) != 1 || !list["gemini-flash"] {
+		t.Fatalf("list = %v, want only gemini-flash", list)
 	}
 }

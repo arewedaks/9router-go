@@ -12,8 +12,8 @@ import (
 )
 
 // Jailbreak management: one agents.md-style prompt document applied globally,
-// plus an on/off toggle per provider. A provider with the toggle off never
-// receives the prompt — injection is opt-in per provider, default off.
+// plus an on/off toggle per model id as /v1/models lists them. A model with
+// the toggle off never receives the prompt — injection is opt-in, default off.
 
 func (h *Handler) HandleGetJailbreak(w http.ResponseWriter, r *http.Request) {
 	doc, err := h.repo.GetJailbreakDoc()
@@ -44,8 +44,8 @@ func (h *Handler) HandlePutJailbreak(w http.ResponseWriter, r *http.Request) {
 	handlerutil.WriteJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
-func (h *Handler) HandleListJailbreakProviders(w http.ResponseWriter, r *http.Request) {
-	toggles, err := h.repo.ListJailbreakProviders()
+func (h *Handler) HandleListJailbreakModels(w http.ResponseWriter, r *http.Request) {
+	toggles, err := h.repo.ListJailbreakModels()
 	if err != nil {
 		handlerutil.WriteJSONError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -53,10 +53,10 @@ func (h *Handler) HandleListJailbreakProviders(w http.ResponseWriter, r *http.Re
 	handlerutil.WriteJSON(w, http.StatusOK, toggles)
 }
 
-func (h *Handler) HandleSetJailbreakProvider(w http.ResponseWriter, r *http.Request) {
-	providerID := chi.URLParam(r, "id")
-	if providerID == "" || len(providerID) > 200 {
-		handlerutil.WriteJSONError(w, http.StatusBadRequest, "invalid provider id")
+func (h *Handler) HandleSetJailbreakModel(w http.ResponseWriter, r *http.Request) {
+	modelID := chi.URLParam(r, "id")
+	if modelID == "" || len(modelID) > 300 {
+		handlerutil.WriteJSONError(w, http.StatusBadRequest, "invalid model id")
 		return
 	}
 	body, err := io.ReadAll(io.LimitReader(r.Body, 1024))
@@ -71,7 +71,7 @@ func (h *Handler) HandleSetJailbreakProvider(w http.ResponseWriter, r *http.Requ
 		handlerutil.WriteJSONError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := h.repo.SetJailbreakProvider(providerID, req.Enabled); err != nil {
+	if err := h.repo.SetJailbreakModel(modelID, req.Enabled); err != nil {
 		handlerutil.WriteJSONError(w, http.StatusInternalServerError, err.Error())
 		return
 	}

@@ -7,7 +7,7 @@ import (
 )
 
 // JailbreakDoc is the agents.md-style injection document: one system prompt
-// prepended to every request routed through a provider whose toggle is on.
+// prepended to every request routed through a model whose toggle is on.
 // geminiSafety additionally switches the Gemini-native safety filters off via
 // the official safetySettings field, from the same switch.
 type JailbreakDoc struct {
@@ -16,9 +16,9 @@ type JailbreakDoc struct {
 }
 
 const (
-	jailbreakScope      = "jailbreak"
-	jailbreakDocKey     = "default"
-	jailbreakProvPrefix = "provider:"
+	jailbreakScope     = "jailbreak"
+	jailbreakDocKey    = "default"
+	jailbreakModelPrefix = "model:"
 )
 
 // GetJailbreakDoc returns the saved document, or zero values when none was
@@ -55,13 +55,14 @@ func (r *Repo) SaveJailbreakDoc(d *JailbreakDoc) error {
 	return err
 }
 
-// JailbreakProviderEnabled reads one provider's toggle. A missing entry means
-// off: injection is opt-in per provider, never a side effect of existing.
-func (r *Repo) JailbreakProviderEnabled(providerID string) (bool, error) {
+// JailbreakModelEnabled reads one model's toggle. The key is the model id as
+// it appears in /v1/models and as the client sends it. A missing entry means
+// off: injection is opt-in per model, never a side effect of existing.
+func (r *Repo) JailbreakModelEnabled(modelID string) (bool, error) {
 	var raw string
 	err := r.db.QueryRow(
 		`SELECT value FROM kv WHERE scope = ? AND key = ? LIMIT 1`,
-		jailbreakScope, jailbreakProvPrefix+providerID,
+		jailbreakScope, jailbreakModelPrefix+modelID,
 	).Scan(&raw)
 	if err == sql.ErrNoRows {
 		return false, nil
@@ -73,18 +74,18 @@ func (r *Repo) JailbreakProviderEnabled(providerID string) (bool, error) {
 		Enabled bool `json:"enabled"`
 	}
 	if err := json.Unmarshal([]byte(raw), &s); err != nil {
-		return false, fmt.Errorf("parse jailbreak toggle for %s: %w", providerID, err)
+		return false, fmt.Errorf("parse jailbreak toggle for %s: %w", modelID, err)
 	}
 	return s.Enabled, nil
 }
 
-// SetJailbreakProvider flips one provider's toggle. Off deletes the entry
-// rather than storing false, so the stored state stays exact instead of
-// accumulating rows for every provider ever touched.
-func (r *Repo) SetJailbreakProvider(providerID string, enabled bool) error {
+// SetJailbreakModel flips one model's toggle. Off deletes the entry rather
+// than storing false, so the stored state stays exact instead of accumulating
+// rows for every model ever touched.
+func (r *Repo) SetJailbreakModel(modelID string, enabled bool) error {
 	if !enabled {
 		_, err := r.db.Exec(`DELETE FROM kv WHERE scope = ? AND key = ?`,
-			jailbreakScope, jailbreakProvPrefix+providerID)
+			jailbreakScope, jailbreakModelPrefix+modelID)
 		return err
 	}
 	raw, _ := json.Marshal(struct {
@@ -93,16 +94,16 @@ func (r *Repo) SetJailbreakProvider(providerID string, enabled bool) error {
 	_, err := r.db.Exec(
 		`INSERT INTO kv (scope, key, value) VALUES (?, ?, ?)
 		 ON CONFLICT(scope, key) DO UPDATE SET value = excluded.value`,
-		jailbreakScope, jailbreakProvPrefix+providerID, string(raw),
+		jailbreakScope, jailbreakModelPrefix+modelID, string(raw),
 	)
 	return err
 }
 
-// ListJailbreakProviders returns the providers whose toggles are on.
-func (r *Repo) ListJailbreakProviders() (map[string]bool, error) {
+// ListJailbreakModels returns the models whose toggles are on.
+func (r *Repo) ListJailbreakModels() (map[string]bool, error) {
 	rows, err := r.db.Query(
 		`SELECT key, value FROM kv WHERE scope = ? AND key LIKE ?`,
-		jailbreakScope, jailbreakProvPrefix+"%",
+		jailbreakScope, jailbreakModelPrefix+"%",
 	)
 	if err != nil {
 		return nil, err
@@ -121,7 +122,7 @@ func (r *Repo) ListJailbreakProviders() (map[string]bool, error) {
 			continue // a malformed row means off, not a broken list
 		}
 		if s.Enabled {
-			out[k[len(jailbreakProvPrefix):]] = true
+			out[k[len(jailbreakModelPrefix):]] = true
 		}
 	}
 	return out, rows.Err()

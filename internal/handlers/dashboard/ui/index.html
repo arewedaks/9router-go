@@ -2204,11 +2204,16 @@
     </div>
 
     <div class="card">
-      <h3 style="margin:0 0 4px;font-size:1rem;color:#fff;">🔀 Provider Toggles</h3>
-      <p style="font-size:0.82rem;color:var(--muted);margin-bottom:12px;">
-        Requests through a provider left off leave untouched — byte-identical, no prompt, no log.
+      <h3 style="margin:0 0 4px;font-size:1rem;color:#fff;">🎯 Model Toggles</h3>
+      <p style="font-size:0.82rem;color:var(--muted);margin-bottom:10px;">
+        Keyed by the model ids <code>/v1/models</code> serves — the exact strings a
+        harness sends. Combo ai: arming one combo arms every leg of it.
+        Requests through a model left off leave untouched — byte-identical, no prompt, no log.
       </p>
-      <div id="jb-providers" style="display:flex;flex-direction:column;gap:6px;">Loading providers…</div>
+      <input type="text" id="jb-model-filter" class="prov-toolbar-search" placeholder="Filter models…"
+        style="width:100%;max-width:420px;margin-bottom:10px;"
+        oninput="renderJailbreakModels(jbToggles)">
+      <div id="jb-models" style="display:flex;flex-direction:column;gap:6px;max-height:420px;overflow-y:auto;">Loading models…</div>
     </div>
   </div>
 
@@ -10124,16 +10129,18 @@
   }
 
   // ---------------- Jailbreak ----------------
-  // One agents.md-style prompt applied globally; per-provider toggles gate
-  // where it lands. Default off: without a toggle the request is untouched.
-  let jbProviderList = [];
+  // One agents.md-style prompt applied globally; per-model toggles (ids from
+  // /v1/models, exactly what the harness sends) gate where it lands.
+  // Default off: without a toggle the request is untouched.
+  let jbModelList = [];
+  let jbToggles = {};
 
   async function loadJailbreakTab() {
     try {
-      const [docRes, provRes, togRes] = await Promise.all([
+      const [docRes, modelsRes, togRes] = await Promise.all([
         api("/api/dashboard/jailbreak"),
-        api("/api/dashboard/providers"),
-        api("/api/dashboard/jailbreak/providers"),
+        api("/api/v1/models"),
+        api("/api/dashboard/jailbreak/models"),
       ]);
       if (docRes.ok) {
         const d = await docRes.json();
@@ -10141,11 +10148,15 @@
         document.getElementById("jb-gemini-safety").checked = d.geminiSafety === true;
         updateJbPromptSize();
       }
-      if (provRes.ok) jbProviderList = await provRes.json();
+      if (modelsRes.ok) {
+        const payload = await modelsRes.json();
+        jbModelList = (payload.data || payload.models || []).map(m => m.id).filter(Boolean);
+      }
       const toggles = togRes.ok ? await togRes.json() : {};
-      renderJailbreakProviders(toggles);
+      jbToggles = toggles;
+      renderJailbreakModels(toggles);
     } catch (e) {
-      document.getElementById("jb-providers").textContent = "Failed to load: " + e.message;
+      document.getElementById("jb-models").textContent = "Failed to load: " + e.message;
     }
   }
 
@@ -10174,47 +10185,50 @@
     }
   }
 
-  function renderJailbreakProviders(toggles) {
-    const host = document.getElementById("jb-providers");
+  function renderJailbreakModels(toggles) {
+    const host = document.getElementById("jb-models");
     host.textContent = "";
-    if (!jbProviderList.length) {
-      host.innerHTML = '<p style="font-size:0.82rem;color:var(--muted);margin:4px 0;">No providers configured yet.</p>';
+    const filter = (document.getElementById("jb-model-filter").value || "").toLowerCase();
+    const ids = jbModelList.filter(id => !filter || id.toLowerCase().includes(filter)).sort();
+    if (!ids.length) {
+      host.innerHTML = '<p style="font-size:0.82rem;color:var(--muted);margin:4px 0;">' +
+        (jbModelList.length ? "No model matches the filter." : "No models served yet.") + '</p>';
       return;
     }
-    const sorted = [...jbProviderList].sort((a, b) =>
-      String(a.name || a.id).localeCompare(String(b.name || b.id)));
-    for (const p of sorted) {
-      const on = toggles[p.id] === true;
+    const frag = document.createDocumentFragment();
+    for (const id of ids) {
+      const on = toggles[id] === true;
       const row = document.createElement("div");
-      row.style.cssText = "display:flex;justify-content:space-between;align-items:center;padding:8px 10px;background:var(--panel-hover);border:1px solid var(--border);border-radius:8px;";
+      row.style.cssText = "display:flex;justify-content:space-between;align-items:center;padding:7px 10px;background:var(--panel-hover);border:1px solid var(--border);border-radius:8px;";
       const label = document.createElement("div");
-      label.style.cssText = "font-size:0.86rem;color:var(--text);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";
-      label.textContent = (p.name || p.id) + (p.category ? "  ·  " + p.category : "");
+      label.style.cssText = "font-family:ui-monospace,SFMono-Regular,monospace;font-size:0.8rem;color:" + (on ? "#fff" : "var(--muted)") + ";min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";
+      label.textContent = id;
+      label.title = id;
       const sw = document.createElement("label");
       sw.className = "switch";
       sw.style.flexShrink = "0";
       const input = document.createElement("input");
       input.type = "checkbox";
       input.checked = on;
-      input.onchange = () => toggleJailbreakProvider(p.id, input.checked);
+      input.onchange = () => { jbToggles[id] = input.checked; toggleJailbreakModel(id, input.checked); };
       const slider = document.createElement("span");
       slider.className = "slider";
       sw.append(input, slider);
       row.append(label, sw);
-      host.appendChild(row);
+      frag.appendChild(row);
     }
+    host.appendChild(frag);
   }
 
-  async function toggleJailbreakProvider(providerId, enabled) {
+  async function toggleJailbreakModel(modelId, enabled) {
     try {
-      const res = await api("/api/dashboard/jailbreak/providers/" + encodeURIComponent(providerId),
+      const res = await api("/api/dashboard/jailbreak/models/" + encodeURIComponent(modelId),
         { method: "PUT", body: JSON.stringify({ enabled }) });
       if (!res.ok) {
         const data = await res.json().catch(() => null);
         throw new Error(errorMessage(data, res.status));
       }
-      const name = (jbProviderList.find(p => p.id === providerId) || {}).name || providerId;
-      toast((enabled ? "Jailbreak ON for " : "Jailbreak OFF for ") + name, false);
+      toast((enabled ? "Jailbreak ON for " : "Jailbreak OFF for ") + modelId, false);
     } catch (e) {
       toast("Toggle failed: " + e.message, true);
       loadJailbreakTab(); // snap the switch back to the stored state

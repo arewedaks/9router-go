@@ -11,10 +11,11 @@ import (
 )
 
 // applyJailbreak is the injection boundary for every chat request. These tests
-// pin the gate that matters: a provider with the toggle off (or no document)
-// passes through untouched, and a provider with both on gets the prompt before
-// the original content — in both wire formats — with the context flag set so
-// the Gemini path can add safetySettings.
+// pin the gate that matters: a model id with the toggle off (or no document)
+// passes through untouched, and an armed model gets the prompt before the
+// original content — in both wire formats — with the context flag set so the
+// Gemini path can add safetySettings. Keys are the ids /v1/models serves,
+// exactly as the client sends them: prefixes and suffixes are part of the key.
 
 func newTestRepo(t *testing.T) *db.Repo {
 	t.Helper()
@@ -28,33 +29,34 @@ func newTestRepo(t *testing.T) *db.Repo {
 	return db.NewRepo(database)
 }
 
-// A provider whose toggle is off (or no repo at all) must leave the body
+// A model whose toggle is off (or no repo at all) must leave the body
 // byte-identical. This is the default posture: injection never happens
-// because a model was configured, only because it was switched on.
-func TestProviderOffPassesThroughUntouched(t *testing.T) {
+// because a model exists, only because it was switched on.
+func TestModelOffPassesThroughUntouched(t *testing.T) {
 	h := &ChatHandler{} // Repo nil: nothing configured anywhere
 	body := map[string]any{
 		"model":    "wal/glm-5.3-flash",
 		"messages": []any{map[string]any{"role": "user", "content": "hi"}},
 	}
 	before, _ := json.Marshal(body)
-	ctx := h.applyJailbreak(context.Background(), body, "wal/glm-5.3-flash", "wal")
+	ctx := h.applyJailbreak(context.Background(), body, "wal/glm-5.3-flash")
 	if translator.GeminiSafetyRequested(ctx) {
-		t.Error("off provider must not set the safety flag")
+		t.Error("off model must not set the safety flag")
 	}
 	after, _ := json.Marshal(body)
 	if string(before) != string(after) {
-		t.Errorf("body was modified while provider off: %s -> %s", before, after)
+		t.Errorf("body was modified while model off: %s -> %s", before, after)
 	}
 }
 
-func TestProviderOnWithDocInjectsPrompt(t *testing.T) {
+func TestModelOnWithDocInjectsPrompt(t *testing.T) {
 	repo := newTestRepo(t)
 	if err := repo.SaveJailbreakDoc(&db.JailbreakDoc{Prompt: "CUSTOM RULES", GeminiSafety: true}); err != nil {
 		t.Fatalf("save doc: %v", err)
 	}
-	if err := repo.SetJailbreakProvider("wal", true); err != nil {
-		t.Fatalf("enable provider: %v", err)
+	const armed = "wal/glm-5.3-flash"
+	if err := repo.SetJailbreakModel(armed, true); err != nil {
+		t.Fatalf("enable model: %v", err)
 	}
 
 	h := &ChatHandler{Repo: repo}
@@ -64,7 +66,7 @@ func TestProviderOnWithDocInjectsPrompt(t *testing.T) {
 			map[string]any{"role": "user", "content": "hi"},
 		},
 	}
-	ctx := h.applyJailbreak(context.Background(), body, "glm-5.3-flash", "wal")
+	ctx := h.applyJailbreak(context.Background(), body, armed)
 	if !translator.GeminiSafetyRequested(ctx) {
 		t.Error("doc.geminiSafety must set the context flag")
 	}
@@ -84,27 +86,27 @@ func TestProviderOnWithDocInjectsPrompt(t *testing.T) {
 		t.Errorf("original system message damaged: %s", second)
 	}
 
-	// Another provider with its toggle off gets nothing on the same repo.
+	// A nearby but different model id — no bleed, no prefix matching.
 	other := map[string]any{"messages": []any{map[string]any{"role": "user", "content": "hi"}}}
 	before, _ := json.Marshal(other)
-	h.applyJailbreak(context.Background(), other, "glm-5.3-flash", "gemini")
+	h.applyJailbreak(context.Background(), other, "wal/glm-5.3-flash-turbo")
 	after, _ := json.Marshal(other)
 	if string(before) != string(after) {
-		t.Errorf("unrelated provider was injected: %s", after)
+		t.Errorf("unrelated model was injected: %s", after)
 	}
 }
 
-// A toggled-on provider with an empty document must still not inject: the
-// document is the content, the toggle only arms it.
-func TestProviderOnWithEmptyDocInjectsNothing(t *testing.T) {
+// An armed model with an empty document must still not inject: the document
+// is the content, the toggle only arms it.
+func TestModelOnWithEmptyDocInjectsNothing(t *testing.T) {
 	repo := newTestRepo(t)
-	if err := repo.SetJailbreakProvider("wal", true); err != nil {
-		t.Fatalf("enable provider: %v", err)
+	if err := repo.SetJailbreakModel("wal/glm-5.3-flash", true); err != nil {
+		t.Fatalf("enable model: %v", err)
 	}
 	h := &ChatHandler{Repo: repo}
 	body := map[string]any{"messages": []any{map[string]any{"role": "user", "content": "hi"}}}
 	before, _ := json.Marshal(body)
-	h.applyJailbreak(context.Background(), body, "glm-5.3-flash", "wal")
+	h.applyJailbreak(context.Background(), body, "wal/glm-5.3-flash")
 	after, _ := json.Marshal(body)
 	if string(before) != string(after) {
 		t.Errorf("empty doc was injected: %s -> %s", before, after)

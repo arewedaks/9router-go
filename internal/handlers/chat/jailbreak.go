@@ -8,16 +8,18 @@ import (
 	"9router/proxy/internal/translator"
 )
 
-// resolveJailbreak returns the injection document for a provider, or nil when
-// nothing should be injected: a provider toggle left off, or an empty document
-// with the toggle on, both mean pass-through.
-func (h *ChatHandler) resolveJailbreak(provider string) *db.JailbreakDoc {
-	if h.Repo == nil {
+// resolveJailbreak returns the injection document for a model, or nil when
+// nothing should be injected: a toggle left off, or an armed model with an
+// empty document, both mean pass-through. The key is the model id exactly as
+// the client sent it — the same id /v1/models lists — so the dashboard toggle
+// and the request always name the same thing.
+func (h *ChatHandler) resolveJailbreak(requestedModel string) *db.JailbreakDoc {
+	if h.Repo == nil || requestedModel == "" {
 		return nil
 	}
-	on, err := h.Repo.JailbreakProviderEnabled(provider)
+	on, err := h.Repo.JailbreakModelEnabled(requestedModel)
 	if err != nil {
-		log.Warn("jailbreak", "toggle lookup failed", "provider", provider, "error", err)
+		log.Warn("jailbreak", "toggle lookup failed", "model", requestedModel, "error", err)
 		return nil
 	}
 	if !on {
@@ -25,7 +27,7 @@ func (h *ChatHandler) resolveJailbreak(provider string) *db.JailbreakDoc {
 	}
 	doc, err := h.Repo.GetJailbreakDoc()
 	if err != nil {
-		log.Warn("jailbreak", "doc lookup failed", "provider", provider, "error", err)
+		log.Warn("jailbreak", "doc lookup failed", "model", requestedModel, "error", err)
 		return nil
 	}
 	if doc.Prompt == "" {
@@ -34,18 +36,20 @@ func (h *ChatHandler) resolveJailbreak(provider string) *db.JailbreakDoc {
 	return doc
 }
 
-// applyJailbreak mutates the outbound request body for a provider whose toggle
-// is on and returns a context carrying the Gemini-safety flag for the forward
+// applyJailbreak mutates the outbound request body for a model whose toggle is
+// on and returns a context carrying the Gemini-safety flag for the forward
 // chain. Called before the body is marshalled, so the prompt-cache hash always
 // reflects the injected prompt. Every forward path calls this: single chat,
-// Claude single, combo fallback, Claude combo, fusion panel, fusion judge.
-func (h *ChatHandler) applyJailbreak(ctx context.Context, body map[string]any, model, provider string) context.Context {
-	doc := h.resolveJailbreak(provider)
+// Claude single, combo fallback, Claude combo, fusion panel, fusion judge. For
+// combo and fusion, requestedModel is the combo name the client sent — arming
+// it arms every leg of that combo.
+func (h *ChatHandler) applyJailbreak(ctx context.Context, body map[string]any, requestedModel string) context.Context {
+	doc := h.resolveJailbreak(requestedModel)
 	if doc == nil {
 		return ctx
 	}
 	prependSystemPrompt(body, doc.Prompt)
-	log.Info("jailbreak", "applied", "model", model, "provider", provider,
+	log.Info("jailbreak", "applied", "model", requestedModel,
 		"prompt_bytes", len(doc.Prompt), "safety_off", doc.GeminiSafety)
 	if doc.GeminiSafety {
 		ctx = translator.WithGeminiSafety(ctx, true)
