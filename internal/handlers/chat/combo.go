@@ -480,6 +480,7 @@ func (h *ChatHandler) handleComboFallback(ctx context.Context, w http.ResponseWr
 				}
 				upstreamBody["model"] = modelInfo.Model
 				repairToolCallIDsInMap(upstreamBody)
+				ctx = h.applyJailbreak(ctx, upstreamBody, modelInfo.Model, modelInfo.Provider)
 				upstreamJSON, err := json.Marshal(upstreamBody)
 				if err != nil {
 					break
@@ -670,6 +671,7 @@ func (h *ChatHandler) handleMessagesComboFallback(ctx context.Context, w http.Re
 					entryReq[k] = v
 				}
 				entryReq["model"] = modelInfo.Model
+				ctx = h.applyJailbreak(ctx, entryReq, modelInfo.Model, modelInfo.Provider)
 
 				upstreamJSON, err := json.Marshal(entryReq)
 				if err != nil {
@@ -929,6 +931,10 @@ func (h *ChatHandler) handleFusion(ctx context.Context, w http.ResponseWriter, b
 		return
 	}
 	ub["model"] = judgeModel
+	modelInfo := h.resolveModelEntry(judgeModel)
+	if modelInfo != nil {
+		ctx = h.applyJailbreak(ctx, ub, modelInfo.Model, modelInfo.Provider)
+	}
 	if isStream {
 		ub["stream"] = true
 	} else {
@@ -941,7 +947,7 @@ func (h *ChatHandler) handleFusion(ctx context.Context, w http.ResponseWriter, b
 		return
 	}
 
-	modelInfo := h.resolveModelEntry(judgeModel)
+	modelInfo = h.resolveModelEntry(judgeModel)
 	if modelInfo == nil {
 		handlerutil.WriteJSONError(cw, http.StatusBadGateway, fmt.Sprintf("unresolved judge model: %s", judgeModel))
 		return

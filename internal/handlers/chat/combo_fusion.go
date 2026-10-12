@@ -162,13 +162,14 @@ func (h *ChatHandler) makePanelCall(body []byte, entry string) func() *fusionRes
 			return &fusionResult{model: entry, err: err}
 		}
 		upstreamBody["model"] = modelInfo.Model
+		panelCtx := h.applyJailbreak(context.Background(), upstreamBody, modelInfo.Model, modelInfo.Provider)
 		upstreamJSON, err := json.Marshal(upstreamBody)
 		if err != nil {
 			return &fusionResult{model: entry, err: err}
 		}
 
 		rec := &responseBuffer{header: http.Header{}}
-		fwdErr := h.tryForwardWithConnection(context.Background(), rec, modelInfo.Provider, modelInfo.Model, connID, connData, upstreamJSON, false, false, "/v1/chat/completions")
+		fwdErr := h.tryForwardWithConnection(panelCtx, rec, modelInfo.Provider, modelInfo.Model, connID, connData, upstreamJSON, false, false, "/v1/chat/completions")
 		if fwdErr != nil {
 			return &fusionResult{model: entry, err: fwdErr}
 		}

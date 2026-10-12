@@ -509,6 +509,7 @@
     #nav-console   .nav-icon { --tint: #3fb950; }  /* status-ok — green  */
     #nav-proxies   .nav-icon { --tint: #a371f7; } /* lan       — violet */
     #nav-token-saver .nav-icon { --tint: #d29922; } /* warning  — amber  */
+    #nav-jailbreak  .nav-icon { --tint: #f85149; }  /* bypass   — red    */
     #nav-settings  .nav-icon { --tint: #8b949e; }  /* muted     — slate  */
 
     .nav-btn:hover .nav-icon {
@@ -1818,6 +1819,7 @@
     <div class="nav-group-label">Configuration</div>
     <button class="nav-btn" id="nav-proxies" onclick="navigateTab('proxies')"><span class="nav-icon">lan</span> Proxies</button>
     <button class="nav-btn" id="nav-token-saver" onclick="navigateTab('token-saver')"><span class="nav-icon">savings</span> Token Saver</button>
+    <button class="nav-btn" id="nav-jailbreak" onclick="navigateTab('jailbreak')"><span class="nav-icon">psychology</span> Jailbreak</button>
     <button class="nav-btn" id="nav-settings" onclick="navigateTab('settings')"><span class="nav-icon">settings</span> Settings</button>
   </nav>
 </aside>
@@ -2168,6 +2170,48 @@
   <!-- KEYS TAB -->
   <!-- TOKEN SAVERS TAB -->
   <!-- SETTINGS TAB -->
+  <div id="tab-jailbreak" class="tab-pane">
+    <div class="section-header" style="margin-bottom:16px;">
+      <div>
+        <h2 class="section-title">Jailbreak</h2>
+        <p style="font-size:0.85rem;color:var(--muted);margin-top:4px;">
+          Agents.md-style prompt injection: this text is prepended as the system
+          message of every request routed through a provider whose toggle is on.
+          Default <b>off</b> — a provider only ever receives it after you switch it on.
+        </p>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:16px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+        <h3 style="margin:0;font-size:1rem;color:#fff;">📜 Prompt (agents.md)</h3>
+        <label class="switch" title="Turn the Gemini-native safety filters off via the official safetySettings field">
+          <input type="checkbox" id="jb-gemini-safety">
+          <span class="slider"></span>
+        </label>
+      </div>
+      <p style="font-size:0.82rem;color:var(--muted);margin-bottom:10px;">
+        The toggle above arms the Gemini-native <code>safetySettings BLOCK_NONE</code> switch.
+        For OpenAI-compatible providers the prompt itself is the lever.
+      </p>
+      <textarea id="jb-prompt" spellcheck="false" oninput="updateJbPromptSize()"
+        style="width:100%;min-height:190px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px;font-family:ui-monospace,SFMono-Regular,monospace;font-size:0.82rem;line-height:1.5;padding:10px;box-sizing:border-box;"
+        placeholder="System prompt injected ahead of the original content…"></textarea>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px;">
+        <span class="badge badge-dim" id="jb-prompt-size">0 chars</span>
+        <button class="btn btn-primary" onclick="saveJailbreakDoc()">💾 Save Prompt</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3 style="margin:0 0 4px;font-size:1rem;color:#fff;">🔀 Provider Toggles</h3>
+      <p style="font-size:0.82rem;color:var(--muted);margin-bottom:12px;">
+        Requests through a provider left off leave untouched — byte-identical, no prompt, no log.
+      </p>
+      <div id="jb-providers" style="display:flex;flex-direction:column;gap:6px;">Loading providers…</div>
+    </div>
+  </div>
+
   <div id="tab-settings" class="tab-pane">
     <div class="section-header">
       <div>
@@ -3223,7 +3267,7 @@
   // Page titles shown in the top bar, keyed by tab id.
   const TAB_TITLES = {
     endpoint: "Endpoint & Key", usage: "Usage", providers: "Providers", combos: "Combos",
-    console: "Console Log", proxies: "Proxy Pools", "token-saver": "Token Saver", settings: "Settings",
+    console: "Console Log", proxies: "Proxy Pools", "token-saver": "Token Saver", jailbreak: "Jailbreak", settings: "Settings",
     "provider-detail": "Provider Detail",
   };
 
@@ -3275,6 +3319,7 @@
     else stopConsoleLogs();
     if (tabId === "proxies") loadProxyPoolTab();
     if (tabId === "token-saver") loadTokenSaver();
+    if (tabId === "jailbreak") loadJailbreakTab();
     if (tabId === "settings") loadSettings();
   }
 
@@ -10076,6 +10121,104 @@
       btn.onclick = function () { onLevelChange(kind, lvl); };
       host.appendChild(btn);
     });
+  }
+
+  // ---------------- Jailbreak ----------------
+  // One agents.md-style prompt applied globally; per-provider toggles gate
+  // where it lands. Default off: without a toggle the request is untouched.
+  let jbProviderList = [];
+
+  async function loadJailbreakTab() {
+    try {
+      const [docRes, provRes, togRes] = await Promise.all([
+        api("/api/dashboard/jailbreak"),
+        api("/api/dashboard/providers"),
+        api("/api/dashboard/jailbreak/providers"),
+      ]);
+      if (docRes.ok) {
+        const d = await docRes.json();
+        document.getElementById("jb-prompt").value = d.prompt || "";
+        document.getElementById("jb-gemini-safety").checked = d.geminiSafety === true;
+        updateJbPromptSize();
+      }
+      if (provRes.ok) jbProviderList = await provRes.json();
+      const toggles = togRes.ok ? await togRes.json() : {};
+      renderJailbreakProviders(toggles);
+    } catch (e) {
+      document.getElementById("jb-providers").textContent = "Failed to load: " + e.message;
+    }
+  }
+
+  function updateJbPromptSize() {
+    const v = document.getElementById("jb-prompt").value;
+    const approxTok = v.length ? Math.max(1, Math.round(v.length / 4)) : 0;
+    document.getElementById("jb-prompt-size").textContent =
+      v.length + " chars ≈ " + approxTok + " tok per request";
+  }
+
+  async function saveJailbreakDoc() {
+    const body = {
+      prompt: document.getElementById("jb-prompt").value,
+      geminiSafety: document.getElementById("jb-gemini-safety").checked,
+    };
+    try {
+      const res = await api("/api/dashboard/jailbreak", { method: "PUT", body: JSON.stringify(body) });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        throw new Error(errorMessage(data, res.status));
+      }
+      toast("Jailbreak prompt saved", false);
+      updateJbPromptSize();
+    } catch (e) {
+      toast("Save failed: " + e.message, true);
+    }
+  }
+
+  function renderJailbreakProviders(toggles) {
+    const host = document.getElementById("jb-providers");
+    host.textContent = "";
+    if (!jbProviderList.length) {
+      host.innerHTML = '<p style="font-size:0.82rem;color:var(--muted);margin:4px 0;">No providers configured yet.</p>';
+      return;
+    }
+    const sorted = [...jbProviderList].sort((a, b) =>
+      String(a.name || a.id).localeCompare(String(b.name || b.id)));
+    for (const p of sorted) {
+      const on = toggles[p.id] === true;
+      const row = document.createElement("div");
+      row.style.cssText = "display:flex;justify-content:space-between;align-items:center;padding:8px 10px;background:var(--panel-hover);border:1px solid var(--border);border-radius:8px;";
+      const label = document.createElement("div");
+      label.style.cssText = "font-size:0.86rem;color:var(--text);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";
+      label.textContent = (p.name || p.id) + (p.category ? "  ·  " + p.category : "");
+      const sw = document.createElement("label");
+      sw.className = "switch";
+      sw.style.flexShrink = "0";
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.checked = on;
+      input.onchange = () => toggleJailbreakProvider(p.id, input.checked);
+      const slider = document.createElement("span");
+      slider.className = "slider";
+      sw.append(input, slider);
+      row.append(label, sw);
+      host.appendChild(row);
+    }
+  }
+
+  async function toggleJailbreakProvider(providerId, enabled) {
+    try {
+      const res = await api("/api/dashboard/jailbreak/providers/" + encodeURIComponent(providerId),
+        { method: "PUT", body: JSON.stringify({ enabled }) });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        throw new Error(errorMessage(data, res.status));
+      }
+      const name = (jbProviderList.find(p => p.id === providerId) || {}).name || providerId;
+      toast((enabled ? "Jailbreak ON for " : "Jailbreak OFF for ") + name, false);
+    } catch (e) {
+      toast("Toggle failed: " + e.message, true);
+      loadJailbreakTab(); // snap the switch back to the stored state
+    }
   }
 
   async function loadTokenSaver() {
