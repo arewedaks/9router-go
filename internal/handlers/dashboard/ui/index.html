@@ -2171,7 +2171,7 @@
   <!-- TOKEN SAVERS TAB -->
   <!-- SETTINGS TAB -->
   <div id="tab-jailbreak" class="tab-pane">
-    <div class="section-header" style="margin-bottom:16px;">
+    <div class="section-header" style="margin-bottom:18px;">
       <div>
         <h2 class="section-title">Jailbreak</h2>
         <p style="font-size:0.85rem;color:var(--muted);margin-top:4px;">
@@ -2183,70 +2183,115 @@
     </div>
 
     <div class="card" style="margin-bottom:16px;">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:12px;flex-wrap:wrap;">
-        <h3 style="margin:0;font-size:1rem;color:#fff;">📜 Prompt (agents.md)</h3>
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap;margin-bottom:14px;">
+        <div style="min-width:200px;">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+            <span class="msym" style="font-size:19px;color:var(--primary);">description</span>
+            <h3 style="margin:0;font-size:1rem;color:#fff;">Prompt document</h3>
+            <span class="badge badge-dim" id="jb-status-badge">Checking…</span>
+          </div>
+          <p style="font-size:0.82rem;color:var(--muted);margin:5px 0 0;">
+            Injected ahead of the original content for every armed model.
+          </p>
+        </div>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-          <button class="btn btn-sm" onclick="openJbEditor('edit')">✏️ Edit</button>
-          <button class="btn btn-sm" onclick="openJbEditor('view')">👁 View MD</button>
-          <button class="btn btn-sm" onclick="document.getElementById('jb-file-input').click()">📂 Upload .md</button>
+          <button class="btn btn-primary" id="jb-btn-edit" onclick="openJbEditor('edit')">
+            <span class="msym" style="font-size:16px;">edit_note</span> <span id="jb-btn-edit-label">Open editor</span>
+          </button>
+          <button class="btn" onclick="openJbEditor('view')" title="Render the markdown as the model would read it">
+            <span class="msym" style="font-size:16px;">visibility</span> Preview
+          </button>
+          <button class="btn" onclick="document.getElementById('jb-file-input').click()">
+            <span class="msym" style="font-size:16px;">upload_file</span> Upload .md
+          </button>
           <input type="file" id="jb-file-input" accept=".md,.markdown,.txt,text/markdown,text/plain" style="display:none" onchange="uploadJailbreakFile(this)">
+        </div>
+      </div>
+
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;background:var(--panel-hover);border:1px solid var(--border);border-radius:10px;padding:12px 14px;">
+        <div style="display:flex;gap:20px;align-items:center;flex-wrap:wrap;">
+          <div style="display:flex;align-items:center;gap:7px;font-size:0.84rem;">
+            <span class="msym" style="font-size:17px;color:var(--muted);">draft</span>
+            <span style="color:var(--muted);">Source</span>
+            <span id="jb-info-source" style="font-weight:600;color:var(--text);font-family:ui-monospace,SFMono-Regular,monospace;">none</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:7px;font-size:0.84rem;">
+            <span class="msym" style="font-size:17px;color:var(--muted);">straighten</span>
+            <span style="color:var(--muted);">Size</span>
+            <span class="badge badge-dim" id="jb-prompt-size">0 chars</span>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;">
+          <div style="text-align:right;line-height:1.35;">
+            <div style="font-size:0.84rem;color:var(--text);">Gemini safety filter</div>
+            <div style="font-size:0.74rem;color:var(--muted);">sends <code>safetySettings BLOCK_NONE</code></div>
+          </div>
           <label class="switch" title="Turn the Gemini-native safety filters off via the official safetySettings field">
             <input type="checkbox" id="jb-gemini-safety" onchange="onJbSafetyChange()">
             <span class="slider"></span>
           </label>
         </div>
       </div>
-      <p style="font-size:0.82rem;color:var(--muted);margin-bottom:10px;">
-        Prepended as the system message of every request for an armed model. The
-        switch arms the Gemini-native <code>safetySettings BLOCK_NONE</code> toggle;
-        for OpenAI-compatible providers the prompt itself is the lever.
-      </p>
-      <div id="jb-source-line" style="font-size:0.78rem;color:var(--muted);margin-bottom:8px;"></div>
-      <div id="jb-preview" onclick="openJbEditor('edit')" title="Click to edit"
-        style="max-height:210px;overflow:auto;cursor:text;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px;font-family:ui-monospace,SFMono-Regular,monospace;font-size:0.8rem;line-height:1.55;white-space:pre-wrap;word-break:break-word;"></div>
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px;">
-        <span class="badge badge-dim" id="jb-prompt-size">0 chars</span>
-      </div>
     </div>
 
     <div class="card">
-      <h3 style="margin:0 0 4px;font-size:1rem;color:#fff;">🎯 Model Toggles</h3>
-      <p style="font-size:0.82rem;color:var(--muted);margin-bottom:10px;">
-        Keyed by the model ids <code>/v1/models</code> serves — the exact strings a
-        harness sends. Combo ai: arming one combo arms every leg of it.
-        Requests through a model left off leave untouched — byte-identical, no prompt, no log.
-      </p>
-      <input type="text" id="jb-model-filter" placeholder="Filter models…"
-        style="width:240px;max-width:100%;height:32px;padding:0 10px;margin-bottom:10px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;font-size:0.82rem;box-sizing:border-box;"
-        oninput="renderJailbreakModels(jbToggles)">
-      <div id="jb-models" style="display:flex;flex-direction:column;gap:6px;max-height:420px;overflow-y:auto;">Loading models…</div>
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap;margin-bottom:12px;">
+        <div style="min-width:200px;">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+            <span class="msym" style="font-size:19px;color:var(--primary);">tune</span>
+            <h3 style="margin:0;font-size:1rem;color:#fff;">Target models</h3>
+            <span class="badge badge-dim" id="jb-models-count">0 / 0 armed</span>
+          </div>
+          <p style="font-size:0.82rem;color:var(--muted);margin:5px 0 0;">
+            Keyed by the model ids <code>/v1/models</code> serves — the exact strings a
+            harness sends. Combo ai: arming one combo arms every leg of it. A model
+            left off stays byte-identical: no prompt, no log.
+          </p>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <input type="text" id="jb-model-filter" placeholder="Filter models…"
+            style="width:220px;max-width:100%;height:34px;padding:0 11px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px;font-size:0.82rem;box-sizing:border-box;"
+            oninput="renderJailbreakModels(jbToggles)">
+          <button class="btn btn-sm" id="jb-filter-armed" onclick="toggleJbArmedFilter()" title="Show only armed models">Armed only</button>
+          <button class="btn btn-sm" onclick="disableAllJbModels()" title="Switch every model off">Disarm all</button>
+        </div>
+      </div>
+      <div id="jb-models" style="display:flex;flex-direction:column;gap:6px;max-height:440px;overflow-y:auto;padding-right:2px;">Loading models…</div>
     </div>
   </div>
 
   <div class="modal-overlay" id="jb-editor-modal">
-    <div class="modal-box" style="max-width: 860px; width: 100%;">
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:4px;">
-        <h2 style="font-size:1.15rem;margin:0;">Jailbreak prompt</h2>
-        <div style="display:flex;gap:6px;">
-          <button class="btn btn-sm" id="jb-tab-edit" onclick="setJbEditorTab('edit')">Edit</button>
-          <button class="btn btn-sm" id="jb-tab-view" onclick="setJbEditorTab('view')">Preview</button>
+    <div class="modal-box" style="max-width: 900px; width: 100%;">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+        <div style="display:flex;align-items:center;gap:9px;">
+          <span class="msym" style="font-size:20px;color:var(--primary);">edit_note</span>
+          <h2 style="font-size:1.1rem;margin:0;">Markdown editor</h2>
+          <span class="badge badge-dim" id="jb-editor-source">no file</span>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <div style="display:flex;gap:6px;">
+            <button class="btn btn-sm" id="jb-tab-edit" onclick="setJbEditorTab('edit')">Edit</button>
+            <button class="btn btn-sm" id="jb-tab-view" onclick="setJbEditorTab('view')">Preview</button>
+          </div>
+          <button class="btn btn-sm" onclick="closeModal('jb-editor-modal')" title="Close"
+            style="padding:4px 8px;"><span class="msym" style="font-size:16px;">close</span></button>
         </div>
       </div>
-      <div style="font-size:0.78rem;color:var(--muted);margin-bottom:12px;" id="jb-editor-subtitle">
-        Upload an .md file or type the prompt. Preview renders the markdown.
+      <div style="font-size:0.78rem;color:var(--muted);margin:10px 0 12px;" id="jb-editor-subtitle">
+        Edit the prompt, or switch to <b>Preview</b> to see the rendered markdown. Uploading an .md file loads it here first.
       </div>
       <div id="jb-editor-pane-edit">
         <textarea id="jb-editor-text" spellcheck="false" oninput="updateJbPromptSize()"
-          style="width:100%;min-height:340px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px;font-family:ui-monospace,SFMono-Regular,monospace;font-size:0.82rem;line-height:1.55;padding:10px;box-sizing:border-box;"
+          style="width:100%;min-height:400px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px;font-family:ui-monospace,SFMono-Regular,monospace;font-size:0.84rem;line-height:1.6;padding:14px;box-sizing:border-box;resize:vertical;"
           placeholder="# Agents&#10;&#10;System prompt injected ahead of the original content…"></textarea>
       </div>
-      <div id="jb-editor-pane-view" style="display:none;max-height:340px;overflow:auto;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px;font-size:0.86rem;line-height:1.6;"></div>
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;gap:10px;flex-wrap:wrap;">
+      <div id="jb-editor-pane-view" style="display:none;min-height:400px;max-height:520px;overflow-y:auto;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:18px 20px;font-size:0.88rem;line-height:1.65;"></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:14px;gap:10px;flex-wrap:wrap;">
         <span class="badge badge-dim" id="jb-editor-size">0 chars</span>
         <div style="display:flex;gap:8px;">
-          <button class="btn" onclick="document.getElementById('jb-file-input').click()">📂 Upload .md</button>
+          <button class="btn" onclick="document.getElementById('jb-file-input').click()"><span class="msym" style="font-size:16px;">upload_file</span> Upload .md</button>
           <button class="btn" onclick="closeModal('jb-editor-modal')">Cancel</button>
-          <button class="btn btn-primary" onclick="saveJailbreakDoc()">💾 Save</button>
+          <button class="btn btn-primary" onclick="saveJailbreakDoc()"><span class="msym" style="font-size:16px;">check</span> Save prompt</button>
         </div>
       </div>
     </div>
@@ -10170,6 +10215,7 @@
   let jbModelList = [];
   let jbToggles = {};
   let jbDoc = { prompt: "", geminiSafety: false, source: "" };
+  let jbArmedOnly = false;
 
   async function loadJailbreakTab() {
     try {
@@ -10207,26 +10253,46 @@
     }
   }
 
-  // The card shows what will be sent without a 200-line textarea competing with
-  // the rest of the page; the popup is where editing happens.
+  // The page never renders the prompt text itself: a 200-line pre block on the
+  // card reads as an editor and pushes everything else off-screen. The card
+  // summarises (source, size, armed count) and the popup does the writing.
   function renderJbPreview() {
     const text = jbDoc.prompt || "";
-    const box = document.getElementById("jb-preview");
-    box.textContent = text ? (text.length > 1400 ? text.slice(0, 1400) + "\n…" : text)
-      : "(empty — click to write a prompt or upload an .md file)";
-    if (!text) box.style.color = "var(--muted)"; else box.style.color = "var(--text)";
-    const src = document.getElementById("jb-source-line");
-    src.textContent = jbDoc.source ? "📄 loaded from " + jbDoc.source : "";
+    const chars = text.length;
+    const approxTok = chars ? Math.max(1, Math.round(chars / 4)) : 0;
+
+    const badge = document.getElementById("jb-status-badge");
+    badge.textContent = chars ? "Configured" : "Empty";
+    badge.className = "badge " + (chars ? "badge-ok" : "badge-dim");
+
+    const src = document.getElementById("jb-info-source");
+    src.textContent = jbDoc.source || (chars ? "inline" : "none");
+    src.title = jbDoc.source ? "uploaded from " + jbDoc.source : "";
+
+    const size = document.getElementById("jb-prompt-size");
+    size.textContent = chars ? chars.toLocaleString() + " chars ≈ " + approxTok.toLocaleString() + " tok" : "0 chars";
+
+    document.getElementById("jb-btn-edit-label").textContent = chars ? "Edit" : "Open editor";
     updateJbPromptSize();
+  }
+
+  function fmtJbSize(v) {
+    const chars = (v || "").length;
+    if (!chars) return "0 chars";
+    const approxTok = Math.max(1, Math.round(chars / 4));
+    return chars.toLocaleString() + " chars ≈ " + approxTok.toLocaleString() + " tok per request";
   }
 
   function updateJbPromptSize() {
     const v = (document.getElementById("jb-editor-text").value) || jbDoc.prompt || "";
-    const approxTok = v.length ? Math.max(1, Math.round(v.length / 4)) : 0;
-    const label = v.length + " chars ≈ " + approxTok + " tok per request";
-    document.getElementById("jb-prompt-size").textContent = label;
+    const label = fmtJbSize(v);
     const ed = document.getElementById("jb-editor-size");
     if (ed) ed.textContent = label;
+    const src = document.getElementById("jb-editor-source");
+    if (src) {
+      src.textContent = jbDoc.source || "no file";
+      src.className = "badge " + (jbDoc.source ? "badge-oauth" : "badge-dim");
+    }
   }
 
   function openJbEditor(mode) {
@@ -10340,8 +10406,7 @@
       jbDoc = { prompt: body.prompt, geminiSafety: body.geminiSafety, source: body.source };
       renderJbPreview();
       closeModal("jb-editor-modal");
-      toast("Jailbreak prompt saved", false);
-    } catch (e) {
+      toast("Jailbreak prompt saved", false);    } catch (e) {
       toast("Save failed: " + e.message, true);
     }
   }
@@ -10349,29 +10414,59 @@
   function renderJailbreakModels(toggles) {
     const host = document.getElementById("jb-models");
     host.textContent = "";
+
+    // Count on the ids the page actually knows about, so the badge cannot drift
+    // above the number of rows a user could switch off.
+    const armed = jbModelList.filter(id => toggles[id] === true).length;
+    const countBadge = document.getElementById("jb-models-count");
+    countBadge.textContent = armed + " / " + jbModelList.length + " armed";
+    countBadge.className = "badge " + (armed ? "badge-green" : "badge-dim");
+
     const filter = (document.getElementById("jb-model-filter").value || "").toLowerCase();
-    const ids = jbModelList.filter(id => !filter || id.toLowerCase().includes(filter)).sort();
+    let ids = jbModelList.filter(id => !filter || id.toLowerCase().includes(filter));
+    if (jbArmedOnly) ids = ids.filter(id => toggles[id] === true);
+    ids.sort();
+
     if (!ids.length) {
-      host.innerHTML = '<p style="font-size:0.82rem;color:var(--muted);margin:4px 0;">' +
-        (jbModelList.length ? "No model matches the filter." : "No models served yet.") + '</p>';
+      const why = jbArmedOnly ? "No model is armed yet — switch one on to enable the prompt."
+        : jbModelList.length ? "No model matches the filter." : "No models served yet.";
+      host.innerHTML = '<p style="font-size:0.82rem;color:var(--muted);margin:10px 0;">' + why + '</p>';
       return;
     }
+
     const frag = document.createDocumentFragment();
     for (const id of ids) {
       const on = toggles[id] === true;
       const row = document.createElement("div");
-      row.style.cssText = "display:flex;justify-content:space-between;align-items:center;padding:7px 10px;background:var(--panel-hover);border:1px solid var(--border);border-radius:8px;";
+      row.style.cssText = "display:flex;justify-content:space-between;align-items:center;gap:12px;padding:8px 12px;background:var(--panel-hover);border:1px solid " + (on ? "#238636" : "var(--border)") + ";border-radius:8px;transition:border-color 0.15s;";
       const label = document.createElement("div");
-      label.style.cssText = "font-family:ui-monospace,SFMono-Regular,monospace;font-size:0.8rem;color:" + (on ? "#fff" : "var(--muted)") + ";min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";
-      label.textContent = id;
-      label.title = id;
+      label.style.cssText = "display:flex;align-items:center;gap:9px;min-width:0;";
+      const dot = document.createElement("span");
+      dot.className = "msym";
+      dot.style.cssText = "font-size:17px;flex-shrink:0;color:" + (on ? "#3fb950" : "var(--muted)") + ";";
+      dot.textContent = on ? "shield" : "shield_outlined";
+      const name = document.createElement("div");
+      name.style.cssText = "font-family:ui-monospace,SFMono-Regular,monospace;font-size:0.8rem;color:" + (on ? "#fff" : "var(--muted)") + ";min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";
+      name.textContent = id;
+      name.title = id;
+      label.append(dot, name);
       const sw = document.createElement("label");
       sw.className = "switch";
       sw.style.flexShrink = "0";
       const input = document.createElement("input");
       input.type = "checkbox";
       input.checked = on;
-      input.onchange = () => { jbToggles[id] = input.checked; toggleJailbreakModel(id, input.checked); };
+      input.onchange = () => {
+        jbToggles[id] = input.checked;
+        row.style.borderColor = input.checked ? "#238636" : "var(--border)";
+        dot.style.color = input.checked ? "#3fb950" : "var(--muted)";
+        dot.textContent = input.checked ? "shield" : "shield_outlined";
+        name.style.color = input.checked ? "#fff" : "var(--muted)";
+        const n = jbModelList.filter(m => jbToggles[m] === true).length;
+        countBadge.textContent = n + " / " + jbModelList.length + " armed";
+        countBadge.className = "badge " + (n ? "badge-green" : "badge-dim");
+        toggleJailbreakModel(id, input.checked);
+      };
       const slider = document.createElement("span");
       slider.className = "slider";
       sw.append(input, slider);
@@ -10379,6 +10474,35 @@
       frag.appendChild(row);
     }
     host.appendChild(frag);
+  }
+
+  function toggleJbArmedFilter() {
+    jbArmedOnly = !jbArmedOnly;
+    const btn = document.getElementById("jb-filter-armed");
+    btn.classList.toggle("btn-primary", jbArmedOnly);
+    renderJailbreakModels(jbToggles);
+  }
+
+  async function disableAllJbModels() {
+    const armed = jbModelList.filter(id => jbToggles[id] === true);
+    if (!armed.length) { toast("No model is armed", false); return; }
+    if (!await appConfirm("Switch the jailbreak prompt off for all " + armed.length + " armed model(s)?",
+      { okText: "Disarm all", title: "Disarm every model" })) return;
+    try {
+      // Sequential on purpose: each PUT rewrites the same stored map, so firing
+      // them in parallel would have the writes clobber each other.
+      for (const id of armed) {
+        const res = await api("/api/dashboard/jailbreak/models",
+          { method: "PUT", body: JSON.stringify({ id, enabled: false }) });
+        if (!res.ok) throw new Error(errorMessage(await res.json().catch(() => null), res.status));
+        jbToggles[id] = false;
+      }
+      renderJailbreakModels(jbToggles);
+      toast("All models disarmed", false);
+    } catch (e) {
+      toast("Disarm failed: " + e.message, true);
+      loadJailbreakTab();
+    }
   }
 
   async function toggleJailbreakModel(modelId, enabled) {
