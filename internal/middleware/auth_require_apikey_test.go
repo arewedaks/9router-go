@@ -340,3 +340,29 @@ func TestLoginDisabledWithoutPathListStillGuards(t *testing.T) {
 		t.Fatalf("status = %d, want 401 when no session paths are declared", got)
 	}
 }
+
+// The dashboard's model pickers run on the session cookie alone. Only the
+// paths declared to this middleware are opened for them, so a frontend that
+// calls a different spelling of the same catalogue gets a 401 and renders an
+// empty list — which is what happened when the Jailbreak page asked for
+// /api/v1/models while the bypass list carried /v1/models. This pins both
+// spellings so the next UI change fails here instead of in the browser.
+func TestModelCatalogueSpellingMustBeTheDeclaredOne(t *testing.T) {
+	database, cleanup := setupTestDB(t)
+	defer cleanup()
+	repo := db.NewRepo(database)
+
+	on := true
+	seedSettings(t, repo, &on, nil, new(false))
+	mw := RequireApiKeyUnlessDisabled(repo, func(string) bool { return false },
+		"/api/usage/", "/v1/models", "/models")
+
+	if got := requestFrom(t, mw, "/v1/models", remoteAddr); got != http.StatusOK {
+		t.Errorf("/v1/models: status = %d, want 200 — this is what the dashboard calls", got)
+	}
+	// Same resource, undeclared spelling: stays guarded. If this ever starts
+	// passing, add it to sessionPaths in router.go deliberately.
+	if got := requestFrom(t, mw, "/api/v1/models", remoteAddr); got != http.StatusUnauthorized {
+		t.Errorf("/api/v1/models: status = %d, want 401 (undeclared spelling)", got)
+	}
+}

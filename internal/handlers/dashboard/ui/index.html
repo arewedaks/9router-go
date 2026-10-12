@@ -10139,7 +10139,10 @@
     try {
       const [docRes, modelsRes, togRes] = await Promise.all([
         api("/api/dashboard/jailbreak"),
-        api("/api/v1/models"),
+        // /v1/models, not /api/v1/models: only the former is in the middleware's
+        // session-cookie bypass list, so a password-logged-in browser (cookie
+        // only, no API key) gets the catalogue instead of a 401.
+        api("/v1/models"),
         api("/api/dashboard/jailbreak/models"),
       ]);
       if (docRes.ok) {
@@ -10150,7 +10153,11 @@
       }
       if (modelsRes.ok) {
         const payload = await modelsRes.json();
-        jbModelList = (payload.data || payload.models || []).map(m => m.id).filter(Boolean);
+        const rows = payload.data || payload.models || [];
+        jbModelList = rows.map(m => (typeof m === "string" ? m : m.id)).filter(Boolean);
+      } else {
+        jbModelList = [];
+        toast("Could not load /v1/models: HTTP " + modelsRes.status, true);
       }
       const toggles = togRes.ok ? await togRes.json() : {};
       jbToggles = toggles;
