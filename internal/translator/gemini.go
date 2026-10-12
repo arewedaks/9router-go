@@ -19,6 +19,11 @@ type GeminiStreamState struct {
 	Usage                *OpenAIUsage
 	FinishReason         string
 	LastThoughtSignature string
+	// BlockReason is promptFeedback.blockReason when the API refused the prompt
+	// outright. It arrives instead of any candidate, so a stream can end with a
+	// 200, zero completion tokens and no finishReason — which is otherwise
+	// indistinguishable from a network cut. Carried out so the handler can name it.
+	BlockReason string
 }
 
 // GeminiFileData represents remote or uploaded files referenced by URI.
@@ -147,6 +152,9 @@ type GeminiStreamChunk struct {
 		FinishReason string         `json:"finishReason,omitempty"`
 		Index        int            `json:"index"`
 	} `json:"candidates"`
+	PromptFeedback *struct {
+		BlockReason string `json:"blockReason,omitempty"`
+	} `json:"promptFeedback,omitempty"`
 	UsageMetadata *struct {
 		PromptTokenCount        int `json:"promptTokenCount"`
 		CandidatesTokenCount    int `json:"candidatesTokenCount"`
@@ -627,6 +635,10 @@ func TranslateGeminiChunkToOpenAI(chunk []byte, state *GeminiStreamState) ([]byt
 		return nil, fmt.Errorf("parse Gemini stream chunk: %w", err)
 	}
 
+	if geminiChunk.PromptFeedback != nil && geminiChunk.PromptFeedback.BlockReason != "" {
+		state.BlockReason = geminiChunk.PromptFeedback.BlockReason
+	}
+
 	if len(geminiChunk.Candidates) == 0 && geminiChunk.UsageMetadata == nil {
 		return nil, nil
 	}
@@ -729,6 +741,7 @@ func TranslateGeminiChunkToOpenAI(chunk []byte, state *GeminiStreamState) ([]byt
 
 		// Finish reason
 		if candidate.FinishReason != "" {
+			state.FinishReason = candidate.FinishReason
 			openAIStop := "stop"
 			switch candidate.FinishReason {
 			case "STOP":

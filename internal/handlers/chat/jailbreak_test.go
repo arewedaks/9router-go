@@ -96,8 +96,56 @@ func TestModelOnWithDocInjectsPrompt(t *testing.T) {
 	}
 }
 
-// An armed model with an empty document must still not inject: the document
-// is the content, the toggle only arms it.
+func TestModelWithSpecificPresetInjectsCorrectPrompt(t *testing.T) {
+	repo := newTestRepo(t)
+	presetCoder := &db.JailbreakDoc{ID: "coder", Name: "Coder", Prompt: "CODER INSTRUCTION", GeminiSafety: true}
+	presetWriter := &db.JailbreakDoc{ID: "writer", Name: "Writer", Prompt: "WRITER INSTRUCTION", GeminiSafety: false}
+	if err := repo.SaveJailbreakPreset(presetCoder); err != nil {
+		t.Fatalf("save coder: %v", err)
+	}
+	if err := repo.SaveJailbreakPreset(presetWriter); err != nil {
+		t.Fatalf("save writer: %v", err)
+	}
+
+	const model1 = "ag/gemini-3.1-pro-high"
+	const model2 = "anthropic/claude-3-7-sonnet"
+
+	if err := repo.SetJailbreakModelPreset(model1, "coder", true); err != nil {
+		t.Fatalf("bind model1: %v", err)
+	}
+	if err := repo.SetJailbreakModelPreset(model2, "writer", true); err != nil {
+		t.Fatalf("bind model2: %v", err)
+	}
+
+	h := &ChatHandler{Repo: repo}
+
+	// Model 1 gets coder
+	body1 := map[string]any{
+		"messages": []any{map[string]any{"role": "user", "content": "write code"}},
+	}
+	ctx1 := h.applyJailbreak(context.Background(), body1, model1)
+	if !translator.GeminiSafetyRequested(ctx1) {
+		t.Error("model1 should request gemini safety")
+	}
+	msgs1 := body1["messages"].([]any)
+	if len(msgs1) != 2 || msgs1[0].(map[string]any)["content"] != "CODER INSTRUCTION" {
+		t.Errorf("model1 prompt mismatch: %+v", msgs1)
+	}
+
+	// Model 2 gets writer
+	body2 := map[string]any{
+		"system": "base system",
+		"messages": []any{map[string]any{"role": "user", "content": "write poem"}},
+	}
+	ctx2 := h.applyJailbreak(context.Background(), body2, model2)
+	if translator.GeminiSafetyRequested(ctx2) {
+		t.Error("model2 should not request gemini safety")
+	}
+	sys2 := body2["system"].(string)
+	if sys2 != "WRITER INSTRUCTION\n\nbase system" {
+		t.Errorf("model2 system mismatch: %s", sys2)
+	}
+}
 func TestModelOnWithEmptyDocInjectsNothing(t *testing.T) {
 	repo := newTestRepo(t)
 	if err := repo.SetJailbreakModel("wal/glm-5.3-flash", true); err != nil {

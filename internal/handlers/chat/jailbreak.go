@@ -17,20 +17,12 @@ func (h *ChatHandler) resolveJailbreak(requestedModel string) *db.JailbreakDoc {
 	if h.Repo == nil || requestedModel == "" {
 		return nil
 	}
-	on, err := h.Repo.JailbreakModelEnabled(requestedModel)
-	if err != nil {
-		log.Warn("jailbreak", "toggle lookup failed", "model", requestedModel, "error", err)
-		return nil
-	}
-	if !on {
-		return nil
-	}
-	doc, err := h.Repo.GetJailbreakDoc()
+	doc, err := h.Repo.GetJailbreakDocForModel(requestedModel)
 	if err != nil {
 		log.Warn("jailbreak", "doc lookup failed", "model", requestedModel, "error", err)
 		return nil
 	}
-	if doc.Prompt == "" {
+	if doc == nil || doc.Prompt == "" {
 		return nil
 	}
 	return doc

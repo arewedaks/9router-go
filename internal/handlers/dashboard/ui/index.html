@@ -2175,9 +2175,10 @@
       <div>
         <h2 class="section-title">Jailbreak</h2>
         <p style="font-size:0.85rem;color:var(--muted);margin-top:4px;">
-          Agents.md-style prompt injection: this text is prepended as the system
-          message of every request routed through a provider whose toggle is on.
-          Default <b>off</b> — a provider only ever receives it after you switch it on.
+          Prompt library. Each model picks one preset from a dropdown; the
+          preset's text is prepended as the system message of every request to
+          that model. Default <b>off</b> — a model only receives a prompt after you
+          bind a preset to it.
         </p>
       </div>
     </div>
@@ -2187,19 +2188,17 @@
         <div style="min-width:200px;">
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
             <span class="msym" style="font-size:19px;color:var(--primary);">description</span>
-            <h3 style="margin:0;font-size:1rem;color:#fff;">Prompt document</h3>
+            <h3 style="margin:0;font-size:1rem;color:#fff;">Presets</h3>
             <span class="badge badge-dim" id="jb-status-badge">Checking…</span>
           </div>
           <p style="font-size:0.82rem;color:var(--muted);margin:5px 0 0;">
-            Injected ahead of the original content for every armed model.
+            A preset is one markdown document. Models bind to it by id — editing a
+            preset changes every model that points at it.
           </p>
         </div>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-          <button class="btn btn-primary" id="jb-btn-edit" onclick="openJbEditor('edit')">
-            <span class="msym" style="font-size:16px;">edit_note</span> <span id="jb-btn-edit-label">Open editor</span>
-          </button>
-          <button class="btn" onclick="openJbEditor('view')" title="Render the markdown as the model would read it">
-            <span class="msym" style="font-size:16px;">visibility</span> Preview
+          <button class="btn btn-primary" onclick="openJbEditor('new')">
+            <span class="msym" style="font-size:16px;">add</span> New preset
           </button>
           <button class="btn" onclick="document.getElementById('jb-file-input').click()">
             <span class="msym" style="font-size:16px;">upload_file</span> Upload .md
@@ -2207,31 +2206,7 @@
           <input type="file" id="jb-file-input" accept=".md,.markdown,.txt,text/markdown,text/plain" style="display:none" onchange="uploadJailbreakFile(this)">
         </div>
       </div>
-
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;background:var(--panel-hover);border:1px solid var(--border);border-radius:10px;padding:12px 14px;">
-        <div style="display:flex;gap:20px;align-items:center;flex-wrap:wrap;">
-          <div style="display:flex;align-items:center;gap:7px;font-size:0.84rem;">
-            <span class="msym" style="font-size:17px;color:var(--muted);">draft</span>
-            <span style="color:var(--muted);">Source</span>
-            <span id="jb-info-source" style="font-weight:600;color:var(--text);font-family:ui-monospace,SFMono-Regular,monospace;">none</span>
-          </div>
-          <div style="display:flex;align-items:center;gap:7px;font-size:0.84rem;">
-            <span class="msym" style="font-size:17px;color:var(--muted);">straighten</span>
-            <span style="color:var(--muted);">Size</span>
-            <span class="badge badge-dim" id="jb-prompt-size">0 chars</span>
-          </div>
-        </div>
-        <div style="display:flex;align-items:center;gap:10px;">
-          <div style="text-align:right;line-height:1.35;">
-            <div style="font-size:0.84rem;color:var(--text);">Gemini safety filter</div>
-            <div style="font-size:0.74rem;color:var(--muted);">sends <code>safetySettings BLOCK_NONE</code></div>
-          </div>
-          <label class="switch" title="Turn the Gemini-native safety filters off via the official safetySettings field">
-            <input type="checkbox" id="jb-gemini-safety" onchange="onJbSafetyChange()">
-            <span class="slider"></span>
-          </label>
-        </div>
-      </div>
+      <div id="jb-presets" style="display:flex;flex-direction:column;gap:8px;">Loading presets…</div>
     </div>
 
     <div class="card">
@@ -2244,16 +2219,16 @@
           </div>
           <p style="font-size:0.82rem;color:var(--muted);margin:5px 0 0;">
             Keyed by the model ids <code>/v1/models</code> serves — the exact strings a
-            harness sends. Combo ai: arming one combo arms every leg of it. A model
+            harness sends. Combo ai: binding one combo binds every leg of it. A model
             left off stays byte-identical: no prompt, no log.
           </p>
         </div>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
           <input type="text" id="jb-model-filter" placeholder="Filter models…"
             style="width:220px;max-width:100%;height:34px;padding:0 11px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px;font-size:0.82rem;box-sizing:border-box;"
-            oninput="renderJailbreakModels(jbToggles)">
+            oninput="renderJailbreakModels()">
           <button class="btn btn-sm" id="jb-filter-armed" onclick="toggleJbArmedFilter()" title="Show only armed models">Armed only</button>
-          <button class="btn btn-sm" onclick="disableAllJbModels()" title="Switch every model off">Disarm all</button>
+          <button class="btn btn-sm" onclick="disableAllJbModels()" title="Unbind every model">Disarm all</button>
         </div>
       </div>
       <div id="jb-models" style="display:flex;flex-direction:column;gap:6px;max-height:440px;overflow-y:auto;padding-right:2px;">Loading models…</div>
@@ -2265,7 +2240,7 @@
       <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
         <div style="display:flex;align-items:center;gap:9px;">
           <span class="msym" style="font-size:20px;color:var(--primary);">edit_note</span>
-          <h2 style="font-size:1.1rem;margin:0;">Markdown editor</h2>
+          <h2 style="font-size:1.1rem;margin:0;" id="jb-editor-title">Markdown editor</h2>
           <span class="badge badge-dim" id="jb-editor-source">no file</span>
         </div>
         <div style="display:flex;gap:8px;align-items:center;">
@@ -2280,6 +2255,20 @@
       <div style="font-size:0.78rem;color:var(--muted);margin:10px 0 12px;" id="jb-editor-subtitle">
         Edit the prompt, or switch to <b>Preview</b> to see the rendered markdown. Uploading an .md file loads it here first.
       </div>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px;">
+        <input type="text" id="jb-editor-name" placeholder="Preset name (e.g. Coding Agent)"
+          style="flex:1;min-width:200px;height:34px;padding:0 11px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px;font-size:0.84rem;box-sizing:border-box;">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <div style="text-align:right;line-height:1.35;">
+            <div style="font-size:0.84rem;color:var(--text);">Gemini safety filter</div>
+            <div style="font-size:0.74rem;color:var(--muted);">sends <code>safetySettings BLOCK_NONE</code></div>
+          </div>
+          <label class="switch" title="Turn the Gemini-native safety filters off via the official safetySettings field">
+            <input type="checkbox" id="jb-gemini-safety">
+            <span class="slider"></span>
+          </label>
+        </div>
+      </div>
       <div id="jb-editor-pane-edit">
         <textarea id="jb-editor-text" spellcheck="false" oninput="updateJbPromptSize()"
           style="width:100%;min-height:400px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px;font-family:ui-monospace,SFMono-Regular,monospace;font-size:0.84rem;line-height:1.6;padding:14px;box-sizing:border-box;resize:vertical;"
@@ -2291,7 +2280,7 @@
         <div style="display:flex;gap:8px;">
           <button class="btn" onclick="document.getElementById('jb-file-input').click()"><span class="msym" style="font-size:16px;">upload_file</span> Upload .md</button>
           <button class="btn" onclick="closeModal('jb-editor-modal')">Cancel</button>
-          <button class="btn btn-primary" onclick="saveJailbreakDoc()"><span class="msym" style="font-size:16px;">check</span> Save prompt</button>
+          <button class="btn btn-primary" onclick="saveJailbreakPreset()"><span class="msym" style="font-size:16px;">check</span> Save preset</button>
         </div>
       </div>
     </div>
@@ -10209,34 +10198,28 @@
   }
 
   // ---------------- Jailbreak ----------------
-  // One agents.md-style prompt applied globally; per-model toggles (ids from
-  // /v1/models, exactly what the harness sends) gate where it lands.
-  // Default off: without a toggle the request is untouched.
+  // Preset library + per-model preset binding. Model ids come from /v1/models
+  // exactly as the harness sends them. Default off: a model with no binding
+  // never receives a prompt.
   let jbModelList = [];
-  let jbToggles = {};
-  let jbDoc = { prompt: "", geminiSafety: false, source: "" };
+  let jbPresets = [];
+  let jbBindings = {};   // modelID -> { enabled, presetId }
+  let jbEditing = null;  // null = new preset, else the preset id being edited
   let jbArmedOnly = false;
+
+  function jbPresetByID(id) { return jbPresets.find(p => p.id === id) || null; }
 
   async function loadJailbreakTab() {
     try {
-      const [docRes, modelsRes, togRes] = await Promise.all([
-        api("/api/dashboard/jailbreak"),
+      const [presetsRes, modelsRes, bindRes] = await Promise.all([
+        api("/api/dashboard/jailbreak/presets"),
         // /v1/models, not /api/v1/models: only the former is in the middleware's
         // session-cookie bypass list, so a password-logged-in browser (cookie
         // only, no API key) gets the catalogue instead of a 401.
         api("/v1/models"),
         api("/api/dashboard/jailbreak/models"),
       ]);
-      if (docRes.ok) {
-        const d = await docRes.json();
-        jbDoc = {
-          prompt: d.prompt || "",
-          geminiSafety: d.geminiSafety === true,
-          source: d.source || "",
-        };
-        document.getElementById("jb-gemini-safety").checked = jbDoc.geminiSafety;
-        renderJbPreview();
-      }
+      jbPresets = presetsRes.ok ? (await presetsRes.json()) || [] : [];
       if (modelsRes.ok) {
         const payload = await modelsRes.json();
         const rows = payload.data || payload.models || [];
@@ -10245,35 +10228,85 @@
         jbModelList = [];
         toast("Could not load /v1/models: HTTP " + modelsRes.status, true);
       }
-      const toggles = togRes.ok ? await togRes.json() : {};
-      jbToggles = toggles;
-      renderJailbreakModels(toggles);
+      jbBindings = bindRes.ok ? (await bindRes.json()) || {} : {};
+      renderJbPresets();
+      renderJailbreakModels();
     } catch (e) {
-      document.getElementById("jb-models").textContent = "Failed to load: " + e.message;
+      document.getElementById("jb-presets").textContent = "Failed to load: " + e.message;
     }
   }
 
-  // The page never renders the prompt text itself: a 200-line pre block on the
-  // card reads as an editor and pushes everything else off-screen. The card
-  // summarises (source, size, armed count) and the popup does the writing.
-  function renderJbPreview() {
-    const text = jbDoc.prompt || "";
-    const chars = text.length;
-    const approxTok = chars ? Math.max(1, Math.round(chars / 4)) : 0;
+  // The card summarises: one row per preset with name, size and how many
+  // models point at it. The popup does the writing.
+  function renderJbPresets() {
+    const host = document.getElementById("jb-presets");
+    host.textContent = "";
 
     const badge = document.getElementById("jb-status-badge");
-    badge.textContent = chars ? "Configured" : "Empty";
-    badge.className = "badge " + (chars ? "badge-ok" : "badge-dim");
+    badge.textContent = jbPresets.length + (jbPresets.length === 1 ? " preset" : " presets");
+    badge.className = "badge " + (jbPresets.length ? "badge-ok" : "badge-dim");
 
-    const src = document.getElementById("jb-info-source");
-    src.textContent = jbDoc.source || (chars ? "inline" : "none");
-    src.title = jbDoc.source ? "uploaded from " + jbDoc.source : "";
+    if (!jbPresets.length) {
+      host.innerHTML = '<p style="font-size:0.82rem;color:var(--muted);margin:10px 0;">No presets yet — create one, or upload an .md to import it.</p>';
+      return;
+    }
 
-    const size = document.getElementById("jb-prompt-size");
-    size.textContent = chars ? chars.toLocaleString() + " chars ≈ " + approxTok.toLocaleString() + " tok" : "0 chars";
+    const bindCount = id => Object.values(jbBindings).filter(b => b && b.enabled && b.presetId === id).length;
+    const frag = document.createDocumentFragment();
+    for (const p of jbPresets) {
+      const used = bindCount(p.id);
+      const row = document.createElement("div");
+      row.style.cssText = "display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 12px;background:var(--panel-hover);border:1px solid " + (used ? "#238636" : "var(--border)") + ";border-radius:8px;";
 
-    document.getElementById("jb-btn-edit-label").textContent = chars ? "Edit" : "Open editor";
-    updateJbPromptSize();
+      const left = document.createElement("div");
+      left.style.cssText = "min-width:0;display:flex;flex-direction:column;gap:4px;";
+      const title = document.createElement("div");
+      title.style.cssText = "display:flex;align-items:center;gap:9px;flex-wrap:wrap;";
+      const icon = document.createElement("span");
+      icon.className = "msym";
+      icon.style.cssText = "font-size:17px;color:" + (used ? "#3fb950" : "var(--muted)") + ";";
+      icon.textContent = "description";
+      const nm = document.createElement("span");
+      nm.style.cssText = "font-size:0.88rem;font-weight:600;color:#fff;";
+      nm.textContent = p.name || p.id;
+      const idBadge = document.createElement("span");
+      idBadge.className = "badge badge-dim";
+      idBadge.textContent = p.id;
+      const useBadge = document.createElement("span");
+      useBadge.className = "badge " + (used ? "badge-green" : "badge-dim");
+      useBadge.textContent = used + (used === 1 ? " model" : " models");
+      title.append(icon, nm, idBadge, useBadge);
+
+      const meta = document.createElement("div");
+      meta.style.cssText = "font-size:0.76rem;color:var(--muted);";
+      meta.textContent = (p.source ? p.source + " · " : "") + fmtJbSize(p.prompt || "") +
+        (p.geminiSafety ? " · gemini safety off" : "");
+      left.append(title, meta);
+
+      const actions = document.createElement("div");
+      actions.style.cssText = "display:flex;gap:6px;flex-shrink:0;";
+      const mkBtn = (glyph, label, fn, cls) => {
+        const b = document.createElement("button");
+        b.className = "btn btn-sm" + (cls ? " " + cls : "");
+        b.title = label;
+        const g = document.createElement("span");
+        g.className = "msym";
+        g.style.fontSize = "16px";
+        g.textContent = glyph;
+        b.appendChild(g);
+        b.onclick = fn;
+        return b;
+      };
+      actions.append(
+        mkBtn("edit_note", "Edit", () => openJbEditor("edit", p.id)),
+        mkBtn("visibility", "Preview", () => openJbEditor("view", p.id)),
+        mkBtn("delete", "Delete", () => deleteJbPreset(p.id)),
+      );
+
+      row.append(left, actions);
+      frag.appendChild(row);
+    }
+    host.appendChild(frag);
   }
 
   function fmtJbSize(v) {
@@ -10284,19 +10317,18 @@
   }
 
   function updateJbPromptSize() {
-    const v = (document.getElementById("jb-editor-text").value) || jbDoc.prompt || "";
-    const label = fmtJbSize(v);
+    const v = document.getElementById("jb-editor-text").value || "";
     const ed = document.getElementById("jb-editor-size");
-    if (ed) ed.textContent = label;
-    const src = document.getElementById("jb-editor-source");
-    if (src) {
-      src.textContent = jbDoc.source || "no file";
-      src.className = "badge " + (jbDoc.source ? "badge-oauth" : "badge-dim");
-    }
+    if (ed) ed.textContent = fmtJbSize(v);
   }
 
-  function openJbEditor(mode) {
-    document.getElementById("jb-editor-text").value = jbDoc.prompt || "";
+  function openJbEditor(mode, presetID) {
+    const p = presetID ? jbPresetByID(presetID) : null;
+    jbEditing = p ? p.id : null;
+    document.getElementById("jb-editor-title").textContent = p ? "Edit preset" : "New preset";
+    document.getElementById("jb-editor-text").value = p ? (p.prompt || "") : "";
+    document.getElementById("jb-editor-name").value = p ? (p.name || "") : "";
+    document.getElementById("jb-gemini-safety").checked = p ? p.geminiSafety === true : true;
     document.getElementById("jb-editor-modal").classList.add("active");
     setJbEditorTab(mode === "view" ? "view" : "edit");
     updateJbPromptSize();
@@ -10309,8 +10341,9 @@
     document.getElementById("jb-tab-edit").classList.toggle("btn-primary", !isView);
     document.getElementById("jb-tab-view").classList.toggle("btn-primary", isView);
     if (isView) {
+      const v = document.getElementById("jb-editor-text").value || "";
       document.getElementById("jb-editor-pane-view").innerHTML =
-        mdToHtml(document.getElementById("jb-editor-text").value || "");
+        v.trim() ? mdToHtml(v) : '<p style="color:var(--muted);">Nothing to preview yet.</p>';
     }
   }
 
@@ -10324,11 +10357,14 @@
     }
     const reader = new FileReader();
     reader.onload = () => {
-      jbDoc.prompt = String(reader.result || "");
-      jbDoc.source = file.name;
-      document.getElementById("jb-editor-text").value = jbDoc.prompt;
-      openJbEditor("edit");
-      toast("Loaded " + file.name + " — press Save to store", false);
+      openJbEditor("edit", null);
+      document.getElementById("jb-editor-text").value = String(reader.result || "");
+      document.getElementById("jb-editor-name").value = file.name.replace(/\.(md|markdown|txt)$/i, "");
+      const src = document.getElementById("jb-editor-source");
+      src.textContent = file.name;
+      src.className = "badge badge-oauth";
+      updateJbPromptSize();
+      toast("Loaded " + file.name + " — press Save preset to store", false);
     };
     reader.onerror = () => toast("Could not read the file", true);
     reader.readAsText(file);
@@ -10387,56 +10423,92 @@
     }
   }
 
-  async function onJbSafetyChange() {
-    saveJailbreakDoc();
-  }
-
-  async function saveJailbreakDoc() {
+  async function saveJailbreakPreset() {
     const body = {
+      id: jbEditing || undefined,
+      name: document.getElementById("jb-editor-name").value.trim(),
       prompt: document.getElementById("jb-editor-text").value,
       geminiSafety: document.getElementById("jb-gemini-safety").checked,
-      source: jbDoc.source || "",
+      source: (jbEditing && jbPresetByID(jbEditing) ? jbPresetByID(jbEditing).source : "") || "",
     };
+    if (!body.prompt.trim()) {
+      toast("The preset prompt is empty", true);
+      return;
+    }
     try {
-      const res = await api("/api/dashboard/jailbreak", { method: "PUT", body: JSON.stringify(body) });
+      const res = await api("/api/dashboard/jailbreak/presets", { method: "PUT", body: JSON.stringify(body) });
       if (!res.ok) {
         const data = await res.json().catch(() => null);
         throw new Error(errorMessage(data, res.status));
       }
-      jbDoc = { prompt: body.prompt, geminiSafety: body.geminiSafety, source: body.source };
-      renderJbPreview();
+      const out = await res.json();
+      const saved = out.preset;
+      const at = jbPresets.findIndex(p => p.id === saved.id);
+      if (at >= 0) jbPresets[at] = saved; else jbPresets.push(saved);
+      renderJbPresets();
+      renderJailbreakModels();
       closeModal("jb-editor-modal");
-      toast("Jailbreak prompt saved", false);    } catch (e) {
+      toast("Preset saved", false);
+    } catch (e) {
       toast("Save failed: " + e.message, true);
     }
   }
 
-  function renderJailbreakModels(toggles) {
+  async function deleteJbPreset(id) {
+    const p = jbPresetByID(id);
+    if (!p) return;
+    const used = Object.values(jbBindings).filter(b => b && b.enabled && b.presetId === id).length;
+    const msg = used
+      ? 'Delete preset "' + (p.name || p.id) + '"? ' + used + " model(s) use it and will stop receiving a prompt."
+      : 'Delete preset "' + (p.name || p.id) + '"? This cannot be undone.';
+    if (!await appConfirm(msg, { okText: "Delete", title: "Delete preset" })) return;
+    try {
+      const res = await api("/api/dashboard/jailbreak/presets/" + encodeURIComponent(id), { method: "DELETE" });
+      if (!res.ok) throw new Error(errorMessage(await res.json().catch(() => null), res.status));
+      jbPresets = jbPresets.filter(x => x.id !== id);
+      for (const m of Object.keys(jbBindings)) {
+        if (jbBindings[m] && jbBindings[m].presetId === id) delete jbBindings[m];
+      }
+      renderJbPresets();
+      renderJailbreakModels();
+      toast("Preset deleted", false);
+    } catch (e) {
+      toast("Delete failed: " + e.message, true);
+    }
+  }
+
+  function renderJailbreakModels() {
     const host = document.getElementById("jb-models");
     host.textContent = "";
 
+    const isArmed = id => { const b = jbBindings[id]; return !!(b && b.enabled); };
+
     // Count on the ids the page actually knows about, so the badge cannot drift
-    // above the number of rows a user could switch off.
-    const armed = jbModelList.filter(id => toggles[id] === true).length;
+    // above the number of rows a user could bind.
+    const armed = jbModelList.filter(isArmed).length;
     const countBadge = document.getElementById("jb-models-count");
     countBadge.textContent = armed + " / " + jbModelList.length + " armed";
     countBadge.className = "badge " + (armed ? "badge-green" : "badge-dim");
 
     const filter = (document.getElementById("jb-model-filter").value || "").toLowerCase();
     let ids = jbModelList.filter(id => !filter || id.toLowerCase().includes(filter));
-    if (jbArmedOnly) ids = ids.filter(id => toggles[id] === true);
+    if (jbArmedOnly) ids = ids.filter(isArmed);
     ids.sort();
 
     if (!ids.length) {
-      const why = jbArmedOnly ? "No model is armed yet — switch one on to enable the prompt."
+      const why = jbArmedOnly ? "No model is armed yet — bind a preset to enable the prompt."
         : jbModelList.length ? "No model matches the filter." : "No models served yet.";
       host.innerHTML = '<p style="font-size:0.82rem;color:var(--muted);margin:10px 0;">' + why + '</p>';
       return;
     }
 
+    // Re-rendering only this row's siblings is not worth it: a preset change
+    // moves a badge on another row, so the whole list redraws on write.
+    const presets = jbPresets.slice().sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id));
     const frag = document.createDocumentFragment();
     for (const id of ids) {
-      const on = toggles[id] === true;
+      const binding = jbBindings[id] || {};
+      const on = isArmed(id);
       const row = document.createElement("div");
       row.style.cssText = "display:flex;justify-content:space-between;align-items:center;gap:12px;padding:8px 12px;background:var(--panel-hover);border:1px solid " + (on ? "#238636" : "var(--border)") + ";border-radius:8px;transition:border-color 0.15s;";
       const label = document.createElement("div");
@@ -10453,28 +10525,33 @@
       name.textContent = id;
       name.title = id;
       label.append(dot, name);
-      const sw = document.createElement("label");
-      sw.className = "switch";
-      sw.style.flexShrink = "0";
-      const input = document.createElement("input");
-      input.type = "checkbox";
-      input.checked = on;
-      input.onchange = () => {
-        jbToggles[id] = input.checked;
-        row.style.borderColor = input.checked ? "#238636" : "var(--border)";
-        dot.style.color = input.checked ? "#3fb950" : "var(--muted)";
-        dot.style.fontVariationSettings = "'FILL' " + (input.checked ? 1 : 0);
-        dot.textContent = "shield";
-        name.style.color = input.checked ? "#fff" : "var(--muted)";
-        const n = jbModelList.filter(m => jbToggles[m] === true).length;
-        countBadge.textContent = n + " / " + jbModelList.length + " armed";
-        countBadge.className = "badge " + (n ? "badge-green" : "badge-dim");
-        toggleJailbreakModel(id, input.checked);
-      };
-      const slider = document.createElement("span");
-      slider.className = "slider";
-      sw.append(input, slider);
-      row.append(label, sw);
+
+      const sel = document.createElement("select");
+      sel.style.cssText = "flex-shrink:0;max-width:240px;height:32px;padding:0 8px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px;font-size:0.78rem;";
+      sel.title = "Preset injected for this model";
+      const off = document.createElement("option");
+      off.value = "off";
+      off.textContent = "Off";
+      sel.appendChild(off);
+      for (const p of presets) {
+        const o = document.createElement("option");
+        o.value = p.id;
+        o.textContent = p.name || p.id;
+        sel.appendChild(o);
+      }
+      // A binding can outlive its preset (deleted elsewhere); show it rather
+      // than silently snapping the dropdown to Off.
+      if (on && binding.presetId && !presets.some(p => p.id === binding.presetId)) {
+        const o = document.createElement("option");
+        o.value = binding.presetId;
+        o.textContent = binding.presetId + " (missing)";
+        sel.appendChild(o);
+      }
+      sel.value = on && binding.presetId ? binding.presetId : "off";
+      sel.disabled = !presets.length && !on;
+      sel.onchange = () => bindJailbreakModel(id, sel.value);
+
+      row.append(label, sel);
       frag.appendChild(row);
     }
     host.appendChild(frag);
@@ -10484,24 +10561,25 @@
     jbArmedOnly = !jbArmedOnly;
     const btn = document.getElementById("jb-filter-armed");
     btn.classList.toggle("btn-primary", jbArmedOnly);
-    renderJailbreakModels(jbToggles);
+    renderJailbreakModels();
   }
 
   async function disableAllJbModels() {
-    const armed = jbModelList.filter(id => jbToggles[id] === true);
+    const armed = jbModelList.filter(id => jbBindings[id] && jbBindings[id].enabled);
     if (!armed.length) { toast("No model is armed", false); return; }
-    if (!await appConfirm("Switch the jailbreak prompt off for all " + armed.length + " armed model(s)?",
+    if (!await appConfirm("Unbind the jailbreak preset from all " + armed.length + " armed model(s)?",
       { okText: "Disarm all", title: "Disarm every model" })) return;
     try {
-      // Sequential on purpose: each PUT rewrites the same stored map, so firing
-      // them in parallel would have the writes clobber each other.
+      // Sequential on purpose: keeping the write path one request at a time
+      // makes a mid-way failure leave a state the reload can describe.
       for (const id of armed) {
         const res = await api("/api/dashboard/jailbreak/models",
-          { method: "PUT", body: JSON.stringify({ id, enabled: false }) });
+          { method: "PUT", body: JSON.stringify({ id, presetId: "off" }) });
         if (!res.ok) throw new Error(errorMessage(await res.json().catch(() => null), res.status));
-        jbToggles[id] = false;
+        delete jbBindings[id];
       }
-      renderJailbreakModels(jbToggles);
+      renderJbPresets();
+      renderJailbreakModels();
       toast("All models disarmed", false);
     } catch (e) {
       toast("Disarm failed: " + e.message, true);
@@ -10509,21 +10587,25 @@
     }
   }
 
-  async function toggleJailbreakModel(modelId, enabled) {
+  // presetId is the dropdown value: a preset id, or "off". The server derives
+  // enabled from that, so the page never sends two fields that could disagree.
+  async function bindJailbreakModel(modelId, presetId) {
     try {
-      // id in the body, never the path: model ids carry "/" and ":", and an
-      // encoded path segment came back still-encoded, storing a key that never
-      // matched the model again.
       const res = await api("/api/dashboard/jailbreak/models",
-        { method: "PUT", body: JSON.stringify({ id: modelId, enabled }) });
+        { method: "PUT", body: JSON.stringify({ id: modelId, presetId }) });
       if (!res.ok) {
         const data = await res.json().catch(() => null);
         throw new Error(errorMessage(data, res.status));
       }
-      toast((enabled ? "Jailbreak ON for " : "Jailbreak OFF for ") + modelId, false);
+      const out = await res.json();
+      if (out.enabled) jbBindings[modelId] = { enabled: true, presetId: out.presetId };
+      else delete jbBindings[modelId];
+      renderJbPresets();
+      renderJailbreakModels();
+      toast((out.enabled ? "Jailbreak ON for " : "Jailbreak OFF for ") + modelId, false);
     } catch (e) {
-      toast("Toggle failed: " + e.message, true);
-      loadJailbreakTab(); // snap the switch back to the stored state
+      toast("Binding failed: " + e.message, true);
+      loadJailbreakTab(); // snap the dropdown back to the stored state
     }
   }
 

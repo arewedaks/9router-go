@@ -185,10 +185,12 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 		dr.Get("/settings", h.HandleGetSettings)
 		dr.Post("/settings", h.HandleUpdateSettings)
 
-		// Jailbreak: global agents.md-style prompt document; on/off toggles keyed
-		// by the model ids /v1/models serves. Default off.
+		// Jailbreak: agent prompt presets library; per-model dropdown binding.
 		dr.Get("/jailbreak", h.HandleGetJailbreak)
 		dr.Put("/jailbreak", h.HandlePutJailbreak)
+		dr.Get("/jailbreak/presets", h.HandleListJailbreakPresets)
+		dr.Put("/jailbreak/presets", h.HandlePutJailbreakPreset)
+		dr.Delete("/jailbreak/presets/{id}", h.HandleDeleteJailbreakPreset)
 		dr.Get("/jailbreak/models", h.HandleListJailbreakModels)
 		dr.Put("/jailbreak/models", h.HandleSetJailbreakModel)
 

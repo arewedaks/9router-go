@@ -238,7 +238,9 @@ func (h *ChatHandler) handleGeminiStream(ctx context.Context, w http.ResponseWri
 	sessionKey := fmt.Sprintf("gemini-stream-%d", time.Now().UnixNano())
 	defer func() {
 		if translateResponse {
-			if endChunk := translator.EnsureStreamClosed(sessionKey); len(endChunk) > 0 {
+			// geminiState.FinishReason is empty when upstream cut the stream, so
+			// the close is flagged as truncated to emit an error event.
+			if endChunk := translator.EnsureStreamClosedReason(sessionKey, geminiState.FinishReason == ""); len(endChunk) > 0 {
 				hw.Write(endChunk)
 				if flusher != nil {
 					flusher.Flush()
@@ -301,6 +303,18 @@ func (h *ChatHandler) handleGeminiStream(ctx context.Context, w http.ResponseWri
 			flusher.Flush()
 		}
 	})
+	// A Gemini stream that ends without ever emitting a finishReason was cut
+	// short upstream: ScanStream reports a clean EOF either way, so nothing
+	// downstream could tell a truncated answer from a complete one. Synthesize
+	// a terminal error (mirrors the OpenAI executor's sawTerminal path) so the
+	// client surfaces the truncation instead of silently keeping partial text.
+	truncated := err == nil && geminiState.FinishReason == ""
+	if truncated {
+		if !translateResponse {
+			n, _ := hw.Write([]byte("data: {\"error\":{\"message\":\"upstream stream ended before completion\",\"type\":\"api_error\"}}\n\n"))
+			totalBytesWritten += n
+		}
+	}
 	if !translateResponse {
 		n, _ := hw.Write([]byte("data: [DONE]\n\n"))
 		totalBytesWritten += n
@@ -308,7 +322,13 @@ func (h *ChatHandler) handleGeminiStream(ctx context.Context, w http.ResponseWri
 			flusher.Flush()
 		}
 	}
-	log.Info("gemini", "stream ended", "chunks", totalChunks, "bytesWritten", totalBytesWritten, "duration_ms", time.Since(start).Milliseconds(), "err", err)
+	log.Info("gemini", "stream ended", "chunks", totalChunks, "bytesWritten", totalBytesWritten, "duration_ms", time.Since(start).Milliseconds(), "err", err, "truncated", truncated, "finishReason", geminiState.FinishReason, "blockReason", geminiState.BlockReason)
+	// A 200 that produced no text at all is a refusal or an empty generation, not
+	// a short answer — say so loudly, because on the wire it is a successful
+	// zero-token response and every other log line reads as normal.
+	if totalBytesWritten == 0 {
+		log.Warn("gemini", "stream produced no output", "chunks", totalChunks, "duration_ms", time.Since(start).Milliseconds(), "finishReason", geminiState.FinishReason, "blockReason", geminiState.BlockReason)
+	}
 	// Pull actual accumulated usage (incl. cached tokens) out of the session so
 	// the log sees real numbers instead of the fallback estimate.
 	if translateResponse {

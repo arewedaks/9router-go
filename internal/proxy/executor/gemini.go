@@ -32,44 +32,51 @@ func ForwardGemini(w http.ResponseWriter, req *Request) error {
 		}
 	}()
 
+	// The antigravity envelope wraps each SSE event individually
+	// (`{"response":{...}}` per event), so it is unwrapped inside the scanner.
+	// Reading the whole body first and unwrapping once only ever parsed the
+	// first event — a multi-event stream came back as a single chunk, which is
+	// why long generations showed up as `chunks=12 bytesWritten=3571`.
 	if req.ProjectID != "" {
-		raw, err := io.ReadAll(resp.Body)
+		if req.IsStream {
+			if req.Ctx != nil {
+				stallReader := proxy.NewStallReaderWithContext(req.Ctx, resp.Body, 0, "antigravity")
+				bodyCloser = stallReader
+				return geminiStream(w, stallReader, req.Ctx, true)
+			}
+			return geminiStream(w, resp.Body, ctx, true)
+		}
+		raw, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
 		if err != nil {
 			return fmt.Errorf("read response body: %w", err)
 		}
-		unwrapped := translator.UnwrapAntigravityResponse(raw)
-		if req.IsStream {
-			return geminiStream(w, io.NopCloser(bytes.NewReader(unwrapped)), req.Ctx)
-		}
-		return geminiNonStream(w, bytes.NewReader(unwrapped))
+		return geminiNonStream(w, bytes.NewReader(translator.UnwrapAntigravityResponse(raw)))
 	}
 	if req.IsStream {
 		stallReader := proxy.NewStallReaderWithContext(req.Ctx, resp.Body, 0, "gemini")
 		bodyCloser = stallReader
-		return geminiStream(w, stallReader, req.Ctx)
+		return geminiStream(w, stallReader, req.Ctx, false)
 	}
 	return geminiNonStream(w, resp.Body)
 }
 
-func geminiStream(w http.ResponseWriter, upstream io.Reader, ctx context.Context) error {
+// geminiStream translates Gemini SSE to OpenAI SSE. unwrap is set for the
+// antigravity envelope, where every event is a standalone {"response":{...}}.
+func geminiStream(w http.ResponseWriter, upstream io.Reader, ctx context.Context, unwrap bool) error {
 	hw := proxy.NewHeartbeatWriter(ctx, w, 0)
 	defer hw.Close()
 	flusher := proxy.WriteSSEHeaders(hw)
-	firstLine := true
 	state := &translator.GeminiStreamState{}
 	return proxy.ScanStream(upstream, func(chunk []byte) {
-		if firstLine {
-			firstLine = false
-			return
-		}
 		cs := strings.TrimSpace(string(chunk))
-		if cs == "" || cs == "data: [DONE]" {
+		if cs == "" || cs == "[DONE]" {
 			return
 		}
-		if !strings.HasPrefix(cs, "data: ") {
-			return
+		payload := []byte(cs)
+		if unwrap {
+			payload = translator.UnwrapAntigravityResponse(payload)
 		}
-		oc, err := translator.TranslateGeminiChunkToOpenAI([]byte(strings.TrimPrefix(cs, "data: ")), state)
+		oc, err := translator.TranslateGeminiChunkToOpenAI(payload, state)
 		if err != nil || oc == nil {
 			return
 		}
@@ -118,9 +125,9 @@ func geminiNonStream(w http.ResponseWriter, upstream io.Reader) error {
 		}
 	}
 	for _, c := range geminiResp.Candidates {
-		text := ""
-		if len(c.Content.Parts) > 0 {
-			text = c.Content.Parts[0].Text
+		var b strings.Builder
+		for _, p := range c.Content.Parts {
+			b.WriteString(p.Text)
 		}
 		fr := "stop"
 		if c.FinishReason != "" && c.FinishReason != "STOP" {
@@ -128,7 +135,7 @@ func geminiNonStream(w http.ResponseWriter, upstream io.Reader) error {
 		}
 		resp.Choices = append(resp.Choices, translator.OpenAIResponseChoice{
 			Index:        0,
-			Message:      translator.OpenAIRespMsg{Role: "assistant", Content: text},
+			Message:      translator.OpenAIRespMsg{Role: "assistant", Content: b.String()},
 			FinishReason: &fr,
 		})
 	}

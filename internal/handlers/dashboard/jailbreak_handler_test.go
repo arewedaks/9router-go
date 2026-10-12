@@ -124,3 +124,84 @@ func TestJailbreakDocStoresUploadedMarkdownFile(t *testing.T) {
 		t.Errorf("stored doc mismatch: source=%q len(prompt)=%d", doc.Source, len(doc.Prompt))
 	}
 }
+
+func TestJailbreakPresetCRUDRoutes(t *testing.T) {
+	_, _, r := setupTestDashboard(t)
+
+	// Create preset via PUT /api/dashboard/jailbreak/presets
+	payload, _ := json.Marshal(map[string]any{
+		"id":           "expert-coder",
+		"name":         "Expert Coder",
+		"prompt":       "You are an expert coder.",
+		"geminiSafety": true,
+		"source":       "expert.md",
+	})
+	req := httptest.NewRequest(http.MethodPut, "/api/dashboard/jailbreak/presets", bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT preset status = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+
+	// List presets GET /api/dashboard/jailbreak/presets
+	req = httptest.NewRequest(http.MethodGet, "/api/dashboard/jailbreak/presets", nil)
+	rec = httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET presets status = %d, want 200", rec.Code)
+	}
+	var list []map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
+		t.Fatalf("decode presets: %v", err)
+	}
+	found := false
+	for _, p := range list {
+		if p["id"] == "expert-coder" {
+			found = true
+			if p["name"] != "Expert Coder" || p["prompt"] != "You are an expert coder." {
+				t.Fatalf("preset content mismatch: %+v", p)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("created preset not in list: %+v", list)
+	}
+
+	// Bind model to preset
+	bindPayload, _ := json.Marshal(map[string]any{
+		"id":       "anthropic/claude-3-7-sonnet",
+		"presetId": "expert-coder",
+	})
+	req = httptest.NewRequest(http.MethodPut, "/api/dashboard/jailbreak/models", bytes.NewReader(bindPayload))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT model bind status = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+
+	// GET /api/dashboard/jailbreak/models
+	req = httptest.NewRequest(http.MethodGet, "/api/dashboard/jailbreak/models", nil)
+	rec = httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET models status = %d, want 200", rec.Code)
+	}
+	var modelConfigs map[string]map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &modelConfigs); err != nil {
+		t.Fatalf("decode models: %v", err)
+	}
+	cfg := modelConfigs["anthropic/claude-3-7-sonnet"]
+	if cfg["enabled"] != true || cfg["presetId"] != "expert-coder" {
+		t.Fatalf("model config mismatch: %+v", cfg)
+	}
+
+	// Delete preset DELETE /api/dashboard/jailbreak/presets/{id}
+	req = httptest.NewRequest(http.MethodDelete, "/api/dashboard/jailbreak/presets/expert-coder", nil)
+	rec = httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("DELETE preset status = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+}

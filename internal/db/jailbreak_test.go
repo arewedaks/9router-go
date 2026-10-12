@@ -78,3 +78,87 @@ func TestJailbreakModelToggleOptIn(t *testing.T) {
 		t.Fatalf("list = %v, want only gemini-flash", list)
 	}
 }
+
+func TestJailbreakPresetsAndModelBinding(t *testing.T) {
+	repo := newSettingsRepo(t)
+
+	// Save two presets
+	p1 := &JailbreakDoc{ID: "coder", Name: "Coding Agent", Prompt: "You are a senior coder.", GeminiSafety: true, Source: "coder.md"}
+	p2 := &JailbreakDoc{ID: "writer", Name: "Creative Writer", Prompt: "You are a creative writer.", GeminiSafety: false, Source: "writer.md"}
+
+	if err := repo.SaveJailbreakPreset(p1); err != nil {
+		t.Fatalf("save p1: %v", err)
+	}
+	if err := repo.SaveJailbreakPreset(p2); err != nil {
+		t.Fatalf("save p2: %v", err)
+	}
+
+	presets, err := repo.ListJailbreakPresets()
+	if err != nil {
+		t.Fatalf("list presets: %v", err)
+	}
+	if len(presets) < 2 {
+		t.Fatalf("expected at least 2 presets, got %d", len(presets))
+	}
+
+	got1, err := repo.GetJailbreakPreset("coder")
+	if err != nil || got1.Prompt != p1.Prompt || !got1.GeminiSafety {
+		t.Fatalf("get coder preset failed: %+v, err: %v", got1, err)
+	}
+
+	// Model bindings
+	const modelA = "openai/gpt-4o"
+	const modelB = "anthropic/claude-3-5-sonnet"
+	const modelC = "google/gemini-1.5-pro"
+
+	if err := repo.SetJailbreakModelPreset(modelA, "coder", true); err != nil {
+		t.Fatalf("set modelA: %v", err)
+	}
+	if err := repo.SetJailbreakModelPreset(modelB, "writer", true); err != nil {
+		t.Fatalf("set modelB: %v", err)
+	}
+	// modelC disabled
+	if err := repo.SetJailbreakModelPreset(modelC, "off", false); err != nil {
+		t.Fatalf("set modelC: %v", err)
+	}
+
+	docA, err := repo.GetJailbreakDocForModel(modelA)
+	if err != nil || docA == nil || docA.Prompt != p1.Prompt {
+		t.Fatalf("docA mismatch: %+v, err: %v", docA, err)
+	}
+
+	docB, err := repo.GetJailbreakDocForModel(modelB)
+	if err != nil || docB == nil || docB.Prompt != p2.Prompt {
+		t.Fatalf("docB mismatch: %+v, err: %v", docB, err)
+	}
+
+	docC, err := repo.GetJailbreakDocForModel(modelC)
+	if err != nil || docC != nil {
+		t.Fatalf("docC should be nil, got: %+v, err: %v", docC, err)
+	}
+
+	// List configs
+	cfgs, err := repo.ListJailbreakModelConfigs()
+	if err != nil {
+		t.Fatalf("list configs: %v", err)
+	}
+	if cfgs[modelA].PresetID != "coder" || !cfgs[modelA].Enabled {
+		t.Fatalf("expected modelA coder config, got %+v", cfgs[modelA])
+	}
+	if cfgs[modelB].PresetID != "writer" || !cfgs[modelB].Enabled {
+		t.Fatalf("expected modelB writer config, got %+v", cfgs[modelB])
+	}
+	if cfgs[modelC].Enabled {
+		t.Fatalf("expected modelC disabled, got %+v", cfgs[modelC])
+	}
+
+	// Delete preset
+	if err := repo.DeleteJailbreakPreset("writer"); err != nil {
+		t.Fatalf("delete writer: %v", err)
+	}
+	// After deleting writer, modelB gets nil doc
+	docBDeleted, err := repo.GetJailbreakDocForModel(modelB)
+	if err != nil || docBDeleted != nil {
+		t.Fatalf("expected nil after preset deletion, got %+v, err: %v", docBDeleted, err)
+	}
+}

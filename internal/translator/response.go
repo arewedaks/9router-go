@@ -587,6 +587,14 @@ func TranslateOpenAIToClaudeStreamSession(sessionKey string, openaiChunk []byte)
 // EnsureStreamClosed generates closing events (message_delta, message_stop) if a stream
 // was interrupted or ended without an explicit finish_reason from upstream.
 func EnsureStreamClosed(sessionKey string) []byte {
+	return EnsureStreamClosedReason(sessionKey, false)
+}
+
+// EnsureStreamClosedReason closes a still-open Claude stream. When truncated is
+// true the upstream ended without a finishReason, so an `error` event is emitted
+// before the synthetic end_turn: otherwise a cut-off answer is presented to the
+// client as a cleanly completed one, which is how silent truncation hid here.
+func EnsureStreamClosedReason(sessionKey string, truncated bool) []byte {
 	if sessionKey == "" {
 		return nil
 	}
@@ -602,6 +610,16 @@ func EnsureStreamClosed(sessionKey string) []byte {
 
 	state.FinishReason = "stop"
 	var results []map[string]any
+
+	if truncated {
+		results = append(results, map[string]any{
+			"type": "error",
+			"error": map[string]any{
+				"type":    "api_error",
+				"message": "upstream stream ended before completion",
+			},
+		})
+	}
 
 	if !state.MessageStartSent {
 		state.MessageStartSent = true
