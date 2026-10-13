@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -469,6 +470,17 @@ type ProviderSummary struct {
 	IsEffectivelyActive bool   `json:"isEffectivelyActive"`
 	HasActiveCooldown   bool   `json:"hasActiveCooldown,omitempty"`
 
+	// LastError is the stored upstream message behind a failing status. The UI
+	// shows it on hover so "quota_exhausted" tells the operator *which* quota
+	// and "rate_limited" says how long to wait, instead of one opaque chip.
+	// Truncated: it is display text, not a log.
+	LastError string `json:"lastError,omitempty"`
+
+	// CooldownUntil is when a live modelLock_* entry expires, ISO-8601. Empty
+	// when no cooldown is active. Lets the UI say "retry in 12m" rather than
+	// leaving the operator to guess.
+	CooldownUntil string `json:"cooldownUntil,omitempty"`
+
 	// ClientProfile is no longer reported per connection: the Antigravity client
 	// identity is a provider-wide setting (see
 	// HandleSetAntigravityClientProfile), so a per-account value would be a second
@@ -509,11 +521,23 @@ type accountInfo struct {
 	// a spent credit/quota budget does not refill on a timer, so the status
 	// stays "quota_exhausted" instead of silently recovering to "active".
 	LastError string
+
+	// CooldownUntil is the latest live modelLock_* deadline (RFC3339), empty
+	// when no lock is active.
+	CooldownUntil string
 }
 
 // hasLiveModelLock reports whether the credential blob still holds any
 // modelLock_* entry whose deadline is in the future.
 func hasLiveModelLock(m map[string]any, now time.Time) bool {
+	return latestModelLockDeadline(m, now) != ""
+}
+
+// latestModelLockDeadline returns the furthest-future modelLock_* deadline in
+// RFC3339, or "" when none is live. The furthest one is the honest answer for
+// "when does this account become usable again": any lock can only delay it.
+func latestModelLockDeadline(m map[string]any, now time.Time) string {
+	var latest time.Time
 	for key, val := range m {
 		if !strings.HasPrefix(key, "modelLock_") {
 			continue
@@ -522,11 +546,14 @@ func hasLiveModelLock(m map[string]any, now time.Time) bool {
 		if !ok || s == "" {
 			continue
 		}
-		if t, err := time.Parse(time.RFC3339, s); err == nil && now.Before(t) {
-			return true
+		if t, err := time.Parse(time.RFC3339, s); err == nil && now.Before(t) && t.After(latest) {
+			latest = t
 		}
 	}
-	return false
+	if latest.IsZero() {
+		return ""
+	}
+	return latest.Format(time.RFC3339)
 }
 
 // extractAccountInfo parses the stored credential JSON blob and pulls out
@@ -563,6 +590,7 @@ func extractAccountInfo(raw string) accountInfo {
 	info.LastUsedAt = str("lastUsedAt")
 	info.LastError = str("lastError")
 	info.HasActiveCooldown = hasLiveModelLock(m, time.Now().UTC())
+	info.CooldownUntil = latestModelLockDeadline(m, time.Now().UTC())
 
 	if info.ExpiresAt != "" {
 		if t, err := time.Parse(time.RFC3339, info.ExpiresAt); err == nil {
@@ -571,6 +599,17 @@ func extractAccountInfo(raw string) accountInfo {
 	}
 
 	return info
+}
+
+// truncateForDisplay shortens stored upstream error text for the API payload.
+// The full message stays in the log; this is what a tooltip shows. Counts runes,
+// not bytes, so a multi-byte message is not cut mid-character.
+func truncateForDisplay(s string, max int) string {
+	r := []rune(s)
+	if len(r) <= max {
+		return s
+	}
+	return string(r[:max]) + "…"
 }
 
 // applyProviderMeta copies upstream display fields onto a summary.
@@ -716,6 +755,39 @@ type ProviderNodeInfo struct {
 	APIPath  string `json:"apiPath,omitempty"`
 }
 
+// serviceKindsFromModels derives a provider's service kinds from the kinds of
+// the models it serves, in SERVICE_KIND order rather than map order so the list
+// is stable between requests. Empty when no model declares a kind.
+func serviceKindsFromModels(models []db.CachedModel) []string {
+	seen := map[string]bool{}
+	for _, m := range models {
+		if k := strings.TrimSpace(m.Kind); k != "" {
+			seen[k] = true
+		}
+	}
+	if len(seen) == 0 {
+		return nil
+	}
+	// Fixed order: the tile grid on the dashboard reads left to right, and a
+	// map iteration would shuffle it on every page load.
+	ordered := []string{"llm", "image", "embedding", "imageToText", "webSearch", "video"}
+	out := make([]string, 0, len(seen))
+	for _, k := range ordered {
+		if seen[k] {
+			out = append(out, k)
+			delete(seen, k)
+		}
+	}
+	// Anything the catalog vocabulary does not list still gets reported, sorted
+	// for determinism, so a custom kind is visible rather than silently dropped.
+	rest := make([]string, 0, len(seen))
+	for k := range seen {
+		rest = append(rest, k)
+	}
+	slices.Sort(rest)
+	return append(out, rest...)
+}
+
 // HandleProviderDetail returns capabilities, connections and cached models for
 // a single provider, resolving short aliases (e.g. "ag" -> "antigravity").
 func (h *Handler) HandleProviderDetail(w http.ResponseWriter, r *http.Request) {
@@ -849,6 +921,8 @@ func (h *Handler) HandleProviderDetail(w http.ResponseWriter, r *http.Request) {
 			EffectiveStatus:     providers.EffectiveStatusWithError(c.IsActive, acct.TestStatus, acct.HasActiveCooldown, acct.LastError),
 			IsEffectivelyActive: providers.IsEffectivelyActiveWithError(c.IsActive, acct.TestStatus, acct.HasActiveCooldown, acct.LastError),
 			HasActiveCooldown:   acct.HasActiveCooldown,
+			LastError:           truncateForDisplay(acct.LastError, 240),
+			CooldownUntil:       acct.CooldownUntil,
 		}
 		applyProviderMeta(&sum, m, hasMeta)
 		if providers.IsGeneratedNodeID(c.Provider) {
@@ -907,6 +981,16 @@ func (h *Handler) HandleProviderDetail(w http.ResponseWriter, r *http.Request) {
 			models[i].ContextWindow, models[i].MaxOutput = providers.GetDisplayTokenLimits(canonical, models[i].ModelID)
 		}
 		detail.Models = models
+
+		// A compatible endpoint has no registry entry, so it would render every
+		// Capabilities tile as "not declared" even though the operator declared
+		// the kinds when adding each model. Derive the provider's service kinds
+		// from what it actually serves, so the tab reflects reality instead of
+		// always reading as empty. Only fills the gap: a registry provider keeps
+		// its hand-written list.
+		if len(detail.ServiceKinds) == 0 {
+			detail.ServiceKinds = serviceKindsFromModels(models)
+		}
 	}
 
 	// Aliases power the UI when composing full model IDs for tests
@@ -1296,6 +1380,8 @@ func (h *Handler) HandleListProviders(w http.ResponseWriter, r *http.Request) {
 			EffectiveStatus:     effective,
 			IsEffectivelyActive: providers.IsEffectivelyActiveWithError(c.IsActive, acct.TestStatus, acct.HasActiveCooldown, acct.LastError),
 			HasActiveCooldown:   acct.HasActiveCooldown,
+			LastError:           truncateForDisplay(acct.LastError, 240),
+			CooldownUntil:       acct.CooldownUntil,
 		}
 		applyProviderMeta(&summary, meta, hasMeta)
 		// A generated node id is not a registry name. When the registry has no

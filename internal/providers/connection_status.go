@@ -20,6 +20,7 @@ const (
 	StatusActive         = "active"
 	StatusUnavailable    = "unavailable"
 	StatusQuotaExhausted = "quota_exhausted"
+	StatusRateLimited    = "rate_limited"
 	StatusError          = "error"
 	StatusExpired        = "expired"
 	StatusUnknown        = "unknown"
@@ -74,9 +75,40 @@ func EffectiveStatusWithError(isActive int, testStatus string, hasActiveCooldown
 		return StatusActive
 	}
 
-	// A spent budget does not refill on a timer.
+	// A short rolling window resets by itself. Checked before the quota rule: a
+	// per-minute limit that also says "quota" is still a throttle, and telling
+	// the operator to top up an account that only needs to wait is wrong advice.
+	// Only while the lock is live, like every throttle: once it lapses the
+	// account is usable again, and a forever-throttle would mark a recovered
+	// account as broken.
+	if hasActiveCooldown && LooksLikeThrottleWindow(lastError) {
+		return StatusRateLimited
+	}
+
+	// A spent budget does not refill on a timer. Checked before the generic
+	// rate-limit rule: most quota wording also contains "limit", and the harder
+	// verdict must win.
 	if LooksLikeQuotaExhausted(lastError) {
 		return StatusQuotaExhausted
+	}
+
+	// A throttle clears on its own, but it is not the same as a broken account:
+	// the operator needs to tell "wait a minute" from "this key is invalid".
+	// Only while the lock is still live: once it lapses the account is usable
+	// again, and reporting a permanent throttle would mark a recovered account
+	// as broken forever.
+	if hasActiveCooldown && LooksLikeRateLimited(lastError) {
+		return StatusRateLimited
+	}
+
+	// A rejected credential does not heal on a timer either. Without this, a
+	// 401/403/404 account with no live lock falls through to the stale-marker
+	// recovery rule below and is reported as ACTIVE -- the dashboard then
+	// claims a dead key is connected and keeps routing to it. Checked after the
+	// throttle rule so a 429 body mentioning "not found" is not read as a dead
+	// credential.
+	if LooksLikePermanentFailure(lastError) {
+		return StatusUnavailable
 	}
 
 	if status == StatusUnavailable && !hasActiveCooldown {
@@ -112,6 +144,10 @@ func StatusVariant(isActive int, effectiveStatus string) string {
 	switch effectiveStatus {
 	case StatusActive, "success":
 		return "success"
+	case StatusRateLimited:
+		// A throttle is temporary: amber, not red. Red trains the operator to
+		// ignore it, and this account recovers on its own.
+		return "warn"
 	case StatusError, StatusExpired, StatusUnavailable, StatusQuotaExhausted:
 		return "error"
 	default:

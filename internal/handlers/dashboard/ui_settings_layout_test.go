@@ -85,7 +85,7 @@ func TestSettingsUseTwoColumnsOnDesktop(t *testing.T) {
 	}
 	pane := ui[idx : idx+end]
 
-	for _, group := range []string{"🔐 Security", "🌐 Cloudflare / Reverse Proxy", "💾 Backup & Restore"} {
+	for _, group := range []string{"Security", "Cloudflare / Reverse Proxy", "Backup & Restore"} {
 		if !strings.Contains(pane, group) {
 			t.Fatalf("group %q is missing from the settings pane", group)
 		}
@@ -112,7 +112,7 @@ func TestBackupAndRestoreShareOneCard(t *testing.T) {
 	// Both directions live in one card. The card is the element that opens
 	// before the label, not everything after it, so count the rows inside the
 	// card that carries the label.
-	label := strings.Index(pane, "💾 Backup & Restore")
+	label := strings.Index(pane, "Backup & Restore")
 	if label < 0 {
 		t.Fatal("the Backup & Restore group is missing")
 	}
@@ -208,7 +208,7 @@ func TestSecurityAndBackupShareOneRow(t *testing.T) {
 
 	// A spanning heading between the two would force Backup onto its own row, so
 	// neither label may be a standalone heading.
-	for _, label := range []string{"🔐 Security", "💾 Backup & Restore"} {
+	for _, label := range []string{"Security", "Backup & Restore"} {
 		i := strings.Index(pane, label)
 		if i < 0 {
 			t.Fatalf("label %q is missing", label)

@@ -60,3 +60,57 @@ func TestUIConsoleLogLifecycleStreaming(t *testing.T) {
 		}
 	}
 }
+
+// TestUIConsoleLogFormattingAndResponsiveness ensures that the console terminal
+// includes responsive styles and formatted error/chip callouts.
+func TestUIConsoleLogFormattingAndResponsiveness(t *testing.T) {
+	ui := readEmbeddedUI(t)
+
+	mustContain := []string{
+		`.console-error-box`,
+		`copyConsoleSnippet(`,
+		`parseLogLine(`,
+		`.console-chips`,
+		`.console-controls`,
+	}
+	for _, item := range mustContain {
+		if !strings.Contains(ui, item) {
+			t.Errorf("expected embedded UI to contain %q, but missing", item)
+		}
+	}
+}
+
+// TestUIConsoleLogNilErrorIgnored ensures that nil errors like err=<nil> or null
+// do not generate false-positive error detail boxes in the UI.
+func TestUIConsoleLogNilErrorIgnored(t *testing.T) {
+	ui := readEmbeddedUI(t)
+
+	mustContain := []string{
+		`"<nil>"`,
+	}
+	for _, item := range mustContain {
+		if !strings.Contains(ui, item) {
+			t.Errorf("expected embedded UI to contain %q, but missing", item)
+		}
+	}
+}
+
+// TestUIConsoleLogLevelCheckboxes verifies that log level filters use checkboxes
+// enabling multi-level selection and harmonious Material Symbols icons.
+func TestUIConsoleLogLevelCheckboxes(t *testing.T) {
+	ui := readEmbeddedUI(t)
+
+	mustContain := []string{
+		`onConsoleLevelToggle(`,
+		`.console-lvl-check`,
+		`id="cb-log-error"`,
+		`id="cb-log-warn"`,
+		`id="cb-log-info"`,
+		`id="cb-log-debug"`,
+	}
+	for _, item := range mustContain {
+		if !strings.Contains(ui, item) {
+			t.Errorf("expected embedded UI to contain %q, but missing", item)
+		}
+	}
+}

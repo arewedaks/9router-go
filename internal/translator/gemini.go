@@ -82,6 +82,52 @@ type GeminiFunctionCall struct {
 // thought_signature; this keeps combos mixing Gemini with non-Gemini models
 // from 400ing. The real signature (via __ts__ transport) is preferred whenever
 // it exists.
+// A tiered Gemini model thinks by default. When the caller supplies a small
+// maxOutputTokens and no thinkingConfig, the model spends everything on hidden
+// reasoning and returns finishReason=MAX_TOKENS with no text, so every request
+// reserves a floor for thinking and keeps room for the answer.
+const (
+	minThinkingReserve = 512
+	minAnswerTokens    = 512
+)
+
+// estimatePromptTokens approximates the prompt size from the raw messages JSON.
+// A real tokenizer would be exact, but the reservation only needs the order of
+// magnitude ("short" vs "60k tokens of history"), and ~4 chars/token is close
+// enough for that. ponytail: chars/4 heuristic; swap for a tokenizer if the
+// reservation ever needs to be precise.
+func estimatePromptTokens(messagesJSON []byte) int {
+	if len(messagesJSON) == 0 {
+		return 0
+	}
+	var msgs []struct {
+		Content any `json:"content"`
+	}
+	if err := json.Unmarshal(messagesJSON, &msgs); err != nil {
+		// Unparseable: fall back to the raw byte count, which still scales.
+		return len(messagesJSON) / 4
+	}
+	n := 0
+	for _, m := range msgs {
+		switch c := m.Content.(type) {
+		case string:
+			n += len(c)
+		case []any:
+			for _, part := range c {
+				if blk, ok := part.(map[string]any); ok {
+					if s, ok := blk["text"].(string); ok {
+						n += len(s)
+					}
+					if s, ok := blk["content"].(string); ok {
+						n += len(s)
+					}
+				}
+			}
+		}
+	}
+	return n / 4
+}
+
 const DefaultThinkingSignature = "EuwGCukGAXLI2nxwZIq54WWSoL/YN0P3TsDZ7zRnLi8g0S4aVr2HUGxvaHKySuY6HAVzcE0GPGjXrytLIldxthSvfxgUlJh6Qa9Z+Oj5QZBlYdg6HaJ6yuY5R7waE6rdwBsRf7Ft2j3DJ9rMi9qhWFqApewYtPhls3VHtuvND3l8Rm09+lbAXQs6KKWEWrxNLKTBkfpMgXhRERc/TQRMZu1twAablm6/Zk1tsYRvfWKLsNbeKF+CCojJdXJKvnR/8Ouuoa+Y2Ti20hcW7aZIIjZDFYPU//k6Ybmhg69J/imbFai2ckhfLaisqdDkdoIiBJScTOUvYqP6AE9d4MsydSC+UlhIMk4hoP76R8vUSCZRMkjOaDXstf/QoVZKbt94wyRZgAJ1G0BqI8L5ow86kLpA4wJEtxsRGymOE4bKUvApveBakYDNM9APkf+LbtbzWSseGjoZcSlycF9iN8Q2XNYKRrHbv3Lr5Y8JjdH/5y/6SHkNehTEZugaeGnSPSyCTWto1kQgHpxdWmhkLfJGNUGLmue7Mesj4TSms4J33mRpYVhNB/J333FCqIP0hr/E7BkkjEn7yZ4X7SQlh+xKPurapsnHRwiKmtsilmEFrnTE9iQr+pMr6M29qqFNv1tr5yumbaJw8JW9sB15tNsRv+dW6BjNanbsKz7HCgKUBc8tGy+7YuhXzAfViyRefcjK7eZW0Fbyt7AbybJTKz78W8NH7ye6LAwzOebXpeZ4D43fNIt8bKh26qgduSQv/7o+pAflkuqHZ99YWgHQ8h8OkZFi3eOiSYjsjhdZ/czWOdoPI/OnqIldzMPF5YlrKBLFX8VhRKVmqgsmWf5PHGulHhMkVlS+XG2UIseGy69ARa93D78Gsa+1n1kJr7EEB7Rh+27vUMxVYLdz1yMSvE5nalTAlg/ZeG8+XQ0cHuAI3KbQpHW2Q++RdXfm5JzD5WdJZUU+Zn8t8UUn85BH4RxZLeE0qJikgSsKoYVBc6YhiMjhPgkR95ReimY4Z0xCJdRo1gjexOFeODZMpQF6Yxnoic7IrdgsFA3iePTbFnPp3IAM1fAThWhXJUn3QInUOTd5o1qmTmn6REbL15g/JQNl+dqUoPkhleeb2V3kjqp1okmO3wMZbPknR3S1LZNmlS72/iBQUm+n2b/RCn4PjmM2"
 
 type GeminiFunctionResp struct {
@@ -312,7 +358,7 @@ func TranslateOpenAIToGemini(openaiBody []byte) ([]byte, error) {
 						name = rest
 					}
 				}
-			}			// Tool result content may be plain text or JSON.
+			} // Tool result content may be plain text or JSON.
 			// Gemini requires the result to be valid JSON.
 			var resultValue any
 			if jsontext.Value(content).IsValid() {
@@ -410,6 +456,38 @@ func TranslateOpenAIToGemini(openaiBody []byte) ([]byte, error) {
 		}
 	}
 	if maxTokens != nil {
+		// A tiered model thinks by default. With no thinkingConfig it spends the
+		// caller's entire maxOutputTokens on hidden reasoning and returns
+		// finishReason=MAX_TOKENS with almost no text -- max_tokens=100 produced
+		// 0 completion tokens while omitting it produced 37. Give thinking an
+		// explicit share and make sure the answer still has room, raising the
+		// ceiling when the caller's value is too small to split.
+		//
+		// The share scales with the prompt: a 62k-token conversation needs tens of
+		// seconds of reasoning and blew through a flat 512-token reservation,
+		// returning MAX_TOKENS (473 bytes, 24s) even though a short prompt was
+		// fine. Thinking is bounded by the prompt size, not by the caller's
+		// max_tokens.
+		if thinkingBudget == 0 {
+			promptTokens := estimatePromptTokens(oreq.Messages)
+			reserved := *maxTokens / 4
+			if reserved < minThinkingReserve {
+				reserved = minThinkingReserve
+			}
+			if scaled := promptTokens / 8; scaled > reserved {
+				reserved = scaled
+			}
+			// Keep the answer's floor intact by raising the ceiling when the
+			// reservation no longer fits inside the caller's value.
+			if needed := reserved + minAnswerTokens; needed > *maxTokens {
+				taller := needed
+				maxTokens = &taller
+			}
+			genConfig["thinkingConfig"] = map[string]interface{}{
+				"thinkingBudget":  reserved,
+				"includeThoughts": false,
+			}
+		}
 		genConfig["maxOutputTokens"] = *maxTokens
 	}
 	if len(genConfig) > 0 {

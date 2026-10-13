@@ -644,3 +644,12 @@ func TestGenericProbeModel_WallyProbesAModelItServes(t *testing.T) {
 		t.Errorf("probe model %q is not one of the models wally serves (%v)", got, providers.ProviderModels["wally"])
 	}
 }
+
+// TestUIConnectionUnknownStatusHiddenByDefault verifies that accounts with
+// unknown/untested status do not render an intrusive "unknown" badge until manually tested.
+func TestUIConnectionUnknownStatusHiddenByDefault(t *testing.T) {
+	ui := readEmbeddedUI(t)
+	if !strings.Contains(ui, `isUnknown ? 'style="display:none;"' : ''`) {
+		t.Error("expected untested/unknown connection status to be hidden by default")
+	}
+}

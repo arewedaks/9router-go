@@ -633,10 +633,14 @@
     .conn-test-progress { font-size: 0.72rem; color: var(--muted); }
     .acct-email { color: #ededed; font-weight: 500; }
     .acct-meta { color: var(--muted); font-size: 0.75rem; }
-    .acct-pill { border-radius: 4px; padding: 1px 6px; font-size: 0.68rem; font-weight: 600; }
+    .acct-pill { border-radius: 4px; padding: 1px 6px; font-size: 0.68rem; font-weight: 600; white-space: nowrap; }
     .acct-pill.ok { background: #13381e; color: #7ee787; }
     .acct-pill.exp { background: #3d1418; color: #ff7b72; }
     .acct-pill.idle { background: var(--panel-hover); color: var(--muted); }
+    /* Rate limit is temporary: amber, so it is not read as a dead key the way
+       red is. Quota-exhausted stays red -- it needs a top-up, not patience. */
+    .acct-pill.rl { background: #3a2d10; color: #e3b341; cursor: help; }
+    .acct-pill.quota { background: #3d1418; color: #ff7b72; cursor: help; }
 
     .nav-tabs { display: flex; gap: 6px; }
     
@@ -789,40 +793,111 @@
     .badge-ok { background: #0d2818; color: #3fb950; border: 1px solid #238636; }
     .badge-err { background: #2d1214; color: #f85149; border: 1px solid #da3633; }
     .endpoint-rows { display: flex; flex-direction: column; gap: 8px; }
-    .endpoint-row { display: flex; align-items: center; gap: 8px; }
-    .endpoint-tag { font-family: monospace; font-size: 0.7rem; padding: 4px 8px; border-radius: 4px; min-width: 74px; text-align: center; background: var(--surface2); color: var(--muted); shrink: 0; flex: 0 0 auto; }
-    .endpoint-tag.active { background: rgba(229,106,74,0.14); color: #f4b59c; }
-    /* The value is read-only (filled by renderEndpointHost) and exists to be
-     * selected and copied, so it is styled as a field but must not look like an
-     * editable one. It previously inherited the browser default — a solid white
-     * box with black text — which was the only light element on an otherwise
-     * dark page. */
-    .endpoint-url {
-      flex: 1 1 auto; min-width: 0;
-      font-family: monospace; font-size: 0.82rem;
-      background: rgba(0, 0, 0, 0.28);
-      border: 1px solid var(--glass-border);
-      border-radius: var(--radius-field);
+    .endpoint-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
       padding: 6px 10px;
+      background: var(--panel-hover);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      transition: border-color 0.15s ease;
+    }
+    .endpoint-row:hover { border-color: rgba(255, 255, 255, 0.15); }
+    .endpoint-tag {
+      font-family: ui-monospace, SFMono-Regular, monospace;
+      font-size: 0.72rem;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 4px;
+      min-width: 64px;
+      text-align: center;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      color: var(--muted);
+      flex: 0 0 auto;
+      user-select: none;
+    }
+    .endpoint-tag.active {
+      background: rgba(229, 106, 74, 0.15);
+      border-color: rgba(229, 106, 74, 0.35);
+      color: #f4b59c;
+    }
+    .endpoint-url {
+      flex: 1 1 auto;
+      min-width: 0;
+      font-family: ui-monospace, SFMono-Regular, monospace;
+      font-size: 0.82rem;
+      background: transparent;
+      border: none;
+      padding: 4px 6px;
       color: var(--text);
     }
-    .endpoint-url:focus { outline: none; border-color: var(--primary); }
-    .endpoint-security { display: grid; gap: 10px; }
-    .endpoint-lock { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-    .endpoint-lock p { flex: 1 1 100%; margin: 0; font-size: 0.8rem; color: var(--muted); }
-    .endpoint-lock code { background: #141414; border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; font-size: 0.78rem; color: #f4b59c; }
-    .endpoint-warn { margin-top: 12px; padding: 10px 12px; border-radius: 6px; font-size: 0.82rem; background: rgba(210,153,34,0.1); border: 1px solid #9e6a03; color: #e3b341; }
-    /* Remote-without-key is a different severity from the loopback-only state,
-       so it gets its own treatment rather than the same amber box. */
-    .endpoint-warn-critical { background: rgba(248,81,73,0.12); border-color: #f85149; color: #ff9b94; }
+    .endpoint-url:focus { outline: none; }
+    .endpoint-security {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    }
+    .endpoint-lock {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      padding: 12px 14px;
+      background: var(--panel-hover);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      transition: border-color 0.15s ease;
+    }
+    .endpoint-lock:hover { border-color: rgba(255, 255, 255, 0.15); }
+    .endpoint-lock p { margin: 0; font-size: 0.8rem; color: var(--muted); line-height: 1.45; }
+    .endpoint-lock code { background: rgba(0, 0, 0, 0.35); border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; font-size: 0.76rem; color: #f4b59c; }
+    .endpoint-warn {
+      margin-top: 12px;
+      padding: 10px 14px;
+      border-radius: 6px;
+      font-size: 0.82rem;
+      background: rgba(210, 153, 34, 0.1);
+      border: 1px solid rgba(210, 153, 34, 0.4);
+      color: #e3b341;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .endpoint-warn-critical {
+      background: rgba(248, 81, 73, 0.12);
+      border-color: rgba(248, 81, 73, 0.4);
+      color: #ff9b94;
+    }
     #require-apikey-msg { margin-top: 10px; font-size: 0.8rem; }
     #allow-remote-toggle:checked + .slider { background-color: #f85149; }
     .key-secret { display: flex; align-items: center; gap: 6px; }
-    .key-secret code { background: var(--bg); border: 1px solid var(--border); padding: 4px 8px; border-radius: 4px; color: #f4b59c; font-size: 0.78rem; }
-    .icon-btn { background: none; border: none; cursor: pointer; font-size: 0.85rem; padding: 2px 4px; border-radius: 4px; opacity: 0.65; }
-    .icon-btn:hover { opacity: 1; background: rgba(255,255,255,0.06); }
+    .key-secret code { background: rgba(0, 0, 0, 0.3); border: 1px solid var(--border); padding: 3px 8px; border-radius: 4px; color: #f4b59c; font-size: 0.78rem; font-family: ui-monospace, SFMono-Regular, monospace; }
+    .icon-btn { background: rgba(255,255,255,0.04); border: 1px solid var(--border); cursor: pointer; padding: 3px 6px; border-radius: 4px; color: var(--muted); transition: all 0.15s ease; }
+    .icon-btn:hover { color: #fff; background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.2); }
     .row-paused { opacity: 0.55; }
     .key-paused { margin: 2px 0 0; font-size: 0.72rem; color: #d29922; }
+
+    @media (max-width: 640px) {
+      .endpoint-row {
+        flex-wrap: wrap;
+        gap: 6px;
+        padding: 8px;
+      }
+      .endpoint-row .endpoint-url {
+        width: 100%;
+        order: 3;
+        background: rgba(0, 0, 0, 0.25);
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        padding: 5px 8px;
+      }
+      .endpoint-row .endpoint-tag { order: 1; }
+      .endpoint-row .btn { order: 2; margin-left: auto; }
+      .endpoint-security {
+        grid-template-columns: 1fr;
+      }
+    }
 
     /* Generic chip. The border was #1f3554, a leftover navy from the blue
        palette that read as a cold seam on every chip after the theme moved to
@@ -1438,9 +1513,18 @@
        cards of different content height still end their actions on one line. */
     .card { display: flex; flex-direction: column; }
     .card > .btn-pair:last-child { margin-top: auto; }
-    .card-row-title { font-size: 0.92rem; color: #fff; font-weight: 600; }
-    .card-row-sub { font-size: 0.8rem; color: var(--muted); margin: 2px 0 0; line-height: 1.45; }
-    .listen-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 12px; }
+    .card-row-title { font-size: 0.92rem; color: #fff; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+    .card-row-sub { font-size: 0.8rem; color: var(--muted); margin: 3px 0 0; line-height: 1.45; }
+    .listen-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 12px; }
+    .listen-box {
+      background: var(--panel-hover);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 10px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
     /* Two switches that answer the same question share one card, stacked as
        rows. A card each made the group read as three unrelated settings. */
     .proxy-row + .proxy-row { margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--border); }
@@ -1449,7 +1533,7 @@
        from reading as a continuation of the ordinary form above it. */
     .settings-subsection { margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--border); }
     .settings-subsection-danger { border-top: 1px solid var(--danger); margin-left: -16px; margin-right: -16px; padding-left: 16px; padding-right: 16px; }
-    .settings-warn { font-size: 0.78rem; color: #f0b849; background: rgba(210,153,34,0.1); border: 1px solid rgba(210,153,34,0.35); border-radius: var(--radius); padding: 10px 12px; margin-bottom: 14px; line-height: 1.5; }
+    .settings-warn { font-size: 0.78rem; color: #f0b849; background: rgba(210,153,34,0.1); border: 1px solid rgba(210,153,34,0.35); border-radius: var(--radius); padding: 10px 12px; margin-bottom: 14px; line-height: 1.5; display: flex; align-items: flex-start; gap: 8px; }
     /* An empty message slot must take no space, or every card with one ends
        with a hole under its buttons and the row bottoms stop lining up. */
     .settings-msg { font-size: 0.8rem; margin-bottom: 10px; }
@@ -1695,19 +1779,20 @@
     .usage-drawer details > div { padding: 0 12px 12px; }
 
     .console-terminal {
-      background: var(--code-bg);
+      background: var(--code-bg, #0d1117);
       border: 1px solid var(--border);
       border-radius: var(--radius);
-      padding: 12px;
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      padding: 10px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
       font-size: 0.78rem;
       line-height: 1.5;
-      height: calc(100vh - 220px);
-      min-height: 480px;
+      height: min(72vh, 720px);
+      min-height: 400px;
       overflow-y: auto;
+      overflow-x: hidden;
       display: flex;
       flex-direction: column;
-      gap: 2px;
+      gap: 3px;
     }
     .console-empty {
       display: flex;
@@ -1716,19 +1801,39 @@
       height: 100%;
       color: var(--muted);
       font-style: italic;
+      padding: 24px;
     }
     .console-line {
       display: flex;
-      align-items: flex-start;
-      gap: 8px;
-      padding: 2px 6px;
+      flex-direction: column;
+      gap: 3px;
+      padding: 4px 8px;
       border-radius: 4px;
-      word-break: break-all;
-      white-space: pre-wrap;
+      background: rgba(255, 255, 255, 0.015);
+      border-left: 3px solid transparent;
+      transition: background 0.15s ease;
+      word-break: break-word;
     }
-    .console-line:hover { background: rgba(255,255,255,0.03); }
-    .console-line.lvl-err { background: rgba(248,81,73,0.12); border-left: 3px solid #f85149; }
-    .console-line.lvl-wrn { background: rgba(210,153,34,0.1); border-left: 3px solid #d29922; }
+    .console-line:hover { background: rgba(255, 255, 255, 0.04); }
+    .console-line.lvl-err { background: rgba(248, 81, 73, 0.08); border-left-color: #f85149; }
+    .console-line.lvl-wrn { background: rgba(210, 153, 34, 0.07); border-left-color: #d29922; }
+    .console-line.lvl-inf { border-left-color: rgba(56, 139, 253, 0.35); }
+    .console-line.lvl-dbg { border-left-color: rgba(110, 118, 129, 0.3); opacity: 0.85; }
+
+    .console-line-header {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 6px;
+      font-size: 0.76rem;
+    }
+    .console-time {
+      font-size: 0.7rem;
+      color: var(--muted);
+      font-variant-numeric: tabular-nums;
+      user-select: none;
+      flex-shrink: 0;
+    }
     .console-badge {
       font-size: 0.65rem;
       font-weight: 700;
@@ -1737,17 +1842,293 @@
       height: fit-content;
       user-select: none;
       flex-shrink: 0;
-      margin-top: 1px;
+      letter-spacing: 0.3px;
     }
     .console-badge.lvl-err { background: #f85149; color: #fff; }
     .console-badge.lvl-wrn { background: #d29922; color: #000; }
     .console-badge.lvl-inf { background: #238636; color: #fff; }
-    .console-badge.lvl-dbg { background: #6e7681; color: #fff; }
-    .console-text { flex: 1; }
-    .console-line.lvl-err .console-text { color: #ff7b72; }
-    .console-line.lvl-wrn .console-text { color: #e3b341; }
-    .console-line.lvl-inf .console-text { color: #c9d1d9; }
-    .console-line.lvl-dbg .console-text { color: #8b949e; }
+    .console-badge.lvl-dbg { background: #484f58; color: #c9d1d9; }
+
+    .console-tag {
+      font-size: 0.68rem;
+      font-weight: 600;
+      padding: 1px 5px;
+      border-radius: 3px;
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--text);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      flex-shrink: 0;
+    }
+    .console-text { flex: 1; word-break: break-word; }
+    .console-msg {
+      font-weight: 500;
+      color: var(--text);
+      word-break: break-word;
+    }
+    .console-line.lvl-err .console-msg, .console-line.lvl-err .console-text { color: #ff7b72; font-weight: 600; }
+    .console-line.lvl-wrn .console-msg, .console-line.lvl-wrn .console-text { color: #e3b341; }
+    .console-line.lvl-inf .console-msg, .console-line.lvl-inf .console-text { color: #c9d1d9; }
+    .console-line.lvl-dbg .console-msg, .console-line.lvl-dbg .console-text { color: #8b949e; }
+
+    .console-chips {
+      display: inline-flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      align-items: center;
+      margin-left: 2px;
+    }
+    .console-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      font-size: 0.68rem;
+      padding: 0 5px;
+      border-radius: 3px;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid var(--border);
+      color: var(--muted);
+      user-select: none;
+    }
+    .console-chip-key {
+      opacity: 0.75;
+    }
+    .console-chip-val {
+      font-weight: 600;
+      color: var(--text);
+    }
+    .console-chip-status-2xx {
+      background: rgba(35, 134, 54, 0.15);
+      border-color: rgba(35, 134, 54, 0.4);
+      color: #3fb950;
+    }
+    .console-chip-status-4xx, .console-chip-status-5xx {
+      background: rgba(248, 81, 73, 0.18);
+      border-color: rgba(248, 81, 73, 0.5);
+      color: #ff7b72;
+      font-weight: 700;
+    }
+
+    .console-error-box {
+      margin-top: 4px;
+      padding: 8px 10px;
+      border-radius: 4px;
+      background: rgba(248, 81, 73, 0.1);
+      border: 1px solid rgba(248, 81, 73, 0.3);
+      color: #ffa198;
+      font-size: 0.74rem;
+      line-height: 1.45;
+      position: relative;
+    }
+    .console-error-box-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 4px;
+      font-size: 0.68rem;
+      font-weight: 700;
+      color: #ff7b72;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .console-error-pre {
+      margin: 0;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-family: inherit;
+      max-height: 220px;
+      overflow-y: auto;
+    }
+    .console-copy-err-btn {
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.12);
+      color: #f0f6fc;
+      border-radius: 3px;
+      padding: 1px 6px;
+      font-size: 0.66rem;
+      cursor: pointer;
+      line-height: 1.4;
+    }
+    .console-copy-err-btn:hover {
+      background: rgba(255,255,255,0.16);
+    }
+
+    .console-level-filters {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .console-lvl-check {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 0.74rem;
+      font-weight: 600;
+      padding: 3px 8px;
+      border-radius: 6px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--muted);
+      cursor: pointer;
+      user-select: none;
+      transition: all 0.15s ease;
+    }
+    .console-lvl-check:hover {
+      background: var(--panel-hover);
+      color: var(--text);
+    }
+    .console-lvl-check input[type="checkbox"] {
+      margin: 0;
+      cursor: pointer;
+      accent-color: var(--primary);
+    }
+    .console-lvl-check:has(input:checked) {
+      color: var(--text);
+      border-color: rgba(255,255,255,0.18);
+      background: rgba(255,255,255,0.05);
+    }
+    .console-lvl-check.lvl-err:has(input:checked) {
+      border-color: rgba(248, 81, 73, 0.4);
+      background: rgba(248, 81, 73, 0.12);
+      color: #ff7b72;
+    }
+    .console-lvl-check.lvl-wrn:has(input:checked) {
+      border-color: rgba(210, 153, 34, 0.4);
+      background: rgba(210, 153, 34, 0.12);
+      color: #e3b341;
+    }
+    .console-lvl-check.lvl-inf:has(input:checked) {
+      border-color: rgba(63, 185, 80, 0.4);
+      background: rgba(63, 185, 80, 0.12);
+      color: #3fb950;
+    }
+    .console-lvl-check.lvl-dbg:has(input:checked) {
+      border-color: rgba(139, 148, 158, 0.4);
+      background: rgba(139, 148, 158, 0.12);
+      color: #8b949e;
+    }
+
+    .jb-model-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      padding: 8px 12px;
+      background: var(--panel-hover);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      transition: border-color 0.15s;
+    }
+    .jb-model-row.is-armed {
+      border-color: #238636;
+    }
+    .jb-model-label {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      min-width: 0;
+      flex: 1;
+    }
+    .jb-model-name {
+      font-family: ui-monospace, SFMono-Regular, monospace;
+      font-size: 0.8rem;
+      color: var(--muted);
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .jb-model-row.is-armed .jb-model-name {
+      color: #fff;
+    }
+    .jb-model-select {
+      flex-shrink: 0;
+      max-width: 240px;
+      height: 32px;
+      padding: 0 8px;
+      background: var(--bg);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 0.78rem;
+    }
+
+    @media (max-width: 768px) {
+      .jb-model-row {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 8px;
+        padding: 10px;
+      }
+      .jb-model-label {
+        width: 100%;
+      }
+      .jb-model-name {
+        white-space: normal;
+        word-break: break-all;
+        font-size: 0.82rem;
+      }
+      .jb-model-select {
+        max-width: 100%;
+        width: 100%;
+        height: 34px;
+        font-size: 0.82rem;
+      }
+      .console-card {
+        padding: 10px !important;
+      }
+      .console-card-head {
+        flex-direction: column !important;
+        align-items: stretch !important;
+        gap: 8px !important;
+      }
+      .console-controls {
+        display: grid !important;
+        grid-template-columns: 1fr 1fr;
+        gap: 6px !important;
+        width: 100%;
+      }
+      .console-controls #console-search {
+        grid-column: 1 / -1;
+        min-width: 0 !important;
+        width: 100%;
+      }
+      .console-controls #console-level-filter {
+        grid-column: 1 / -1;
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 4px;
+        width: 100%;
+      }
+      .console-lvl-check {
+        justify-content: center;
+        padding: 5px 2px;
+        font-size: 0.72rem;
+      }
+      .console-controls label {
+        justify-content: center;
+        background: rgba(255,255,255,0.03);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 4px 6px;
+      }
+      .console-terminal {
+        height: 60vh !important;
+        min-height: 300px !important;
+        font-size: 0.72rem !important;
+        padding: 6px !important;
+      }
+      .console-line {
+        padding: 3px 5px !important;
+      }
+      .console-line-header {
+        gap: 4px !important;
+      }
+      .console-msg {
+        font-size: 0.73rem !important;
+      }
+    }
   </style>
 </head>
 <body>
@@ -1867,12 +2248,16 @@
         <div class="endpoint-row">
           <span class="endpoint-tag active">Local</span>
           <input class="endpoint-url" id="endpoint-local" readonly value="">
-          <button class="btn btn-sm" onclick="copyEndpoint('endpoint-local', this)">Copy</button>
+          <button class="btn btn-sm" onclick="copyEndpoint('endpoint-local', this)">
+            <span class="msym" style="font-size:14px;vertical-align:-2px;">content_copy</span> Copy
+          </button>
         </div>
         <div class="endpoint-row">
           <span class="endpoint-tag">Docker</span>
           <input class="endpoint-url" id="endpoint-docker" readonly value="">
-          <button class="btn btn-sm" onclick="copyEndpoint('endpoint-docker', this)">Copy</button>
+          <button class="btn btn-sm" onclick="copyEndpoint('endpoint-docker', this)">
+            <span class="msym" style="font-size:14px;vertical-align:-2px;">content_copy</span> Copy
+          </button>
         </div>
         <!-- The public address clients are told to use. Editable because a
              tunnel or split-horizon DNS means the origin the browser used is
@@ -1882,11 +2267,15 @@
           <input class="endpoint-url" id="endpoint-public" spellcheck="false"
                  placeholder="https://api.example.com" value="">
           <button class="btn btn-sm" id="endpoint-public-copy" style="display:none;"
-                  onclick="copyEndpoint('endpoint-public', this)">Copy</button>
-          <button class="btn btn-sm btn-primary" onclick="savePublicBaseURL(this)">Save</button>
+                  onclick="copyEndpoint('endpoint-public', this)">
+            <span class="msym" style="font-size:14px;vertical-align:-2px;">content_copy</span> Copy
+          </button>
+          <button class="btn btn-sm btn-primary" onclick="savePublicBaseURL(this)">
+            <span class="msym" style="font-size:14px;vertical-align:-2px;">save</span> Save
+          </button>
         </div>
         <div class="settings-msg" id="endpoint-public-msg"></div>
-        <p style="font-size:0.72rem; color:var(--muted); margin:6px 0 0;">
+        <p style="font-size:0.75rem; color:var(--muted); margin:4px 0 0;">
           Set a domain when the gateway is reached through a tunnel or proxy and
           the address in your browser is not the one clients should use. Leave
           empty to use the address this page was loaded from.
@@ -1897,20 +2286,25 @@
     <!-- SECURITY -->
     <div class="card" style="margin-bottom: 20px;">
       <div class="section-header" style="margin-bottom: 14px;">
-        <span class="section-title" style="font-size: 1rem;">🔐 Security</span>
+        <span class="section-title" style="font-size: 1rem;"><span class="msym" style="font-size:18px;color:var(--primary);vertical-align:-2px;">security</span> Security</span>
       </div>
       <div class="endpoint-security">
         <!-- Writes the same settings key VansRouter's endpoint page writes,
              so a value flipped in either dashboard is the value the other one
              reads back on a shared database. -->
         <div class="endpoint-lock">
-          <strong>Require API key</strong>
-          <span class="badge" id="require-apikey-badge">On</span>
-          <label class="switch" title="Require a valid key on every /v1/* request">
-            <input type="checkbox" id="require-apikey-toggle" checked
-                   onchange="saveRequireApiKey(this.checked)">
-            <span class="slider"></span>
-          </label>
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:10px;">
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span class="msym" style="font-size:18px;color:var(--primary);">vpn_key</span>
+              <strong style="color:#fff; font-size:0.88rem;">Require API key</strong>
+              <span class="badge" id="require-apikey-badge">On</span>
+            </div>
+            <label class="switch" title="Require a valid key on every /v1/* request">
+              <input type="checkbox" id="require-apikey-toggle" checked
+                     onchange="saveRequireApiKey(this.checked)">
+              <span class="slider"></span>
+            </label>
+          </div>
           <p>Every request to <code>/v1/*</code> must carry a valid key. With this off, only this machine can reach the proxy.</p>
         </div>
         <!-- The second step, and it only appears once the first is off: a
@@ -1918,18 +2312,28 @@
              VansRouter's allowRemoteNoApiKey so a value set in either
              dashboard is read by the other. -->
         <div class="endpoint-lock" id="allow-remote-row" style="display:none;">
-          <strong>Allow remote access without a key</strong>
-          <span class="badge" id="allow-remote-badge">Off</span>
-          <label class="switch" title="Let non-loopback requests reach /v1/* without a key">
-            <input type="checkbox" id="allow-remote-toggle"
-                   onchange="saveAllowRemoteNoApiKey(this.checked)">
-            <span class="slider"></span>
-          </label>
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:10px;">
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span class="msym" style="font-size:18px;color:var(--danger);">public</span>
+              <strong style="color:#fff; font-size:0.88rem;">Allow remote access without a key</strong>
+              <span class="badge" id="allow-remote-badge">Off</span>
+            </div>
+            <label class="switch" title="Let non-loopback requests reach /v1/* without a key">
+              <input type="checkbox" id="allow-remote-toggle"
+                     onchange="saveAllowRemoteNoApiKey(this.checked)">
+              <span class="slider"></span>
+            </label>
+          </div>
           <p>Lets requests from outside this machine reach <code>/v1/*</code> with no key at all. Only enable this if something else already guards the port.</p>
         </div>
         <div class="endpoint-lock">
-          <strong>Dashboard session</strong>
-          <span class="badge badge-ok">Scoped</span>
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:10px;">
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span class="msym" style="font-size:18px;color:var(--primary);">shield</span>
+              <strong style="color:#fff; font-size:0.88rem;">Dashboard session</strong>
+            </div>
+            <span class="badge badge-ok">Scoped</span>
+          </div>
           <p>A login cookie only opens <code>/api/dashboard/*</code> and <code>/api/oauth/*</code>. It can never reach the model proxy.</p>
         </div>
       </div>
@@ -1937,14 +2341,14 @@
            dangerous: loopback-only is a local convenience, remote is an open
            proxy. Collapsing them into one message would understate the second. -->
       <div class="endpoint-warn" id="require-apikey-warn" style="display:none;">
-        ⚠️ API key requirement is off — only requests from this machine are allowed through.
+        <span class="msym" style="font-size:16px;color:#e3b341;vertical-align:-2px;">warning</span> API key requirement is off — only requests from this machine are allowed through.
       </div>
       <div class="endpoint-warn endpoint-warn-critical" id="allow-remote-warn" style="display:none;">
-        🚨 Remote access without an API key is on — anyone who can reach this port can use your providers.
+        <span class="msym" style="font-size:16px;color:#ff7b72;vertical-align:-2px;">gpp_maybe</span> Remote access without an API key is on — anyone who can reach this port can use your providers.
       </div>
       <p id="require-apikey-msg" class="field-msg"></p>
       <div class="endpoint-warn" id="endpoint-exposed-warn" style="display:none;">
-        ⚠️ This server is reachable from another machine and a key can be used from anywhere. Treat keys as secrets.
+        <span class="msym" style="font-size:16px;color:#e3b341;vertical-align:-2px;">warning</span> This server is reachable from another machine and a key can be used from anywhere. Treat keys as secrets.
       </div>
     </div>
 
@@ -1952,10 +2356,12 @@
     <div class="card">
       <div class="section-header" style="margin-bottom: 14px;">
         <div>
-          <span class="section-title" style="font-size: 1rem;">🔑 API Keys</span>
+          <span class="section-title" style="font-size: 1rem;"><span class="msym" style="font-size:18px;color:var(--primary);vertical-align:-2px;">vpn_key</span> API Keys</span>
           <p style="font-size: 0.8rem; color: var(--muted); margin-top: 2px;">Keys for authorized clients connecting to 9Router</p>
         </div>
-        <button class="btn btn-primary" onclick="openAddKeyModal()">+ Create Key</button>
+        <button class="btn btn-primary" onclick="openAddKeyModal()">
+          <span class="msym" style="font-size:15px;vertical-align:-2px;">add</span> Create Key
+        </button>
       </div>
       <div id="endpoint-keys-empty" class="usage-empty" style="display:none; min-height:140px;">
         No API keys yet — create your first key to get started.
@@ -2292,7 +2698,7 @@
         <h2 class="section-title">Settings</h2>
         <p style="font-size: 0.85rem; color: var(--muted);">Dashboard credentials, backup and reverse-proxy configuration</p>
       </div>
-      <button class="btn btn-primary" onclick="saveProxySettings()">💾 Save Proxy Settings</button>
+      <button class="btn btn-primary" onclick="saveProxySettings()"><span class="msym" style="font-size:16px;vertical-align:-2px;">save</span> Save Proxy Settings</button>
     </div>
 
     <!-- SECURITY -->
@@ -2300,51 +2706,51 @@
 
     <!-- SECURITY -->
     <div class="card">
-      <div class="card-row-title" style="margin-bottom:12px;">🔐 Security</div>
+      <div class="card-row-title" style="margin-bottom:12px;"><span class="msym" style="font-size:18px;color:var(--primary);vertical-align:-2px;">lock</span> Security</div>
       <div class="card-row">
         <div>
-          <div class="card-row-title">Change Password</div>
+          <div class="card-row-title"><span class="msym" style="font-size:16px;color:var(--muted);">password</span> Change Password</div>
           <div class="card-row-sub">Update the dashboard sign-in password.</div>
         </div>
-        <button class="btn" onclick="openPwModal()">Change</button>
+        <button class="btn" onclick="openPwModal()"><span class="msym" style="font-size:15px;vertical-align:-2px;">edit</span> Change</button>
       </div>
       <div class="card-row" style="margin-top:14px; padding-top:14px; border-top:1px solid var(--border);">
         <div>
-          <div class="card-row-title">Reset Password</div>
+          <div class="card-row-title"><span class="msym" style="font-size:16px;color:var(--muted);">restart_alt</span> Reset Password</div>
           <div class="card-row-sub">Restore the built-in default. Loopback only.</div>
         </div>
-        <button class="btn" id="pw-reset-btn" onclick="resetPasswordConfirm()" style="border-color:var(--danger); color:var(--danger);">Reset</button>
+        <button class="btn" id="pw-reset-btn" onclick="resetPasswordConfirm()" style="border-color:var(--danger); color:var(--danger);"><span class="msym" style="font-size:15px;vertical-align:-2px;">history</span> Reset</button>
       </div>
       <div id="pw-change-msg" class="settings-msg"></div>
       <div id="pw-reset-msg" class="settings-msg"></div>
     </div>
 
     <div class="card">
-      <div class="card-row-title" style="margin-bottom:12px;">💾 Backup & Restore</div>
+      <div class="card-row-title" style="margin-bottom:12px;"><span class="msym" style="font-size:18px;color:var(--primary);vertical-align:-2px;">backup</span> Backup & Restore</div>
       <div class="card-row">
         <div>
-          <div class="card-row-title">Download Backup</div>
+          <div class="card-row-title"><span class="msym" style="font-size:16px;color:var(--muted);">file_download</span> Download Backup</div>
           <div class="card-row-sub">One JSON file with every connection, API key, combo and setting.</div>
         </div>
-        <button class="btn" onclick="openBackupModal()">Download</button>
+        <button class="btn" onclick="openBackupModal()"><span class="msym" style="font-size:15px;vertical-align:-2px;">download</span> Download</button>
       </div>
       <div class="card-row" style="margin-top:14px; padding-top:14px; border-top:1px solid var(--border);">
         <div>
-          <div class="card-row-title">Restore From Backup</div>
+          <div class="card-row-title"><span class="msym" style="font-size:16px;color:var(--muted);">restore</span> Restore From Backup</div>
           <div class="card-row-sub">Full replace, not a merge. Usage history is kept.</div>
         </div>
-        <button class="btn" onclick="openRestoreModal()" style="border-color:var(--danger); color:var(--danger);">Restore</button>
+        <button class="btn" onclick="openRestoreModal()" style="border-color:var(--danger); color:var(--danger);"><span class="msym" style="font-size:15px;vertical-align:-2px;">settings_backup_restore</span> Restore</button>
       </div>
       <div id="backup-msg" class="settings-msg"></div>
       <div id="restore-msg" class="settings-msg"></div>
     </div>
 
     <!-- CLOUDFLARE / REVERSE PROXY -->
-    <h3 class="settings-group-title">🌐 Cloudflare / Reverse Proxy</h3>
+    <h3 class="settings-group-title"><span class="msym" style="font-size:18px;color:var(--primary);vertical-align:-2px;">cloud</span> Cloudflare / Reverse Proxy</h3>
     <div class="card">
       <div class="proxy-row">
         <div class="proxy-row-head">
-          <h3 style="margin:0; font-size:0.95rem; color: #fff;"><span class="msym" style="font-size:17px;">alt_route</span> Trust proxy headers</h3>
+          <h3 style="margin:0; font-size:0.95rem; color: #fff;"><span class="msym" style="font-size:17px;color:var(--primary);">alt_route</span> Trust proxy headers</h3>
           <label class="switch">
             <input type="checkbox" id="set-trust-proxy">
             <span class="slider"></span>
@@ -2355,13 +2761,13 @@
           attacker's wrong guesses lock out everyone.
         </p>
         <div class="settings-warn" id="set-trust-proxy-warn">
-          ⚠️ Enable only once the port is not reachable directly.
+          <span class="msym" style="font-size:16px;vertical-align:-2px;">warning</span> Enable only once the port is not reachable directly.
         </div>
       </div>
 
       <div class="proxy-row">
         <div class="proxy-row-head">
-          <h3 style="margin:0; font-size:0.95rem; color: #fff;"><span class="msym" style="font-size:17px;">lock</span> Secure session cookie</h3>
+          <h3 style="margin:0; font-size:0.95rem; color: #fff;"><span class="msym" style="font-size:17px;color:var(--primary);">lock</span> Secure session cookie</h3>
           <label class="switch">
             <input type="checkbox" id="set-cookie-secure">
             <span class="slider"></span>
@@ -2375,26 +2781,26 @@
     </div>
 
     <div class="card">
-      <div class="card-row-title"><span class="msym" style="font-size:17px;">dns</span> Listen address</div>
+      <div class="card-row-title"><span class="msym" style="font-size:17px;color:var(--primary);vertical-align:-2px;">dns</span> Listen address</div>
       <p class="card-row-sub">Fixed at start — changing it needs a restart with <code>HOST=127.0.0.1</code>.</p>
       <div class="listen-pair">
-        <div>
-          <div class="card-row-sub" style="margin:0 0 2px;">HOST</div>
-          <code id="set-listen-host" style="color:#fff;">—</code>
+        <div class="listen-box">
+          <div class="card-row-sub" style="margin:0; font-size:0.75rem; text-transform:uppercase; letter-spacing:0.04em;">HOST</div>
+          <code id="set-listen-host" style="color:var(--text); font-size:0.95rem; font-weight:600;">—</code>
         </div>
-        <div>
-          <div class="card-row-sub" style="margin:0 0 2px;">PORT</div>
-          <code id="set-listen-port" style="color:#fff;">—</code>
+        <div class="listen-box">
+          <div class="card-row-sub" style="margin:0; font-size:0.75rem; text-transform:uppercase; letter-spacing:0.04em;">PORT</div>
+          <code id="set-listen-port" style="color:var(--text); font-size:0.95rem; font-weight:600;">—</code>
         </div>
       </div>
       <div class="settings-warn" id="set-bind-warn" style="display:none;">
-        ⚠️ Reachable directly on 0.0.0.0, bypassing Cloudflare. Restart with
+        <span class="msym" style="font-size:16px;vertical-align:-2px;">warning</span> Reachable directly on 0.0.0.0, bypassing Cloudflare. Restart with
         <code>HOST=127.0.0.1</code>.
       </div>
       <div id="cf-msg" class="settings-msg"></div>
       <div class="btn-pair">
         <button class="btn btn-primary" onclick="applyCloudflarePreset()"><span class="msym" style="font-size:15px;">bolt</span> Enable Cloudflare mode</button>
-        <button class="btn" onclick="showCloudflaredConfig()">📋 Copy config</button>
+        <button class="btn" onclick="showCloudflaredConfig()"><span class="msym" style="font-size:15px;">content_copy</span> Copy config</button>
       </div>
     </div>
 
@@ -2554,30 +2960,45 @@
       </div>
     </div>
 
-    <div class="card" style="padding: 16px;">
-      <div class="card-head" style="flex-wrap:wrap;gap:12px;margin-bottom:12px;">
-        <div style="display:flex;align-items:center;gap:10px;">
+    <div class="card console-card" style="padding: 16px;">
+      <div class="card-head console-card-head" style="flex-wrap:wrap;gap:12px;margin-bottom:12px;">
+        <div class="console-title-group" style="display:flex;align-items:center;gap:10px;">
           <h2 style="margin:0;font-size:1.1rem;display:flex;align-items:center;gap:8px;">
-            <span><span class="msym" style="font-size:17px;">terminal</span> Live Console Log</span>
+            <span><span class="msym" style="font-size:19px;color:var(--primary);vertical-align:-2px;">terminal</span> Live Console Log</span>
           </h2>
           <span id="console-status-badge" class="badge badge-idle">● Connecting...</span>
           <span id="console-line-count" style="font-size:0.75rem;color:var(--muted);font-variant-numeric:tabular-nums;">0 lines</span>
         </div>
-        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-          <input type="text" id="console-search" placeholder="Filter logs..." oninput="onConsoleSearchChange(this.value)" class="usage-select" style="min-width:180px;padding:4px 8px;font-size:0.8rem;" />
-          <select id="console-level-filter" onchange="onConsoleLevelChange(this.value)" class="usage-select" style="padding:4px 8px;font-size:0.8rem;">
-            <option value="ALL">All Levels</option>
-            <option value="ERROR">Errors (ERR)</option>
-            <option value="WARN">Warnings (WRN)</option>
-            <option value="INFO">Info (INF)</option>
-            <option value="DEBUG">Debug (DBG)</option>
-          </select>
-          <label style="display:flex;align-items:center;gap:4px;font-size:0.8rem;cursor:pointer;color:var(--muted);user-select:none;">
+        <div class="console-controls" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <input type="text" id="console-search" placeholder="Filter logs…" oninput="onConsoleSearchChange(this.value)" class="usage-select" style="min-width:180px;padding:4px 8px;font-size:0.8rem;" />
+          <div id="console-level-filter" class="console-level-filters">
+            <label class="console-lvl-check lvl-err" title="Toggle ERROR logs">
+              <input type="checkbox" id="cb-log-error" checked onchange="onConsoleLevelToggle('ERROR', this.checked)">
+              <span class="msym" style="font-size:14px;color:#f85149;">error</span> ERR
+            </label>
+            <label class="console-lvl-check lvl-wrn" title="Toggle WARN logs">
+              <input type="checkbox" id="cb-log-warn" checked onchange="onConsoleLevelToggle('WARN', this.checked)">
+              <span class="msym" style="font-size:14px;color:#d29922;">warning</span> WRN
+            </label>
+            <label class="console-lvl-check lvl-inf" title="Toggle INFO logs">
+              <input type="checkbox" id="cb-log-info" checked onchange="onConsoleLevelToggle('INFO', this.checked)">
+              <span class="msym" style="font-size:14px;color:#3fb950;">info</span> INF
+            </label>
+            <label class="console-lvl-check lvl-dbg" title="Toggle DEBUG logs">
+              <input type="checkbox" id="cb-log-debug" checked onchange="onConsoleLevelToggle('DEBUG', this.checked)">
+              <span class="msym" style="font-size:14px;color:#8b949e;">bug_report</span> DBG
+            </label>
+          </div>
+          <label style="display:flex;align-items:center;gap:5px;font-size:0.8rem;cursor:pointer;color:var(--muted);user-select:none;">
             <input type="checkbox" id="console-autoscroll" checked onchange="onConsoleAutoScrollChange(this.checked)" />
-            Auto-scroll
+            <span class="msym" style="font-size:15px;vertical-align:-2px;">vertical_align_bottom</span> Auto-scroll
           </label>
-          <button class="btn btn-sm" onclick="copyConsoleLogs()" title="Copy filtered logs" style="padding:4px 8px;font-size:0.78rem;">📋 Copy</button>
-          <button class="btn btn-sm" onclick="clearConsoleLogs()" style="padding:4px 8px;font-size:0.78rem;">🗑️ Clear</button>
+          <button class="btn btn-sm" onclick="copyConsoleLogs()" title="Copy filtered logs" style="padding:4px 9px;font-size:0.78rem;">
+            <span class="msym" style="font-size:15px;vertical-align:-2px;">content_copy</span> Copy
+          </button>
+          <button class="btn btn-sm" onclick="clearConsoleLogs()" title="Clear logs" style="padding:4px 9px;font-size:0.78rem;">
+            <span class="msym" style="font-size:15px;vertical-align:-2px;">delete</span> Clear
+          </button>
         </div>
       </div>
       <div id="console-output" class="console-terminal">
@@ -2652,7 +3073,7 @@
 
 <div class="modal-overlay" id="pw-modal">
   <div class="modal-box" style="max-width: 440px;">
-    <h2 style="font-size: 1.05rem; margin-bottom: 14px;">Change Password</h2>
+    <h2 style="font-size: 1.05rem; margin-bottom: 14px; display: flex; align-items: center; gap: 8px;"><span class="msym" style="font-size:20px; color:var(--primary);">password</span> Change Password</h2>
     <div class="form-group">
       <label>Current password</label>
       <input type="password" id="set-cur-pw" autocomplete="current-password" placeholder="Current password">
@@ -2668,14 +3089,14 @@
     <div id="pw-modal-msg" class="settings-msg"></div>
     <div style="display:flex; gap:10px; justify-content:flex-end;">
       <button class="btn" onclick="closeModal('pw-modal')">Cancel</button>
-      <button class="btn btn-primary" id="pw-change-btn" onclick="changePassword()">Update</button>
+      <button class="btn btn-primary" id="pw-change-btn" onclick="changePassword()"><span class="msym" style="font-size:15px;vertical-align:-2px;">check</span> Update</button>
     </div>
   </div>
 </div>
 
 <div class="modal-overlay" id="backup-modal">
   <div class="modal-box" style="max-width: 440px;">
-    <h2 style="font-size: 1.05rem; margin-bottom: 6px;">Download Backup</h2>
+    <h2 style="font-size: 1.05rem; margin-bottom: 6px; display: flex; align-items: center; gap: 8px;"><span class="msym" style="font-size:20px; color:var(--primary);">file_download</span> Download Backup</h2>
     <p style="font-size: 0.82rem; color: var(--muted); margin-bottom: 12px;">
       The file holds your provider tokens and password hash in plain text.
       Keep it somewhere private.
@@ -2687,14 +3108,14 @@
     <div id="backup-modal-msg" class="settings-msg"></div>
     <div style="display:flex; gap:10px; justify-content:flex-end;">
       <button class="btn" onclick="closeModal('backup-modal')">Cancel</button>
-      <button class="btn btn-primary" id="backup-btn" onclick="downloadBackup()">Download</button>
+      <button class="btn btn-primary" id="backup-btn" onclick="downloadBackup()"><span class="msym" style="font-size:15px;vertical-align:-2px;">download</span> Download</button>
     </div>
   </div>
 </div>
 
 <div class="modal-overlay" id="restore-modal">
   <div class="modal-box" style="max-width: 440px;">
-    <h2 style="font-size: 1.05rem; margin-bottom: 6px;">Restore From Backup</h2>
+    <h2 style="font-size: 1.05rem; margin-bottom: 6px; display: flex; align-items: center; gap: 8px;"><span class="msym" style="font-size:20px; color:var(--danger);">settings_backup_restore</span> Restore From Backup</h2>
     <p style="font-size: 0.82rem; color: var(--muted); margin-bottom: 12px;">
       A full replace, not a merge. Connections, API keys, combos and settings
       missing from the file will be deleted. Usage history is kept.
@@ -2711,7 +3132,7 @@
     <div id="restore-modal-msg" class="settings-msg"></div>
     <div style="display:flex; gap:10px; justify-content:flex-end;">
       <button class="btn" onclick="closeModal('restore-modal')">Cancel</button>
-      <button class="btn" id="restore-btn" onclick="restoreBackup()" style="border-color:var(--danger); color:var(--danger);">Restore &amp; Replace</button>
+      <button class="btn" id="restore-btn" onclick="restoreBackup()" style="border-color:var(--danger); color:var(--danger);"><span class="msym" style="font-size:15px;vertical-align:-2px;">warning</span> Restore &amp; Replace</button>
     </div>
   </div>
 </div>
@@ -3414,6 +3835,7 @@
   // ----------------------------------------------------------------
   let consoleEventSource = null;
   let consoleLogs = [];
+  let consoleFilterLevels = { ERROR: true, WARN: true, INFO: true, DEBUG: true };
   let consoleFilterLevel = "ALL";
   let consoleSearchQuery = "";
   let consoleAutoScroll = true;
@@ -3444,23 +3866,246 @@
     return "INFO";
   }
 
+  function copyConsoleSnippet(btn) {
+    const text = btn ? btn.getAttribute("data-snip") || "" : "";
+    if (!text || !navigator.clipboard) return;
+    navigator.clipboard.writeText(text).then(() => {
+      const orig = btn.innerHTML;
+      btn.innerHTML = `<span class="msym" style="font-size:13px;vertical-align:-2px;color:#3fb950;">check</span> Copied!`;
+      setTimeout(() => { btn.innerHTML = orig; }, 1500);
+    }).catch(() => {});
+  }
+
+  function parseLogLine(clean, detectedLvl) {
+    let timeStr = "";
+    let lvl = detectedLvl || "INFO";
+    let tag = "";
+    let msg = "";
+    const kvs = [];
+    let errDetail = "";
+
+    // 1. Check if raw JSON mode log
+    if (clean.startsWith("{") && clean.endsWith("}")) {
+      try {
+        const obj = JSON.parse(clean);
+        if (obj.msg !== undefined || obj.tag !== undefined || obj.level !== undefined || obj.time !== undefined) {
+          if (obj.time) {
+            try {
+              const d = new Date(obj.time);
+              timeStr = !isNaN(d.getTime()) ? d.toTimeString().split(" ")[0] : String(obj.time);
+            } catch (_) { timeStr = String(obj.time); }
+          }
+          if (obj.level) {
+            const l = String(obj.level).toUpperCase();
+            if (l.includes("ERR")) lvl = "ERROR";
+            else if (l.includes("WRN") || l.includes("WARN")) lvl = "WARN";
+            else if (l.includes("DBG") || l.includes("DEBUG")) lvl = "DEBUG";
+            else lvl = "INFO";
+          }
+          if (obj.tag) tag = String(obj.tag);
+          if (obj.msg) msg = String(obj.msg);
+          for (const k of Object.keys(obj)) {
+            if (["time", "level", "tag", "msg"].includes(k)) continue;
+            const val = obj[k];
+            if (k === "error" || k === "err" || k === "error_body" || k === "errBody") {
+              if (val !== null && val !== undefined && val !== "" && val !== "<nil>" && val !== "nil" && val !== "null") {
+                errDetail = typeof val === "object" ? JSON.stringify(val, null, 2) : String(val);
+              }
+            } else {
+              kvs.push({ key: k, val: typeof val === "object" ? JSON.stringify(val) : String(val) });
+            }
+          }
+          return { timeStr, lvl, tag, msg, kvs, errDetail, raw: clean };
+        }
+      } catch (_) {}
+    }
+
+    // 2. Text mode log
+    let rem = clean;
+
+    const tm = rem.match(/^(\d{4}[/-]\d{2}[/-]\d{2}\s+)?(\d{2}:\d{2}:\d{2}(?:\.\d+)?)\s+/);
+    if (tm) {
+      timeStr = tm[2];
+      rem = rem.slice(tm[0].length);
+    }
+
+    const lm = rem.match(/^(ERR|WRN|INF|DBG|ERROR|WARN|INFO|DEBUG)\s+/i);
+    if (lm) {
+      const l = lm[1].toUpperCase();
+      if (l.startsWith("ERR")) lvl = "ERROR";
+      else if (l.startsWith("WRN") || l.startsWith("WARN")) lvl = "WARN";
+      else if (l.startsWith("DBG") || l.startsWith("DEBUG")) lvl = "DEBUG";
+      else lvl = "INFO";
+      rem = rem.slice(lm[0].length);
+    }
+
+    const tagMatch = rem.match(/^\[([^\]]+)\]\s+/);
+    if (tagMatch) {
+      tag = tagMatch[1];
+      rem = rem.slice(tagMatch[0].length);
+    }
+
+    // Extract key=value pairs, respecting balanced quotes and brackets for error={...}
+    let curIdx = 0;
+    let kvStarted = false;
+    while (curIdx < rem.length) {
+      const keyMatch = rem.slice(curIdx).match(/(?:^|\s+)([a-zA-Z0-9_\-\.]+)=/);
+      if (!keyMatch) break;
+      if (!kvStarted) {
+        msg = rem.slice(0, curIdx + keyMatch.index).trim();
+        kvStarted = true;
+      }
+      const key = keyMatch[1];
+      const valStart = curIdx + keyMatch.index + keyMatch[0].length;
+      let val = "";
+      let nextIdx = valStart;
+
+      if (valStart < rem.length) {
+        const firstChar = rem[valStart];
+        if (firstChar === "{" || firstChar === "[") {
+          const openChar = firstChar;
+          const closeChar = firstChar === "{" ? "}" : "]";
+          let depth = 0;
+          let inQuote = false;
+          let quoteChar = "";
+          let escape = false;
+          let foundEnd = false;
+          for (let i = valStart; i < rem.length; i++) {
+            const c = rem[i];
+            if (escape) { escape = false; continue; }
+            if (c === "\\") { escape = true; continue; }
+            if (inQuote) {
+              if (c === quoteChar) inQuote = false;
+              continue;
+            }
+            if (c === '"' || c === "'") {
+              inQuote = true;
+              quoteChar = c;
+              continue;
+            }
+            if (c === openChar) depth++;
+            else if (c === closeChar) {
+              depth--;
+              if (depth === 0) {
+                val = rem.slice(valStart, i + 1);
+                nextIdx = i + 1;
+                foundEnd = true;
+                break;
+              }
+            }
+          }
+          if (!foundEnd) {
+            val = rem.slice(valStart);
+            nextIdx = rem.length;
+          }
+        } else if (firstChar === '"' || firstChar === "'") {
+          let escape = false;
+          let foundEnd = false;
+          for (let i = valStart + 1; i < rem.length; i++) {
+            const c = rem[i];
+            if (escape) { escape = false; continue; }
+            if (c === "\\") { escape = true; continue; }
+            if (c === firstChar) {
+              val = rem.slice(valStart + 1, i);
+              nextIdx = i + 1;
+              foundEnd = true;
+              break;
+            }
+          }
+          if (!foundEnd) {
+            val = rem.slice(valStart);
+            nextIdx = rem.length;
+          }
+        } else {
+          const nextKeyRel = rem.slice(valStart).search(/\s+[a-zA-Z0-9_\-\.]+=/);
+          if (nextKeyRel !== -1) {
+            val = rem.slice(valStart, valStart + nextKeyRel).trim();
+            nextIdx = valStart + nextKeyRel;
+          } else {
+            val = rem.slice(valStart).trim();
+            nextIdx = rem.length;
+          }
+        }
+      }
+
+      if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+        val = val.slice(1, -1);
+      }
+
+      const isErrKey = key === "error" || key === "err" || key === "error_body" || (key === "body" && lvl === "ERROR");
+      const isNilVal = !val || val === "<nil>" || val === "nil" || val === "null" || val === "none";
+
+      if (isErrKey && !isNilVal) {
+        try {
+          if ((val.startsWith("{") && val.endsWith("}")) || (val.startsWith("[") && val.endsWith("]"))) {
+            errDetail = JSON.stringify(JSON.parse(val), null, 2);
+          } else {
+            errDetail = val;
+          }
+        } catch (_) {
+          errDetail = val;
+        }
+      } else if (!isNilVal || !isErrKey) {
+        kvs.push({ key, val });
+      }
+      curIdx = nextIdx;
+    }
+
+    if (!kvStarted) {
+      msg = rem.trim();
+    }
+    if (!msg && !tag && kvs.length === 0 && !errDetail) {
+      msg = clean;
+    }
+
+    return { timeStr, lvl, tag, msg, kvs, errDetail, raw: clean };
+  }
+
   function renderConsoleLine(raw) {
     const clean = stripAnsi(raw);
-    const lvl = detectLogLevel(clean);
+    const detectedLvl = detectLogLevel(clean);
+    const p = parseLogLine(clean, detectedLvl);
+    const lvl = p.lvl;
+
     let lvlClass = "lvl-inf";
     let badge = "INF";
     if (lvl === "ERROR") { lvlClass = "lvl-err"; badge = "ERR"; }
     else if (lvl === "WARN") { lvlClass = "lvl-wrn"; badge = "WRN"; }
     else if (lvl === "DEBUG") { lvlClass = "lvl-dbg"; badge = "DBG"; }
 
-    return `<div class="console-line ${lvlClass}"><span class="console-badge ${lvlClass}">${badge}</span><span class="console-text">${escapeHtml(clean)}</span></div>`;
+    let chipsHtml = "";
+    if (p.kvs && p.kvs.length > 0) {
+      chipsHtml = `<div class="console-chips">` + p.kvs.map(kv => {
+        let chipClass = "console-chip";
+        if (kv.key === "status") {
+          const s = parseInt(kv.val, 10);
+          if (s >= 200 && s < 300) chipClass += " console-chip-status-2xx";
+          else if (s >= 400 && s < 500) chipClass += " console-chip-status-4xx";
+          else if (s >= 500) chipClass += " console-chip-status-5xx";
+        }
+        return `<span class="${chipClass}"><span class="console-chip-key">${escapeHtml(kv.key)}:</span><span class="console-chip-val">${escapeHtml(kv.val)}</span></span>`;
+      }).join("") + `</div>`;
+    }
+
+    let errBoxHtml = "";
+    if (p.errDetail) {
+      const escapedErr = escapeHtml(p.errDetail);
+      errBoxHtml = `<div class="console-error-box"><div class="console-error-box-header"><span><span class="msym" style="font-size:14px;vertical-align:-2px;color:#f85149;">error</span> Error Details</span><button type="button" class="console-copy-err-btn" onclick="copyConsoleSnippet(this)" data-snip="${escapeHtml(p.errDetail)}"><span class="msym" style="font-size:13px;vertical-align:-2px;">content_copy</span> Copy Error</button></div><pre class="console-error-pre">${escapedErr}</pre></div>`;
+    }
+
+    const timeHtml = p.timeStr ? `<span class="console-time">${escapeHtml(p.timeStr)}</span>` : "";
+    const tagHtml = p.tag ? `<span class="console-tag">[${escapeHtml(p.tag)}]</span>` : "";
+    const msgHtml = p.msg ? `<span class="console-text console-msg">${escapeHtml(p.msg)}</span>` : "";
+
+    return `<div class="console-line ${lvlClass}"><div class="console-line-header">${timeHtml}<span class="console-badge ${lvlClass}">${badge}</span>${tagHtml}${msgHtml}${chipsHtml}</div>${errBoxHtml}</div>`;
   }
 
   function getFilteredConsoleLogs() {
     const q = consoleSearchQuery.toLowerCase();
     return consoleLogs.filter(line => {
       const clean = stripAnsi(line);
-      if (consoleFilterLevel !== "ALL" && detectLogLevel(clean) !== consoleFilterLevel) return false;
+      const lvl = detectLogLevel(clean);
+      if (!consoleFilterLevels[lvl]) return false;
       if (q && !clean.toLowerCase().includes(q)) return false;
       return true;
     });
@@ -3490,8 +4135,23 @@
     applyConsoleFilter();
   }
 
+  function onConsoleLevelToggle(lvl, checked) {
+    consoleFilterLevels[lvl] = !!checked;
+    applyConsoleFilter();
+  }
+
   function onConsoleLevelChange(val) {
     consoleFilterLevel = val || "ALL";
+    if (!val || val === "ALL") {
+      consoleFilterLevels = { ERROR: true, WARN: true, INFO: true, DEBUG: true };
+    } else {
+      consoleFilterLevels = { ERROR: false, WARN: false, INFO: false, DEBUG: false };
+      consoleFilterLevels[val] = true;
+    }
+    ["ERROR", "WARN", "INFO", "DEBUG"].forEach(l => {
+      const cb = document.getElementById("cb-log-" + l.toLowerCase());
+      if (cb) cb.checked = !!consoleFilterLevels[l];
+    });
     applyConsoleFilter();
   }
 
@@ -3508,11 +4168,11 @@
     const text = filtered.map(stripAnsi).join("\n");
     if (!navigator.clipboard) return;
     navigator.clipboard.writeText(text).then(() => {
-      const btn = event?.target;
+      const btn = event?.currentTarget || event?.target;
       if (btn) {
-        const orig = btn.textContent;
-        btn.textContent = "✅ Copied!";
-        setTimeout(() => { btn.textContent = orig; }, 1500);
+        const orig = btn.innerHTML;
+        btn.innerHTML = `<span class="msym" style="font-size:15px;vertical-align:-2px;color:#3fb950;">check</span> Copied!`;
+        setTimeout(() => { btn.innerHTML = orig; }, 1500);
       }
     }).catch(() => {});
   }
@@ -5554,11 +6214,15 @@
           const label = p.accountLabel || p.email || p.name || p.id.substring(0, 12);
           const dot = acctDotClass(p);
           const connStatus = effectiveStatusOf(p);
+          const isUnknown = !connStatus || connStatus === "unknown" || connStatus === "untested" || connStatus === "idle";
+          const statusStyle = isUnknown ? 'style="display:none;"' : '';
+          const statusText = isUnknown ? '' : escapeHtml(connStatus);
           return `<div class="model-row" id="conn-row-${p.id}">
+            <input type="checkbox" class="conn-select-cb" data-id="${p.id}" onchange="updateConnSelectionUI()" style="cursor:pointer;margin-right:2px;accent-color:var(--primary);flex-shrink:0;">
             <span class="acct-dot ${dot}"></span>
             <span class="mid" title="${escapeHtml(label)}">${escapeHtml(label)}</span>
             <span class="conn-actions">
-              <span class="mkind conn-status ${connStatusClass(p)}" id="conn-status-${p.id}" title="status: ${escapeHtml(connStatus)}">${escapeHtml(connStatus)}</span>
+              <span class="mkind conn-status ${connStatusClass(p)}" id="conn-status-${p.id}" ${statusStyle} title="status: ${escapeHtml(connStatus)}">${statusText}</span>
               <button class="btn btn-sm conn-test-btn" id="conn-test-${p.id}" onclick="testConnection('${p.id}');" title="Test this account against the upstream provider">Test</button>
               <label class="switch" style="transform:scale(0.8);">
                 <input type="checkbox" ${p.isActive === 1 ? 'checked' : ''} onchange="toggleProvider('${p.id}');">
@@ -5582,13 +6246,22 @@
         </button>` : ''}
         <button class="btn btn-sm" onclick="testAllConnections('${d.provider}');">Test All Accounts</button>
         <span id="conn-test-progress" class="conn-test-progress"></span>
-        <div style="margin-left:auto; display:flex; gap:7px;">
+        <div style="margin-left:auto; display:flex; gap:7px; align-items:center; flex-wrap:wrap;">
           <button class="btn btn-sm" onclick="toggleAllConnections(1)">Enable All</button>
           <button class="btn btn-sm" onclick="toggleAllConnections(0)">Disable All</button>
+          <button class="btn btn-sm btn-danger" id="conn-bulk-delete-btn" style="display:none;" onclick="deleteSelectedConns()">
+            <span class="msym" style="font-size:14px;vertical-align:-2px;">delete</span> Delete Selected (<span id="conn-selected-count">0</span>)
+          </button>
         </div>
       </div>
       ${accountRoundRobinControls(d)}
-      <div style="margin-top:6px;">${connsInner}</div>`;
+      ${(d.connections || []).length > 1 ? `<div style="display:flex;align-items:center;gap:6px;padding:6px 2px;font-size:0.76rem;color:var(--muted);">
+        <label style="display:flex;align-items:center;gap:5px;cursor:pointer;user-select:none;">
+          <input type="checkbox" id="conn-select-all" onchange="toggleSelectAllConns(this.checked)" style="cursor:pointer;accent-color:var(--primary);">
+          Select All
+        </label>
+      </div>` : ''}
+      <div style="margin-top:4px;">${connsInner}</div>`;
 
     // Models tab — includes the "Add Custom Model" form plus per-model and
     // batch "Test" controls (upstream "Test All Models" + Test button on
@@ -8807,16 +9480,21 @@
   }
 
   // Dot colour mirrors the upstream three-bucket convention: grey when the
-  // account is switched off, green when usable, amber when the token merely
-  // expired, red when the account is genuinely failing.
+  // account is switched off, green when usable, amber when the failure is
+  // temporary (expired token, live throttle), red when the account is
+  // genuinely failing and needs the operator to act.
   function acctDotClass(p) {
     if (p.isActive !== 1) return "off";
     if (p.expired) return "warn";
+    if (effectiveStatusOf(p) === "rate_limited") return "warn";
     return isEffectivelyActive(p) ? "on" : "warn";
   }
 
-  // Status chip. "active" is green; failing states are red so a
-  // credit-exhausted account no longer looks healthy next to a green dot.
+  // Status chip. Each failing state gets its own wording and colour so the
+  // operator can tell "wait a minute" (rate limited, amber) from "top up the
+  // account" (quota exhausted, red) from "this key is rejected" (red) without
+  // opening the connection. Known states carry a tooltip with the stored
+  // upstream message and, for a live cooldown, when it clears.
   function statusPillFor(p) {
     if (p.isActive !== 1) return `<span class="acct-pill idle">disabled</span>`;
     if (p.expired) return `<span class="acct-pill exp">token expired</span>`;
@@ -8827,7 +9505,39 @@
     if (status === "active" || status === "success") {
       return `<span class="acct-pill ok">active</span>`;
     }
-    return `<span class="acct-pill exp">${escapeHtml(status)}</span>`;
+    const label = {
+      rate_limited: "rate limited",
+      quota_exhausted: "credit exhausted",
+      unavailable: "unavailable",
+      error: "error",
+    }[status];
+    const cls = status === "rate_limited" ? "rl"
+              : status === "quota_exhausted" ? "quota"
+              : "exp";
+    return `<span class="acct-pill ${cls}" title="${escapeHtml(statusTooltip(p))}">`
+         + `${escapeHtml(label || status)}</span>`;
+  }
+
+  // statusTooltip explains a failing chip: the stored upstream message plus the
+  // cooldown deadline when one is live. Falls back to generic advice per state
+  // so the tooltip is never empty on hover.
+  function statusTooltip(p) {
+    const parts = [];
+    const status = effectiveStatusOf(p);
+    if (p.lastError) parts.push(p.lastError);
+    if (p.hasActiveCooldown && p.cooldownUntil) {
+      const mins = Math.round((new Date(p.cooldownUntil) - Date.now()) / 60000);
+      if (mins > 0) parts.push(`retries in ~${mins}m`);
+    }
+    if (!parts.length) {
+      parts.push({
+        rate_limited: "Upstream is throttling this account; it recovers on its own.",
+        quota_exhausted: "Credit or quota budget is spent. Top up the account to restore it.",
+        unavailable: "Last call to this account failed.",
+        error: "Last call to this account failed.",
+      }[status] || "Not usable right now.");
+    }
+    return parts.join(" — ");
   }
 
   // Chip class for the connection status shown on the provider detail page.
@@ -9235,6 +9945,7 @@
     chip.textContent = label + (res.refreshed ? " ⟳" : "");
     chip.classList.add(cls);
     chip.title = tip;
+    chip.style.display = "";
   }
 
   async function testConnection(id) {
@@ -9354,6 +10065,62 @@
     // they deleted an account (reported on mistral).
     if (currentProviderId && document.getElementById("tab-provider-detail")?.classList.contains("active")) {
       await openProviderDetail(currentProviderId, true);
+    }
+  }
+
+  function updateConnSelectionUI() {
+    const cbs = document.querySelectorAll(".conn-select-cb");
+    const checked = Array.from(cbs).filter(cb => cb.checked);
+    const count = checked.length;
+    const btn = document.getElementById("conn-bulk-delete-btn");
+    const countEl = document.getElementById("conn-selected-count");
+    const allCb = document.getElementById("conn-select-all");
+
+    if (btn) btn.style.display = count > 0 ? "inline-flex" : "none";
+    if (countEl) countEl.textContent = count;
+    if (allCb) {
+      allCb.checked = cbs.length > 0 && count === cbs.length;
+      allCb.indeterminate = count > 0 && count < cbs.length;
+    }
+  }
+
+  function toggleSelectAllConns(checked) {
+    const cbs = document.querySelectorAll(".conn-select-cb");
+    cbs.forEach(cb => { cb.checked = !!checked; });
+    updateConnSelectionUI();
+  }
+
+  async function deleteSelectedConns() {
+    const cbs = document.querySelectorAll(".conn-select-cb:checked");
+    const ids = Array.from(cbs).map(cb => cb.getAttribute("data-id")).filter(Boolean);
+    if (!ids.length) return;
+
+    const msg = `Are you sure you want to delete ${ids.length} selected account(s)? This cannot be undone.`;
+    if (!(await appConfirm(msg, { title: "Delete selected accounts", okText: "Delete", danger: true }))) return;
+
+    const btn = document.getElementById("conn-bulk-delete-btn");
+    if (btn) { btn.disabled = true; btn.textContent = "Deleting…"; }
+
+    let deleted = 0;
+    try {
+      for (const id of ids) {
+        try {
+          await api(`/api/dashboard/providers/${id}`, { method: "DELETE" });
+          deleted++;
+        } catch (_) {}
+      }
+      toast(`Deleted ${deleted} account(s)`, false);
+      if (currentProviderId && document.getElementById("tab-provider-detail")?.classList.contains("active")) {
+        await openProviderDetail(currentProviderId, true);
+      }
+      const res = await api("/api/dashboard/providers");
+      if (res.ok) {
+        allProviders = await res.json();
+        updateCategoryCounts(allProviders);
+        filterProviders();
+      }
+    } catch (e) {
+      toast("Error deleting accounts: " + e.message, true);
     }
   }
 
@@ -9950,13 +10717,19 @@
           <td>
             <div class="key-secret">
               <code>${escapeHtml(shown ? k.key : maskKey(k.key))}</code>
-              <button class="icon-btn" onclick="toggleKeySecret('${k.id}')" title="${shown ? "Hide key" : "Show key"}">${shown ? "🙈" : "👁"}</button>
-              <button class="icon-btn" onclick="copyKeySecret('${k.id}')" title="Copy key">📋</button>
+              <button class="icon-btn" onclick="toggleKeySecret('${k.id}')" title="${shown ? "Hide key" : "Show key"}">
+                <span class="msym" style="font-size:15px;vertical-align:-2px;">${shown ? "visibility_off" : "visibility"}</span>
+              </button>
+              <button class="icon-btn" onclick="copyKeySecret('${k.id}')" title="Copy key">
+                <span class="msym" style="font-size:15px;vertical-align:-2px;">content_copy</span>
+              </button>
             </div>
           </td>
           <td style="color:var(--muted); font-size: 0.8rem;">${k.createdAt ? escapeHtml(k.createdAt.substring(0, 10)) : "-"}</td>
           <td style="text-align: right;">
-            <button class="btn btn-sm btn-danger" onclick="deleteKey('${k.id}')">Revoke</button>
+            <button class="btn btn-sm btn-danger" onclick="deleteKey('${k.id}')">
+              <span class="msym" style="font-size:14px;vertical-align:-2px;">delete</span> Revoke
+            </button>
           </td>
         </tr>`;
       }).join("");
@@ -10510,9 +11283,9 @@
       const binding = jbBindings[id] || {};
       const on = isArmed(id);
       const row = document.createElement("div");
-      row.style.cssText = "display:flex;justify-content:space-between;align-items:center;gap:12px;padding:8px 12px;background:var(--panel-hover);border:1px solid " + (on ? "#238636" : "var(--border)") + ";border-radius:8px;transition:border-color 0.15s;";
+      row.className = "jb-model-row" + (on ? " is-armed" : "");
       const label = document.createElement("div");
-      label.style.cssText = "display:flex;align-items:center;gap:9px;min-width:0;";
+      label.className = "jb-model-label";
       const dot = document.createElement("span");
       dot.className = "msym";
       // "shield_outlined" is not a glyph name in Material Symbols — it renders as
@@ -10521,13 +11294,13 @@
       dot.style.cssText = "font-size:17px;flex-shrink:0;color:" + (on ? "#3fb950" : "var(--muted)") + ";font-variation-settings:'FILL' " + (on ? 1 : 0) + ";";
       dot.textContent = "shield";
       const name = document.createElement("div");
-      name.style.cssText = "font-family:ui-monospace,SFMono-Regular,monospace;font-size:0.8rem;color:" + (on ? "#fff" : "var(--muted)") + ";min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";
+      name.className = "jb-model-name";
       name.textContent = id;
       name.title = id;
       label.append(dot, name);
 
       const sel = document.createElement("select");
-      sel.style.cssText = "flex-shrink:0;max-width:240px;height:32px;padding:0 8px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px;font-size:0.78rem;";
+      sel.className = "jb-model-select";
       sel.title = "Preset injected for this model";
       const off = document.createElement("option");
       off.value = "off";

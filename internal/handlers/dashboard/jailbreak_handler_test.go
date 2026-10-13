@@ -205,3 +205,18 @@ func TestJailbreakPresetCRUDRoutes(t *testing.T) {
 		t.Fatalf("DELETE preset status = %d, want 200: %s", rec.Code, rec.Body.String())
 	}
 }
+
+func TestJailbreakModelRowMobileTwoLines(t *testing.T) {
+	ui := readEmbeddedUI(t)
+	for _, need := range []string{
+		`jb-model-row`,
+		`jb-model-label`,
+		`jb-model-select`,
+		`.jb-model-row`,
+		`.jb-model-select`,
+	} {
+		if !strings.Contains(ui, need) {
+			t.Errorf("jailbreak model row missing %s", need)
+		}
+	}
+}

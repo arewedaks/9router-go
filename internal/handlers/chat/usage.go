@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"9router/proxy/internal/constants"
 	"9router/proxy/internal/db"
@@ -113,16 +114,42 @@ func extractRequestMessages(body []byte) []map[string]string {
 	}
 	msgs := make([]map[string]string, 0, len(req.Messages))
 	for _, m := range req.Messages {
-		content := extractContent(m.Content)
-		if len(content) > constants.MaxMessageContentLen {
-			content = content[:constants.MaxMessageContentLen] + "..."
-		}
+		content := truncateUTF8(extractContent(m.Content), constants.MaxMessageContentLen)
 		msgs = append(msgs, map[string]string{"role": m.Role, "content": content})
 	}
 	if len(msgs) > constants.MaxLoggedMessages {
 		msgs = msgs[len(msgs)-constants.MaxLoggedMessages:]
 	}
 	return msgs
+}
+
+// truncateUTF8 cuts s to at most max bytes without splitting a rune, and drops
+// any invalid UTF-8 left in the result.
+//
+// Two things make this necessary, and neither is optional under encoding/json/v2:
+// a byte-offset cut lands mid-rune whenever the boundary falls inside a
+// multi-byte character (emoji, accented Latin, CJK), and v2 rejects invalid
+// UTF-8 on marshal where v1 silently substituted U+FFFD. The result was that
+// logging one message with a cut multi-byte rune failed the WHOLE request-detail
+// write with `invalid UTF-8 within "/request/messages/N/content"`, so the
+// request simply vanished from the dashboard's history.
+//
+// Content that arrived already malformed (a client sending raw bytes inside a
+// JSON string) is sanitised too: the alternative is losing the record outright,
+// since these bytes are only ever read back by a human, never re-sent upstream.
+func truncateUTF8(s string, max int) string {
+	if len(s) > max {
+		// Back up to the start of the rune straddling the cut.
+		cut := max
+		for cut > 0 && !utf8.RuneStart(s[cut]) {
+			cut--
+		}
+		s = s[:cut] + "..."
+	}
+	if utf8.ValidString(s) {
+		return s
+	}
+	return strings.ToValidUTF8(s, "\uFFFD")
 }
 
 // extractContent handles content that is either a string or array of content blocks.

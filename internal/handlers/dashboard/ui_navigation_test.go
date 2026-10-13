@@ -378,14 +378,29 @@ func TestUIProviderCountsUseEffectiveStatus(t *testing.T) {
 		t.Error("isEffectivelyActive must treat a missing testStatus as not-yet-probed, not as a failure")
 	}
 
-	// The dot must distinguish a failing-but-enabled account from a healthy one.
+	// The dot must distinguish a failing-but-enabled account from a healthy one,
+	// and a live throttle must read amber (temporary) rather than red (broken).
 	if !strings.Contains(ui, "return isEffectivelyActive(p) ? \"on\" : \"warn\";") {
 		t.Error("account dot no longer colours an enabled-but-failing account distinctly")
 	}
+	if !strings.Contains(ui, `if (effectiveStatusOf(p) === "rate_limited") return "warn";`) {
+		t.Error("account dot must render a live throttle as amber, not red")
+	}
 
-	// A failing status must render as the red pill, not the neutral idle one.
-	if !strings.Contains(ui, "return `<span class=\"acct-pill exp\">${escapeHtml(status)}</span>`;") {
-		t.Error("a failing effective status is not shown with the error pill")
+	// Each failing status must carry its own pill: a throttle, a spent budget,
+	// and a rejected credential are different problems with different remedies,
+	// so a single opaque red chip showing the raw status string is not enough.
+	if !strings.Contains(ui, "function statusTooltip(") {
+		t.Error("failing statuses must explain themselves via a tooltip")
+	}
+	if !strings.Contains(ui, `rate_limited: "rate limited"`) {
+		t.Error("rate_limited must render with its own label")
+	}
+	if !strings.Contains(ui, `quota_exhausted: "credit exhausted"`) {
+		t.Error("quota_exhausted must render as 'credit exhausted', not the raw enum")
+	}
+	if !strings.Contains(ui, `.acct-pill.rl {`) || !strings.Contains(ui, `.acct-pill.quota {`) {
+		t.Error("rate-limited and quota-exhausted pills need their own styling")
 	}
 }
 
