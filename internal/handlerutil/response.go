@@ -56,18 +56,38 @@ func WriteJSONError(w http.ResponseWriter, status int, message string) {
 			"code":    errCode,
 		},
 	}
-	if err := json.MarshalWrite(w, errResp); err != nil {
-		w.Write([]byte(`{"error":{"message":"internal error","type":"server_error","code":"internal_server_error"}}`))
+	if b, err := json.Marshal(errResp); err == nil {
+		w.Write(b)
 	}
 }
 
-// WriteJSON writes a JSON response directly to the ResponseWriter with zero intermediate byte buffering.
+// WriteJSON writes a JSON response, marshalling fully before the first byte
+// reaches the client.
+//
+// The buffer is the point, not an optimisation. Marshalling straight into the
+// ResponseWriter (json.MarshalWrite(w, ...)) writes the header and a prefix of
+// the body before it can fail, and the failure path then appends an error
+// object to that partial body. The client receives `{"success":true{"error":
+// ...` with status 200 — unparseable JSON, so the Console Log tab rendered an
+// empty list while the server logged a 200. encoding/json/v2 triggers this
+// whenever a string holds invalid UTF-8, which a byte-offset truncation of a
+// multi-byte rune produces (see chat/usage.truncateUTF8 for the same bug on
+// the write side). Marshalling to memory first keeps the failure recoverable:
+// nothing is sent, so the real status is still available to send.
 func WriteJSON(w http.ResponseWriter, status int, data any) {
+	body, err := json.Marshal(data)
+	if err != nil {
+		// The payload cannot be represented. Report that honestly instead of
+		// emitting a corrupt 200 the caller cannot parse.
+		log.Warn("handlerutil", "marshal failed; returning 500", "error", err)
+		w.Header().Set(constants.HeaderContentType, constants.ContentTypeJSON)
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`{"error":{"message":"internal error","type":"invalid_request_error","code":500}}`))
+		return
+	}
 	w.Header().Set(constants.HeaderContentType, constants.ContentTypeJSON)
 	w.WriteHeader(status)
-	if err := json.MarshalWrite(w, data); err != nil {
-		w.Write([]byte(`{"error":{"message":"internal error","type":"invalid_request_error","code":500}}`))
-	}
+	w.Write(body)
 }
 
 // UpdateModelInBody returns a copy of body with the "model" field set to modelName.
@@ -154,4 +174,3 @@ func GetSessionID(ctx context.Context) string {
 	}
 	return ""
 }
-

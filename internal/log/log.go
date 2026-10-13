@@ -20,6 +20,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 // Console log capture: an in-process ring buffer plus live subscribers, so the
@@ -33,6 +34,25 @@ const (
 type consoleEvent struct {
 	kind string // "line" | "clear"
 	line string
+}
+
+// validUTF8 replaces invalid byte sequences with U+FFFD so the result can be
+// marshalled. It is a no-op for the overwhelmingly common case of ASCII, which
+// is worth checking because this runs on every log line.
+func validUTF8(s string) string {
+	valid := true
+	for i := 0; i < len(s); {
+		r, size := utf8.DecodeRuneInString(s[i:])
+		if r == utf8.RuneError && size == 1 {
+			valid = false
+			break
+		}
+		i += size
+	}
+	if valid {
+		return s
+	}
+	return strings.ToValidUTF8(s, "\uFFFD")
 }
 
 // Kind returns the event kind ("line" or "clear").
@@ -50,7 +70,16 @@ var (
 
 // captureConsole appends a formatted line to the ring buffer and fans it out
 // to live subscribers without blocking the logger.
+//
+// The line is made valid UTF-8 before it is stored. A log line can pick up an
+// invalid sequence anywhere upstream — a byte-offset truncation of a multi-byte
+// rune, or a fragment of a partially-read response body — and encoding/json/v2
+// refuses to marshal such a string, so one bad line would take the whole
+// console-log response with it. Sanitising here is the single choke point every
+// line passes through. json.Marshal of a string is where v2 draws the line
+// between valid and not, so it is also the cheapest way to ask.
 func captureConsole(line string) {
+	line = validUTF8(line)
 	consoleMu.Lock()
 	consoleLogs = append(consoleLogs, line)
 	if len(consoleLogs) > consoleMaxLines {
