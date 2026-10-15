@@ -1,5 +1,5 @@
 {
-  "latestVersion": "1.9.32",
+  "latestVersion": "1.9.33",
   "downloadUrl": "https://github.com/arewedaks/9router-go/releases/latest",
   "releaseNotes": "- docs: catat feat/go-dashboard sebagai alias kompatibilitas, bukan sisa (45f82c2)\n- docs: rename FORK.md menjadi ORIGIN.md dan bersihkan kata 'fork' yang keliru (407a454)\n- refactor: rename feat/go-dashboard menjadi main, lepaskan status fork (90f17cd)\n- docs: tambahkan LICENSE yang hilang, nyatakan repo sebagai proyek independen (3497a26)\n- fix(opencode): loloskan gerbang FreeTierError dengan lima deklarasi tool (2013bec)\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
 }
