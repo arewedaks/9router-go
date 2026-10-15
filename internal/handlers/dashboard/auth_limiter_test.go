@@ -1,6 +1,8 @@
 package dashboard
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 )
@@ -102,5 +104,47 @@ func TestLoginLimiterTracksIPsIndependently(t *testing.T) {
 	}
 	if locked, _ := l.checkLock("2.2.2.2"); locked {
 		t.Fatal("an unrelated IP must not be affected")
+	}
+}
+
+// The service listens on its public port as well as behind the reverse proxy.
+// On the direct path nothing overwrites X-Forwarded-For, so honouring the header
+// there let an attacker send a fresh value per request and get a fresh limiter
+// bucket every time — unlimited password guessing. Only a loopback peer may
+// supply it, because that is the only hop that is actually the proxy.
+func TestClientIPRefusesSpoofedHeaderFromPublicPeer(t *testing.T) {
+	req := func(remote, xff string) string {
+		r := httptest.NewRequest(http.MethodPost, "/api/dashboard/auth/login", nil)
+		r.RemoteAddr = remote
+		if xff != "" {
+			r.Header.Set("X-Forwarded-For", xff)
+		}
+		return clientIP(r, true)
+	}
+
+	// Direct public connection: the forged header must be ignored and the
+	// spoofed values must never become distinct limiter keys.
+	for _, xff := range []string{"1.2.3.4", "9.9.9.9", "203.0.113.7"} {
+		if got := req("198.51.100.20:4444", xff); got != "198.51.100.20" {
+			t.Errorf("public peer with XFF=%q resolved to %q, want the socket peer; "+
+				"a rotating header would bypass the lockout", xff, got)
+		}
+	}
+
+	// Behind the proxy the hop is loopback and Caddy replaces the header with
+	// the real client, so that value is trusted.
+	if got := req("127.0.0.1:5000", "203.0.113.9"); got != "203.0.113.9" {
+		t.Errorf("proxied request resolved to %q, want the forwarded client", got)
+	}
+	if got := req("[::1]:5000", "203.0.113.10"); got != "203.0.113.10" {
+		t.Errorf("IPv6 loopback proxy hop resolved to %q, want the forwarded client", got)
+	}
+
+	// TRUST_PROXY off means the header is ignored even from loopback.
+	r := httptest.NewRequest(http.MethodPost, "/api/dashboard/auth/login", nil)
+	r.RemoteAddr = "127.0.0.1:5000"
+	r.Header.Set("X-Forwarded-For", "203.0.113.11")
+	if got := clientIP(r, false); got != "127.0.0.1" {
+		t.Errorf("with TRUST_PROXY off resolved to %q, want the socket peer", got)
 	}
 }

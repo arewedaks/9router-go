@@ -103,19 +103,38 @@ func (l *loginLimiter) recordSuccess(ip string) {
 
 // clientIP extracts a best-effort client identifier.
 //
-// Trust model, identical to the reference: X-Forwarded-For is only honoured when
-// TRUST_PROXY=true, because otherwise a client could rotate the header to escape
-// the limiter. When we cannot identify the peer we bucket everything under a
-// single key, which is the safe failure mode (a shared lockout beats no lockout).
+// X-Forwarded-For is only honoured when TRUST_PROXY=true, and only when the
+// direct peer is the local reverse proxy. Everything else falls back to the
+// socket peer, which a client cannot forge.
+//
+// Trusting the header whenever TRUST_PROXY=true is unsafe on its own: the
+// service also listens on its public port (HOST=0.0.0.0), and on that path no
+// proxy overwrites the header, so anyone could send a fresh
+// "X-Forwarded-For: <random>" per request and land in a new limiter bucket
+// every time — unlimited password guessing. Requiring a loopback peer closes
+// that while still permitting the Caddy hop, which always arrives from
+// 127.0.0.1. Caddy replaces the header with the real remote address rather than
+// appending, so its single left-most value is the client. If the proxy is ever
+// moved to another host, add its address to the trusted set here rather than
+// dropping the check.
+//
+// A shared lockout is the safe failure mode: when the peer cannot be identified
+// we bucket everything under one key.
 func clientIP(r *http.Request, trustProxy bool) string {
-	if trustProxy {
-		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-			if first := strings.TrimSpace(strings.Split(xff, ",")[0]); first != "" {
-				return first
+	host := ""
+	if h, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		host = h
+	}
+	if trustProxy && host != "" {
+		if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
+			if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+				if first := strings.TrimSpace(strings.Split(xff, ",")[0]); first != "" {
+					return first
+				}
 			}
 		}
 	}
-	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil && host != "" {
+	if host != "" {
 		return host
 	}
 	return "unknown"
