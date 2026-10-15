@@ -66,7 +66,7 @@ Notes for the details.
   host fails it degrades to a local catalogue with a warning instead of erroring.
 - **CodeBuddy model import** — CodeBuddy (both `codebuddy-cn` and
   `codebuddy-intl`) has **no** model-listing route: `/v2/models`, `/v1/models`
-  and every plausible alias answer `404` against a valid account. The fork used
+  and every plausible alias answer `404` against a valid account. The ancestor used
   to answer "Provider codebuddy does not support models listing", so `Import
   from /models` could never work for it. It now returns a built-in catalogue
   (GLM / MiniMax / DeepSeek / Hunyuan / Kimi, derived from the model locks seen
@@ -166,7 +166,7 @@ Notes for the details.
   scheduler re-probes and clears the state. Here the dashboard routes are
   unauthenticated and there is no recovery loop, so writing would be a remote
   DoS primitive (loop the endpoint to flip working accounts out of rotation)
-  with sticky-bad state. It also **never refreshes** OAuth tokens: this fork's
+  with sticky-bad state. It also **never refreshes** OAuth tokens: the ancestor's
   refresher has no per-connection mutex or in-flight dedup, so a test-triggered
   refresh could race on the same refresh token and invalidate a healthy account.
   A `401` is reported as "the next chat request will refresh it".
@@ -177,7 +177,7 @@ Notes for the details.
 - **Antigravity project discovery sends the Antigravity User-Agent** — the
   onboarding RPCs (`loadCodeAssist`, `onboardUser`) used to identify as
   `google-api-nodejs-client/9.15.1`. Google answers that with a **200 that omits
-  `cloudaicompanionProject`**, even for fully provisioned accounts, so the fork
+  `cloudaicompanionProject`**, even for fully provisioned accounts, so the ancestor
   concluded "no project" and every chat returned `502` for a healthy login.
   Verified live on one token: the generic UA yields no project, while the
   Antigravity UA (`antigravity/ide/…` or `antigravity/cli/…`) returns the real
@@ -195,7 +195,7 @@ Notes for the details.
   Timeout via `CONNECTION_TEST_TIMEOUT_MS` (default 30s).
 
 **Per-connection single-flight OAuth refresh (Test Connection now refreshes)** —
-this fork's OAuth refresher had no per-connection lock, so two concurrent
+this project's OAuth refresher had no per-connection lock, so two concurrent
 refreshes of the *same* connection could both send the same single-use refresh
 token; the loser got `refresh_token_reused` / `invalid_grant` and a healthy
 account was bricked until re-login. Because of that, the original Test
@@ -579,7 +579,7 @@ ported from VansRouter (`src/lib/auth/*`, `src/app/api/auth/*`):
   signal when it is literally `true`/`"true"`/`"free"`, so a truthy-but-not-`true`
   value such as the string `"false"` never badges. CodeBuddy has **no**
   documented free tier, so `cbai/glm-5.2` and friends are never free no matter
-  the payload; the catalogue is deliberately small (only providers this fork
+  the payload; the catalogue is deliberately small (only providers this project
   routes) because a missing entry fails safe to "not free".
 - Model IDs contain `/`, so the delete endpoint takes `?modelId=` as a query
   parameter rather than a path segment.
@@ -599,7 +599,7 @@ ported from VansRouter (`src/lib/auth/*`, `src/app/api/auth/*`):
   `ProviderConfig.StaticHeaders["User-Agent"]` in `getProviderConfig`, so chat,
   search and discovery all agree without threading connection data everywhere.
 - Dashboard endpoints trust the caller (they are registered outside the
-  `RequireApiKey` group). This is pre-existing fork behaviour; the browser UI
+  `RequireApiKey` group). This is pre-existing behaviour; the browser UI
   authenticates via `POST /api/dashboard/auth/verify` and stores the key.
 - Antigravity accounts can be added by signing in with Google instead of
   pasting a token:

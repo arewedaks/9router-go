@@ -12,7 +12,7 @@ import (
 //	GET /api/v1/models, /api/models, /api/v1/agents  -> 404 (HTML, not JSON)
 //
 // So the upstream "Import from /models" button can never work for it, and this
-// fork answered "Provider freebuff does not support models listing" — leaving
+// dashboard answered "Provider freebuff does not support models listing" — leaving
 // the operator with a connected account and zero models. OmniRoute solves this
 // the same way it solves CodeBuddy: it ships a local catalogue
 // (open-sse/config/providers/registry/freebuff/index.ts) and never calls a

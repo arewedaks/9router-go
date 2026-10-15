@@ -313,17 +313,17 @@ func TestPerformSelfUpdateRefusesUntrustedURL(t *testing.T) {
 	}
 }
 
-// The defaults must point at this fork. A regression here is silent: updates
+// The defaults must point at this project. A regression here is silent: updates
 // would keep working while installing the wrong project's binary.
-func TestDefaultsPointAtThisFork(t *testing.T) {
+func TestDefaultsPointAtThisProject(t *testing.T) {
 	if !strings.Contains(DefaultUpdateURL, "arewedaks/9router-go") {
-		t.Errorf("DefaultUpdateURL = %q, want the fork's manifest", DefaultUpdateURL)
+		t.Errorf("DefaultUpdateURL = %q, want this project's manifest", DefaultUpdateURL)
 	}
 	if DefaultGitHubRepo != "arewedaks/9router-go" {
-		t.Errorf("DefaultGitHubRepo = %q, want the fork", DefaultGitHubRepo)
+		t.Errorf("DefaultGitHubRepo = %q, want this project", DefaultGitHubRepo)
 	}
 	if strings.Contains(DefaultUpdateURL, "luqman") || strings.Contains(DefaultGitHubRepo, "luqman") {
-		t.Error("updates still resolve to the upstream project this fork diverged from")
+		t.Error("updates still resolve to the ancestor project this repo diverged from")
 	}
 }
 
@@ -497,7 +497,7 @@ func TestUpdateURLPointsAtTheDefaultBranch(t *testing.T) {
 			DefaultUpdateBranch)
 	}
 	if !strings.HasPrefix(DefaultUpdateURL, "https://raw.githubusercontent.com/arewedaks/9router-go/") {
-		t.Errorf("DefaultUpdateURL %q does not point at this fork", DefaultUpdateURL)
+		t.Errorf("DefaultUpdateURL %q does not point at this project", DefaultUpdateURL)
 	}
 }
 

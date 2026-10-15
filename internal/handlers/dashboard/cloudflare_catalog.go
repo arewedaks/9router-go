@@ -23,8 +23,8 @@ import (
 // VansRouter never reaches the working route: it derives the listing URL from
 // the registry baseUrl by stripping /chat/completions and appending /models
 // (open-sse/providers/schema.js, deriveValidateUrl), which yields the 405 URL
-// above. So Import fails there too, and the fork used to answer "Provider
-// cloudflare-ai does not support models listing".
+// above. So Import fails there too, and the ancestor dashboard used to answer
+// "Provider cloudflare-ai does not support models listing".
 //
 // The working route paginates (per_page max 100; 308 models on the account
 // probed here), so this walks the pages instead of losing everything past the

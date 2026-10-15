@@ -52,9 +52,10 @@ const DefaultUpdateBranch = "main"
 
 // DefaultUpdateURL is the primary remote version manifest URL.
 //
-// It must point at the fork this dashboard was built from: the updater replaces
-// the running binary, so reading another project's manifest would silently
-// downgrade a customised build to the upstream release. Override with UPDATE_URL.
+// It must point at the repository this dashboard was built from: the updater
+// replaces the running binary, so reading another project's manifest would
+// silently downgrade a customised build to that project's release. Override
+// with UPDATE_URL.
 var DefaultUpdateURL = "https://raw.githubusercontent.com/arewedaks/9router-go/" + DefaultUpdateBranch + "/version.json"
 
 // DefaultGitHubRepo is the repository for GitHub Releases API fallback.
