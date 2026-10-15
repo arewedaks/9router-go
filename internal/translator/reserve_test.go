@@ -58,3 +58,48 @@ func TestThinkingReservationDoesNotMutateCaller(t *testing.T) {
 		t.Errorf("caller MaxTokens mutated: got %d, want 100", mt)
 	}
 }
+
+// Antigravity serves its claude-* models by translating Gemini's thinkingBudget
+// into Anthropic's thinking.enabled.budget_tokens, which rejects anything below
+// 1024. A max_tokens=1024 request used to reserve 512 and 400 on every
+// claude-opus-4-6-thinking call:
+//
+//	HTTP 400: thinking.enabled.budget_tokens: Input should be greater than or equal to 1024
+//
+// Three paths reach the wire, and all three must clear the floor: the default
+// reservation, an explicit thinking_budget, and a Claude-style thinking block.
+func TestThinkingBudgetFloorForClaudeModels(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body string
+	}{
+		{"default reservation", `{"model":"claude-opus-4-6-thinking","max_tokens":1024,` +
+			`"messages":[{"role":"user","content":"hi"}]}`},
+		{"explicit thinking_budget", `{"model":"claude-opus-4-6-thinking","thinking_budget":100,` +
+			`"max_tokens":2048,"messages":[{"role":"user","content":"hi"}]}`},
+		{"claude thinking block", `{"model":"claude-opus-4-6-thinking",` +
+			`"thinking":{"type":"enabled","budget_tokens":100},"max_tokens":2048,` +
+			`"messages":[{"role":"user","content":"hi"}]}`},
+	} {
+		gem, err := TranslateOpenAIToGemini([]byte(tc.body))
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		var m map[string]any
+		if err := json.Unmarshal(gem, &m); err != nil {
+			t.Fatal(err)
+		}
+		gc, _ := m["generationConfig"].(map[string]any)
+		tc2, _ := gc["thinkingConfig"].(map[string]any)
+		budget, _ := tc2["thinkingBudget"].(float64)
+		if budget < 1024 {
+			t.Errorf("%s: thinkingBudget=%.0f is below Anthropic's 1024 floor; "+
+				"claude-* Antigravity models 400 on this", tc.name, budget)
+		}
+		maxOut, _ := gc["maxOutputTokens"].(float64)
+		if budget >= maxOut {
+			t.Errorf("%s: thinkingBudget=%.0f must stay below maxOutputTokens=%.0f",
+				tc.name, budget, maxOut)
+		}
+	}
+}

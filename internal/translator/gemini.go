@@ -86,8 +86,18 @@ type GeminiFunctionCall struct {
 // maxOutputTokens and no thinkingConfig, the model spends everything on hidden
 // reasoning and returns finishReason=MAX_TOKENS with no text, so every request
 // reserves a floor for thinking and keeps room for the answer.
+//
+// The floor is 1024, not 512, because Antigravity serves its claude-* models by
+// translating Gemini's thinkingBudget into Anthropic's
+// thinking.enabled.budget_tokens, and Anthropic rejects anything below 1024:
+//
+//	HTTP 400: thinking.enabled.budget_tokens: Input should be greater than or equal to 1024
+//
+// A request with max_tokens=1024 reserved 512 and 400'd on every
+// claude-opus-4-6-thinking call. Gemini accepts 1024 just as happily, so one
+// floor covers both providers and avoids branching on the model name.
 const (
-	minThinkingReserve = 512
+	minThinkingReserve = 1024
 	minAnswerTokens    = 512
 )
 
@@ -442,6 +452,15 @@ func TranslateOpenAIToGemini(openaiBody []byte) ([]byte, error) {
 		thinkingBudget = oreq.Thinking.BudgetTokens
 	} else if oreq.ThinkingBudget != nil && *oreq.ThinkingBudget > 0 {
 		thinkingBudget = *oreq.ThinkingBudget
+	}
+	// A caller-supplied budget is clamped to the same floor: Anthropic rejects
+	// budget_tokens below 1024 outright, so an explicit thinking_budget=100 is a
+	// guaranteed 400 on a claude-* Antigravity model. Clamping keeps one
+	// invariant (nothing below the floor ever leaves this function) instead of
+	// branching on the model name, and a sub-1024 budget is a negligible amount
+	// of thinking on a Gemini model anyway.
+	if thinkingBudget > 0 && thinkingBudget < minThinkingReserve {
+		thinkingBudget = minThinkingReserve
 	}
 
 	if thinkingBudget > 0 {
