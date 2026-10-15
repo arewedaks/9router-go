@@ -24,7 +24,13 @@ code stays legible in `git log`.
 | Branch | Purpose |
 |---|---|
 | `main` | The project. Default branch. |
-| `feat/go-dashboard` | The pre-rename name of `main`; retained only as history. |
+| `feat/go-dashboard` | Compatibility alias. Points at `main`. |
+
+`feat/go-dashboard` is kept, not deleted. Releases up to v1.9.31 hardcoded it in
+`scripts/install.sh` and `internal/updater/updater.go`, and installer URLs of the
+form `.../feat/go-dashboard/scripts/install.sh` are in the wild. Deleting the
+branch would `404` every one of them. It is fast-forwarded to `main` instead, so
+those URLs keep resolving and now serve the current script. New code uses `main`.
 
 There is no `upstream` remote. Nothing to sync.
 
