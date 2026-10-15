@@ -3,7 +3,7 @@
 # install.sh — one-line installer for 9router-go.
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/arewedaks/9router-go/feat/go-dashboard/scripts/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/arewedaks/9router-go/main/scripts/install.sh | bash
 #   curl -fsSL .../install.sh | bash -s -- --version 1.8.44   # pin a version
 #   curl -fsSL .../install.sh | bash -s -- --service           # + systemd unit: auto-start on boot
 #
@@ -17,11 +17,10 @@
 set -euo pipefail
 
 REPO="arewedaks/9router-go"
-# The installer ships on the branch that is currently the source of truth.
-# feat/go-dashboard is where the dashboard + install.sh live; it will be merged
-# to main on the next release, after which the URL below should be switched to
-# main. Until then, pointing at main 404s (main is still the v1.8.13 fork point).
-SCRIPT_REF="feat/go-dashboard"
+# The installer ships on the repository's default branch. The dashboard and this
+# script used to live on feat/go-dashboard because main was still the fork point;
+# that branch is now main, so the URL above and this ref both track it.
+SCRIPT_REF="main"
 BIN="9router-go"
 INSTALL_DIR="${HOME}/.local/bin"
 
@@ -159,7 +158,7 @@ if [ "$WANT_SERVICE" -eq 1 ]; then
   if ! "$INSTALL_DIR/$BIN" service status >/dev/null 2>&1; then
     echo "ERROR: this release ($VER) has no 'service' command, so it cannot" >&2
     echo "       install an auto-start unit. Upgrade to a release built from" >&2
-    echo "       feat/go-dashboard (v1.8.44+), then re-run with --service." >&2
+    echo "       main (v1.8.44+), then re-run with --service." >&2
     exit 1
   fi
   echo ""

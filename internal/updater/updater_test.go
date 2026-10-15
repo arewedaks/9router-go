@@ -252,8 +252,8 @@ func TestVerifyTrustedSourceAcceptsOwnReleases(t *testing.T) {
 
 func TestVerifyTrustedSourceRejectsForeignRepos(t *testing.T) {
 	bad := []string{
-		// The upstream project this fork was derived from. Installing it would
-		// erase every local change.
+		// The project this repo was derived from. Installing it would erase
+		// every local change.
 		"https://github.com/luqman-v1/9router-go/releases/download/v1.8.18/9router-go-linux-amd64",
 		"https://github.com/attacker/9router-go/releases/download/v9.9.9/9router-go-linux-amd64",
 		// Plain HTTP must never be trusted: the binary would be swappable in transit.
@@ -332,7 +332,7 @@ func TestDefaultsPointAtThisFork(t *testing.T) {
 // is only verifiable from the slug that was requested.
 func TestUpdateRepoOverrideIsValidated(t *testing.T) {
 	if !repoIsTrusted("arewedaks/9router-go") {
-		t.Error("the fork's own repo is not trusted")
+		t.Error("the project's own repo is not trusted")
 	}
 	for _, bad := range []string{
 		"luqman-v1/9router-go",
@@ -482,21 +482,19 @@ func TestMatchReleaseAssetMatchesMakefileOutput(t *testing.T) {
 	}
 }
 
-// The updater reads version.json from one branch. In this fork the default
-// branch is feat/go-dashboard and main lags dozens of commits behind, so pointing
-// at main makes the check read a stale version and never offer the update. This
-// is invisible from the outside, so it is asserted here.
-func TestUpdateURLPointsAtTheDefaultBranchNotMain(t *testing.T) {
-	if strings.Contains(DefaultUpdateURL, "/main/") {
-		t.Fatalf("DefaultUpdateURL uses the lagging main branch (%s); the update "+
-			"button would never appear because main's version.json is older", DefaultUpdateURL)
-	}
+// The updater reads version.json from one branch. It must be the repository's
+// default branch — the project moved to main when the fork was retired, and
+// polling the retired feat/go-dashboard would still resolve, which would hide
+// the mistake until that branch is eventually deleted. This is invisible from
+// the outside, so it is asserted here.
+func TestUpdateURLPointsAtTheDefaultBranch(t *testing.T) {
 	if !strings.Contains(DefaultUpdateURL, "/"+DefaultUpdateBranch+"/") {
 		t.Errorf("DefaultUpdateURL %q does not use DefaultUpdateBranch %q, so the "+
 			"two can drift apart again", DefaultUpdateURL, DefaultUpdateBranch)
 	}
-	if DefaultUpdateBranch == "" || DefaultUpdateBranch == "main" {
-		t.Errorf("DefaultUpdateBranch is %q; it must name this fork's default branch", DefaultUpdateBranch)
+	if DefaultUpdateBranch != "main" {
+		t.Errorf("DefaultUpdateBranch is %q; this project's default branch is main",
+			DefaultUpdateBranch)
 	}
 	if !strings.HasPrefix(DefaultUpdateURL, "https://raw.githubusercontent.com/arewedaks/9router-go/") {
 		t.Errorf("DefaultUpdateURL %q does not point at this fork", DefaultUpdateURL)
@@ -524,7 +522,7 @@ func TestLooksLikeDirectAsset(t *testing.T) {
 	pages := []string{
 		"https://github.com/arewedaks/9router-go/releases/latest",
 		"https://github.com/arewedaks/9router-go/releases/tag/v1.8.18",
-		"https://raw.githubusercontent.com/arewedaks/9router-go/feat/go-dashboard/version.json",
+		"https://raw.githubusercontent.com/arewedaks/9router-go/main/version.json",
 	}
 	for _, u := range pages {
 		if looksLikeDirectAsset(u) {

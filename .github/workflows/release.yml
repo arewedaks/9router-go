@@ -68,10 +68,10 @@ jobs:
           # Previous release tag, ignoring the one being built right now.
           #
           # A tag is only a useful starting point when it is an ancestor of what
-          # we are building. This fork carries upstream's tags (v1.8.13…v1.8.17)
-          # on a history it has since diverged from, so diffing against one of
-          # them would list every commit since upstream, not since our last
-          # release. Fall back to the newest commits in that case.
+          # we are building. This project carries its ancestor's tags
+          # (v1.8.13…v1.8.17) on a history it has since diverged from, so diffing
+          # against one of them would list every commit since that ancestor, not
+          # since our last release. Fall back to the newest commits in that case.
           PREV_TAG=$(git tag --list 'v*' --sort=-version:refname | grep -vx "$TAG" | head -1)
           if [ -n "$PREV_TAG" ] && git merge-base --is-ancestor "$PREV_TAG" "$RANGE_END"; then
             NOTES=$(git log --pretty=format:'- %s (%h)' --no-merges "${PREV_TAG}..${RANGE_END}")

@@ -42,11 +42,13 @@ var CurrentVersion = "1.9.31"
 
 // DefaultUpdateBranch is the branch whose version.json the updater polls.
 //
-// This must be the repository's *default* branch, which in this fork is
-// feat/go-dashboard — main lags far behind it. Pointing at main makes the
-// updater read a stale version.json, conclude the running build is newer, and
-// never show the update button: a silent failure with no error to debug.
-const DefaultUpdateBranch = "feat/go-dashboard"
+// This must be the repository's *default* branch. It used to be
+// feat/go-dashboard because main was still the stale fork point; main now holds
+// the project, so both the URL and this ref agree. Pointing at a branch that
+// lags makes the updater read a stale version.json, conclude the running build
+// is newer, and never show the update button: a silent failure with no error to
+// debug.
+const DefaultUpdateBranch = "main"
 
 // DefaultUpdateURL is the primary remote version manifest URL.
 //
