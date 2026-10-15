@@ -3,16 +3,22 @@
 [![CI](https://github.com/arewedaks/9router-go/actions/workflows/ci.yml/badge.svg)](https://github.com/arewedaks/9router-go/actions/workflows/ci.yml)
 [![Release](https://github.com/arewedaks/9router-go/actions/workflows/release.yml/badge.svg)](https://github.com/arewedaks/9router-go/actions/workflows/release.yml)
 [![Latest release](https://img.shields.io/github/v/release/arewedaks/9router-go)](https://github.com/arewedaks/9router-go/releases/latest)
+[![Go](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go&logoColor=white)](https://go.dev)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-linux%20%7C%20macOS%20%7C%20windows-lightgrey)](#install)
 
-A drop-in replacement for the [9Router](https://github.com/decolua/9router) Next.js gateway, rewritten in Go. Same SQLite database, same routing behaviour, dashboard included.
+**One Go binary that routes every LLM provider through a single OpenAI-compatible endpoint** — with a full management dashboard served from the same port. No Node.js, no CGO, no separate frontend.
 
-> **v1.9.8** · no CGO · Linux, macOS, Windows
+Drop-in for the [9Router](https://github.com/decolua/9router) Next.js gateway: same SQLite database, same routing behaviour, same dashboard schema. Point your existing clients at it and nothing else changes.
+
+> **v1.9.32** · no CGO · Linux, macOS, Windows · 128 providers · one binary
 
 | | Go | Next.js |
 |---|---|---|
 | Peak throughput | **5,920 RPS** | 505 RPS |
 | Memory | **42 MB** | 271 MB |
 | Startup | **<100 ms** | 3–5 s |
+| Dependencies | **none (static binary)** | Node + npm tree |
 
 ---
 
@@ -42,15 +48,33 @@ Claude Code, Cursor, Cline and the rest: **[Client setup](#client-setup)**.
 
 ---
 
+## What's in it
+
+**Routing.** Four combo strategies (fallback, round-robin, sticky, fusion), auto-capability-switch that floats vision/PDF/audio models to the front based on request content, turn-stickiness that pins multi-turn tool calling to one provider so thought signatures survive, and per-connection model locks that survive a restart.
+
+**Provider breadth.** 128 providers behind one endpoint — OpenAI, Anthropic, Gemini, Grok, Groq, Mistral, DeepSeek, Kimi, Qwen, Copilot, Cline, Antigravity, Opencode, Ollama Cloud, Wally and the long tail. Each account can be added by OAuth, API key, or keyless public access, and every account is independently testable from the dashboard.
+
+**Prompt injection library.** Upload an `agents.md`-style document once, bind it to specific models, and every request to those models carries it — single chat, combo legs, and fusion panels alike. See [Jailbreak prompts](#jailbreak-prompts).
+
+**Egress control.** Round-robin IP rotation across HTTP/HTTPS/SOCKS5 pools, Vercel/Cloudflare/Deno edge relays, automatic proxy selection for free-tier providers, and SSRF hardening against CGNAT, IPv6-mapped, and dotted-octet bypasses.
+
+**Token savers.** Four independent compressors — RTK (on by default), Caveman, Ponytail, and Headroom — each with levels, all hot-toggleable per request.
+
+**Observability.** Live SSE usage stream, in-flight request topology, per-model and per-provider history, an in-process ring-buffer console log, and provider status that distinguishes *rate-limited* from *quota-exhausted* from *unavailable* instead of lumping every failure into "dead".
+
+---
+
 ## Dashboard
 
 The Go binary serves the full management UI on the same port — no separate Next.js app needed:
 
 | Tab | What you get |
 |---|---|
-| **Providers** | Add accounts (OAuth flows, API keys, keyless), per-account connection tests, model import from the live upstream catalogue, auto-disable for dead models (Safe/Full modes) |
+| **Providers** | Add accounts (OAuth flows, API keys, keyless), per-account connection tests, model import from the live upstream catalogue, per-model context windows, auto-disable for dead models (Safe/Full modes) |
 | **Usage** | Live usage stats, in-flight SSE topology, per-model/per-provider request history |
 | **Console Log** | Live SSE log stream with level filters, resource metrics (CPU/RAM/uptime), and the current `/v1/models` count |
+| **Jailbreak** | Prompt-preset library with `.md` upload, per-model dropdown binding, live rendered preview |
+| **Proxy Pools** | Egress pool management with live health, cooldown state, and per-pool routing targets |
 | **Token Saver** | RTK compression, Caveman/Headroom/Ponytail toggles with levels |
 | **Combos** | Multi-model routing strategies (fallback, round-robin, sticky, fusion) |
 
@@ -61,6 +85,30 @@ The Go binary serves the full management UI on the same port — no separate Nex
 ### Providers — accounts, connection tests, model import
 
 ![Dashboard Providers tab](docs/img/dashboard-providers.png)
+
+### Jailbreak prompts
+
+Bind an agent prompt to individual models. Toggle it per model from the dashboard;
+the request path picks it up on every route — single chat, Claude single, combo
+fallback, Claude combo, fusion panel, and fusion judge.
+
+- **Preset library** — save prompts under a name, edit them in a popup, upload them as `.md`
+- **Per-model binding** — a model is *armed* or not; the key is the exact model id `/v1/models` lists, so the toggle and the request always name the same thing
+- **Rendered preview** — see the markdown as the model will receive it
+- **Gemini safety** — an armed prompt can carry the `geminiSafety` flag through the forward chain
+
+An armed model with an empty document is a pass-through, not a failure. Injection
+happens before the body is marshalled, so the prompt-cache hash always reflects it.
+
+```
+GET    /api/dashboard/jailbreak            # current document
+PUT    /api/dashboard/jailbreak            # replace it
+GET    /api/dashboard/jailbreak/presets    # preset library
+PUT    /api/dashboard/jailbreak/presets    # create/update a preset
+DELETE /api/dashboard/jailbreak/presets/{id}
+GET    /api/dashboard/jailbreak/models     # per-model binding map
+PUT    /api/dashboard/jailbreak/models     # arm/disarm a model
+```
 
 ### Features
 
@@ -73,7 +121,7 @@ The Go binary serves the full management UI on the same port — no separate Nex
 
 **Routing & reliability**
 
-- **Combo strategies**: sticky round-robin, round-robin, fallback, fusion (multi-panel + judge), weight
+- **Combo strategies**: sticky round-robin, round-robin, fallback, fusion (multi-panel + judge)
 - **Auto-capability-switch**: floats vision/pdf/audio-capable models to front based on request content
 - **Turn & Tool-Calling Stickiness**: locks multi-turn tool calling to the same provider/model to preserve thought signatures
 - **Error classification**: text-based error rules + exponential backoff matching Next.js
@@ -86,11 +134,23 @@ The Go binary serves the full management UI on the same port — no separate Nex
 **Proxy & egress**
 
 - **Dynamic Egress Proxy Pools & Edge Relays**: round-robin IP rotation via active HTTP/HTTPS/SOCKS5 pools + Vercel/Cloudflare/Deno edge relays (`x-relay-target` / `x-relay-path`)
+- **Smart Failover Cooldown**: a pool that errors goes into cooldown and drops out of rotation, then recovers automatically — failures stop being sticky, so one bad IP cannot poison every request
 - **No-Auth Provider Proxy Strategies**: automatic proxy pool routing & rotation for free-tier/public providers (`settings.providerStrategies`)
+- **Persistent Routing Targets**: per-pool target bindings that survive a restart
 - **SSRF Hardening**: `CGNAT 100.64/10`, `trailing dot`, IPv6 `::ffff:7f00:1` hex, `64:ff9b::`, `normalizeHost`
+
+**Prompt injection**
+
+- **Agents.md-style prompt injection with per-provider toggles**: upload a `.md`, bind it to models, and it rides every forward path (single, combo, fusion panel, fusion judge)
+- **Per-model arming by exact id**: the dashboard toggle and the client request name the same model id, so bindings never drift
+- **Gemini safety flag propagation**: an armed prompt carries `geminiSafety` into the forward chain
 
 **Providers & models**
 
+- **Account status separated from liveness**: *rate-limited*, *quota-exhausted*, and *unavailable* are distinct states with their own cooldowns; a throttled account returns to active on its own, and a Kubernetes "quota exceeded per minute" reads as throttle rather than a top-up suggestion
+- **`lastError` / `cooldownUntil` in the UI**: the original upstream message plus the wait time, instead of a generic failure
+- **Permanent-failure detection**: a dead credential stops being retried as if it were a network blip
+- **Per-model context windows in the model list**
 - **Dashboard model import with live catalogues**: Grok CLI (reasoning-effort expansion), TwinMind (`/api/v3/chat/models`), Cline, ClinePass, GitHub Copilot, Antigravity and more — Free/Regular categories, alphabetized, one-click Select-all-free
 - **Live auto-disable**: Test-All modes (Safe skips 429/timeouts, Full removes every no-ping) drop dead models per-row the moment their ping fails — no manual refresh
 - **Antigravity Tool Cloaking & Anti-Ban Decoy System**: 21 official IDE decoy tools (`run_command`, `replace_file_content`, etc.) with `_ide` suffix cloaking and protobuf validation safeguards
@@ -108,6 +168,7 @@ The Go binary serves the full management UI on the same port — no separate Nex
 
 **Token savers**
 
+- **Per-request bypass**: `X-9Router-Token-Saver: off` skips every saver for one request without touching global settings
 - **Token savers**: RTK input compression, Caveman terse output (`lite`, `full`, `ultra`, `wenyan-ultra`), Ponytail minimal-code bias (`lite`, `full`, `ultra`), auto-synced from SQLite `settings` table
 - **Headroom Lifecycle Proxy**: token compression proxy management & dashboard reverse proxy
 
@@ -134,7 +195,7 @@ curl -fsSL https://raw.githubusercontent.com/arewedaks/9router-go/HEAD/scripts/i
 Pin a specific version:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/arewedaks/9router-go/HEAD/scripts/install.sh | bash -s -- --version 1.9.8
+curl -fsSL https://raw.githubusercontent.com/arewedaks/9router-go/HEAD/scripts/install.sh | bash -s -- --version 1.9.32
 ```
 
 Auto-start on boot (systemd unit + enable, run as root):
@@ -192,8 +253,6 @@ git clone https://github.com/arewedaks/9router-go.git
 cd 9router-go
 go build -o 9router-go ./cmd/9router-go/
 ```
-
----
 
 ---
 
@@ -496,6 +555,15 @@ POST /v1/oauth/refresh         # OAuth refresh
 GET  /health                   # Health check
 GET  /api/version              # Proxy version & update check
 GET  /api/translator/stream    # Dashboard live console log SSE stream
+
+# Jailbreak Prompt Library (dashboard)
+GET    /api/dashboard/jailbreak          # current injection document
+PUT    /api/dashboard/jailbreak          # replace it
+GET    /api/dashboard/jailbreak/presets  # preset library
+PUT    /api/dashboard/jailbreak/presets  # create / update a preset
+DELETE /api/dashboard/jailbreak/presets/{id}
+GET    /api/dashboard/jailbreak/models   # per-model binding map
+PUT    /api/dashboard/jailbreak/models   # arm / disarm a model
 ```
 
 </details>
