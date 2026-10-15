@@ -131,10 +131,13 @@ func BuildOpenCodeHeaders(rawHeaders map[string]string, sessionID string, isStre
 		session = GenerateOpenCodeSessionID()
 	}
 
+	// Do NOT add x-api-key: public. The gate rejects a request that carries it:
+	// measured 2026-10-15, identical headers and body answered 200 without the
+	// header and 403 FreeTierError with it added back. The official client sends
+	// only Authorization.
 	res := map[string]string{
 		"Content-Type":       "application/json",
 		"Authorization":      "Bearer public",
-		"x-api-key":          "public",
 		"User-Agent":         DefaultOpenCodeUA,
 		"x-opencode-client":  "cli",
 		"x-opencode-session": session,

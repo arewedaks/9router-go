@@ -133,7 +133,7 @@ var knownModelFetchers = map[string]modelFetcher{
 	// is always populated; the client header matches the one the executor sends.
 	// Upstream lists 71 ids here and 38 on the Go tier (verified live).
 	"opencode": {
-		url:    "https://opencode.ai/zen/v1/models",
+		url:    "https://opencode.ai/inference/v1/models",
 		method: http.MethodGet,
 		bearer: true,
 		headers: map[string]string{

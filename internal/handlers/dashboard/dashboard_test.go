@@ -704,7 +704,7 @@ func TestImportModelsUnsupportedProvider(t *testing.T) {
 // catalogue. Both tiers must stay registered.
 func TestKnownModelFetchers_OpenCodeTiers(t *testing.T) {
 	cases := map[string]string{
-		"opencode":    "https://opencode.ai/zen/v1/models",
+		"opencode":    "https://opencode.ai/inference/v1/models",
 		"opencode-go": "https://opencode.ai/zen/go/v1/models",
 	}
 	for id, wantURL := range cases {

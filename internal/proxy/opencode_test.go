@@ -35,6 +35,13 @@ func TestBuildOpenCodeHeaders(t *testing.T) {
 	if headersNonStream["Accept"] != "*/*" {
 		t.Errorf("expected Accept */*, got %s", headersNonStream["Accept"])
 	}
+
+	// x-api-key must stay absent. Measured 2026-10-15: an otherwise-identical
+	// request answers 200 without it and 403 FreeTierError with x-api-key:
+	// public added back.
+	if _, ok := headers["x-api-key"]; ok {
+		t.Error("x-api-key must not be sent: adding it flips the gate to 403")
+	}
 }
 
 func TestOpenCodeCanonicalSession(t *testing.T) {

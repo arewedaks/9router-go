@@ -41,6 +41,22 @@ import (
 // matters.
 var OpenCodeFingerprintTools = []string{"read", "shell", "bash", "glob", "grep"}
 
+// openCodeInjectedTools is the set that may be synthesised when the client sent
+// nothing, or too few, to satisfy the gate.
+//
+// The measured rule (2026-10-15, ~60 trials against the live endpoint, all with
+// identical headers) is:
+//
+//   - the tools array must hold at least five declarations, and
+//   - every declaration needs a non-empty function.parameters.properties.
+//
+// Only the name and the presence of a populated formal schema are inspected.
+// The description is not compared: swapping it for "DIUBAH" still returns 200,
+// and five arbitrary names with a populated schema also return 200. The failure
+// modes are quantitative — four tools, or five tools whose schemas are empty,
+// both answer 403 FreeTierError.
+var openCodeInjectedTools = []string{"read", "shell", "bash", "glob", "grep"}
+
 // FingerprintToolKey returns the canonical lowercase name when name is a quartet
 // member, or "" when it is not.
 func FingerprintToolKey(name string) string {
@@ -147,26 +163,48 @@ func ConcealFingerprintTools(body []byte, responsesWire bool) ([]byte, map[strin
 		kept = append(kept, tool)
 	}
 
+	// Every declaration the gate inspects needs a populated
+	// function.parameters.properties. A client that sends its own five tools
+	// with `parameters: {}` is rejected (measured 403), so repair them in
+	// place rather than trusting the caller's schema.
+	for _, tool := range kept {
+		if obj, ok := tool.(map[string]any); ok {
+			ensurePopulatedSchema(obj)
+		}
+	}
+
 	// Injected declarations take the shape the target endpoint expects; the
 	// caller states which one it is (see the responsesWire parameter).
 	flat := responsesWire
 
-	for _, name := range OpenCodeFingerprintTools {
+	for _, name := range openCodeInjectedTools {
 		if seen[name] {
 			continue
 		}
-		entry := map[string]any{
-			"type":        "function",
-			"description": "OpenCode built-in " + name + " tool",
-			"parameters":  map[string]any{"type": "object", "properties": map[string]any{}},
-		}
+		// Every declaration the gate sees must carry a populated formal
+		// schema, so the synthesised entry does too; see openCodeInjectedTools
+		// for the measured threshold.
+		def := openCodeFingerprint[name]
+		// Shape matters as much as content: the nested form carries exactly
+		// two keys, `type` and `function`. Hoisting description/parameters to
+		// the top level as well (which an earlier revision of this function
+		// did) is not equivalent.
+		var entry map[string]any
 		if flat {
-			entry["name"] = name
-		} else {
-			entry["function"] = map[string]any{
+			entry = map[string]any{
+				"type":        "function",
 				"name":        name,
-				"description": "OpenCode built-in " + name + " tool",
-				"parameters":  map[string]any{"type": "object", "properties": map[string]any{}},
+				"description": def.Description,
+				"parameters":  def.Parameters,
+			}
+		} else {
+			entry = map[string]any{
+				"type": "function",
+				"function": map[string]any{
+					"name":        name,
+					"description": def.Description,
+					"parameters":  def.Parameters,
+				},
 			}
 		}
 		kept = append(kept, entry)

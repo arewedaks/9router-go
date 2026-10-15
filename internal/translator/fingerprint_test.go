@@ -77,14 +77,18 @@ func TestConcealFingerprintToolsDropsPlainDuplicates(t *testing.T) {
 	body := []byte(`{"tools":[{"name":"Bash"},{"name":"bash"},{"name":"Read"},{"name":"read"}]}`)
 	out, _ := ConcealFingerprintTools(body, false)
 	names := toolNames(t, out)
-	// bash, read plus the three injected (shell, glob, grep), each once.
+	// bash and read deduplicated, plus the injected set (read already present,
+	// so shell, bash, glob and grep are added). The gate needs five
+	// declarations, so the injected list is five long.
 	if len(names) != 5 {
-		t.Errorf("want 5 unique tools (bash,read plus injected shell,glob,grep), got %d: %v", len(names), names)
+		t.Errorf("want 5 unique tools after dedupe and injection, got %d: %v", len(names), names)
 	}
 }
 
 func TestConcealFingerprintToolsInjectsWhenNoTools(t *testing.T) {
-	// A tool-less request is also rejected upstream (403), so the quartet is added.
+	// A tool-less request is also rejected upstream (403), so the set the
+	// official client sends is added. Five declarations are required, with a
+	// populated schema on each.
 	body := []byte(`{"model":"muse-spark-1.3-contributor-free","input":[]}`)
 	out, _ := ConcealFingerprintTools(body, false)
 	names := toolNames(t, out)
@@ -168,8 +172,8 @@ func TestConcealFingerprintToolsAlreadyCanonical(t *testing.T) {
 }
 
 func TestConcealFingerprintToolsInjectsWhenQuartetAbsent(t *testing.T) {
-	// A client sending other tools without the quartet still needs it injected
-	// (upstream returns 403 without those lowercase names), and caller tools must
+	// A client sending other tools without read/shell still needs them injected
+	// (upstream returns 403 without those declarations), and caller tools must
 	// survive untouched.
 	body := []byte(`{"tools":[{"name":"terminal"},{"name":"read_file"}]}`)
 	out, nameMap := ConcealFingerprintTools(body, false)
@@ -177,7 +181,7 @@ func TestConcealFingerprintToolsInjectsWhenQuartetAbsent(t *testing.T) {
 		t.Errorf("nothing was capitalised, map should be empty: %v", nameMap)
 	}
 	names := toolNames(t, out)
-	for _, q := range OpenCodeFingerprintTools {
+	for _, q := range openCodeInjectedTools {
 		found := false
 		for _, n := range names {
 			if n == q {
@@ -185,7 +189,7 @@ func TestConcealFingerprintToolsInjectsWhenQuartetAbsent(t *testing.T) {
 			}
 		}
 		if !found {
-			t.Errorf("quartet member %q was not injected: %v", q, names)
+			t.Errorf("required tool %q was not injected: %v", q, names)
 		}
 	}
 	joined := strings.Join(names, ",")

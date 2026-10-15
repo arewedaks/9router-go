@@ -153,7 +153,12 @@ var KnownProviders = map[string]ProviderConfig{
 		AuthScheme: "bearer",
 	},
 	"opencode": {
-		BaseURL:       "https://opencode.ai/zen/v1/chat/completions",
+		// v2 moved free-tier inference from /zen/v1/* to /inference/v1/*.
+		// The old path now answers 403 FreeTierError ("OpenCode's free tier can
+		// only be used from within OpenCode") for every request, tools or not —
+		// it is a hard 404-style redirect, not a policy gate. Only the new path
+		// still serves the free tier.
+		BaseURL:       "https://opencode.ai/inference/v1/chat/completions",
 		AuthHeader:    "Authorization",
 		AuthScheme:    "bearer",
 		DefaultAPIKey: "public",
