@@ -368,6 +368,33 @@ func (h *Handler) fetchUpstreamModels(providerID, data string, timeout time.Dura
 	return h.doModelRequest(client, canonical, f.url, f.method, headers, query)
 }
 
+// upstreamRetiredModelIDs lists ids a provider's /models endpoint still
+// advertises but whose chat endpoint rejects, keyed by canonical provider id.
+// Import must drop them: seeding a dead id is worse than seeding fewer models,
+// because the operator then hits a failure on a model the router itself
+// offered, and every such request burns a fallback attempt before reaching one
+// that works. Same rule as codebuddyRetiredModelIDs and
+// AntigravityRetiredModelIDs, applied on the fetch path the generic providers
+// share.
+//
+// opencode/jev-1.13-free: measured 2026-10-15 against the live endpoint. It is
+// in /inference/v1/models, yet both chat/completions and messages answer 400
+// "Model does not support this protocol." The ten sibling oc/* ids imported
+// from the same listing all answer, so the id itself is dead rather than the
+// request being malformed. Remove an entry if upstream revives it.
+var upstreamRetiredModelIDs = map[string]map[string]bool{
+	"opencode": {"jev-1.13-free": true},
+}
+
+// isRetiredUpstreamModel reports whether (provider, id) is a known-dead listing.
+func isRetiredUpstreamModel(provider, modelID string) bool {
+	retired, ok := upstreamRetiredModelIDs[provider]
+	if !ok {
+		return false
+	}
+	return retired[modelID]
+}
+
 // doModelRequest issues the HTTP call and normalises the response.
 func (h *Handler) doModelRequest(client *http.Client, provider, url, method string, headers, query map[string]string) (*ModelFetchResult, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), client.Timeout)
@@ -436,6 +463,11 @@ func (h *Handler) doModelRequest(client *http.Client, provider, url, method stri
 		label := id
 		if v := firstString(entry, "display_name", "displayName"); v != "" {
 			label = v
+		}
+		// Drop ids the provider still lists but refuses to serve, so Import
+		// cannot seed a model that is guaranteed to fail.
+		if isRetiredUpstreamModel(provider, id) {
+			continue
 		}
 		out = append(out, UpstreamModel{
 			ID:   id,

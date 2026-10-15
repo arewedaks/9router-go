@@ -1443,3 +1443,49 @@ func TestServeUIRevalidatesInsteadOfBeingCached(t *testing.T) {
 		t.Errorf("304 carried %d bytes of body, want 0", second.Body.Len())
 	}
 }
+
+// opencode's /inference/v1/models advertises jev-1.13-free, but its chat
+// endpoint answers 400 "Model does not support this protocol." for that id
+// while every sibling answers. Import used to seed it, so the router advertised
+// a model that could not serve and every attempt burned a fallback slot.
+func TestDoModelRequestDropsRetiredUpstreamModels(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"data":[{"id":"jev-1.13-free"},{"id":"big-pickle"},{"id":"mimo-v2.6-flash-free"}]}`))
+	}))
+	defer srv.Close()
+
+	h := &Handler{}
+	res, err := h.doModelRequest(
+		&http.Client{Timeout: 5 * time.Second},
+		"opencode", srv.URL, "GET", map[string]string{}, nil,
+	)
+	if err != nil {
+		t.Fatalf("doModelRequest: %v", err)
+	}
+	for _, m := range res.Models {
+		if m.ID == "jev-1.13-free" {
+			t.Fatal("retired id was imported; it must be dropped from the listing")
+		}
+	}
+	// The filter must be surgical: live siblings from the same response stay.
+	if len(res.Models) != 2 {
+		ids := make([]string, 0, len(res.Models))
+		for _, m := range res.Models {
+			ids = append(ids, m.ID)
+		}
+		t.Fatalf("got %d models %v, want the 2 live siblings", len(res.Models), ids)
+	}
+
+	// A provider with no retired ids must be untouched.
+	res2, err := h.doModelRequest(
+		&http.Client{Timeout: 5 * time.Second},
+		"openai", srv.URL, "GET", map[string]string{}, nil,
+	)
+	if err != nil {
+		t.Fatalf("doModelRequest(openai): %v", err)
+	}
+	if len(res2.Models) != 3 {
+		t.Fatalf("openai got %d models, want all 3; the filter leaked across providers", len(res2.Models))
+	}
+}
