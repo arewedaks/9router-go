@@ -1,35 +1,34 @@
-# Fork Notes — `arewedaks/9router-go`
+# 9router-go — `arewedaks/9router-go`
 
-This repository is a fork of [`luqman-v1/9router-go`](https://github.com/luqman-v1/9router-go).
-
-The `feat/go-dashboard` branch adds a **self-contained Go web dashboard** so the
-gateway can run without the Node.js dashboard process. That matters on
+An independent Go LLM proxy gateway with a self-contained Go web dashboard, so
+the gateway runs without the Node.js dashboard process. That matters on
 low-resource hosts — on an Android/Termux phone the legacy dashboard costs about
 128 MB RSS, while the embedded one costs roughly 25–45 MB.
 
-## Branch layout
+## Origin
+
+This project descends from [`luqman-v1/9router-go`](https://github.com/luqman-v1/9router-go),
+itself a Go port of [`decolua/9router`](https://github.com/decolua/9router). Both
+are MIT licensed; see `LICENSE`.
+
+It is **not a fork** in the operational sense. The Node.js dashboard was removed
+entirely and replaced with a Go implementation, so there is no shared upstream to
+rebase onto and no `--ff-only` merge that can still apply. Treat those repositories
+as ancestry, not as a head to track.
+
+The history is kept whole rather than squashed, so the authorship of inherited
+code stays legible in `git log`.
+
+## Branches
 
 | Branch | Purpose |
 |---|---|
-| `main` | Mirrors upstream. Kept pristine for easy rebases. |
-| `feat/go-dashboard` | All dashboard work (default branch of this fork). |
+| `main` | The project. Default branch. |
+| `feat/go-dashboard` | The pre-rename name of `main`; retained only as history. |
 
-Remotes:
+There is no `upstream` remote. Nothing to sync.
 
-```sh
-origin    https://github.com/arewedaks/9router-go.git   # this fork
-upstream  https://github.com/luqman-v1/9router-go.git   # original project
-```
-
-Sync with upstream:
-
-```sh
-git fetch upstream
-git checkout main && git merge --ff-only upstream/main
-git checkout feat/go-dashboard && git rebase main
-```
-
-## What `feat/go-dashboard` adds
+## What the Go dashboard adds
 
 **Embedded dashboard** — dark-mode SPA served from `//go:embed ui/*`, no build
 step, no framework. Routes are registered in `internal/handlers/router.go`.
@@ -1188,15 +1187,10 @@ mutation has to remove the rule outright to be meaningful — a renamed selector
 still matches a `strings.Contains` check, which is a test bug rather than a
 feature that works.
 
-## Contributing back
+## Contributing upstream
 
-`main` mirrors upstream, so upstream-friendly changes can be cherry-picked from
-`feat/go-dashboard`:
-
-```sh
-git checkout main
-git cherry-pick <sha>
-git push origin main
-```
-
-then open a PR against `luqman-v1:main`.
+The lineage remains MIT, so a change that is useful to
+`luqman-v1/9router-go` can still be offered there. There is no `main` mirror and
+no cherry-pick workflow: make the change on a branch of this repository, open it
+against `luqman-v1:main`, and expect it to be adapted — the dashboards have
+diverged too far to share patches verbatim.
