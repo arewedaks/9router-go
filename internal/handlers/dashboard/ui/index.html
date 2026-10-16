@@ -644,6 +644,11 @@
 
     /* Model lock detail list under each account row */
     .model-locks { margin: 4px 0 2px 14px; font-size: 0.72rem; color: var(--muted); }
+    /* One connection = its row plus any lock detail beneath it. The wrapper
+       exists so the lock block sits under the row it belongs to instead of
+       being laid out as a sibling by the row's own flex rules. */
+    .conn-block { display: block; }
+    .conn-block .model-locks { margin-left: 26px; }
     .model-locks summary { cursor: pointer; color: #e3b341; font-size: 0.7rem; }
     .model-locks summary:hover { text-decoration: underline; }
     .model-lock-item { padding: 1px 0; display: flex; gap: 8px; align-items: center; }
@@ -6225,19 +6230,21 @@
           const isUnknown = !connStatus || connStatus === "unknown" || connStatus === "untested" || connStatus === "idle";
           const statusStyle = isUnknown ? 'style="display:none;"' : '';
           const statusText = isUnknown ? '' : escapeHtml(connStatus);
-          return `<div class="model-row" id="conn-row-${p.id}">
-            <input type="checkbox" class="conn-select-cb" data-id="${p.id}" onchange="updateConnSelectionUI()" style="cursor:pointer;margin-right:2px;accent-color:var(--primary);flex-shrink:0;">
-            <span class="acct-dot ${dot}"></span>
-            <span class="mid" title="${escapeHtml(label)}">${escapeHtml(label)}</span>
-            <span class="conn-actions">
-              <span class="mkind conn-status ${connStatusClass(p)}" id="conn-status-${p.id}" ${statusStyle} title="status: ${escapeHtml(connStatus)}">${statusText}</span>
-              <button class="btn btn-sm conn-test-btn" id="conn-test-${p.id}" onclick="testConnection('${p.id}');" title="Test this account against the upstream provider">Test</button>
-              <label class="switch" style="transform:scale(0.8);">
-                <input type="checkbox" ${p.isActive === 1 ? 'checked' : ''} onchange="toggleProvider('${p.id}');">
-                <span class="slider"></span>
-              </label>
-              <button class="btn btn-sm btn-danger" onclick="deleteProvider('${p.id}')">Delete</button>
-            </span>
+          return `<div class="conn-block">
+            <div class="model-row" id="conn-row-${p.id}">
+              <input type="checkbox" class="conn-select-cb" data-id="${p.id}" onchange="updateConnSelectionUI()" style="cursor:pointer;margin-right:2px;accent-color:var(--primary);flex-shrink:0;">
+              <span class="acct-dot ${dot}"></span>
+              <span class="mid" title="${escapeHtml(label)}">${escapeHtml(label)}</span>
+              <span class="conn-actions">
+                <span class="mkind conn-status ${connStatusClass(p)}" id="conn-status-${p.id}" ${statusStyle} title="status: ${escapeHtml(connStatus)}">${statusText}</span>
+                <button class="btn btn-sm conn-test-btn" id="conn-test-${p.id}" onclick="testConnection('${p.id}');" title="Test this account against the upstream provider">Test</button>
+                <label class="switch" style="transform:scale(0.8);">
+                  <input type="checkbox" ${p.isActive === 1 ? 'checked' : ''} onchange="toggleProvider('${p.id}');">
+                  <span class="slider"></span>
+                </label>
+                <button class="btn btn-sm btn-danger" onclick="deleteProvider('${p.id}')">Delete</button>
+              </span>
+            </div>${renderConnLockDetail(p)}
           </div>`;
         }).join("")
       : `<div style="text-align:center; color:var(--muted); padding:26px; border:1px dashed var(--border); border-radius:10px;">No connections yet</div>`;
@@ -9557,53 +9564,28 @@
     return isEffectivelyActive(p) ? "ok" : "err";
   }
 
-  // Renders a single account row (one connection under a provider).
-  function renderAccountRow(p) {
-    const label = p.accountLabel || p.email || p.name || p.id.substring(0, 12);
-    const dot = acctDotClass(p);
-    const statusPill = statusPillFor(p);
-    const metaParts = [];
-    if (p.expiresAt) metaParts.push(`expires ${fmtTime(p.expiresAt)}`);
-    if (p.lastUsedAt) metaParts.push(`used ${fmtTime(p.lastUsedAt)}`);
-
-    // Model lock detail: collapsible list of locked models with remaining time.
-    let lockDetail = "";
-    if (p.modelLocks && p.modelLocks.length) {
-      const items = p.modelLocks.map(l => {
-        const mins = Math.ceil(l.remainingSeconds / 60);
-        const timeLabel = mins >= 60 ? `${Math.floor(mins/60)}h ${mins%60}m` : `${mins}m`;
-        return `<div class="model-lock-item">
-          <span class="lock-model">${escapeHtml(l.model)}</span>
-          <span class="lock-time">⏱ ${timeLabel}</span>
-        </div>`;
-      }).join("");
-      lockDetail = `<div class="model-locks">
-        <details><summary>🔒 ${p.modelLocks.length} model${p.modelLocks.length > 1 ? 's' : ''} locked</summary>
-        ${items}</details></div>`;
-    }
-
-    return `
-      <tr class="acct-row">
-        <td>
-          <label class="switch">
-            <input type="checkbox" ${p.isActive === 1 ? 'checked' : ''} onchange="toggleProvider('${p.id}')">
-            <span class="slider"></span>
-          </label>
-        </td>
-        <td></td>
-        <td colspan="2">
-          <span class="acct-dot ${dot}"></span>
-          <span class="acct-email">${escapeHtml(label)}</span>
-          <div class="acct-meta" style="margin-left:14px;">${escapeHtml(metaParts.join(" · ") || "no expiring token")}</div>
-          ${lockDetail}
-        </td>
-        <td><span class="tag">${escapeHtml(p.authType)}</span></td>
-        <td>${statusPill}</td>
-        <td>${p.priority || 1}</td>
-        <td style="text-align: right;">
-          <button class="btn btn-sm btn-danger" onclick="event.stopPropagation();deleteProvider('${p.id}')">Delete</button>
-        </td>
-      </tr>`;
+  // Model locks for one connection, rendered under its row.
+  //
+  // The lock state was fetched and stored all along, but nothing rendered it:
+  // the only renderer with lock markup was renderAccountRow, which no caller
+  // ever invoked, while the live connection list built its rows inline. So a
+  // 429-locked account looked identical to a healthy one and the cooldown was
+  // invisible from the UI. Hidden entirely when there is nothing to show, which
+  // is the common case for most accounts.
+  function renderConnLockDetail(p) {
+    const locks = p.modelLocks || [];
+    if (!locks.length) return "";
+    const items = locks.map(l => {
+      const mins = Math.ceil(l.remainingSeconds / 60);
+      const timeLabel = mins >= 60 ? `${Math.floor(mins/60)}h ${mins%60}m` : `${mins}m`;
+      return `<div class="model-lock-item">
+        <span class="lock-model">${escapeHtml(l.model)}</span>
+        <span class="lock-time">⏱ ${timeLabel}</span>
+      </div>`;
+    }).join("");
+    return `<div class="model-locks conn-locks" style="margin-left:26px;">
+      <details><summary>🔒 ${locks.length} model${locks.length > 1 ? 's' : ''} rate-limited</summary>
+      ${items}</details></div>`;
   }
 
   // Renders a service-kind chip using the upstream label+icon vocabulary.
