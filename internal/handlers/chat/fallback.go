@@ -659,7 +659,12 @@ func extractErrorText(body []byte) string {
 	return ""
 }
 
-var resetsInRegex = regexp.MustCompile(`(?i)resets?\s+in\s+([0-9hms\.]+)`)
+// resetsInRegex matches a relative reset hint. Providers phrase it every which
+// way: "resets in 30s" (Google), "please retry in about 30 seconds"
+// (TokenHarbor). The verb may be reset/resets/retry, an optional "about"/"a"
+// filler may sit before the number, and the unit may be spelled out. Spelled
+// units are normalised to Go durations by normalizeResetUnit before parse.
+var resetsInRegex = regexp.MustCompile(`(?i)(?:resets?|retry)\s+(?:in|after)\s+(?:about\s+|approximately\s+|a\s+)?([0-9][0-9hms]*(?:\.[0-9]+)?)(?:\s*(seconds?|secs?|minutes?|mins?|hours?|hrs?))?`)
 
 // resetAtRegex matches an ABSOLUTE reset stamp, which is how CodeBuddy reports
 // a rate limit: "your usage will reset at 2026-09-23 10:37:27 UTC+8". The
@@ -755,9 +760,8 @@ func extractResetDuration(body []byte) (time.Duration, bool) {
 			}
 		}
 		if rpcErr.Error.Message != "" {
-			if matches := resetsInRegex.FindStringSubmatch(rpcErr.Error.Message); len(matches) > 1 {
-				raw := strings.TrimRight(matches[1], ".")
-				if dur, err := time.ParseDuration(raw); err == nil && dur > 0 {
+			if matches := resetsInRegex.FindStringSubmatch(rpcErr.Error.Message); len(matches) > 2 {
+				if dur, ok := normalizeResetUnit(matches[1], matches[2]); ok {
 					return clampResetDuration(dur), true
 				}
 			}
@@ -774,9 +778,8 @@ func extractResetDuration(body []byte) (time.Duration, bool) {
 	}
 
 	// 3. Fallback regex on raw body string
-	if matches := resetsInRegex.FindSubmatch(body); len(matches) > 1 {
-		raw := strings.TrimRight(string(matches[1]), ".")
-		if dur, err := time.ParseDuration(raw); err == nil && dur > 0 {
+	if matches := resetsInRegex.FindSubmatch(body); len(matches) > 2 {
+		if dur, ok := normalizeResetUnit(string(matches[1]), string(matches[2])); ok {
 			return clampResetDuration(dur), true
 		}
 	}
@@ -792,6 +795,44 @@ func clampResetDuration(dur time.Duration) time.Duration {
 		return maxResetCooldown
 	}
 	return dur
+}
+
+// normalizeResetUnit turns a regex reset match into a Go duration. The number is
+// in matches[1] and the unit — possibly blank, possibly a spelled word like
+// "seconds" — is in matches[2]. The number may already carry a compact unit
+// ("45m30s"), which is used as-is. A bare number with no unit is read as
+// seconds, which is how "retry in about 30" reads to a human.
+func normalizeResetUnit(number, unit string) (time.Duration, bool) {
+	number = strings.TrimSpace(number)
+	unit = strings.ToLower(strings.TrimSpace(unit))
+
+	// Compact form already carries its unit ("45m30s", "1h12m28s").
+	if strings.ContainsAny(number, "hms") {
+		dur, err := time.ParseDuration(number)
+		if err != nil || dur <= 0 {
+			return 0, false
+		}
+		return dur, true
+	}
+
+	suffix := "s"
+	switch {
+	case unit == "":
+		suffix = "s"
+	case strings.HasPrefix(unit, "sec"):
+		suffix = "s"
+	case strings.HasPrefix(unit, "min"):
+		suffix = "m"
+	case strings.HasPrefix(unit, "hour"), strings.HasPrefix(unit, "hr"):
+		suffix = "h"
+	default:
+		return 0, false
+	}
+	dur, err := time.ParseDuration(number + suffix)
+	if err != nil || dur <= 0 {
+		return 0, false
+	}
+	return dur, true
 }
 
 // extractRetryAfter extracts a retryAfter ISO timestamp from an upstream error JSON body.

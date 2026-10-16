@@ -55,6 +55,62 @@ func TestExtractResetDuration_TextMessage(t *testing.T) {
 	}
 }
 
+// TokenHarbor phrases its 429 as "Please retry in about 30 seconds." — verb
+// "retry", filler "about", unit spelled out. Until this was handled the reset
+// hint was missed and the lock fell back to the 2s quota cooldown, so the same
+// account was re-hit while upstream was still throttling it.
+func TestExtractResetDuration_TokenHarborRetryPhrasing(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want time.Duration
+	}{
+		{
+			name: "retry in about N seconds / capacity",
+			body: `{"error":{"message":"This model is at capacity for your account right now. Please retry in about 30 seconds.","type":"rate_limit_exceeded","code":"rate_limit_exceeded"}}`,
+			want: 30 * time.Second,
+		},
+		{
+			name: "retry in about N seconds / shared address",
+			body: `{"error":{"message":"Rate limit reached: many free accounts are sharing this network address. For a stable, high-volume line, email support@tokenharbor.ai.","type":"rate_limit_exceeded","code":"rate_limit_exceeded"}}`,
+			want: 0, // no hint at all in this phrasing
+		},
+		{
+			name: "retry in N minutes",
+			body: `{"error":{"message":"Please retry in 2 minutes."}}`,
+			want: 2 * time.Minute,
+		},
+		{
+			name: "retry after N seconds",
+			body: `{"error":{"message":"Please retry after 45 seconds."}}`,
+			want: 45 * time.Second,
+		},
+		{
+			name: "retry in NhNmN s compact form",
+			body: `{"error":{"message":"Please retry in 1h12m28s."}}`,
+			want: 1*time.Hour + 12*time.Minute + 28*time.Second,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dur, ok := extractResetDuration([]byte(tc.body))
+			if tc.want == 0 {
+				if ok {
+					t.Fatalf("expected no reset hint, got %v", dur)
+				}
+				return
+			}
+			if !ok {
+				t.Fatalf("expected a reset hint, got none")
+			}
+			if dur != tc.want {
+				t.Errorf("expected %v, got %v", tc.want, dur)
+			}
+		})
+	}
+}
+
 func TestExtractResetDuration_ClampingSafety(t *testing.T) {
 	// Case 1: Extremely long duration (> 2 hours) is clamped to maxResetCooldown (2 hours) to avoid deadlocks.
 	bodyLong := []byte(`{"error":{"message":"Resets in 720h."}}`)

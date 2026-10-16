@@ -162,6 +162,44 @@ func TestResolvePrefixProvider_ResolvesConnection(t *testing.T) {
 	}
 }
 
+func TestResolvePrefixProvider_MultiConnectionNodeIsNotPinned(t *testing.T) {
+	database, cleanup := setupChatTestDB(t)
+	defer cleanup()
+
+	// A node with several accounts, like TokenHarbor's free pool. Pinning one
+	// of them routes every request to that account; when it returns 429 the
+	// account-fallback loop never runs and the other accounts go unused.
+	nodeData := `{"prefix":"tkh","apiType":"openai-compatible","baseUrl":"https://tkh.example.com/v1/chat/completions"}`
+	_, err := database.Exec(`INSERT INTO providerNodes (id, type, name, data, createdAt, updatedAt) VALUES
+		('openai-compatible-chat-tkh', 'openai-compatible', 'TokenHarbor', ?, '2026-07-18T00:00:00Z', '2026-07-18T00:00:00Z')`, nodeData)
+	if err != nil {
+		t.Fatalf("seed providerNode: %v", err)
+	}
+
+	for _, id := range []string{"conn-tkh-1", "conn-tkh-2", "conn-tkh-3"} {
+		connData, _ := json.Marshal(map[string]interface{}{"apiKey": "sk-" + id})
+		_, err = database.Exec(`INSERT INTO providerConnections (id, provider, authType, name, priority, isActive, data, createdAt, updatedAt) VALUES
+			(?, 'openai-compatible-chat-tkh', 'apikey', ?, 1, 1, ?, '2026-07-18T00:00:00Z', '2026-07-18T00:00:00Z')`, id, id, string(connData))
+		if err != nil {
+			t.Fatalf("seed connection %s: %v", id, err)
+		}
+	}
+
+	repo := db.NewRepo(database)
+	h := NewChatHandler(repo)
+
+	info := h.resolvePrefixProvider("tkh", "mimo-v2.6-flash:free")
+	if info == nil {
+		t.Fatal("expected non-nil ModelInfo for prefix provider")
+	}
+	if info.Provider != "openai-compatible-chat-tkh" {
+		t.Errorf("expected provider node id, got %s", info.Provider)
+	}
+	if info.ConnectionID != "" {
+		t.Errorf("multi-connection node must stay unpinned so account fallback can run, got pinned to %s", info.ConnectionID)
+	}
+}
+
 func TestResolveModel_CustomPrefixShadowing_BuiltinAlias(t *testing.T) {
 	database, cleanup := setupChatTestDB(t)
 	defer cleanup()

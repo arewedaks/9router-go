@@ -423,7 +423,14 @@ func (h *ChatHandler) resolveModel(modelStr string) (*ModelInfo, error) {
 }
 
 // resolvePrefixProvider checks if a provider name is a providerNode prefix.
-// If so, it finds the matching connection and returns a pinned ModelInfo.
+// If so, it resolves the connection to use.
+//
+// A single-connection node is pinned, which is what the caller's connectionID
+// field is for. A multi-connection node is NOT pinned: pinning routes every
+// request to one account and the account-fallback loop is skipped entirely, so
+// a 429 on that account failed the request even though the node had other
+// accounts with quota left. Leaving ConnectionID empty lets handleAccountFallback
+// walk the node's connections and lock each one as it throttles.
 func (h *ChatHandler) resolvePrefixProvider(prefix string, model string) *ModelInfo {
 	if h.Repo == nil {
 		return nil
@@ -433,14 +440,19 @@ func (h *ChatHandler) resolvePrefixProvider(prefix string, model string) *ModelI
 		return nil
 	}
 
-	conn, _, err := h.getBestConnection(node.ID, "", nil, model)
-	if err != nil || conn == nil {
+	conns, cErr := h.Repo.GetProviderConnections(node.ID, true)
+	if cErr != nil || len(conns) == 0 {
 		return nil
+	}
+
+	pinned := ""
+	if len(conns) == 1 {
+		pinned = conns[0].ID
 	}
 
 	return &ModelInfo{
 		Provider:     node.ID,
 		Model:        model,
-		ConnectionID: conn.ID,
+		ConnectionID: pinned,
 	}
 }
