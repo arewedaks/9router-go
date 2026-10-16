@@ -1489,3 +1489,43 @@ func TestDoModelRequestDropsRetiredUpstreamModels(t *testing.T) {
 		t.Fatalf("openai got %d models, want all 3; the filter leaked across providers", len(res2.Models))
 	}
 }
+
+func TestExtractModelLocks(t *testing.T) {
+	now := time.Now().UTC()
+	future := now.Add(30 * time.Minute).Format(time.RFC3339)
+	past := now.Add(-10 * time.Minute).Format(time.RFC3339)
+
+	m := map[string]any{
+		"modelLock_gpt-4":        future,  // active
+		"modelLock_gpt-3.5":      past,    // expired
+		"modelLock_deepseek-v4":  future,  // active
+		"modelLock_stale":        nil,     // null (cleared)
+		"apiKey":                 "sk-x",  // not a lock
+	}
+
+	locks := extractModelLocks(m, now)
+
+	if len(locks) != 2 {
+		t.Fatalf("got %d locks, want 2 active", len(locks))
+	}
+
+	// Should be sorted by deadline
+	for _, l := range locks {
+		if l.Model != "deepseek-v4" && l.Model != "gpt-4" {
+			t.Errorf("unexpected model %q", l.Model)
+		}
+		if l.RemainingS < 1 {
+			t.Errorf("model %s: remaining %ds, want >=1", l.Model, l.RemainingS)
+		}
+		if l.LockedUntil == "" {
+			t.Errorf("model %s: empty lockedUntil", l.Model)
+		}
+	}
+}
+
+func TestExtractModelLocks_Empty(t *testing.T) {
+	locks := extractModelLocks(map[string]any{"apiKey": "sk-x"}, time.Now().UTC())
+	if len(locks) != 0 {
+		t.Errorf("got %d locks from empty map, want 0", len(locks))
+	}
+}

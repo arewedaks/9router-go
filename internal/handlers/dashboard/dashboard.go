@@ -481,6 +481,11 @@ type ProviderSummary struct {
 	// leaving the operator to guess.
 	CooldownUntil string `json:"cooldownUntil,omitempty"`
 
+	// ModelLocks lists every per-model lock that is still active (deadline in
+	// the future). The dashboard shows which models on this account are
+	// rate-limited or quota-exhausted and when they recover.
+	ModelLocks []ModelLockInfo `json:"modelLocks,omitempty"`
+
 	// ClientProfile is no longer reported per connection: the Antigravity client
 	// identity is a provider-wide setting (see
 	// HandleSetAntigravityClientProfile), so a per-account value would be a second
@@ -501,6 +506,13 @@ type ProviderSummary struct {
 	ServiceKinds    []string `json:"serviceKinds,omitempty"`
 	Deprecated      bool     `json:"deprecated,omitempty"`
 	DeprecationNote string   `json:"deprecationNotice,omitempty"`
+}
+
+// ModelLockInfo describes a single per-model cooldown on a connection.
+type ModelLockInfo struct {
+	Model       string `json:"model"`
+	LockedUntil string `json:"lockedUntil"`
+	RemainingS  int    `json:"remainingSeconds"`
 }
 
 // accountInfo holds the subset of the credential blob surfaced to the UI.
@@ -525,6 +537,9 @@ type accountInfo struct {
 	// CooldownUntil is the latest live modelLock_* deadline (RFC3339), empty
 	// when no lock is active.
 	CooldownUntil string
+
+	// ModelLocks enumerates every live per-model lock.
+	ModelLocks []ModelLockInfo
 }
 
 // hasLiveModelLock reports whether the credential blob still holds any
@@ -554,6 +569,47 @@ func latestModelLockDeadline(m map[string]any, now time.Time) string {
 		return ""
 	}
 	return latest.Format(time.RFC3339)
+}
+
+// extractModelLocks returns every modelLock_* entry whose deadline is still in
+// the future, sorted by deadline. The dashboard uses this to show which models
+// on an account are rate-limited or quota-exhausted.
+func extractModelLocks(m map[string]any, now time.Time) []ModelLockInfo {
+	var locks []ModelLockInfo
+	for key, val := range m {
+		if !strings.HasPrefix(key, "modelLock_") {
+			continue
+		}
+		s, ok := val.(string)
+		if !ok || s == "" {
+			continue
+		}
+		t, err := time.Parse(time.RFC3339, s)
+		if err != nil || !now.Before(t) {
+			continue
+		}
+		model := strings.TrimPrefix(key, "modelLock_")
+		remaining := int(t.Sub(now).Seconds())
+		if remaining < 1 {
+			remaining = 1
+		}
+		locks = append(locks, ModelLockInfo{
+			Model:       model,
+			LockedUntil: t.Format(time.RFC3339),
+			RemainingS:  remaining,
+		})
+	}
+	// Sort by deadline ascending so the first-to-recover models are at the top.
+	slices.SortFunc(locks, func(a, b ModelLockInfo) int {
+		if a.LockedUntil < b.LockedUntil {
+			return -1
+		}
+		if a.LockedUntil > b.LockedUntil {
+			return 1
+		}
+		return 0
+	})
+	return locks
 }
 
 // extractAccountInfo parses the stored credential JSON blob and pulls out
@@ -591,6 +647,7 @@ func extractAccountInfo(raw string) accountInfo {
 	info.LastError = str("lastError")
 	info.HasActiveCooldown = hasLiveModelLock(m, time.Now().UTC())
 	info.CooldownUntil = latestModelLockDeadline(m, time.Now().UTC())
+	info.ModelLocks = extractModelLocks(m, time.Now().UTC())
 
 	if info.ExpiresAt != "" {
 		if t, err := time.Parse(time.RFC3339, info.ExpiresAt); err == nil {
@@ -923,6 +980,7 @@ func (h *Handler) HandleProviderDetail(w http.ResponseWriter, r *http.Request) {
 			HasActiveCooldown:   acct.HasActiveCooldown,
 			LastError:           truncateForDisplay(acct.LastError, 240),
 			CooldownUntil:       acct.CooldownUntil,
+			ModelLocks:          acct.ModelLocks,
 		}
 		applyProviderMeta(&sum, m, hasMeta)
 		if providers.IsGeneratedNodeID(c.Provider) {
@@ -1382,6 +1440,7 @@ func (h *Handler) HandleListProviders(w http.ResponseWriter, r *http.Request) {
 			HasActiveCooldown:   acct.HasActiveCooldown,
 			LastError:           truncateForDisplay(acct.LastError, 240),
 			CooldownUntil:       acct.CooldownUntil,
+			ModelLocks:          acct.ModelLocks,
 		}
 		applyProviderMeta(&summary, meta, hasMeta)
 		// A generated node id is not a registry name. When the registry has no
