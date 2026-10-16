@@ -650,6 +650,16 @@
        reads as part of the card, not as a separate block below it. */
     .conn-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 auto; }
     .conn-main .mid { flex: 0 0 auto; white-space: nowrap; }
+    /* Latest request for this account: which model it actually served, whether
+       it succeeded, and when. Sits right under the account label so the row
+       answers "what is this account doing?" without opening Usage. */
+    .conn-log { display: flex; align-items: center; gap: 7px; font-size: 0.68rem; min-height: 1em; }
+    .conn-log-status { font-weight: 700; }
+    .conn-log-status.ok { color: #3fb950; }
+    .conn-log-status.err { color: #f85149; }
+    .conn-log-model { color: #8b949e; font-family: var(--mono, monospace); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 34ch; }
+    .conn-log-time { color: #6e7681; white-space: nowrap; }
+    .conn-log-empty { color: #6e7681; font-style: italic; }
     .conn-locks { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 0.7rem; }
     .conn-locks-label { color: #e3b341; font-weight: 600; }
     .conn-lock-item { display: inline-flex; align-items: center; gap: 5px; }
@@ -6245,6 +6255,7 @@
               <span class="conn-main">
                 <span class="mid" title="${escapeHtml(label)}">${escapeHtml(label)}</span>
                 ${renderConnLockDetail(p)}
+                <span class="conn-log" id="conn-log-${p.id}"></span>
               </span>
               <span class="conn-actions">
                 <span class="mkind conn-status ${statusInfo.cls}" id="conn-status-${p.id}" title="status: ${escapeHtml(connStatus || 'unknown')}">${escapeHtml(statusInfo.text)}</span>
@@ -6467,6 +6478,43 @@
       </div>
       <div id="dt-models" style="display:${activeDetailTab === 'models' ? 'block' : 'none'};">${modelsHtml}</div>
       ${proxyPanel}`;
+    loadConnectionLogs(d.connections);
+  }
+
+  // Per-account activity log. The request history already stores connectionId
+  // plus model/status/timestamp, but nothing surfaced it on the provider page,
+  // so the operator had to open the Usage tab and filter by hand to learn which
+  // model an account was actually serving.
+  //
+  // Fetched one request per account rather than paging the whole history: the
+  // row only needs the latest line. Failures are silent -- an account with no
+  // history simply keeps an empty span.
+  async function loadConnectionLogs(connections) {
+    const list = (connections || []).filter(c => c && c.id);
+    if (!list.length) return;
+    // Bounded concurrency: a provider with 100+ accounts would otherwise open
+    // 100+ parallel requests. The list endpoint pages at 1 here, so each call
+    // is cheap. ponytail: fixed batch of 6; raise it if a provider server
+    // tolerates more and the page feels slow.
+    const BATCH = 6;
+    for (let i = 0; i < list.length; i += BATCH) {
+      await Promise.all(list.slice(i, i + BATCH).map(async c => {
+        const el = document.getElementById("conn-log-" + c.id);
+        if (!el) return;
+        try {
+          const r = await api(`/api/dashboard/usage/request-details?connectionId=${encodeURIComponent(c.id)}&pageSize=1`);
+          if (!r.ok) return;
+          const d = await r.json();
+          const row = (d.details || [])[0];
+          if (!row) { el.innerHTML = `<span class="conn-log-empty">no requests yet</span>`; return; }
+          const ok = row.status === "success";
+          el.innerHTML =
+            `<span class="conn-log-status ${ok ? 'ok' : 'err'}" title="last request status: ${escapeHtml(row.status || '?')}">${ok ? '✓' : '✗'}</span>`
+          + `<span class="conn-log-model" title="last model this account served">${escapeHtml(row.model || '?')}</span>`
+          + `<span class="conn-log-time">${escapeHtml(fmtTime(row.timestamp))}</span>`;
+        } catch (e) { /* leave the span empty on a failed lookup */ }
+      }));
+    }
   }
 
   function showDetailTab(btn, which) {
