@@ -1,5 +1,5 @@
 {
   "latestVersion": "1.9.34",
   "downloadUrl": "https://github.com/arewedaks/9router-go/releases/latest",
-  "releaseNotes": "- fix(codebuddy): tambah X-Conversation-* headers untuk intl/workbuddy (#4892) (dbed064)\n- fix(fusion): tambah retry loop di makePanelCall seperti combo & fallback (f0deb30)\n- fix(chat): hormati model lock di jalur pinned, klasifikasi free tier habis (42586c6)\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
+  "releaseNotes": "- chore(release): version.json -> v1.9.34 (cd1dfc5)\n- fix(codebuddy): tambah X-Conversation-* headers untuk intl/workbuddy (#4892) (dbed064)\n- fix(fusion): tambah retry loop di makePanelCall seperti combo & fallback (f0deb30)\n- fix(chat): hormati model lock di jalur pinned, klasifikasi free tier habis (42586c6)\n- fix(chat): pakai hint retry hulu + jangan pin node multi-koneksi (1b3cbf6)\n- fix(opencode): jangan impor jev-1.13-free yang ditolak hulu (a3fb7e2)\n- chore(release): version.json -> v1.9.33 (b73f448)\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
 }
