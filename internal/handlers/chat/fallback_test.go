@@ -507,3 +507,44 @@ func TestClassifyError_CodebuddyFrequencyLimitIsQuota(t *testing.T) {
 		t.Errorf("cooldown = %d ms; a spent quota must not use the seconds-scale backoff", got.CooldownMs)
 	}
 }
+
+// A pinned connection has no sibling to fail over to, but the 429 still has to
+// mark the account. Regression: the pinned path returned before the lock block,
+// so a rate-limited node never showed the lock and every pinned request
+// repeated the same doomed upstream call.
+func TestHandleAccountFallback_PinnedConnectionLocksModel(t *testing.T) {
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		w.WriteHeader(http.StatusTooManyRequests)
+		w.Write([]byte(`{"error":{"message":"free allowance exhausted","code":"free_tier_limit_reached"}}`))
+	}))
+	defer srv.Close()
+
+	database, cleanup := setupChatTestDB(t)
+	defer cleanup()
+	seedConnDB(t, database, "deepseek", "conn-pinned", "sk-pin", srv.URL)
+
+	repo := db.NewRepo(database)
+	h := NewChatHandler(repo)
+
+	body := []byte(`{"model":"deepseek-chat","messages":[{"role":"user","content":"hi"}]}`)
+	rec := httptest.NewRecorder()
+	err := h.handleAccountFallback(context.Background(), rec, "deepseek", "deepseek-chat",
+		"conn-pinned", body, false, false, "/v1/chat/completions")
+	if err == nil {
+		t.Fatal("expected the pinned request to surface the 429")
+	}
+
+	if got := hits.Load(); got != 1 {
+		t.Errorf("expected exactly 1 upstream attempt (no sibling to retry), got %d", got)
+	}
+
+	locked, lerr := repo.IsConnectionModelLocked("conn-pinned", "deepseek-chat")
+	if lerr != nil {
+		t.Fatalf("IsConnectionModelLocked: %v", lerr)
+	}
+	if !locked {
+		t.Error("pinned 429 left the account unmarked; the lock was skipped")
+	}
+}

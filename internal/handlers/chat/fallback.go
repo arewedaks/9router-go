@@ -53,7 +53,13 @@ func (h *ChatHandler) handleAccountFallback(
 			return fmt.Errorf("pinned connection %s: %w", pinnedConnectionID, err)
 		}
 		log.Debug("fallback", "pinned", "pinnedConn", pinnedConnectionID, "connObj", connObj.ID)
-		return h.tryForwardWithConnection(ctx, w, provider, model, connObj.ID, connData, body, isStream, translateResponse, endpoint)
+		err = h.tryForwardWithConnection(ctx, w, provider, model, connObj.ID, connData, body, isStream, translateResponse, endpoint)
+		// A pinned connection has no sibling to fall back to, but the failure
+		// still has to mark the account: without this the lock never appears and
+		// the next pinned request repeats the same doomed call. The unpinned path
+		// below has always done this; the early return here skipped it.
+		h.lockConnectionOnUpstreamError(provider, model, connObj.ID, connData, err)
+		return err
 	}
 
 	if !h.Repo.IsProviderAvailable(provider, model) {
@@ -118,31 +124,7 @@ func (h *ChatHandler) handleAccountFallback(
 		}
 		var ue *upstreamError
 		if errors.As(lastErr, &ue) && providers.RetryableStatusCodes[ue.StatusCode] {
-			// Extract error text from upstream body for classification
-			errorText := extractErrorText(ue.Body)
-			// Get current backoff level from this connection
-			currentBackoffLevel := h.Repo.GetConnectionBackoffLevel(connObj.ID)
-			// Classify error to get dynamic cooldown
-			classification := providers.ClassifyError(ue.StatusCode, errorText, currentBackoffLevel)
-			cooldownSec := int((classification.CooldownMs + 999) / 1000) // ceil to seconds
-			if dur, ok := extractResetDuration(ue.Body); ok {
-				cooldownSec = int(dur.Seconds())
-			}
-			errMsg := errorText
-			if errMsg == "" {
-				errMsg = fmt.Sprintf("%d upstream error", ue.StatusCode)
-			}
-			lockKey := canonicalLockModel(provider, model)
-			h.Repo.LockConnectionModel(connObj.ID, lockKey, cooldownSec, classification.NewBackoffLevel)
-			if lockKey != model {
-				_ = h.Repo.LockConnectionModel(connObj.ID, model, cooldownSec, classification.NewBackoffLevel)
-			}
-			// Hold this account's concurrency gate for the cooldown so queued
-			// requests wait instead of adding to the throttle that caused it.
-			if ue.StatusCode == http.StatusTooManyRequests {
-				blockAccountAfter429(provider, connObj.ID, connData, time.Duration(cooldownSec)*time.Second)
-			}
-			log.Warn("fallback", "connection locked", "conn", connObj.ID, "provider", provider, "model", model, "lockKey", lockKey, "status", ue.StatusCode, "cooldown_s", cooldownSec)
+			h.lockConnectionOnUpstreamError(provider, model, connObj.ID, connData, lastErr)
 			excludeIDs = append(excludeIDs, c.ID)
 			continue
 		}
@@ -152,6 +134,41 @@ func (h *ChatHandler) handleAccountFallback(
 		return lastErr
 	}
 	return fmt.Errorf("no available connections for provider %s (model %s): every connection is cooling down, disabled, or quota-exhausted", provider, model)
+}
+
+// lockConnectionOnUpstreamError records a retryable upstream failure against a
+// connection: model lock with dynamic cooldown, per-account concurrency block
+// on 429. Returns the cooldown in seconds, or 0 when the error is not retryable.
+//
+// Factored out of the unpinned fallback loop so the pinned path can reach it:
+// a pinned request has no sibling to fail over to, but skipping the lock left
+// the account unmarked and the next pinned request repeated the same call.
+func (h *ChatHandler) lockConnectionOnUpstreamError(provider, model, connID string, connData *ConnectionData, err error) int {
+	if err == nil {
+		return 0
+	}
+	var ue *upstreamError
+	if !errors.As(err, &ue) || !providers.RetryableStatusCodes[ue.StatusCode] {
+		return 0
+	}
+	errorText := extractErrorText(ue.Body)
+	classification := providers.ClassifyError(ue.StatusCode, errorText, h.Repo.GetConnectionBackoffLevel(connID))
+	cooldownSec := int((classification.CooldownMs + 999) / 1000) // ceil to seconds
+	if dur, ok := extractResetDuration(ue.Body); ok {
+		cooldownSec = int(dur.Seconds())
+	}
+	lockKey := canonicalLockModel(provider, model)
+	h.Repo.LockConnectionModel(connID, lockKey, cooldownSec, classification.NewBackoffLevel)
+	if lockKey != model {
+		_ = h.Repo.LockConnectionModel(connID, model, cooldownSec, classification.NewBackoffLevel)
+	}
+	// Hold this account's concurrency gate for the cooldown so queued requests
+	// wait instead of adding to the throttle that caused it.
+	if ue.StatusCode == http.StatusTooManyRequests {
+		blockAccountAfter429(provider, connID, connData, time.Duration(cooldownSec)*time.Second)
+	}
+	log.Warn("fallback", "connection locked", "conn", connID, "provider", provider, "model", model, "lockKey", lockKey, "status", ue.StatusCode, "cooldown_s", cooldownSec)
+	return cooldownSec
 }
 
 // tryForwardWithConnection attempts a single upstream request using the given connection data.
