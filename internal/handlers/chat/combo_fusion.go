@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	json "encoding/json/v2"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -142,21 +143,6 @@ func (h *ChatHandler) makePanelCall(body []byte, entry, comboName string) func()
 			return &fusionResult{model: entry, err: fmt.Errorf("unresolved model: %s", entry)}
 		}
 
-		var connID string
-		var connData *ConnectionData
-		if cfg, ok := providers.KnownProviders[modelInfo.Provider]; ok && (cfg.NoAuth || cfg.DefaultAPIKey != "") {
-			connData = &ConnectionData{
-				APIKey: cfg.DefaultAPIKey,
-			}
-		} else {
-			conn, cData, err := h.getBestConnection(modelInfo.Provider, modelInfo.ConnectionID, nil, modelInfo.Model)
-			if err != nil {
-				return &fusionResult{model: entry, err: err}
-			}
-			connID = conn.ID
-			connData = cData
-		}
-
 		var upstreamBody map[string]any
 		if err := json.Unmarshal(body, &upstreamBody); err != nil {
 			return &fusionResult{model: entry, err: err}
@@ -168,13 +154,43 @@ func (h *ChatHandler) makePanelCall(body []byte, entry, comboName string) func()
 			return &fusionResult{model: entry, err: err}
 		}
 
-		rec := &responseBuffer{header: http.Header{}}
-		fwdErr := h.tryForwardWithConnection(panelCtx, rec, modelInfo.Provider, modelInfo.Model, connID, connData, upstreamJSON, false, false, "/v1/chat/completions")
-		if fwdErr != nil {
-			return &fusionResult{model: entry, err: fwdErr}
-		}
+		// Retry across connections like combo.go and handleAccountFallback do,
+		// so a locked or 429-parked account does not kill the entire panel leg.
+		var excludeIDs []string
+		var lastErr error
+		for attempt := 0; attempt < 5; attempt++ {
+			var connID string
+			var connData *ConnectionData
+			if cfg, ok := providers.KnownProviders[modelInfo.Provider]; ok && (cfg.NoAuth || cfg.DefaultAPIKey != "") {
+				connData = &ConnectionData{
+					APIKey: cfg.DefaultAPIKey,
+				}
+			} else {
+				conn, cData, err := h.getBestConnection(modelInfo.Provider, modelInfo.ConnectionID, excludeIDs, modelInfo.Model)
+				if err != nil {
+					break
+				}
+				connID = conn.ID
+				connData = cData
+			}
 
-		return &fusionResult{model: entry, ok: true, body: rec.body.Bytes()}
+			rec := &responseBuffer{header: http.Header{}}
+			fwdErr := h.tryForwardWithConnection(panelCtx, rec, modelInfo.Provider, modelInfo.Model, connID, connData, upstreamJSON, false, false, "/v1/chat/completions")
+			if fwdErr == nil {
+				return &fusionResult{model: entry, ok: true, body: rec.body.Bytes()}
+			}
+			lastErr = fwdErr
+			var ue *upstreamError
+			if errors.As(fwdErr, &ue) && providers.RetryableStatusCodes[ue.StatusCode] {
+				h.comboLockRetryable(&excludeIDs, connID, modelInfo.Provider, modelInfo.Model, ue)
+				continue
+			}
+			break // non-retryable
+		}
+		if lastErr != nil {
+			return &fusionResult{model: entry, err: lastErr}
+		}
+		return &fusionResult{model: entry, err: fmt.Errorf("no connections for %s", entry)}
 	}
 }
 
