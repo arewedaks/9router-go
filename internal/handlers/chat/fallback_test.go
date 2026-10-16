@@ -548,3 +548,47 @@ func TestHandleAccountFallback_PinnedConnectionLocksModel(t *testing.T) {
 		t.Error("pinned 429 left the account unmarked; the lock was skipped")
 	}
 }
+
+// A 429's Retry-After header is the upstream's own statement of when to come
+// back. Regression: only the body was parsed, so an upstream that named its
+// limit in the body but put the duration in the header (free-tier quotas do
+// exactly this) got the classifier's short default instead of the real window.
+func TestHandleAccountFallback_PinnedHonoursRetryAfterHeader(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "86400")
+		w.WriteHeader(http.StatusTooManyRequests)
+		w.Write([]byte(`{"error":{"message":"free tier exhausted","code":"free_tier_limit_reached"}}`))
+	}))
+	defer srv.Close()
+
+	database, cleanup := setupChatTestDB(t)
+	defer cleanup()
+	seedConnDB(t, database, "deepseek", "conn-ra", "sk-ra", srv.URL)
+
+	repo := db.NewRepo(database)
+	h := NewChatHandler(repo)
+
+	body := []byte(`{"model":"deepseek-chat","messages":[{"role":"user","content":"hi"}]}`)
+	rec := httptest.NewRecorder()
+	if err := h.handleAccountFallback(context.Background(), rec, "deepseek", "deepseek-chat",
+		"conn-ra", body, false, false, "/v1/chat/completions"); err == nil {
+		t.Fatal("expected the 429 to surface")
+	}
+
+	// The lock deadline lives in the connection's JSON blob; there is no
+	// deadline accessor, and asserting on the rendered status would not prove
+	// the duration came from the header.
+	var raw string
+	if err := database.QueryRow(
+		`SELECT json_extract(data, '$."modelLock_deepseek-chat"') FROM providerConnections WHERE id='conn-ra'`,
+	).Scan(&raw); err != nil {
+		t.Fatalf("read lock deadline: %v", err)
+	}
+	until, err := time.Parse(time.RFC3339, raw)
+	if err != nil {
+		t.Fatalf("parse lock deadline %q: %v", raw, err)
+	}
+	if remaining := time.Until(until); remaining < 20*time.Hour {
+		t.Errorf("cooldown ignored Retry-After: got %v, want ~24h", remaining)
+	}
+}

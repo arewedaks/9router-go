@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"syscall"
 )
@@ -16,6 +17,28 @@ import (
 type UpstreamError struct {
 	StatusCode int
 	Body       []byte
+	// RetryAfter carries the upstream's Retry-After header in seconds, or 0
+	// when absent/unparseable. This is the most authoritative cooldown signal
+	// a 429 can send: the body often says "free tier exhausted" with no
+	// duration, while the header states exactly when to come back. Discarding
+	// it left cooldowns at the classifier's short default instead of the real
+	// window.
+	RetryAfter int
+}
+
+// retryAfterSeconds parses a Retry-After header value. Only the delta-seconds
+// form is honoured; the HTTP-date form is rare on rate limits and would need
+// clock-skew handling the fallback path does not do.
+func retryAfterSeconds(h http.Header) int {
+	v := strings.TrimSpace(h.Get("Retry-After"))
+	if v == "" {
+		return 0
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n <= 0 {
+		return 0
+	}
+	return n
 }
 
 // Status and ErrorBody expose the rejection to packages that classify upstream
@@ -77,7 +100,7 @@ func DoRequest(ctx context.Context, client *http.Client, method, url string, hea
 		if readErr != nil {
 			return nil, fmt.Errorf("upstream returned %d and body read failed: %w", resp.StatusCode, readErr)
 		}
-		return nil, &UpstreamError{StatusCode: resp.StatusCode, Body: errBody}
+		return nil, &UpstreamError{StatusCode: resp.StatusCode, Body: errBody, RetryAfter: retryAfterSeconds(resp.Header)}
 	}
 	return resp, nil
 }

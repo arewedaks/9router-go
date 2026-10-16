@@ -154,7 +154,13 @@ func (h *ChatHandler) lockConnectionOnUpstreamError(provider, model, connID stri
 	errorText := extractErrorText(ue.Body)
 	classification := providers.ClassifyError(ue.StatusCode, errorText, h.Repo.GetConnectionBackoffLevel(connID))
 	cooldownSec := int((classification.CooldownMs + 999) / 1000) // ceil to seconds
-	if dur, ok := extractResetDuration(ue.Body); ok {
+	// Precedence: Retry-After header > body-embedded reset time > classifier
+	// default. The header is what the upstream actually promised; a 429 body
+	// often names the limit without a duration, which is how a 24h quota
+	// exhaustion ended up as a 2s cooldown.
+	if ue.RetryAfter > 0 {
+		cooldownSec = ue.RetryAfter
+	} else if dur, ok := extractResetDuration(ue.Body); ok {
 		cooldownSec = int(dur.Seconds())
 	}
 	lockKey := canonicalLockModel(provider, model)
