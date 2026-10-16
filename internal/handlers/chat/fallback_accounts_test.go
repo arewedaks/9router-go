@@ -144,3 +144,45 @@ func indexOf(h, n string) int {
 	}
 	return -1
 }
+
+// TestGetBestConnection_PinnedHonoursModelLock pins the exact regression that
+// made account fallback slow instead of just trying the next account.
+//
+// The account-fallback loop looks each candidate up by id, so it takes the
+// pinned branch of getBestConnection. That branch used to skip the per-model
+// lock check the unpinned branch performs, so an account parked by a 429 was
+// picked again on the next iteration. Because a 429 also blocks the account's
+// semaphore for the cooldown, every such retry first sat out the 30s acquire
+// timeout — a request watching logs showed 30s per parked account.
+func TestGetBestConnection_PinnedHonoursModelLock(t *testing.T) {
+	database, cleanup := setupChatTestDB(t)
+	defer cleanup()
+	if _, err := database.Exec(`DELETE FROM providerConnections WHERE id IN ('conn-1','conn-2')`); err != nil {
+		t.Fatalf("clear seeded connections: %v", err)
+	}
+
+	data, _ := json.Marshal(map[string]any{"apiKey": "sk-locked", "baseUrl": "https://example.test"})
+	if _, err := database.Exec(
+		`INSERT INTO providerConnections (id, provider, authType, name, priority, isActive, data, createdAt, updatedAt)
+		 VALUES ('acct-locked', 'deepseek', 'apikey', 'acct', 1, 1, ?, '2026-07-18T00:00:00Z', '2026-07-18T00:00:00Z')`,
+		string(data)); err != nil {
+		t.Fatalf("seed connection: %v", err)
+	}
+
+	repo := db.NewRepo(database)
+	h := NewChatHandler(repo)
+
+	if err := repo.LockConnectionModel("acct-locked", "deepseek-chat", 300, 1); err != nil {
+		t.Fatalf("LockConnectionModel: %v", err)
+	}
+
+	// Pinned lookup of the parked account must refuse, so the loop moves on.
+	if _, _, err := h.getBestConnection("deepseek", "acct-locked", nil, "deepseek-chat"); err == nil {
+		t.Error("pinned lookup of a model-locked connection succeeded, want error")
+	}
+
+	// The lock is per model: a different model on the same account still works.
+	if _, _, err := h.getBestConnection("deepseek", "acct-locked", nil, "deepseek-reasoner"); err != nil {
+		t.Errorf("pinned lookup for an unlocked model failed: %v", err)
+	}
+}

@@ -36,6 +36,29 @@ var (
 	proxyClients   = make(map[string]*http.Client)
 )
 
+// isConnectionModelLocked reports whether the connection is parked for model by
+// a previous 429 and should therefore not be dialled again yet.
+//
+// Both connection paths must ask this. The pinned path used to skip it, which
+// meant the account-fallback loop retried an account the lock had just parked:
+// the 429 handler wrote the lock, the next iteration ignored it, and every such
+// retry first sat out the semaphore's 30s acquire timeout before failing again.
+func (h *ChatHandler) isConnectionModelLocked(provider, connectionID, model string) bool {
+	if model == "" || h.Repo == nil {
+		return false
+	}
+	lockKey := canonicalLockModel(provider, model)
+	if locked, _ := h.Repo.IsConnectionModelLocked(connectionID, lockKey); locked {
+		return true
+	}
+	if lockKey != model {
+		if locked, _ := h.Repo.IsConnectionModelLocked(connectionID, model); locked {
+			return true
+		}
+	}
+	return false
+}
+
 // GetBestConnection retrieves the highest-priority active connection for a provider.
 // When connectionID is non-empty, it fetches that specific connection directly.
 func (h *ChatHandler) GetBestConnection(provider string, connectionID string, excludeIDs []string, model string) (*models.ProviderConnection, *ConnectionData, error) {
@@ -57,6 +80,11 @@ func (h *ChatHandler) getBestConnection(provider string, connectionID string, ex
 		}
 		if conn == nil {
 			return nil, nil, fmt.Errorf("connection %s not found", connectionID)
+		}
+		// A pinned connection is gated exactly like an unpinned one; see
+		// isConnectionModelLocked for why leaving this out defeated the lock.
+		if h.isConnectionModelLocked(provider, conn.ID, model) {
+			return nil, nil, fmt.Errorf("connection %s is locked for model %s", conn.ID, model)
 		}
 	} else {
 		connections, queryErr := h.Repo.GetProviderConnections(provider, true)
@@ -118,19 +146,11 @@ func (h *ChatHandler) getBestConnection(provider string, connectionID string, ex
 				continue
 			}
 			// Skip connections that have an active per-connection model lock
-			if model != "" {
-				lockKey := canonicalLockModel(provider, model)
-				if locked, _ := h.Repo.IsConnectionModelLocked(c.ID, lockKey); locked {
-					continue
-				}
-				if lockKey != model {
-					if locked, _ := h.Repo.IsConnectionModelLocked(c.ID, model); locked {
-						continue
-					}
-				}
-				if provider == "antigravity" && IsAntigravityModelBlocked(c.ID, model) {
-					continue
-				}
+			if h.isConnectionModelLocked(provider, c.ID, model) {
+				continue
+			}
+			if model != "" && provider == "antigravity" && IsAntigravityModelBlocked(c.ID, model) {
+				continue
 			}
 			conn = c
 			break

@@ -232,6 +232,12 @@ var ErrorRules = []ErrorRule{
 	{Text: "monthly limit", CooldownMs: QuotaExhaustedCooldownMs, Quota: true},
 	{Text: "frequency limit", CooldownMs: QuotaExhaustedCooldownMs, Quota: true},
 	{Text: "payment required", CooldownMs: QuotaExhaustedCooldownMs, Quota: true},
+	// TokenHarbor's free tier answers 429 with "You've used this period's free
+	// allowance. Your next rolling 7-day period starts on ...". The status alone
+	// reads as a throttle, so it only ever earned a 2s→5min backoff and the
+	// spent account was re-dialled all window. The allowance is spent for days,
+	// which is what this cooldown family is for.
+	{Text: "free allowance", CooldownMs: QuotaExhaustedCooldownMs, Quota: true},
 
 	// --- Text-based rules (checked first, order = priority) ---
 	{Text: "no credentials", CooldownMs: cooldownLong},

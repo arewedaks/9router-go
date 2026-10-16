@@ -39,3 +39,20 @@ func TestClassifyError_Status503Fallback(t *testing.T) {
 		t.Errorf("expected backoff level 1 for 503, got %d", cls.NewBackoffLevel)
 	}
 }
+
+func TestClassifyError_FreeTierAllowanceSpent(t *testing.T) {
+	// TokenHarbor returns 429 for a spent free tier. Without a text rule the
+	// status alone produced a 2s backoff, so the exhausted account was retried
+	// all window instead of being parked like the other spent-budget cases.
+	const msg = "You've used this period's free allowance. Your next rolling " +
+		"7-day period starts on 16 Oct 2026 at 15:05 UTC."
+
+	cls := ClassifyError(http.StatusTooManyRequests, msg, 0)
+	if !cls.ShouldFallback {
+		t.Error("expected fallback for a spent free allowance")
+	}
+	if cls.CooldownMs != QuotaExhaustedCooldownMs {
+		t.Errorf("cooldown = %dms, want %dms (quota-exhausted, not the transient backoff)",
+			cls.CooldownMs, QuotaExhaustedCooldownMs)
+	}
+}
