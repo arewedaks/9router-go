@@ -622,6 +622,8 @@
     .conn-status { min-width: 46px; text-align: center; border-radius: 4px; padding: 1px 5px; transition: color 0.15s, background 0.15s; }
     .conn-status.ok { color: #7ee787; background: #13381e; }
     .conn-status.err { color: #ff7b72; background: #3d1418; }
+    .conn-status.idle { color: var(--muted); background: #21262d; }
+    .conn-status.off { color: var(--muted); background: #21262d; }
     /* Amber, not green: a region-blocked probe is NOT a healthy account. */
     .conn-status.warn { color: #e3b341; background: #3a2d10; }
     .conn-test-btn { flex: 0 0 auto; }
@@ -644,11 +646,15 @@
 
     /* Model lock detail list under each account row */
     .model-locks { margin: 4px 0 2px 14px; font-size: 0.72rem; color: var(--muted); }
-    /* One connection = its row plus any lock detail beneath it. The wrapper
-       exists so the lock block sits under the row it belongs to instead of
-       being laid out as a sibling by the row's own flex rules. */
-    .conn-block { display: block; }
-    .conn-block .model-locks { margin-left: 26px; }
+    /* The account label and its lock state share one flex column so the lock
+       reads as part of the card, not as a separate block below it. */
+    .conn-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 auto; }
+    .conn-main .mid { flex: 0 0 auto; white-space: nowrap; }
+    .conn-locks { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 0.7rem; }
+    .conn-locks-label { color: #e3b341; font-weight: 600; }
+    .conn-lock-item { display: inline-flex; align-items: center; gap: 5px; }
+    .conn-lock-item .lock-model { color: #c9d1d9; font-family: var(--mono, monospace); font-size: 0.68rem; }
+    .conn-lock-item .lock-time { color: #e3b341; font-size: 0.66rem; }
     .model-locks summary { cursor: pointer; color: #e3b341; font-size: 0.7rem; }
     .model-locks summary:hover { text-decoration: underline; }
     .model-lock-item { padding: 1px 0; display: flex; gap: 8px; align-items: center; }
@@ -6227,16 +6233,21 @@
           const label = p.accountLabel || p.email || p.name || p.id.substring(0, 12);
           const dot = acctDotClass(p);
           const connStatus = effectiveStatusOf(p);
-          const isUnknown = !connStatus || connStatus === "unknown" || connStatus === "untested" || connStatus === "idle";
-          const statusStyle = isUnknown ? 'style="display:none;"' : '';
-          const statusText = isUnknown ? '' : escapeHtml(connStatus);
-          return `<div class="conn-block">
-            <div class="model-row" id="conn-row-${p.id}">
+          const locks = p.modelLocks || [];
+          // Always render a status chip. Hiding "unknown"/"idle" made a healthy
+          // account (200 OK) look the same as an unprobed one: no chip at all.
+          // "ok" is the explicit healthy state the operator wants to see, and
+          // every other state gets its own wording.
+          const statusInfo = connStatusInfo(p, connStatus, locks);
+          return `<div class="model-row" id="conn-row-${p.id}">
               <input type="checkbox" class="conn-select-cb" data-id="${p.id}" onchange="updateConnSelectionUI()" style="cursor:pointer;margin-right:2px;accent-color:var(--primary);flex-shrink:0;">
               <span class="acct-dot ${dot}"></span>
-              <span class="mid" title="${escapeHtml(label)}">${escapeHtml(label)}</span>
+              <span class="conn-main">
+                <span class="mid" title="${escapeHtml(label)}">${escapeHtml(label)}</span>
+                ${renderConnLockDetail(p)}
+              </span>
               <span class="conn-actions">
-                <span class="mkind conn-status ${connStatusClass(p)}" id="conn-status-${p.id}" ${statusStyle} title="status: ${escapeHtml(connStatus)}">${statusText}</span>
+                <span class="mkind conn-status ${statusInfo.cls}" id="conn-status-${p.id}" title="status: ${escapeHtml(connStatus || 'unknown')}">${escapeHtml(statusInfo.text)}</span>
                 <button class="btn btn-sm conn-test-btn" id="conn-test-${p.id}" onclick="testConnection('${p.id}');" title="Test this account against the upstream provider">Test</button>
                 <label class="switch" style="transform:scale(0.8);">
                   <input type="checkbox" ${p.isActive === 1 ? 'checked' : ''} onchange="toggleProvider('${p.id}');">
@@ -6244,7 +6255,6 @@
                 </label>
                 <button class="btn btn-sm btn-danger" onclick="deleteProvider('${p.id}')">Delete</button>
               </span>
-            </div>${renderConnLockDetail(p)}
           </div>`;
         }).join("")
       : `<div style="text-align:center; color:var(--muted); padding:26px; border:1px dashed var(--border); border-radius:10px;">No connections yet</div>`;
@@ -9555,16 +9565,28 @@
     return parts.join(" — ");
   }
 
-  // Chip class for the connection status shown on the provider detail page.
-  // Uses the same three buckets as renderConnVerdict (ok/err/warn) so a
-  // tested chip and a freshly-rendered chip speak the same visual language.
-  function connStatusClass(p) {
-    if (p.isActive !== 1) return "";
-    if (p.expired) return "warn";
-    return isEffectivelyActive(p) ? "ok" : "err";
+  // One-line human status for a connection row. Always returns something, so
+  // every row shows its health: "ok" is a real state (the account answered),
+  // not a blank.
+  function connStatusInfo(p, connStatus, locks) {
+    if (p.isActive !== 1) return { cls: "off", text: "disabled" };
+    if (p.expired) return { cls: "warn", text: "token expired" };
+    // A live lock with no other verdict is still usable on other models, but
+    // the operator must see why one model is unavailable.
+    if (locks.length) {
+      const bucket = connStatus === "rate_limited" || connStatus === "quota_exhausted"
+        ? connStatus : "rate_limited";
+      return { cls: "warn", text: bucket === "quota_exhausted" ? "credit exhausted" : "rate limited" };
+    }
+    if (connStatus === "active" || connStatus === "success" || connStatus === "ok") {
+      return { cls: "ok", text: "ok" };
+    }
+    if (!p.testStatus) return { cls: "idle", text: "untested" };
+    return { cls: "err", text: connStatus || "unknown" };
   }
 
-  // Model locks for one connection, rendered under its row.
+  // Model locks for one connection, rendered INSIDE its row so the state
+  // belongs to the account card rather than floating below it.
   //
   // The lock state was fetched and stored all along, but nothing rendered it:
   // the only renderer with lock markup was renderAccountRow, which no caller
@@ -9578,14 +9600,14 @@
     const items = locks.map(l => {
       const mins = Math.ceil(l.remainingSeconds / 60);
       const timeLabel = mins >= 60 ? `${Math.floor(mins/60)}h ${mins%60}m` : `${mins}m`;
-      return `<div class="model-lock-item">
+      return `<span class="conn-lock-item">
         <span class="lock-model">${escapeHtml(l.model)}</span>
         <span class="lock-time">⏱ ${timeLabel}</span>
-      </div>`;
+      </span>`;
     }).join("");
-    return `<div class="model-locks conn-locks" style="margin-left:26px;">
-      <details><summary>🔒 ${locks.length} model${locks.length > 1 ? 's' : ''} rate-limited</summary>
-      ${items}</details></div>`;
+    return `<span class="conn-locks" title="${locks.length} model(s) rate-limited on this account">`
+      + `<span class="conn-locks-label">🔒 ${locks.length} model${locks.length > 1 ? 's' : ''} rate-limited</span>`
+      + `${items}</span>`;
   }
 
   // Renders a service-kind chip using the upstream label+icon vocabulary.
