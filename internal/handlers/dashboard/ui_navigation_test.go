@@ -347,7 +347,7 @@ func TestUIProviderCountsUseEffectiveStatus(t *testing.T) {
 		"function isEffectivelyActive(",
 		"function acctDotClass(",
 		"function statusPillFor(",
-		"function connStatusClass(",
+		"function connStatusInfo(",
 	} {
 		if !strings.Contains(ui, need) {
 			t.Errorf("status helper missing: %q", need)
@@ -374,8 +374,13 @@ func TestUIProviderCountsUseEffectiveStatus(t *testing.T) {
 	}
 	// A never-probed connection has no status string to compare, so the helper
 	// must branch on its absence rather than falling through to the failure case.
+	// "unknown" is the seed value written at insert time, so it takes the same
+	// branch: an account nobody re-tested is not an account that failed.
 	if !strings.Contains(ui, `if (!status) return !p.hasActiveCooldown;`) {
 		t.Error("isEffectivelyActive must treat a missing testStatus as not-yet-probed, not as a failure")
+	}
+	if !strings.Contains(ui, `s === "unknown"`) {
+		t.Error("effectiveStatusOf must normalise the seeded 'unknown' status instead of passing it through")
 	}
 
 	// The dot must distinguish a failing-but-enabled account from a healthy one,

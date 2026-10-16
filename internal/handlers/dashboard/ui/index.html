@@ -9480,8 +9480,16 @@
   // "unavailable". Older payloads may omit the derived fields, so fall back
   // to the raw testStatus.
   function effectiveStatusOf(p) {
-    if (p.effectiveStatus) return p.effectiveStatus;
-    return p.isActive === 1 ? (p.testStatus || "idle") : "disabled";
+    const s = p.effectiveStatus || (p.isActive === 1 ? p.testStatus : "disabled");
+    // "unknown" is the seed value written when an account is created, not a
+    // verdict (db seeds testStatus='unknown'). Passing it through made every
+    // never-re-tested account render an "unknown" chip indistinguishable from a
+    // real failure. Report it as the not-yet-probed state and let the caller
+    // decide: healthy unless a cooldown says otherwise.
+    if (!s || s === "unknown" || s === "untested" || s === "idle") {
+      return p.hasActiveCooldown ? "unavailable" : "active";
+    }
+    return s;
   }
 
   // A card's switch reflects the switch POSITION, not account health. The two

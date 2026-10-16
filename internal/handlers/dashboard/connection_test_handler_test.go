@@ -645,11 +645,17 @@ func TestGenericProbeModel_WallyProbesAModelItServes(t *testing.T) {
 	}
 }
 
-// TestUIConnectionUnknownStatusHiddenByDefault verifies that accounts with
-// unknown/untested status do not render an intrusive "unknown" badge until manually tested.
-func TestUIConnectionUnknownStatusHiddenByDefault(t *testing.T) {
+// TestUIConnectionStatusAlwaysRendered verifies that EVERY connection row
+// renders a status chip. The previous behaviour hid unknown/untested statuses,
+// which made a healthy account that had never been re-tested and a broken one
+// look identical -- both showed nothing -- so the operator could not tell which
+// accounts were healthy. The status is always rendered now.
+func TestUIConnectionStatusAlwaysRendered(t *testing.T) {
 	ui := readEmbeddedUI(t)
-	if !strings.Contains(ui, `isUnknown ? 'style="display:none;"' : ''`) {
-		t.Error("expected untested/unknown connection status to be hidden by default")
+	if strings.Contains(ui, `isUnknown ? 'style="display:none;"'`) {
+		t.Error("connection status must not be hidden; every row needs a visible status")
+	}
+	if !strings.Contains(ui, "connStatusInfo(p, connStatus, locks)") {
+		t.Error("expected connection rows to derive an always-present status chip")
 	}
 }

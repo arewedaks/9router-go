@@ -42,9 +42,15 @@ func TestEffectiveStatus(t *testing.T) {
 		{"whitespace status is not a failure", 1, "  ", false, StatusActive, true},
 		{"empty status with live cooldown stays unavailable", 1, "", true, StatusUnavailable, false},
 
-		// An explicit "unknown" was WRITTEN by a probe, so it is a real verdict
-		// and is not the same as "never probed". It must not count as active.
-		{"explicit unknown is not active", 1, "unknown", false, "unknown", false},
+		// "unknown" is the DEFAULT written at insert time (see
+		// db.InsertProxyPool: testStatus is seeded to "unknown"), not a verdict a
+		// probe produced. Production carries it in bulk -- 532 of 551 connections
+		// -- because every account that was added and never re-tested still holds
+		// that seed value. It is therefore the same situation as the empty string
+		// above and must not count as a failure, or every untouched but healthy
+		// account renders red.
+		{"explicit unknown is not a failure", 1, "unknown", false, StatusActive, true},
+		{"explicit unknown with live cooldown stays unavailable", 1, "unknown", true, StatusUnavailable, false},
 		{"status is trimmed", 1, "  ACTIVE  ", false, StatusActive, true},
 	}
 

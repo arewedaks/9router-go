@@ -57,6 +57,16 @@ func EffectiveStatusWithError(isActive int, testStatus string, hasActiveCooldown
 	}
 
 	status := strings.ToLower(strings.TrimSpace(testStatus))
+	// "unknown" is the value the recorder writes for a connection that has been
+	// touched but never returned a verdict -- it is the same situation as the
+	// empty string below, just spelled out. Production carries it in bulk (532
+	// of 551 connections), and because it is not a recognised case it fell
+	// through to the final `return status` and was reported verbatim, so a
+	// healthy account read as "unknown" and IsEffectivelyActive counted it as
+	// dead. Normalise it into the not-yet-probed branch.
+	if status == StatusUnknown {
+		status = ""
+	}
 	if status == "" {
 		// Never probed (a freshly added account) or probed before this build
 		// started recording a verdict. An untested connection is not a broken
