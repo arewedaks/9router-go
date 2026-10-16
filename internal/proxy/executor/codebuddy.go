@@ -2,6 +2,7 @@ package executor
 
 import (
 	"bytes"
+	"crypto/sha1"
 	json "encoding/json/v2"
 	"fmt"
 	"io"
@@ -10,7 +11,10 @@ import (
 	"strings"
 	"time"
 
+	"9router/proxy/internal/providers"
 	"9router/proxy/internal/proxy"
+
+	"github.com/google/uuid"
 )
 
 // ForwardCodebuddyCN forwards to Tencent CodeBuddy with force-stream
@@ -26,28 +30,42 @@ import (
 //   - any other value → injects reasoning_summary="auto" so CodeBuddy
 //     surfaces the model's reasoning output.
 func ForwardCodebuddyCN(w http.ResponseWriter, req *Request) error {
+	return forwardCodebuddy(w, req, nil)
+}
+
+// ForwardCodebuddyIntl handles codebuddy-intl and workbuddy. The intl gateway
+// added "channel verification" (issue #4892): requests without the
+// X-Conversation-* header family are rejected with HTTP 400 code 11128
+// "conversation id missing". codebuddy-cn is not gated yet.
+func ForwardCodebuddyIntl(w http.ResponseWriter, req *Request) error {
+	extra := codebuddyConversationHeaders(req)
+	return forwardCodebuddy(w, req, extra)
+}
+
+func forwardCodebuddy(w http.ResponseWriter, req *Request, extraHeaders map[string]string) error {
 	body, err := transformCodebuddyBody(req.Body)
 	if err != nil {
 		return fmt.Errorf("transform codebuddy body: %w", err)
 	}
 
+	cfg := req.Config
+	if len(extraHeaders) > 0 {
+		cfg = cloneConfigWithHeaders(cfg, extraHeaders)
+	}
+
 	ctx := req.Ctx
 	// Always forward as stream — CodeBuddy rejects stream=false
-	resp, err := proxy.ForwardOpenAI(ctx, req.Client, req.Config, req.APIKey, body, true)
+	resp, err := proxy.ForwardOpenAI(ctx, req.Client, cfg, req.APIKey, body, true)
 	if err != nil {
-		return fmt.Errorf("ForwardCodebuddyCN upstream: %w", err)
+		return fmt.Errorf("ForwardCodebuddy upstream: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if req.IsStream {
-		stallReader := proxy.NewStallReaderWithContext(req.Ctx, resp.Body, 0, "codebuddy-cn")
-		defer stallReader.Close() // stops the shutdown watcher + stall timer
+		stallReader := proxy.NewStallReaderWithContext(req.Ctx, resp.Body, 0, "codebuddy")
+		defer stallReader.Close()
 		return execSSEStream(w, stallReader, req)
 	}
-	// Client asked for non-stream, but we sent stream=true upstream, so the
-	// upstream body is OpenAI-chat SSE. Re-aggregate the chunks into a single
-	// JSON chat.completion response (mirrors the JS parseSSEToOpenAIResponse
-	// path). If it isn't SSE (e.g. an upstream error JSON), pass it through.
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
 	if err != nil {
 		return fmt.Errorf("read codebuddy response: %w", err)
@@ -56,6 +74,109 @@ func ForwardCodebuddyCN(w http.ResponseWriter, req *Request) error {
 		data = converted
 	}
 	return jsonResponse(req.Ctx, w, bytes.NewReader(data), req.TranslateResp, req.ResponseBuf)
+}
+
+// cloneConfigWithHeaders returns a shallow copy of cfg with extra headers
+// merged into StaticHeaders without mutating the original.
+func cloneConfigWithHeaders(cfg *providers.ProviderConfig, extra map[string]string) *providers.ProviderConfig {
+	c := *cfg
+	c.StaticHeaders = make(map[string]string, len(cfg.StaticHeaders)+len(extra))
+	for k, v := range cfg.StaticHeaders {
+		c.StaticHeaders[k] = v
+	}
+	for k, v := range extra {
+		c.StaticHeaders[k] = v
+	}
+	return &c
+}
+
+// codebuddyConversationHeaders builds the X-Conversation-* headers the intl
+// gateway requires (issue #4892). The conversation id is derived stably from
+// the session key so retries of the same turn share a conversation, while
+// request and message ids are fresh UUIDs.
+func codebuddyConversationHeaders(req *Request) map[string]string {
+	convID := stableConversationID(req)
+	return map[string]string{
+		"X-Conversation-ID":         convID,
+		"X-Conversation-Request-ID": uuid.New().String(),
+		"X-Conversation-Message-ID": uuid.New().String(),
+	}
+}
+
+// stableConversationID produces a deterministic UUID-v5-shaped id from the
+// best available session key, mirroring the JS reference's stableUuidFrom.
+func stableConversationID(req *Request) string {
+	key := req.SessionID
+	if key == "" {
+		key = firstUserText(req.Body)
+		if key != "" {
+			key = "cbai:" + key
+		}
+	}
+	if key == "" {
+		return uuid.New().String()
+	}
+	return stableUuidFrom(key)
+}
+
+// stableUuidFrom mirrors the JS reference: SHA-1 → UUID-v5-shaped string.
+func stableUuidFrom(key string) string {
+	h := sha1.Sum([]byte(key))
+	hex := fmt.Sprintf("%x", h)
+	// Set version nibble (bits 48-51) to 0101 (v5)
+	// Set variant bits (bits 64-65) to 10
+	timeHigh := (hexVal(hex[12:16]) & 0x0fff) | 0x5000
+	clockSeq := (hexVal(hex[16:20]) & 0x3fff) | 0x8000
+	return fmt.Sprintf("%s-%s-%04x-%04x-%s",
+		hex[0:8], hex[8:12], timeHigh, clockSeq, hex[20:32])
+}
+
+func hexVal(s string) uint16 {
+	var v uint16
+	for _, c := range s {
+		v <<= 4
+		switch {
+		case c >= '0' && c <= '9':
+			v |= uint16(c - '0')
+		case c >= 'a' && c <= 'f':
+			v |= uint16(c - 'a' + 10)
+		}
+	}
+	return v
+}
+
+// firstUserText extracts the text content of the first user message from a
+// JSON chat body, for conversation-id derivation.
+func firstUserText(body []byte) string {
+	var parsed struct {
+		Messages []struct {
+			Role    string `json:"role"`
+			Content any    `json:"content"`
+		} `json:"messages"`
+	}
+	if json.Unmarshal(body, &parsed) != nil {
+		return ""
+	}
+	for _, m := range parsed.Messages {
+		if m.Role != "user" {
+			continue
+		}
+		switch v := m.Content.(type) {
+		case string:
+			return v
+		case []any:
+			var parts []string
+			for _, item := range v {
+				if block, ok := item.(map[string]any); ok {
+					if t, ok := block["text"].(string); ok {
+						parts = append(parts, t)
+					}
+				}
+			}
+			return strings.Join(parts, "\n")
+		}
+	}
+	return ""
 }
 
 // codebuddyRequiredSystemPrompt is the first message every CodeBuddy request

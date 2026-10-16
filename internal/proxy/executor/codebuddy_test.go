@@ -2,6 +2,7 @@ package executor
 
 import (
 	json "encoding/json/v2"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -197,3 +198,69 @@ func TestCodebuddySanitizesCompetitorPromptFingerprint(t *testing.T) {
 	}
 }
 
+
+// TestCodebuddyConversationHeaders pins the fix for #4892: the intl gateway
+// rejects requests without X-Conversation-{ID,Request-ID,Message-ID}.
+func TestCodebuddyConversationHeaders(t *testing.T) {
+	uuidRE := `^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`
+
+	req := &Request{
+		Body: []byte(`{"messages":[{"role":"user","content":"hi"}]}`),
+	}
+	hdrs := codebuddyConversationHeaders(req)
+
+	for _, name := range []string{"X-Conversation-ID", "X-Conversation-Request-ID", "X-Conversation-Message-ID"} {
+		v, ok := hdrs[name]
+		if !ok || v == "" {
+			t.Errorf("missing header %s", name)
+			continue
+		}
+		if !regexp.MustCompile(uuidRE).MatchString(v) {
+			t.Errorf("%s = %q, not a UUID", name, v)
+		}
+	}
+}
+
+// TestCodebuddyConversationIDStable verifies the conversation id is stable
+// across retries of the same turn while request/message ids are fresh.
+func TestCodebuddyConversationIDStable(t *testing.T) {
+	body := []byte(`{"messages":[{"role":"user","content":"same message"}]}`)
+
+	r1 := &Request{Body: body}
+	r2 := &Request{Body: body}
+	h1 := codebuddyConversationHeaders(r1)
+	h2 := codebuddyConversationHeaders(r2)
+
+	if h1["X-Conversation-ID"] != h2["X-Conversation-ID"] {
+		t.Errorf("conversation id not stable: %s vs %s", h1["X-Conversation-ID"], h2["X-Conversation-ID"])
+	}
+	if h1["X-Conversation-Request-ID"] == h2["X-Conversation-Request-ID"] {
+		t.Error("request id should be fresh per call")
+	}
+	if h1["X-Conversation-Message-ID"] == h2["X-Conversation-Message-ID"] {
+		t.Error("message id should be fresh per call")
+	}
+}
+
+// TestCodebuddyConversationIDPrefersSessionID mirrors the JS reference.
+func TestCodebuddyConversationIDPrefersSessionID(t *testing.T) {
+	r1 := &Request{SessionID: "sess-123", Body: []byte(`{"messages":[{"role":"user","content":"hi"}]}`)}
+	r2 := &Request{SessionID: "sess-456", Body: []byte(`{"messages":[{"role":"user","content":"hi"}]}`)}
+	h1 := codebuddyConversationHeaders(r1)
+	h2 := codebuddyConversationHeaders(r2)
+
+	if h1["X-Conversation-ID"] == h2["X-Conversation-ID"] {
+		t.Error("different session ids should produce different conversation ids")
+	}
+}
+
+// TestStableUuidFrom verifies the Go port matches the JS reference output.
+func TestStableUuidFrom(t *testing.T) {
+	// The JS reference: SHA1("test") = "a94a8fe5ccb19ba61c4c0873d391e987982fbbd3"
+	// → "a94a8fe5-ccb1-5ba6-9c4c-0873d391e987"
+	got := stableUuidFrom("test")
+	want := "a94a8fe5-ccb1-5ba6-9c4c-0873d391e987"
+	if got != want {
+		t.Errorf("stableUuidFrom(\"test\") = %q, want %q", got, want)
+	}
+}
