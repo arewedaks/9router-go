@@ -1,5 +1,5 @@
 {
-  "latestVersion": "1.9.33",
+  "latestVersion": "1.9.34",
   "downloadUrl": "https://github.com/arewedaks/9router-go/releases/latest",
-  "releaseNotes": "- chore(release): version.json -> v1.9.33 (24e972e)\n- security(dashboard): tolak X-Forwarded-For dari peer non-loopback (3102666)\n- fix(antigravity): lantai thinkingBudget 512 -> 1024 untuk model claude-* (e4ea017)\n- docs: percantik README, dokumentasikan Jailbreak & fitur v1.9.32 (9ea8cbf)\n- chore(release): version.json -> v1.9.32 (c1eeec0)\n- chore(release): version.json -> v1.9.32 (eda8c8f)\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
+  "releaseNotes": "- fix(codebuddy): tambah X-Conversation-* headers untuk intl/workbuddy (#4892) (dbed064)\n- fix(fusion): tambah retry loop di makePanelCall seperti combo & fallback (f0deb30)\n- fix(chat): hormati model lock di jalur pinned, klasifikasi free tier habis (42586c6)\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
 }
