@@ -3,7 +3,12 @@ package chat
 import (
 	"context"
 	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
+	"strings"
+	"sync/atomic"
 	"testing"
 
 	"9router/proxy/internal/db"
@@ -228,5 +233,108 @@ func TestGeminiSafetySettingsInjectedAndPreserved(t *testing.T) {
 	}
 	if string(out2) != string(withOwn) {
 		t.Error("existing safetySettings must be returned untouched")
+	}
+}
+
+// TestComboArmedByComboNameInjectsIntoUpstream proves the jailbreak toggle
+// works through the combo path, not just at the applyJailbreak unit boundary.
+// The toggle is keyed on the combo NAME (what the client sends), and the
+// injected prompt must reach the real outbound body for every leg.
+func TestComboArmedByComboNameInjectsIntoUpstream(t *testing.T) {
+	var gotBody atomic.Value
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		raw, _ := io.ReadAll(r.Body)
+		gotBody.Store(string(raw))
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"id":"x","choices":[{"message":{"content":"ok"}}],"usage":{"prompt_tokens":1,"completion_tokens":1}}`))
+	}))
+	defer srv.Close()
+
+	database, cleanup := setupChatTestDB(t)
+	defer cleanup()
+	if _, err := database.Exec(`DELETE FROM providerConnections WHERE id IN ('conn-1','conn-2')`); err != nil {
+		t.Fatalf("clear seeded connections: %v", err)
+	}
+	seedConnDB(t, database, "deepseek", "conn-jb", "sk-jb", srv.URL)
+
+	repo := db.NewRepo(database)
+	h := NewChatHandler(repo)
+
+	comboModels := []string{"deepseek/deepseek-chat"}
+	modelsJSON, _ := json.Marshal(comboModels)
+	if _, err := database.Exec(`INSERT INTO combos (id, name, kind, models, createdAt, updatedAt) VALUES ('c-jb','combo-jb','fallback',?,'2026-07-18T00:00:00Z','2026-07-18T00:00:00Z')`, string(modelsJSON)); err != nil {
+		t.Fatalf("seed combo: %v", err)
+	}
+
+	// Arm the COMBO NAME, not the leg model.
+	if err := repo.SaveJailbreakPreset(&db.JailbreakDoc{ID: "jb", Name: "JB", Prompt: "COMBO INJECTED RULE"}); err != nil {
+		t.Fatalf("save preset: %v", err)
+	}
+	if err := repo.SetJailbreakModelPreset("combo-jb", "jb", true); err != nil {
+		t.Fatalf("arm combo: %v", err)
+	}
+
+	translatedReq := map[string]any{
+		"model":      "deepseek-chat",
+		"max_tokens": 50,
+		"messages":   []map[string]any{{"role": "user", "content": "hi"}},
+	}
+	rec := httptest.NewRecorder()
+	h.handleMessagesComboFallback(context.Background(), rec, translatedReq, comboModels, "fallback", false, "combo-jb", 0)
+
+	if hits.Load() == 0 {
+		t.Fatal("upstream never called")
+	}
+	body, _ := gotBody.Load().(string)
+	if !strings.Contains(body, "COMBO INJECTED RULE") {
+		t.Errorf("combo jailbreak did not reach upstream body: %s", body)
+	}
+
+	// The client body must not be mutated: the same map is reused per leg.
+	reqMsgs := translatedReq["messages"].([]map[string]any)
+	if len(reqMsgs) != 1 {
+		t.Errorf("request body mutated: %d messages, want 1", len(reqMsgs))
+	}
+}
+
+// TestComboWithoutArmInjectsNothing is the control: an unarmed combo must
+// forward the body untouched, proving the test above is not a false positive.
+func TestComboWithoutArmInjectsNothing(t *testing.T) {
+	var gotBody atomic.Value
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		gotBody.Store(string(raw))
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"id":"x","choices":[{"message":{"content":"ok"}}],"usage":{"prompt_tokens":1,"completion_tokens":1}}`))
+	}))
+	defer srv.Close()
+
+	database, cleanup := setupChatTestDB(t)
+	defer cleanup()
+	if _, err := database.Exec(`DELETE FROM providerConnections WHERE id IN ('conn-1','conn-2')`); err != nil {
+		t.Fatalf("clear seeded connections: %v", err)
+	}
+	seedConnDB(t, database, "deepseek", "conn-jb2", "sk-jb2", srv.URL)
+
+	h := NewChatHandler(db.NewRepo(database))
+	comboModels := []string{"deepseek/deepseek-chat"}
+	modelsJSON, _ := json.Marshal(comboModels)
+	database.Exec(`INSERT INTO combos (id, name, kind, models, createdAt, updatedAt) VALUES ('c-jb2','combo-jb2','fallback',?,'2026-07-18T00:00:00Z','2026-07-18T00:00:00Z')`, string(modelsJSON))
+
+	translatedReq := map[string]any{
+		"model":    "deepseek-chat",
+		"messages": []map[string]any{{"role": "user", "content": "hi"}},
+	}
+	h.handleMessagesComboFallback(context.Background(), httptest.NewRecorder(), translatedReq, comboModels, "fallback", false, "combo-jb2", 0)
+
+	body, _ := gotBody.Load().(string)
+	if body == "" {
+		t.Fatal("upstream never called")
+	}
+	if strings.Contains(body, `"role":"system"`) {
+		t.Errorf("unarmed combo still injected a system prompt: %s", body)
 	}
 }
