@@ -109,6 +109,24 @@ erDiagram
         string createdAt
         string updatedAt
     }
+
+    proxyPoolFitness {
+        string poolId PK
+        string scope PK
+        int until
+        string reason
+        string createdAt
+        string updatedAt
+    }
+
+    cachedProviderModels {
+        string providerId PK
+        string modelId PK
+        string kind
+        string ownedBy
+        string capabilities
+        int updatedAt
+    }
 ```
 
 ---
@@ -484,6 +502,38 @@ flowchart LR
 > so Go's INSERT would fail on a Next.js schema that expects `AUTOINCREMENT`).
 > And `providerConnections.lastUsedAt`/`consecutiveUseCount` — Go stores as real columns,
 > Next.js stores in the JSON `data` blob. Data could become inconsistent.
+
+### 12. `proxyPoolFitness` — Per-Pool Health Cooldown
+
+```sql
+CREATE TABLE proxyPoolFitness (
+    poolId TEXT NOT NULL,
+    scope TEXT NOT NULL,
+    until INTEGER NOT NULL,
+    reason TEXT,
+    createdAt TEXT NOT NULL,
+    updatedAt TEXT NOT NULL,
+    PRIMARY KEY (poolId, scope)
+);
+```
+
+**Structure only — no reader or writer yet.** The table is created in `internal/db/schema.go` and included in the `internal/dbbackup` dump/restore path, but nothing inserts, updates or queries it. The intended shape is a per-scope cooldown (a pool that just failed against one host is skipped until the `until` epoch, while staying usable for another), and the composite primary key exists for exactly that. Treat the columns as a reservation, not a live contract: until selection code reads them, a dead proxy is not actually being skipped.
+
+### 13. `cachedProviderModels` — Imported Model Catalogue
+
+```sql
+CREATE TABLE cachedProviderModels (
+    providerId TEXT NOT NULL,
+    modelId TEXT NOT NULL,
+    kind TEXT DEFAULT 'llm',
+    ownedBy TEXT NOT NULL,
+    capabilities TEXT,
+    updatedAt INTEGER NOT NULL,
+    PRIMARY KEY (providerId, modelId)
+);
+```
+
+The model list a provider actually served, captured on import. This is what keyless providers (which own no `providerConnections` row) expose — without a seeded cache they list zero models on a fresh install (see `internal/keyless`). `kind` separates `llm` from media modalities; `capabilities` carries the per-model feature flags.
 
 ## SQLite Connection Pooling & Thread Safety (v1.4.0)
 

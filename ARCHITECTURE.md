@@ -1,8 +1,10 @@
 # 9Router Go Proxy — Architecture Documentation
 
-> **Version sync:** `9router-go v1.8.8` ↔ `decolua/9router v0.5.65` (Next.js) — 100% engine parity, 31 commits `v0.5.59...v0.5.65`. Diagrams below are for maintainers/AI to understand the ported Go flows.
+> **Version:** `9router-go v1.9.35`. The upstream Next.js parity line (`decolua/9router v0.5.65`) ended there; the Go tree has since grown its own subsystems (MITM sidecar, token savers, resilience, tracing) that have no Next.js counterpart. Diagrams below are for maintainers/AI to understand the Go flows.
 
-**For AI/Maintainers:** Go repo is the *engine* (proxy, SSE, translation), Next.js is the *dashboard UI* — they share `~/.9router/db/data.sqlite` (WAL). All `providerConnections.data` JSON blobs, `kv` (`modelAliases`, `customModels`), and `combos` are 1:1 compatible. Do not duplicate translation logic; check `internal/translator` first. E2E tests are in `internal/handlers/chat/*_e2e_test.go` (deterministic mocks, no real network).
+**For AI/Maintainers:** Go repo is the *engine* (proxy, SSE, translation) **and** the dashboard host — this fork embeds its own UI (`internal/handlers/dashboard/ui`, `go:embed all:ui`) rather than serving a separate Next.js dashboard. It still shares `~/.9router/db/data.sqlite` (WAL) so a Next.js deployment can read the same rows. All `providerConnections.data` JSON blobs, `kv` (`modelAliases`, `customModels`), and `combos` are 1:1 compatible. Do not duplicate translation logic; check `internal/translator` first. E2E tests are in `internal/handlers/chat/*_e2e_test.go` (deterministic mocks, no real network).
+
+**Build:** `GOEXPERIMENT=jsonv2` (the tree uses `encoding/json/v2`), Go 1.26+. Build with `make build`, which stamps `CurrentVersion` via `-ldflags`.
 
 ## Request Lifecycle
 
@@ -115,8 +117,7 @@ flowchart TD
 ```mermaid
 flowchart LR
     Error["Upstream Error\nStatusCode + JSON body"] --> Extract["extractErrorText()\nParse error.message"]
-    Extract --> Classify{"ClassifyError()\
-    Top-to-bottom rules"}
+    Extract --> Classify{"ClassifyError()<br/>Top-to-bottom rules"}
     
     Classify --> TextRules["Text-based rules"]
     TextRules --> TR1["'no credentials'\n→ cooldownLong (120s)"]
@@ -281,7 +282,7 @@ flowchart LR
 
 ```mermaid
 flowchart TD
-    Registry["executor.RegisterAll()"] --> Prov["100+ registered providers"]
+    Registry["executor.RegisterAll()"] --> Prov["128 providers in KnownProviders\n131 ids in the category registry"]
     Prov --> OpenAI["ForwardOpenAI (default)\n~80 providers"]
     Prov --> Gemini["ForwardGemini\nantigravity, gemini"]
     Prov --> Qoder["ForwardQoder\nCOSY RSA-2048+AES-128+MD5 signing"]
@@ -418,7 +419,74 @@ flowchart TD
 
 - **Context-based Usage Capture**: Replaced global `translator.lastUsage` with context-captured isolation (`WithUsageCapture`, `SetUsage`, `GetAndClearUsage`) to eliminate cross-request data races.
 - **Committed Response Writer**: `committedResponseWriter` tracks header writes (`IsCommitted()`), ensuring fallback retries are aborted if SSE streaming has already started.
-- **Request Body Guard**: `middleware.MaxBody(10MB)` wraps `r.Body` with `http.MaxBytesReader` to protect endpoints against OOM exhaustion attacks.
+- **Request Body Guard**: `middleware.MaxBody(64MB)` (`DefaultMaxBodySize`) wraps `r.Body` with `http.MaxBytesReader` to protect endpoints against OOM exhaustion attacks. The cap was raised from 10MB because a single inline base64 screenshot in a vision/agent turn blew the old limit and surfaced as a bare 400; 64MB holds a realistic multi-image turn while still bounding one connection's memory.
 - **Thread-safe ProxyPool Cache & Edge Relays**: `proxyPoolCache` (`sync.Map`) caches pool instances so round-robin counters rotate properly across concurrent requests, and injects `x-relay-target` / `x-relay-path` for Vercel/Cloudflare/Deno edge relays.
 - **In-Memory Request Tracker**: Thread-safe tracker with mutex-guarded active concurrency maps and subscriber channels for live SSE telemetry.
-- **Graceful Shutdown**: `cmd/9router-go/main.go` runs `http.Server` with OS signal listener (SIGINT/SIGTERM) and 15-second graceful drain timeout.
+- **Graceful Shutdown**: `cmd/9router-go/main.go` runs `http.Server` with OS signal listener (SIGINT/SIGTERM) and a 15-second graceful drain timeout. On the first signal `shutdown.Cancel()` fires so in-flight SSE streams end promptly (stall readers close upstream bodies, handlers emit a final `[DONE]`) instead of waiting out the deadline. A second signal force-quits with `os.Exit(1)` for a stream stuck mid-drain.
+
+## Package Map
+
+`cmd/9router-go` boots the server. `internal/handlers/router.go` is the route table; `internal/handlers/chat` holds the request pipeline (combo, forward, stream, translation glue); `internal/handlers/dashboard` serves the embedded UI and its API. The packages below are what changed since the v1.8.8 diagrams above were drawn.
+
+| Package | Role |
+|---|---|
+| `internal/mitm` | Local MITM sidecar: per-SNI CA + DNS so CLI tools with hardcoded upstreams are redirected through this proxy. |
+| `internal/tokensaver` | Request-side token reduction: tool_result compression, headroom integration, injection. |
+| `internal/headroom` | Prompt-compression service lifecycle (start/stop/restart, extras: `code` tree-sitter, `ml` Kompress-v2). |
+| `internal/resilience` | Provider admission control: circuit breaker + per-account semaphore. |
+| `internal/promptcache` | Thread-safe, memory-bounded LRU for identical prompt responses. |
+| `internal/tracing` | Stdlib-only in-process tracing with per provider+model latency percentiles, exported over HTTP. |
+| `internal/keyless` | Seeds the model cache for providers that need no credential, so a fresh install works immediately. |
+| `internal/dbbackup` | SQLite backup/rotation. |
+| `internal/sysmetrics`, `internal/log`, `internal/constants`, `internal/models`, `internal/pricing` | Metrics, structured logging, shared constants, model types, cost computation. |
+
+## Resilience: Circuit Breaker + Per-Account Semaphore
+
+```mermaid
+flowchart TD
+    Req["Request for provider+model"] --> CB{"Breaker.Allow()?<br/>per provider"}
+    CB -->|"open, not yet expired"| FastFail["Fail fast — no upstream call<br/>RetryAfter() carries the wait"]
+    CB -->|"closed / half-open probe"| Sem{"Per-account<br/>semaphore slot free?"}
+    Sem -->|"no"| Shed["Wait or shed the request"]
+    Sem -->|"yes"| Up["Forward upstream"]
+    Up -->|"success"| RecOK["RecordSuccess()<br/>reset failure count"]
+    Up -->|"failure"| RecFail["RecordFailure()<br/>trip past degradationThreshold"]
+    RecFail --> FastFail
+```
+
+- **Circuit breaker** (`internal/resilience/circuitbreaker.go`): `BreakerFor(provider, opts)` returns the singleton breaker for a provider. `Allow()` gates the call, `RecordSuccess`/`RecordFailure` feed it, and `effectiveTimeout`/`RetryAfter` decide when a half-open probe is allowed. Defaults come from `BreakerOptions.withDefaults()`; `IsProviderFailureStatus` decides which HTTP statuses even count as failures, so a rate-limit does not trip it the way a 500 does. `State()`/`Status()`, `AllBreakerStatuses()` and `ResetAllBreakers()` back the dashboard view.
+- **Per-account semaphore** (`internal/resilience/semaphore.go`, `SemaphoreOptions`) caps concurrent requests per account so one account cannot trigger a 429 cascade across the whole pool. Config lives in `internal/config`.
+
+## MITM Sidecar
+
+```mermaid
+flowchart LR
+    CLI["CLI tool with hardcoded upstream<br/>(e.g. a provider SDK)"] --> DNS["internal/mitm/dns.go<br/>resolves the real host to loopback"]
+    DNS --> TLS["internal/mitm/cert.go<br/>per-host CA-signed cert"]
+    TLS --> Route["internal/mitm/server.go<br/>toolHandlers: SNI hostname -> handler"]
+    Route --> Engine["Normal request pipeline"]
+```
+
+The sidecar exists because several supported CLIs ignore `HTTPS_PROXY` and hardcode their upstream host. The MITM layer answers their DNS, presents a locally-signed cert, and routes the decrypted request into the same engine. `toolHandlers` is keyed on SNI hostname (`cloudcode-pa.googleapis.com` and `daily-cloudcode-pa.googleapis.com` -> `HandleAntigravity`, `chatgpt.com` -> `HandleCodex`, `api.githubcopilot.com` -> `HandleCopilot`, ...). A host with no entry is not intercepted.
+
+## Prompt Cache
+
+```mermaid
+flowchart TD
+    Req["Chat request"] --> Key["HashRequest(model, body)<br/>non-cacheable requests return ok=false"]
+    Key --> Lookup{"Hit in LRU?"}
+    Lookup -->|"yes"| Serve["Serve cached response<br/>no upstream call, no token cost"]
+    Lookup -->|"no"| Up["Forward upstream"]
+    Up --> Store["Set(key, ...) — evict past<br/>capacity / TTL / byte budget"]
+    Store --> Serve2["Return response"]
+```
+
+`promptcache.New(capacity, ttl)` or `NewWithConfig(cfg)` with `DefaultConfig()`. Three bounds apply at once — entry count, TTL, and a total **byte budget** (`enforceBudgetLocked`, `maxEntryBytesLocked`) — and `MaxEntryBytes()` lets the caller refuse an oversized response before storing it. The byte budget is a correctness requirement, not a tuning knob: without it a long-running router grows without limit on cached bodies.
+
+## Keyless Providers
+
+A keyless provider (e.g. OpenCode Free) owns no connection row, and every model list the gateway serves is built from the imported model cache. On a fresh database that cache is empty, so the provider listed zero models and looked broken until the operator opened it and pressed "Import from /models". `internal/keyless` seeds the cache at boot (via `db` + `providers`) so a new install works immediately.
+
+## Request Body Size
+
+`middleware.MaxBody` guards every route. The cap is **64MB** (`DefaultMaxBodySize`). It was 10MB, which broke realistic vision/agent turns: an inline base64 screenshot is several megabytes, so a two-image turn exceeded the limit and returned a bare 400. The comment in `internal/middleware/max_body.go` records this; do not lower it without re-testing multi-image requests.

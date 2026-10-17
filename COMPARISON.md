@@ -4,9 +4,9 @@
 > `9router-go` is the engine swap to Go for performance (proxy/streaming/SSE).
 > This document tracks the feature gap for porting decisions.
 
-> **Sync:** `9router-go v1.8.9` is synced with `decolua/9router v0.5.69` (19 commits `v0.5.65...v0.5.69`) — 100% engine parity.
+> **Sync:** the engine was ported to parity at `9router-go v1.8.9` against `decolua/9router v0.5.69`. **The Go tree has moved well past that point** — it is now at `v1.9.35` and owns subsystems with no Next.js counterpart (MITM sidecar, resilience, prompt cache, tracing, keyless seeding). Read the tables below as the *porting record*, not as a current parity claim; see `ARCHITECTURE.md` for the present state.
 
-**Date:** 2026-09-06
+**Date:** 2026-09-06 (parity snapshot; last reviewed 2026-10-17 at v1.9.35)
 
 ---
 
@@ -97,13 +97,13 @@ Note: Next.js uses prefix `/api/v1/...`, Go uses root `/...` + `v1`/`api/v1` ali
 ## 5. Architecture Conclusion
 
 > **Model:**
-> Next.js acts as Dashboard UI, while `9router-go` handles 100% of proxy traffic, SSE streaming, multi-provider translations, token compression, and in-flight usage tracking.
+> In the original split, Next.js acted as dashboard UI while `9router-go` handled 100% of proxy traffic, SSE streaming, multi-provider translations, token compression, and in-flight usage tracking. **This fork no longer depends on that split:** `9router-go` embeds its own UI (`go:embed all:ui`) and has no `package.json` or Next.js process, so it runs standalone. It still reads the same `~/.9router/db/data.sqlite`, so a Next.js deployment can share the database.
 
 ### Advantages of `9router-go`:
-1. **High Performance**: 32K+ peak RPS with only ~42 MB memory (vs ~500 RPS and 270 MB on Next.js).
+1. **High Performance**: 5,920 peak RPS non-stream / 5,437 stream at ~42 MB RSS (vs 505 / 429 RPS and 271 MB on Next.js) — measured, see `benchmark/RESULTS.md`. An earlier revision of this line claimed "32K+ RPS", which no benchmark in the repo supports.
 2. **Non-Blocking Connections**: SQLite WAL mode with safe connection pooling, no write contention.
 3. **Resilience**: Exponential 429 lock backoff, reactive 401 OAuth refresh, auto-capability routing, and SSE stall detection (6 min).
-4. **Full Parity**: All 100+ providers, media modalities (image, video, audio TTS/STT/music, search, fetch), and dashboard animation stream fully operational.
+4. **Full Parity**: All 128 providers, media modalities (image, video, audio TTS/STT/music, search, fetch), and dashboard animation stream fully operational.
 
 ---
 

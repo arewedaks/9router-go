@@ -11,7 +11,7 @@
 
 Drop-in for the [9Router](https://github.com/decolua/9router) Next.js gateway: same SQLite database, same routing behaviour, same dashboard schema. Point your existing clients at it and nothing else changes.
 
-> **v1.9.32** · no CGO · Linux, macOS, Windows · 128 providers · one binary
+> **v1.9.35** · no CGO · Linux, macOS, Windows · 128 providers · one binary
 
 | | Go | Next.js |
 |---|---|---|
@@ -195,7 +195,7 @@ curl -fsSL https://raw.githubusercontent.com/arewedaks/9router-go/HEAD/scripts/i
 Pin a specific version:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/arewedaks/9router-go/HEAD/scripts/install.sh | bash -s -- --version 1.9.32
+curl -fsSL https://raw.githubusercontent.com/arewedaks/9router-go/HEAD/scripts/install.sh | bash -s -- --version 1.9.35
 ```
 
 Auto-start on boot (systemd unit + enable, run as root):
