@@ -1,10 +1,23 @@
 package dashboard
 
 import (
+	"context"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
+	"github.com/go-chi/chi/v5"
+
+	"9router/proxy/internal/db"
 	"9router/proxy/internal/providers"
+	"9router/proxy/internal/proxy/executor"
+
+	json "encoding/json/v2"
 )
 
 // TestCodebuddyProviderDetection pins which ids route to the CodeBuddy
@@ -121,5 +134,261 @@ func TestFetchUpstreamModels_RoutesCodebuddyToCatalogue(t *testing.T) {
 	}
 	if res.Error != "" {
 		t.Fatalf("codebuddy import reported an error: %q", res.Error)
+	}
+}
+
+// TestProbeCodebuddy_SendsConversationHeaders is the core regression: the
+// intl gateway rejects any chat request that lacks the X-Conversation-* header
+// family with HTTP 400 code 11128, which the operator reads as a failed
+// account. The probe must send the headers the real chat path sends.
+func TestProbeCodebuddy_SendsConversationHeaders(t *testing.T) {
+	var gotConvID, gotConvReqID, gotConvMsgID, gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotConvID = r.Header.Get("X-Conversation-ID")
+		gotConvReqID = r.Header.Get("X-Conversation-Request-ID")
+		gotConvMsgID = r.Header.Get("X-Conversation-Message-ID")
+		gotAuth = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"id":"c1","choices":[{"message":{"role":"assistant","content":"pong"}}]}`))
+	}))
+	defer srv.Close()
+
+	h := &Handler{}
+	out := h.probeCodebuddyAgainstURL(context.Background(), srv.URL, "conn-1", "tok-1", providers.ProviderConfig{}, connectionTestResult{})
+	if out.Error != "" {
+		t.Fatalf("unexpected error: %s", out.Error)
+	}
+	if !out.Valid {
+		t.Errorf("Valid = false, want true for HTTP 200")
+	}
+	if gotConvID == "" || gotConvReqID == "" || gotConvMsgID == "" {
+		t.Errorf("X-Conversation headers missing: conv=%q req=%q msg=%q", gotConvID, gotConvReqID, gotConvMsgID)
+	}
+	if gotAuth != "Bearer tok-1" {
+		t.Errorf("Authorization = %q, want Bearer tok-1", gotAuth)
+	}
+}
+
+// TestProbeCodebuddy_ConversationIDStablePerConnection pins the stable-UUID
+// shape of the derived X-Conversation-ID: two calls with the same key must
+// share an id, different keys must not.
+func TestProbeCodebuddy_ConversationIDStablePerConnection(t *testing.T) {
+	a1 := executor.CodebuddyConversationHeadersFor("conn-a")["X-Conversation-ID"]
+	a2 := executor.CodebuddyConversationHeadersFor("conn-a")["X-Conversation-ID"]
+	b := executor.CodebuddyConversationHeadersFor("conn-b")["X-Conversation-ID"]
+	if a1 != a2 {
+		t.Errorf("same key produced different conversation ids: %q vs %q", a1, a2)
+	}
+	if a1 == b {
+		t.Errorf("different keys shared a conversation id: %q", a1)
+	}
+	// UUID-shaped: 8-4-4-4-12 with the v5 nibble set.
+	if len(a1) != 36 || a1[14] != '5' {
+		t.Errorf("conversation id %q is not a UUID-v5-shaped string", a1)
+	}
+}
+
+// TestProbeCodebuddy_ClassifiesCodebuddy400 pins that a 400 carrying the
+// CodeBuddy {"code":N,"msg":"..."} envelope is NOT read as a credential
+// failure: 11128 (channel/headers) and 11102 (model unavailable) are warnings,
+// an unknown code stays inconclusive.
+func TestProbeCodebuddy_ClassifiesCodebuddy400(t *testing.T) {
+	cases := []struct {
+		name    string
+		code    int
+		msg     string
+		wantVal bool
+		wantErr bool // out.Error set?
+	}{
+		{"channel rejection 11128", 11128, "Illegal API invocation from an unapproved channel", true, false},
+		{"model unavailable 11102", 11102, "service info not found", true, false},
+		{"unknown code stays inconclusive", 99999, "something else", true, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusBadRequest)
+				fmt.Fprintf(w, `{"code":%d,"msg":%q}`, tc.code, tc.msg)
+			}))
+			defer srv.Close()
+
+			h := &Handler{}
+			out := h.probeCodebuddyAgainstURL(context.Background(), srv.URL, "c", "tok", providers.ProviderConfig{}, connectionTestResult{})
+			if tc.wantErr && out.Error == "" {
+				t.Errorf("expected an Error, got none (Valid=%v Warning=%q)", out.Valid, out.Warning)
+			}
+			if !tc.wantErr && out.Error != "" {
+				t.Errorf("expected no Error, got %q", out.Error)
+			}
+			if out.Valid != tc.wantVal {
+				t.Errorf("Valid = %v, want %v", out.Valid, tc.wantVal)
+			}
+		})
+	}
+}
+
+// TestProbeCodebuddy_Rejects401 pins the credential verdict: a 401 from the
+// gateway IS a credential failure and must not be softened into a warning.
+func TestProbeCodebuddy_Rejects401(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		w.Write([]byte(`{"code":401,"msg":"invalid token"}`))
+	}))
+	defer srv.Close()
+
+	h := &Handler{}
+	out := h.probeCodebuddyAgainstURL(context.Background(), srv.URL, "c", "bad", providers.ProviderConfig{}, connectionTestResult{})
+	if out.Error == "" {
+		t.Fatal("401 must set Error; got none")
+	}
+	if out.Valid {
+		t.Error("401 must not set Valid")
+	}
+}
+
+// TestHandleTestConnection_CodebuddyEndToEnd is the full button-press path:
+// seed a real codebuddy-intl connection in the DB, POST the exact endpoint the
+// UI's Test button calls, and assert the verdict comes back green. This is the
+// regression for "Test always fails on codebuddy/workbuddy" — the unit probe
+// test above proves the headers are sent; this proves the handler dispatch
+// actually reaches it and the endpoint reports valid:true.
+func TestHandleTestConnection_CodebuddyEndToEnd(t *testing.T) {
+	h, database := newProfileTestHandler(t)
+
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		json.Unmarshal(raw, &gotBody)
+		if r.Header.Get("X-Conversation-ID") == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"code":11128,"msg":"Illegal API invocation from an unapproved channel"}`))
+			return
+		}
+		if r.Header.Get("Authorization") != "Bearer cb-tok" {
+			w.WriteHeader(http.StatusUnauthorized)
+			w.Write([]byte(`{"code":401,"msg":"bad token"}`))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"id":"c1","choices":[{"message":{"role":"assistant","content":"pong"}}]}`))
+	}))
+	defer srv.Close()
+	h.codebuddyBaseOverride = srv.URL
+
+	seedConnection(t, db.NewRepo(database), "conn-cb", "codebuddy-intl", `{"accessToken":"cb-tok"}`)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/dashboard/connections/conn-cb/test", strings.NewReader("{}"))
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", "conn-cb")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	w := httptest.NewRecorder()
+
+	h.HandleTestConnection(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("handler status = %d, want 200: %s", w.Code, w.Body.String())
+	}
+	var out connectionTestResult
+	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
+		t.Fatalf("decode verdict: %v (body %s)", err, w.Body.String())
+	}
+	if out.Error != "" {
+		t.Fatalf("verdict has Error %q; the UI renders this as a red fail", out.Error)
+	}
+	if !out.Valid {
+		t.Fatalf("verdict Valid = false (%+v); the UI renders this as a red fail", out)
+	}
+	if out.Status != http.StatusOK {
+		t.Errorf("verdict Status = %d, want 200", out.Status)
+	}
+	// The probe body must be shaped like a real chat request: stream forced true
+	// (else code 11101) and the seed system prompt first (else code 11128).
+	if gotBody["stream"] != true {
+		t.Errorf("probe body stream = %v, want true (gateway rejects non-stream with 11101)", gotBody["stream"])
+	}
+	msgs, _ := gotBody["messages"].([]any)
+	if len(msgs) == 0 {
+		t.Fatalf("probe sent no messages")
+	}
+	first, _ := msgs[0].(map[string]any)
+	if first["role"] != "system" || first["content"] != "You are CodeBuddy Code." {
+		t.Errorf("first message must be the CodeBuddy seed system prompt, got %v", first)
+	}
+}
+
+// TestHandleTestConnection_CodebuddyMissingHeadersIsWarning pins that a gateway
+// 11128 rejection (headers/channel problem) is reported as an amber warning,
+// not a red fail — the token was accepted, so the account is not broken.
+func TestHandleTestConnection_CodebuddyMissingHeadersIsWarning(t *testing.T) {
+	h, database := newProfileTestHandler(t)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Always reject with the channel code, simulating an unapproved egress IP.
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(`{"code":11128,"msg":"Illegal API invocation from an unapproved channel"}`))
+	}))
+	defer srv.Close()
+	h.codebuddyBaseOverride = srv.URL
+
+	seedConnection(t, db.NewRepo(database), "conn-cb2", "workbuddy", `{"accessToken":"cb-tok"}`)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/dashboard/connections/conn-cb2/test", strings.NewReader("{}"))
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", "conn-cb2")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	w := httptest.NewRecorder()
+
+	h.HandleTestConnection(w, req)
+
+	var out connectionTestResult
+	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
+		t.Fatalf("decode verdict: %v", err)
+	}
+	if !out.Valid {
+		t.Errorf("Valid = false; a channel rejection is not a credential failure (%+v)", out)
+	}
+	if out.Warning == "" {
+		t.Error("expected an amber Warning explaining the channel rejection")
+	}
+	if out.Error != "" {
+		t.Errorf("Error must stay empty so the UI shows amber not red; got %q", out.Error)
+	}
+}
+
+// TestProbeCodebuddy_InvalidUTF8BodyDoesNotBreakJSON is the regression for the
+// 500 the UI showed instead of a verdict: CodeBuddy can answer with a
+// non-UTF-8 body (and truncating mid-rune makes it worse), which made the
+// verdict fail to marshal. The probe must always return a marshalable result.
+func TestProbeCodebuddy_InvalidUTF8BodyDoesNotBreakJSON(t *testing.T) {
+	// 0xff 0xfe are not valid UTF-8; slicing at byte 200 would split a rune.
+	junk := strings.Repeat("\xff\xfe\x80", 200)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(`{"code":11128,"msg":"` + junk + `"}`))
+	}))
+	defer srv.Close()
+
+	h := &Handler{}
+	out := h.probeCodebuddyAgainstURL(context.Background(), srv.URL, "c", "tok", providers.ProviderConfig{}, connectionTestResult{})
+
+	if _, err := json.Marshal(out); err != nil {
+		t.Fatalf("verdict is not marshalable (UI would show a 500): %v", err)
+	}
+	if out.Warning == "" {
+		t.Error("expected a Warning with the sanitized detail")
+	}
+}
+
+// TestTruncateCutsOnRuneBoundary pins the underlying helper: a byte-slice cut in
+// the middle of a multibyte rune yields invalid UTF-8 that the strict JSON
+// encoder rejects.
+func TestTruncateCutsOnRuneBoundary(t *testing.T) {
+	s := strings.Repeat("日本語", 100) // 900 bytes, 300 runes
+	got := truncate(s, 100)
+	if !utf8.ValidString(got) {
+		t.Fatalf("truncate produced invalid UTF-8: %q", got)
+	}
+	if len(got) > 100+len("…") {
+		t.Errorf("truncate did not cap length: %d bytes", len(got))
 	}
 }

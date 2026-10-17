@@ -234,6 +234,9 @@ func (h *Handler) testConnection(ctx context.Context, connID string) (result con
 	if isClineFamily(conn.Provider) {
 		return h.probeClineConnection(ctx, raw, out)
 	}
+	if isCodebuddyProvider(conn.Provider) {
+		return h.probeCodebuddyConnection(ctx, conn.ID, raw, conn.Provider, out)
+	}
 	return h.probeGenericConnection(ctx, raw, out)
 }
 
@@ -850,8 +853,8 @@ var genericProbeModels = map[string]string{
 	"openrouter": "openai/gpt-4o-mini",
 	// Cline requires the modelType/model form and gates paid models behind
 	// credits; a free-tier flash model gets a clean 200 on a drained account.
-	"cline":      "google/gemma-4-26b-a4b-it:free",
-	"clinepass":  "cline-pass/deepseek-v4-flash",
+	"cline":     "google/gemma-4-26b-a4b-it:free",
+	"clinepass": "cline-pass/deepseek-v4-flash",
 	// RunAnywhere rejects models outside the key's entitlement with HTTP 403
 	// model_not_entitled, which the probe path reads as a bad credential. The
 	// default gpt-4o-mini is not served here, so the probe would fail on every

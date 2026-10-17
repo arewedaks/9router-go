@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	json "encoding/json/v2"
 
@@ -517,9 +518,16 @@ func anyString(v any) string {
 }
 
 // truncate shortens s to at most n runes, appending an ellipsis when cut.
+// truncate caps a string at n bytes for display. It cuts on a UTF-8 rune
+// boundary: a raw s[:n] can land inside a multibyte rune, and the resulting
+// invalid UTF-8 makes the JSON encoder reject the whole response (the UI then
+// shows a 500 instead of the upstream verdict).
 func truncate(s string, n int) string {
 	if len(s) <= n {
 		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
 	}
 	return s[:n] + "…"
 }

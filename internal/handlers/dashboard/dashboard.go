@@ -50,6 +50,12 @@ type Handler struct {
 	// the per-account connection probe. Test-only seam: it lets a test point the
 	// probe at an httptest server without mutating the global provider registry.
 	probeHostsOverride []string
+
+	// codebuddyBaseOverride, when set, replaces the CodeBuddy chat-completions URL
+	// used by the per-account probe. Test-only seam, same shape as
+	// probeHostsOverride: it lets a test point the probe at an httptest server
+	// without mutating the global provider registry.
+	codebuddyBaseOverride string
 }
 
 // NewHandler creates a new dashboard Handler.

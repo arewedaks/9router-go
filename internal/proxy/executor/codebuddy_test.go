@@ -198,7 +198,6 @@ func TestCodebuddySanitizesCompetitorPromptFingerprint(t *testing.T) {
 	}
 }
 
-
 // TestCodebuddyConversationHeaders pins the fix for #4892: the intl gateway
 // rejects requests without X-Conversation-{ID,Request-ID,Message-ID}.
 func TestCodebuddyConversationHeaders(t *testing.T) {
@@ -262,5 +261,49 @@ func TestStableUuidFrom(t *testing.T) {
 	want := "a94a8fe5-ccb1-5ba6-9c4c-0873d391e987"
 	if got != want {
 		t.Errorf("stableUuidFrom(\"test\") = %q, want %q", got, want)
+	}
+}
+
+// TestBuildCodebuddyProbeBody pins the probe payload the connection test sends.
+// It must be shaped exactly like a chat request: stream forced true (else the
+// gateway answers 11101 "Non-stream chat request is currently not supported")
+// and the seed system prompt first (else 11128). A hand-rolled probe body made
+// healthy accounts report as failed.
+func TestBuildCodebuddyProbeBody(t *testing.T) {
+	b, err := BuildCodebuddyProbeBody("glm-5.2")
+	if err != nil {
+		t.Fatalf("BuildCodebuddyProbeBody: %v", err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(b, &m); err != nil {
+		t.Fatalf("probe body is not JSON: %v", err)
+	}
+	if m["stream"] != true {
+		t.Errorf("stream = %v, want true", m["stream"])
+	}
+	if m["model"] != "glm-5.2" {
+		t.Errorf("model = %v, want glm-5.2", m["model"])
+	}
+	msgs, _ := m["messages"].([]any)
+	if len(msgs) < 2 {
+		t.Fatalf("expected seed + user message, got %d", len(msgs))
+	}
+	first, _ := msgs[0].(map[string]any)
+	if first["role"] != "system" || first["content"] != codebuddyRequiredSystemPrompt {
+		t.Errorf("first message = %v, want the seed system prompt", first)
+	}
+}
+
+// TestCodebuddyConversationHeadersFor pins the exported header builder used by
+// the dashboard probe: same header names the live path sends, stable id per key.
+func TestCodebuddyConversationHeadersFor(t *testing.T) {
+	h := CodebuddyConversationHeadersFor("conn-1")
+	for _, k := range []string{"X-Conversation-ID", "X-Conversation-Request-ID", "X-Conversation-Message-ID"} {
+		if h[k] == "" {
+			t.Errorf("missing header %s", k)
+		}
+	}
+	if CodebuddyConversationHeadersFor("conn-1")["X-Conversation-ID"] != h["X-Conversation-ID"] {
+		t.Error("conversation id is not stable for the same key")
 	}
 }

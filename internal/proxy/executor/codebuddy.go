@@ -456,3 +456,36 @@ func sseToOpenAIJSON(raw []byte) ([]byte, bool) {
 	}
 	return b, true
 }
+
+// BuildCodebuddyProbeBody builds a minimal chat request shaped EXACTLY the way
+// ForwardCodebuddy{CN,Intl} shape a real request — leading system seed prompt,
+// typed-block user content, forced stream=true. The per-account connection test
+// must send this shape: a hand-rolled body is refused by the gateway's client
+// fingerprint (code 11128) or by the non-stream guard (code 11101), which makes
+// a healthy account look broken.
+//
+// model is the chat model to probe with; it must be one the account serves.
+func BuildCodebuddyProbeBody(model string) ([]byte, error) {
+	raw := map[string]any{
+		"model":    model,
+		"stream":   false, // transformCodebuddyBody forces true
+		"messages": []map[string]any{{"role": "user", "content": "ping"}},
+	}
+	b, err := json.Marshal(raw)
+	if err != nil {
+		return nil, err
+	}
+	return transformCodebuddyBody(b)
+}
+
+// CodebuddyConversationHeadersFor builds the X-Conversation-* header family for
+// a caller that has a stable key (a connection id, a session id) but no
+// executor Request. Same derivation as the live path, so a probe and a chat
+// request for the same account land on the same conversation.
+func CodebuddyConversationHeadersFor(stableKey string) map[string]string {
+	return map[string]string{
+		"X-Conversation-ID":         stableUuidFrom(stableKey),
+		"X-Conversation-Request-ID": uuid.New().String(),
+		"X-Conversation-Message-ID": uuid.New().String(),
+	}
+}

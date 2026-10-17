@@ -1,9 +1,17 @@
 package dashboard
 
 import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
 	"strings"
+	"time"
 
 	"9router/proxy/internal/providers"
+	"9router/proxy/internal/proxy/executor"
 )
 
 // CodeBuddy (Tencent copilot.tencent.com / www.codebuddy.ai) has **no** model
@@ -168,4 +176,126 @@ func (h *Handler) fetchCodebuddyModels(providerID string) (*ModelFetchResult, er
 		Supported: true,
 		Warning:   "CodeBuddy exposes no /models endpoint — using the built-in catalogue.",
 	}, nil
+}
+
+// codebuddyProbeModel returns a known-good model id for the CodeBuddy probe.
+// Using the first model from the static catalogue avoids the "unknown model"
+// rejection that probing with arbitrary ids (e.g. gpt-4o-mini) would get.
+func codebuddyProbeModel() string {
+	return codebuddyStaticCatalog[0].ID
+}
+
+// probeCodebuddyConnection probes a CodeBuddy account via a chat completion
+// request. Unlike the generic probe, it injects the X-Conversation-* header
+// family that the intl gateway requires to avoid HTTP 400 code 11128
+// "conversation id missing". The CN gateway (copilot.tencent.com) does not
+// gate on these yet but they are harmless to send.
+func (h *Handler) probeCodebuddyConnection(ctx context.Context, connID string, raw map[string]any, provider string, out connectionTestResult) connectionTestResult {
+	token := connString(raw, "accessToken", "access_token", "apiKey")
+	if token == "" {
+		out.Error = "No credential found on this connection (looked for accessToken / apiKey)."
+		return out
+	}
+
+	// Derive the base URL from the provider variant. Both variants accept the
+	// same request body shape; only the host and the X-Conversation headers
+	// differ.
+	isIntl := strings.EqualFold(provider, "codebuddy-intl") || strings.EqualFold(provider, "workbuddy")
+	baseURL := "https://copilot.tencent.com/v2/chat/completions"
+	if isIntl {
+		baseURL = "https://www.codebuddy.ai/v2/chat/completions"
+	}
+	if h.codebuddyBaseOverride != "" {
+		baseURL = h.codebuddyBaseOverride
+	}
+
+	cfg := providers.KnownProviders[provider]
+	return h.probeCodebuddyAgainstURL(ctx, baseURL, connID, token, cfg, out)
+}
+
+// probeCodebuddyAgainstURL is the testable core: it fires one probe against a
+// fixed base URL and classifies the response. Split out so tests can point at
+// an httptest server without mutating the global provider registry.
+//
+// The body is built by executor.BuildCodebuddyProbeBody and the headers by
+// executor.CodebuddyConversationHeadersFor, so the probe sends the SAME shape a
+// real chat request sends. A hand-rolled body is refused by the gateway's client
+// fingerprint (code 11128) or the non-stream guard (code 11101), which would
+// make a healthy account look broken.
+func (h *Handler) probeCodebuddyAgainstURL(ctx context.Context, baseURL, connID, token string, cfg providers.ProviderConfig, out connectionTestResult) connectionTestResult {
+	body, err := executor.BuildCodebuddyProbeBody(codebuddyProbeModel())
+	if err != nil {
+		out.Error = "Could not build CodeBuddy probe body: " + err.Error()
+		return out
+	}
+
+	client := h.httpClientForTest()
+	ctx, cancel := context.WithTimeout(ctx, connectionTestTimeout())
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL, bytes.NewReader(body))
+	if err != nil {
+		out.Error = "Could not build CodeBuddy probe request: " + err.Error()
+		return out
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "text/event-stream")
+	req.Header.Set("Authorization", "Bearer "+token)
+	if ua := cfg.StaticHeaders["User-Agent"]; ua != "" {
+		req.Header.Set("User-Agent", ua)
+	}
+	for k, v := range executor.CodebuddyConversationHeadersFor(connID) {
+		req.Header.Set(k, v)
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		if ctx.Err() != nil {
+			out.Error = fmt.Sprintf("Test timed out after %ds.", int(connectionTestTimeout().Seconds()))
+			return out
+		}
+		out.Error = "CodeBuddy probe request failed: " + err.Error()
+		return out
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, connectionTestMaxBody))
+	text := string(bodyBytes)
+	out.Status = resp.StatusCode
+
+	switch {
+	case resp.StatusCode >= 200 && resp.StatusCode < 300:
+		out.Valid = true
+		out.TestedAt = time.Now().UTC().Format(time.RFC3339)
+
+	case resp.StatusCode == 401 || resp.StatusCode == 403:
+		out.Error = fmt.Sprintf("Credential rejected (HTTP %d): %s",
+			resp.StatusCode, truncate(sanitizeUpstreamText(text), 240))
+
+	case resp.StatusCode == 400:
+		// 400 from CodeBuddy carries a structured body: {"code":N,"msg":"..."}.
+		// The token was accepted here (401/403 would have fired otherwise), so a
+		// gateway-side rejection is NOT a credential verdict — report it amber.
+		var wrapper struct {
+			Code int    `json:"code"`
+			Msg  string `json:"msg"`
+		}
+		if json.Unmarshal(bodyBytes, &wrapper) == nil && wrapper.Code != 0 {
+			out.Valid = true
+			out.Warning = fmt.Sprintf("Probe reached the gateway but was rejected (code %d: %s). The credential was accepted.",
+				wrapper.Code, truncate(sanitizeUpstreamText(wrapper.Msg), 200))
+			return out
+		}
+		out.Valid = true
+		out.Warning = fmt.Sprintf("Probe was inconclusive (HTTP 400) — the request was rejected but the credential was not. Detail: %s",
+			truncate(sanitizeUpstreamText(text), 200))
+
+	case resp.StatusCode == 429:
+		out.Valid = true
+		out.Warning = "Provider rate-limited the probe (HTTP 429). The credential was not judged."
+
+	default:
+		out.Error = fmt.Sprintf("HTTP %d: %s", resp.StatusCode, truncate(sanitizeUpstreamText(text), 240))
+	}
+	return out
 }
