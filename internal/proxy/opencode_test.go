@@ -89,3 +89,17 @@ func TestHasValidOpenCodeVersion(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildOpenCodeHeaders_PreservesRelayHeaders(t *testing.T) {
+	raw := map[string]string{
+		"x-relay-target": "https://opencode.ai",
+		"x-relay-path":   "/inference/openai/v1/chat/completions",
+	}
+	res := proxy.BuildOpenCodeHeaders(raw, "", true)
+	if res["x-relay-target"] != "https://opencode.ai" {
+		t.Errorf("x-relay-target was dropped: got %q", res["x-relay-target"])
+	}
+	if res["x-relay-path"] != "/inference/openai/v1/chat/completions" {
+		t.Errorf("x-relay-path was dropped: got %q", res["x-relay-path"])
+	}
+}

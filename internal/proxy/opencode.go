@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"regexp"
 	"strconv"
@@ -54,8 +53,10 @@ func GenerateOpenCodeSessionID() string {
 	counter := sessionCounter
 	sessionMu.Unlock()
 
+	// The 12 hex chars are the low 48 bits of ~(ms*4096 + counter); Zen decodes
+	// exactly that, so the mask has to be applied before the bytes are split.
 	current := uint64(now)*0x1000 + (counter & 0xfff)
-	value := ^current
+	value := ^current & 0xffffffffffff
 	var timeBytes [6]byte
 	for i := range 6 {
 		timeBytes[i] = byte((value >> (40 - 8*uint64(i))) & 0xff)
@@ -82,25 +83,55 @@ func GenerateOpenCodeProjectID() string {
 }
 
 // TranslateOpenCodeSessionID deterministically maps foreign sessions to valid 30-char canonical IDs.
+//
+// The 12 hex prefix of a ses_ id is not free-form: Zen decodes it back to
+// `~(ms*4096 + n)` and checks that the timestamp is recent. Deriving those 12
+// hex from a hash of the downstream id (which is what this function used to do)
+// fails that check and answers 403 FreeTierError, which is why oc/* free models
+// failed for every non-OpenCode client even with perfect tools and headers
+// (upstream PR #4791). Mint a canonical id instead and reuse it per downstream
+// session so a conversation keeps one stable session.
 func TranslateOpenCodeSessionID(sessionID, clientTool string) string {
 	trimmed := strings.TrimSpace(sessionID)
 	if OpenCodeSessionRegex.MatchString(trimmed) {
 		return trimmed
 	}
-	tool := clientTool
-	if tool == "" {
-		tool = "generic"
+	key := clientTool + "\x00" + trimmed
+	sessionCacheMu.Lock()
+	defer sessionCacheMu.Unlock()
+	if e, ok := translatedSessions[key]; ok && time.Since(e.at) < sessionCacheTTL {
+		return e.id
 	}
-	h := sha256.New()
-	h.Write([]byte("opencode\x00" + tool + "\x00" + trimmed))
-	digest := h.Sum(nil)
-	timeHex := hex.EncodeToString(digest[:6])
-	var sb strings.Builder
-	sb.Grow(14)
-	for i := 6; i < 20; i++ {
-		sb.WriteByte(base62Chars[int(digest[i])%62])
+	// Drop expired entries off the front rather than growth-bounding by scan.
+	for k, e := range translatedSessions {
+		if time.Since(e.at) >= sessionCacheTTL {
+			delete(translatedSessions, k)
+		}
 	}
-	return "ses_" + timeHex + sb.String()
+	if len(translatedSessions) >= sessionCacheMax {
+		for k := range translatedSessions {
+			delete(translatedSessions, k)
+			break
+		}
+	}
+	id := GenerateOpenCodeSessionID()
+	translatedSessions[key] = translatedSession{id: id, at: time.Now()}
+	return id
+}
+
+var (
+	sessionCacheMu     sync.Mutex
+	translatedSessions = map[string]translatedSession{}
+)
+
+const (
+	sessionCacheTTL = time.Hour
+	sessionCacheMax = 1000
+)
+
+type translatedSession struct {
+	id string
+	at time.Time
 }
 
 var opencodeUARegex = regexp.MustCompile(`(?i)opencode/(\d+)\.(\d+)(?:\.(\d+))?`)
@@ -162,7 +193,7 @@ func BuildOpenCodeHeaders(rawHeaders map[string]string, sessionID string, isStre
 				res["x-opencode-session"] = TranslateOpenCodeSessionID(trimmed, "")
 			}
 		}
-		if lk == "x-opencode-client" || lk == "x-opencode-request" {
+		if lk == "x-opencode-client" || lk == "x-opencode-request" || lk == "x-relay-target" || lk == "x-relay-path" {
 			res[k] = v
 		}
 		if lk == "x-opencode-project" {
