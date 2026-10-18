@@ -115,6 +115,13 @@ func doRequestOnce(ctx context.Context, client *http.Client, method, url string,
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
+	// Go's default "Go-http-client/1.1" is answered 403 by Cloudflare-fronted
+	// inference hosts. Providers that need a real client fingerprint set their
+	// own User-Agent (opencode, grok-cli, antigravity); everyone else gets this
+	// neutral one instead of the Go default.
+	if req.Header.Get("User-Agent") == "" {
+		req.Header.Set("User-Agent", "9router/1.0")
+	}
 	return client.Do(req)
 }
 

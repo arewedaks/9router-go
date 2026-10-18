@@ -116,6 +116,14 @@ var knownModelFetchers = map[string]modelFetcher{
 		method: http.MethodGet,
 		bearer: true,
 	},
+	// Nous Research Portal. The /v1/models feed is public, so the bearer is
+	// optional — it is sent anyway because a Portal key unlocks the paid half of
+	// the catalogue alongside the free models.
+	"nous": {
+		url:    "https://inference-api.nousresearch.com/v1/models",
+		method: http.MethodGet,
+		bearer: true,
+	},
 	"cerebras": {
 		url:    "https://api.cerebras.ai/v1/models",
 		method: http.MethodGet,
@@ -406,6 +414,13 @@ func (h *Handler) doModelRequest(client *http.Client, provider, url, method stri
 	}
 	for k, v := range headers {
 		req.Header.Set(k, v)
+	}
+	// Go sends "Go-http-client/1.1" by default, which Cloudflare-fronted
+	// catalogues (Nous, and any provider behind the same WAF) answer 403 to.
+	// The default UA is a fingerprint, not a policy, so override it when a
+	// fetcher did not set one itself.
+	if req.Header.Get("User-Agent") == "" {
+		req.Header.Set("User-Agent", "9router/1.0")
 	}
 	if len(query) > 0 {
 		q := req.URL.Query()
