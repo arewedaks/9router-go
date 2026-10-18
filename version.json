@@ -1,5 +1,5 @@
 {
-  "latestVersion": "1.9.36",
+  "latestVersion": "1.9.37",
   "downloadUrl": "https://github.com/arewedaks/9router-go/releases/latest",
   "releaseNotes": "- chore: bump version to 1.9.36 (c1447c1)\n- test(chat): prove jailbreak injection reaches upstream through combos (c749dbf)\n- docs: resync six documents against v1.9.35 code (0c5a023)\n- fix(connections): probe CodeBuddy dengan shape request asli + truncate aman-rune (d32c9de)\n- chore(release): version.json -> v1.9.35 (c156bc0)\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
 }
