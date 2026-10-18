@@ -114,6 +114,7 @@ var ProviderModels = map[string][]string{
 	"playht": {"PlayDialog", "Play3.0-mini"},
 	"polly": {"standard", "neural", "long-form", "generative"},
 	"poolside": {"poolside/laguna-s-2.1", "poolside/laguna-xs-2.1"},
+	"nous": {"meituan/longcat-2.5-preview:free", "meituan/longcat-2.0:free", "stepfun/step-5-preview:free", "stepfun/step-3.7-flash:free", "upstage/solar-mini4:free", "poolside/laguna-s-2.1:free", "poolside/laguna-xs-2.1:free"},
 	"qd": {"ultimate", "auto", "performance", "efficient", "lite", "qmodel_38max", "qmodel_latest", "qmodel", "qfmodel", "kmodel_latest", "kmodel", "gmodel", "gfmodel", "dmodel", "dfmodel", "mmodel"},
 	"qianfan": {"deepseek-v4-pro", "deepseek-v4-flash", "glm-5.2", "glm-5.1", "kimi-k2.6", "qwen3.5-397b-a17b", "qwen3.5-27b"},
 	"qoder": {"ultimate", "auto", "performance", "efficient", "lite", "qmodel_38max", "qmodel_latest", "qmodel", "qfmodel", "kmodel_latest", "kmodel", "gmodel", "gfmodel", "dmodel", "dfmodel", "mmodel"},

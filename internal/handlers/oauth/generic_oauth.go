@@ -166,6 +166,19 @@ var oauthSpecs = map[string]oauthSpec{
 		},
 	},
 
+	// Nous Research Portal (Hermes CLI). RFC 8628 device flow on
+	// portal.nousresearch.com. The token response carries access_token +
+	// refresh_token; inference itself wants a short-lived *agent key* that must
+	// be minted from the access token — see saveNousConnection.
+	"nous": {
+		Provider:       "nous",
+		Kind:           flowDeviceCode,
+		DeviceCodeURL:  "https://portal.nousresearch.com/api/oauth/device/code",
+		TokenURL:       "https://portal.nousresearch.com/api/oauth/token",
+		PollIsForm:     true,
+		DeviceCodeBody: map[string]string{"scope": "inference:invoke inference:mint_agent_key"},
+	},
+
 	// ---- authorization code ----
 
 	// Claude Code subscription (Pro/Max). PKCE, JSON token exchange, and the
@@ -901,6 +914,20 @@ func (h *OAuthHandler) saveGenericOAuthConnection(w http.ResponseWriter, spec oa
 	}
 	if name == "" {
 		name = spec.Provider + " account"
+	}
+
+	// Nous hands back a Portal OAuth token, but inference normally authenticates
+	// with a short-lived agent key derived from it. Minting is best-effort: the
+	// Portal has retired the mint endpoint for some client versions (HTTP 410
+	// session_key_minting_retired), and the OAuth access token itself is an
+	// accepted inference bearer, so a mint failure degrades to that rather than
+	// costing the user their sign-in.
+	if spec.Provider == "nous" {
+		if key, _, err := mintNousAgentKey(scopedHTTPClient(), accessToken); err != nil {
+			log.Warn("oauth", "nous agent key mint failed; falling back to the OAuth access token", "error", err)
+		} else {
+			data["apiKey"] = key
+		}
 	}
 
 	encoded, err := json.Marshal(data)

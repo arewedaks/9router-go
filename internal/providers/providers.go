@@ -846,6 +846,13 @@ var KnownProviders = map[string]ProviderConfig{
 		AuthHeader: "Authorization",
 		AuthScheme: "bearer",
 	},
+	// Nous Research Portal. A minted agent key (sk-...) or a Portal API key both
+	// authenticate as a plain bearer against the OpenAI-compatible inference host.
+	"nous": {
+		BaseURL:    "https://inference-api.nousresearch.com/v1/chat/completions",
+		AuthHeader: "Authorization",
+		AuthScheme: "bearer",
+	},
 	"sambanova": {
 		BaseURL:    "https://api.sambanova.ai/v1/chat/completions",
 		AuthHeader: "Authorization",

@@ -123,6 +123,14 @@ var KnownOAuthConfigs = map[string]OAuthClientConfig{
 		ClientSecret: envOr("CLINE_OAUTH_CLIENT_SECRET", ""),
 		TokenURL:     "https://api.cline.bot/api/v1/auth/refresh",
 	},
+	// Nous Research Portal. Public client (no secret); the refresh call is a
+	// form-urlencoded POST to the Portal token endpoint and returns a fresh
+	// access_token plus refresh_token. Inference uses a minted agent key, which
+	// is stored as the connection's apiKey (see handlers/oauth/nous_device.go).
+	"nous": {
+		ClientID: envOr("NOUS_OAUTH_CLIENT_ID", "hermes-cli"),
+		TokenURL: "https://portal.nousresearch.com/api/oauth/token",
+	},
 }
 
 func envOr(key, fallback string) string {

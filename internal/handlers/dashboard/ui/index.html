@@ -2158,6 +2158,23 @@
         font-size: 0.73rem !important;
       }
     }
+
+    /* Relay deploy dropdown: built on native <details> so the platform handles
+       open/close state without manual flag management. */
+    details.relay-menu-wrap { position: relative; display: inline-block; }
+    details.relay-menu-wrap summary { list-style: none; outline: none; }
+    details.relay-menu-wrap summary::-webkit-details-marker { display: none; }
+    details.relay-menu-wrap .relay-menu {
+      position: absolute; right: 0; top: calc(100% + 4px); z-index: 60;
+      min-width: 190px; padding: 4px; display: flex; flex-direction: column;
+      background: var(--glass); border: 1px solid var(--border); border-radius: 9px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+    }
+    details.relay-menu-wrap .relay-menu button {
+      text-align: left; padding: 8px 10px; font-size: 0.8rem;
+      background: transparent; color: #ededed; border: 0; border-radius: 6px; cursor: pointer;
+    }
+    details.relay-menu-wrap .relay-menu button:hover { background: rgba(255,255,255,0.07); }
   </style>
 </head>
 <body>
@@ -2847,6 +2864,14 @@
       </div>
       <div style="display:flex; gap:8px;">
         <button class="btn" id="proxy-health-check-btn" onclick="healthCheckAllProxyPools()">Health Check</button>
+        <details class="relay-menu-wrap" id="relay-menu">
+          <summary class="btn">Deploy Relay <span style="font-size:0.7em;">▾</span></summary>
+          <div class="relay-menu">
+            <button type="button" onclick="openRelayModal('cloudflare')">☁️ Cloudflare Relay</button>
+            <button type="button" onclick="openRelayModal('vercel')">▲ Vercel Relay</button>
+            <button type="button" onclick="openRelayModal('deno')">🦕 Deno Relay</button>
+          </div>
+        </details>
         <button class="btn btn-primary" onclick="openProxyBatchModal()">+ Add Proxies</button>
       </div>
     </div>
@@ -3234,6 +3259,34 @@
     <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:16px;">
       <button class="btn" onclick="closeModal('proxy-batch-modal')">Cancel</button>
       <button class="btn btn-primary" id="proxy-batch-submit" onclick="submitProxyBatch()">Import</button>
+    </div>
+  </div>
+</div>
+
+<!-- RELAY DEPLOY
+
+     One modal for all three relay platforms. The platforms differ only in
+     which credentials they need, so the field list lives in a JS table and the
+     modal re-renders for the selected platform instead of shipping three
+     near-identical copies of the same form. -->
+<div class="modal-overlay" id="relay-modal">
+  <div class="modal-box" style="max-width: 560px;">
+    <h2 style="font-size: 1.15rem; margin-bottom: 4px;" id="relay-modal-title">Deploy Relay</h2>
+    <div style="font-size: 0.78rem; color: var(--muted); margin-bottom: 14px;" id="relay-modal-desc"></div>
+
+    <div id="relay-modal-fields"></div>
+
+    <label class="field-label">Relay name</label>
+    <input type="text" id="relay-modal-name" placeholder="my-relay"
+           style="width:100%; background:var(--glass); color:#ededed; border:1px solid var(--border); border-radius:7px; padding:7px 9px; font-size:0.8rem;">
+    <div style="font-size:0.72rem; color:var(--muted); margin-top:4px;">
+      Leave empty for an auto-generated name. The deployed relay is added as a proxy pool automatically.
+    </div>
+
+    <div id="relay-modal-msg" style="font-size:0.74rem; margin-top:12px; color:var(--muted);"></div>
+    <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:16px;">
+      <button class="btn" onclick="closeModal('relay-modal')">Cancel</button>
+      <button class="btn btn-primary" id="relay-modal-submit" onclick="submitRelayDeploy()">Deploy</button>
     </div>
   </div>
 </div>
@@ -5166,6 +5219,110 @@
     }).join("");
   }
 
+  // ----------------------------------------------------------------
+  // Relay deploy. The three platforms take different credentials but return
+  // the same shape ({ proxyPool, deployUrl }), so one table drives the form and
+  // one handler performs the deploy — no copy of this logic per platform.
+  // ----------------------------------------------------------------
+  const RELAY_PLATFORMS = {
+    cloudflare: {
+      label: "Cloudflare Relay",
+      path: "/api/dashboard/proxy-pools/cloudflare-deploy",
+      desc: "Deploys a Cloudflare Worker as a relay. Requests egress from Cloudflare's edge network instead of this server's IP.",
+      fields: [
+        { k: "accountId", label: "Account ID", hint: "Cloudflare dashboard → right sidebar." },
+        { k: "apiToken", label: "API Token", type: "password", hint: "Needs Workers Scripts: Edit. \u2192 dash.cloudflare.com/profile/api-tokens" },
+      ],
+    },
+    vercel: {
+      label: "Vercel Relay",
+      path: "/api/dashboard/proxy-pools/vercel-deploy",
+      desc: "Deploys a Vercel project as a relay.",
+      fields: [
+        { k: "vercelToken", label: "Vercel Token", type: "password", hint: "vercel.com/account/tokens" },
+      ],
+    },
+    deno: {
+      label: "Deno Relay",
+      path: "/api/dashboard/proxy-pools/deno-deploy",
+      desc: "Deploys a Deno Deploy project as a relay.",
+      fields: [
+        { k: "denoToken", label: "Deno Token", type: "password", hint: "dash.deno.com → Account Settings → Access Tokens" },
+        { k: "orgDomain", label: "Org domain", hint: "e.g. my-org.deno.dev" },
+      ],
+    },
+  };
+  let relayPlatform = "cloudflare";
+
+  // Native <details> handles open/toggle on its summary. We only need to
+  // dismiss when focus moves completely outside the widget (click elsewhere,
+  // tab away, or escape).
+  document.addEventListener("focusout", (ev) => {
+    const wrap = document.getElementById("relay-menu");
+    if (!wrap || !wrap.open) return;
+    // Next activeElement resolves on the next frame. If focus stayed inside the
+    // details, keep it open; otherwise close.
+    requestAnimationFrame(() => {
+      if (!wrap.contains(document.activeElement)) wrap.removeAttribute("open");
+    });
+  });
+
+  document.addEventListener("pointerdown", (ev) => {
+    const wrap = document.getElementById("relay-menu");
+    if (!wrap || !wrap.open) return;
+    if (!wrap.contains(ev.target)) wrap.removeAttribute("open");
+  });
+
+  function openRelayModal(platform) {
+    const wrap = document.getElementById("relay-menu");
+    if (wrap) wrap.removeAttribute("open");
+    const cfg = RELAY_PLATFORMS[platform];
+    if (!cfg) return;
+    relayPlatform = platform;
+    document.getElementById("relay-modal-title").textContent = "Deploy " + cfg.label;
+    document.getElementById("relay-modal-desc").textContent = cfg.desc;
+    document.getElementById("relay-modal-name").value = "";
+    document.getElementById("relay-modal-msg").textContent = "";
+    document.getElementById("relay-modal-fields").innerHTML = cfg.fields.map((f) => `
+      <label class="field-label">${f.label}</label>
+      <input type="${f.type || "text"}" id="relay-f-${f.k}" autocomplete="off" spellcheck="false"
+             style="width:100%; background:var(--glass); color:#ededed; border:1px solid var(--border); border-radius:7px; padding:7px 9px; font-size:0.8rem; margin-bottom:2px;">
+      <div style="font-size:0.72rem; color:var(--muted); margin-bottom:12px;">${f.hint || ""}</div>
+    `).join("");
+    document.getElementById("relay-modal").classList.add("active");
+    const first = cfg.fields[0] && document.getElementById("relay-f-" + cfg.fields[0].k);
+    if (first) first.focus();
+  }
+
+  async function submitRelayDeploy() {
+    const cfg = RELAY_PLATFORMS[relayPlatform];
+    const btn = document.getElementById("relay-modal-submit");
+    const msg = document.getElementById("relay-modal-msg");
+    const payload = { projectName: document.getElementById("relay-modal-name").value.trim() };
+    for (const f of cfg.fields) {
+      const v = (document.getElementById("relay-f-" + f.k).value || "").trim();
+      if (!v) { msg.textContent = f.label + " is required."; return; }
+      payload[f.k] = v;
+    }
+    btn.disabled = true;
+    const prev = btn.textContent;
+    btn.textContent = "Deploying\u2026";
+    msg.textContent = "";
+    try {
+      const res = await api(cfg.path, { method: "POST", body: JSON.stringify(payload) });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { msg.textContent = errorMessage(data, res.status); return; }
+      closeModal("relay-modal");
+      toast("Deployed: " + (data.deployUrl || data.proxyPool?.proxyUrl || "ok"));
+      await loadProxyPoolTab();
+    } catch (e) {
+      msg.textContent = "Deploy failed: " + String(e && e.message ? e.message : e);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = prev;
+    }
+  }
+
   // Testing goes through the server, which opens a real CONNECT tunnel. A test
   // that only checked TCP reachability would pass for a proxy that cannot
   // forward anything, which is the failure worth catching.
@@ -6224,7 +6381,8 @@
       { ids: ["freebuff", "fb"], render: p => freebuffOAuthPanelHtml(p) },
       // Providers whose flow is driven by the generic spec table on the server.
       { ids: ["kimi", "kimi-coding", "grok-cli", "gcli", "gb", "grok-build", "claude", "cc",
-              "iflow", "if", "gitlab", "gl", "xai", "cursor", "cu", "codex", "cx"],
+              "iflow", "if", "gitlab", "gl", "xai", "cursor", "cu", "codex", "cx",
+              "nous", "ns"],
         render: p => genericOAuthPanelHtml(p) },
     ];
     const panelEntry = OAUTH_PANELS.find(e => e.ids.includes(d.provider));

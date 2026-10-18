@@ -210,6 +210,16 @@ func SetupServerRouter(r chi.Router, repo *db.Repo, ts *TokenSaverConfig) {
 		pr.HandleFunc("/dashboard", dashH.ServeUI)
 		pr.HandleFunc("/dashboard/*", dashH.ServeUI)
 		dashH.RegisterRoutes(pr)
+
+		// Relay deploy, reachable from the dashboard's Deploy Relay menu. The
+		// handlers live in the media package and are also mounted at the root
+		// under API-key auth; these mounts are the same handlers behind the
+		// dashboard session cookie, so the UI does not need to hold an API key
+		// just to deploy a relay.
+		mediaH := media.NewMediaHandler(repo, ts, nil)
+		pr.Post("/api/dashboard/proxy-pools/cloudflare-deploy", mediaH.HandleCloudflareDeploy)
+		pr.Post("/api/dashboard/proxy-pools/vercel-deploy", mediaH.HandleVercelDeploy)
+		pr.Post("/api/dashboard/proxy-pools/deno-deploy", mediaH.HandleDenoDeploy)
 	})
 
 	// Public root and login routes load the embedded dashboard shell; the shell

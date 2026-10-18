@@ -160,6 +160,15 @@ var freeModelCatalog = []freeBudget{
 	// OpenRouter free tier (the ":free" models are handled by suffix too).
 	{"openrouter", "liquid/lfm-2.5-2.6b:free", regimeRecurringDaily, ""},
 
+	// Nous Research Portal free tier (verified against the live /v1/models feed).
+	{"nous", "meituan/longcat-2.5-preview:free", regimeRecurringDaily, ""},
+	{"nous", "meituan/longcat-2.0:free", regimeRecurringDaily, ""},
+	{"nous", "stepfun/step-5-preview:free", regimeRecurringDaily, ""},
+	{"nous", "stepfun/step-3.7-flash:free", regimeRecurringDaily, ""},
+	{"nous", "upstage/solar-mini4:free", regimeRecurringDaily, ""},
+	{"nous", "poolside/laguna-s-2.1:free", regimeRecurringDaily, ""},
+	{"nous", "poolside/laguna-xs-2.1:free", regimeRecurringDaily, ""},
+
 	// Vertex AI ("$300 free credits").
 	{"vertex", "gemini-3.1-pro-preview", regimeOneTimeInitial, ""},
 	{"vertex", "gemini-3.1-flash-lite", regimeOneTimeInitial, ""},

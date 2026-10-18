@@ -138,6 +138,7 @@ var providerRegistry = map[string]ProviderMeta{
 	"kilo-gateway":  {ID: "kilo-gateway", Name: "Kilo Gateway", Alias: "kgw", Category: CategoryFreeTier, AuthType: "apikey", Description: "Kilo Gateway free tier", Website: "https://kilo.ai"},
 	"poolside":      {ID: "poolside", Name: "Poolside", Alias: "ps", Category: CategoryFreeTier, AuthType: "apikey", Description: "Poolside free tier", Priority: 60, Icon: "water_drop", Color: "#0EA5E9", ServiceKinds: []string{"llm", "embedding", "image"}, Website: "https://poolside.ai"},
 	"opencode-go":   {ID: "opencode-go", Name: "OpenCode Go", Alias: "opencode-go", Category: CategoryFreeTier, AuthType: "apikey", Description: "OpenCode Go gateway", Priority: 210, Icon: "terminal", Color: "#E87040", ServiceKinds: []string{"llm"}, Website: "https://opencode.ai/auth"},
+	"nous":          {ID: "nous", Name: "Nous Research (Hermes)", Alias: "nous", Category: CategoryFreeTier, AuthType: "oauth", Description: "Nous Portal free tier — sign in with OAuth or paste a Portal API key", Priority: 65, Icon: "psychology", Color: "#7C3AED", ServiceKinds: []string{"llm"}, Website: "https://nousresearch.com", SignupURL: "https://portal.nousresearch.com"},
 
 	// ---- category: "free" (100% Free / no auth) ----
 	"devin-cli":  {ID: "devin-cli", Name: "Devin CLI", Alias: "dv", Category: CategoryFree, AuthType: "none", Description: "Devin CLI via ACP/stdio — run `devin auth login` first", Priority: 55, Icon: "smart_toy", Color: "#6366F1", ServiceKinds: []string{"llm"}, Website: "https://cli.devin.ai"},

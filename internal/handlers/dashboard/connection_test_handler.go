@@ -860,6 +860,9 @@ var genericProbeModels = map[string]string{
 	// default gpt-4o-mini is not served here, so the probe would fail on every
 	// healthy Wally key.
 	"wally": "glm-5.3-flash",
+	// Nous serves its free tier to any Portal-authenticated key; a paid-only
+	// default would report a healthy free account as broken.
+	"nous": "meituan/longcat-2.0:free",
 }
 
 // setProbeAuthHeader applies the provider's configured auth header/scheme.
