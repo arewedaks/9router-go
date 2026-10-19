@@ -446,3 +446,119 @@ func (h *Handler) HandleHealthCheckProxyPools(w http.ResponseWriter, r *http.Req
 		"dead":    len(out) - alive,
 	})
 }
+
+// HandlePruneProxyPool probes every URL inside one pool, drops the ones that
+// do not forward traffic, and writes the survivors back.
+//
+// The existing health check answers "is this pool usable" from its first entry
+// alone, which is the right question for the Test button but the wrong one
+// here: a pasted vendor list is mostly dead, and a single dead first entry is
+// what makes the whole pool report "error" even when thirty of its members
+// work. Pruning needs every entry tested, so it is a separate endpoint rather
+// than a flag on that one.
+//
+// A pool whose members are all dead is left untouched and reported as such:
+// emptying the list would make the pool resolve to no proxy at all, which
+// silently sends traffic from the host IP — the opposite of what a proxy pool
+// exists for.
+func (h *Handler) HandlePruneProxyPool(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		handlerutil.WriteJSONError(w, http.StatusBadRequest, "Missing pool ID")
+		return
+	}
+
+	detail, err := h.repo.GetProxyPoolDetail(id)
+	if err != nil {
+		handlerutil.WriteJSONError(w, http.StatusNotFound, "Proxy pool not found")
+		return
+	}
+
+	var urls []string
+	switch raw := detail["urls"].(type) {
+	case []any:
+		for _, u := range raw {
+			if s, ok := u.(string); ok && strings.TrimSpace(s) != "" {
+				urls = append(urls, s)
+			}
+		}
+	case []string:
+		urls = append(urls, raw...)
+	}
+	if len(urls) == 0 {
+		if single, ok := detail["proxyUrl"].(string); ok && strings.TrimSpace(single) != "" {
+			urls = []string{single}
+		}
+	}
+	if len(urls) == 0 {
+		handlerutil.WriteJSONError(w, http.StatusBadRequest, "Pool has no proxy URLs to check")
+		return
+	}
+
+	type outcome struct {
+		URL string `json:"url"`
+		OK  bool   `json:"ok"`
+	}
+	outcomes := make([]outcome, len(urls))
+	// Bounded like the pool-level health check: a 100-entry paste must not open
+	// 100 sockets at once, but serial probing would take 100 * proxyTestTimeout.
+	var wg sync.WaitGroup
+	workers := 8
+	if len(urls) < workers {
+		workers = len(urls)
+	}
+	indexes := make(chan int)
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := range indexes {
+				probeCtx, cancel := context.WithTimeout(r.Context(), proxyTestTimeout)
+				err := probeProxy(probeCtx, urls[i])
+				cancel()
+				outcomes[i] = outcome{URL: urls[i], OK: err == nil}
+			}
+		}()
+	}
+	for i := range urls {
+		indexes <- i
+	}
+	close(indexes)
+	wg.Wait()
+
+	var alive []string
+	for _, o := range outcomes {
+		if o.OK {
+			alive = append(alive, o.URL)
+		}
+	}
+	if len(alive) == 0 {
+		_ = h.repo.RecordProxyPoolTest(id, false, "every proxy in the pool failed the connectivity check")
+		handlerutil.WriteJSON(w, http.StatusOK, map[string]any{
+			"ok":       false,
+			"checked":  len(urls),
+			"kept":     0,
+			"removed":  0,
+			"error":    "every proxy failed the check; pool left unchanged",
+			"outcomes": outcomes,
+		})
+		return
+	}
+
+	if err := h.repo.UpdateProxyPool(id, nil, nil, nil, nil, alive, nil, nil); err != nil {
+		handlerutil.WriteJSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	// Record the result against the surviving set so the pool's status matches
+	// what the next request will actually use.
+	_ = h.repo.RecordProxyPoolTest(id, true, "")
+
+	handlerutil.WriteJSON(w, http.StatusOK, map[string]any{
+		"ok":       true,
+		"checked":  len(urls),
+		"kept":     len(alive),
+		"removed":  len(urls) - len(alive),
+		"urls":     alive,
+		"outcomes": outcomes,
+	})
+}
