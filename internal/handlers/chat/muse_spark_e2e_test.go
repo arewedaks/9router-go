@@ -55,6 +55,7 @@ func TestIntegration_OpenCode_MuseSpark_Messages(t *testing.T) {
 	if rec.Code == http.StatusTooManyRequests {
 		t.Skipf("opencode free tier rate limited (429), skipping real upstream test: %s", rec.Body.String())
 	}
+	skipIfModelRetired(t, rec)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected HTTP 200, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -95,6 +96,7 @@ func TestIntegration_OpenCode_MuseSpark_Messages_NonStreaming(t *testing.T) {
 	if rec.Code == http.StatusTooManyRequests {
 		t.Skipf("opencode rate limited 429, skipping: %s", rec.Body.String())
 	}
+	skipIfModelRetired(t, rec)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected HTTP 200, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -155,6 +157,7 @@ func TestIntegration_OpenCode_MuseSpark_ChatCompletions(t *testing.T) {
 	if rec.Code == http.StatusTooManyRequests {
 		t.Skipf("opencode rate limited 429, skipping: %s", rec.Body.String())
 	}
+	skipIfModelRetired(t, rec)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected HTTP 200, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -226,6 +229,7 @@ func TestIntegration_OpenCode_MuseSpark_MultiTurnWithTools(t *testing.T) {
 	if rec.Code == http.StatusTooManyRequests {
 		t.Skipf("opencode rate limited 429, skipping: %s", rec.Body.String())
 	}
+	skipIfModelRetired(t, rec)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected HTTP 200, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -259,17 +263,22 @@ func TestIntegration_OpenCode_MuseSpark13_ChatCompletions(t *testing.T) {
 	if rec.Code == http.StatusTooManyRequests {
 		t.Skipf("opencode rate limited 429, skipping: %s", rec.Body.String())
 	}
-	// A model the upstream has retired is an environment fact, not a regression
-	// in this repo. 410 Gone / ModelDeprecated means the pinned name is dead,
-	// so there is nothing here to assert — skip loudly and let the model list
-	// be updated separately.
-	if rec.Code == http.StatusGone || strings.Contains(rec.Body.String(), "ModelDeprecated") {
-		t.Skipf("upstream retired this model, skipping: %s", rec.Body.String())
-	}
+	skipIfModelRetired(t, rec)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected HTTP 200 for muse-spark-1.3, got %d: %s", rec.Code, rec.Body.String())
 	}
 	if strings.Contains(rec.Body.String(), "FreeTierError") {
 		t.Fatalf("unexpected FreeTierError: %s", rec.Body.String())
+	}
+}
+
+// skipIfModelRetired turns a retired free model into a skip. Upstream removes
+// these pinned names without notice (1.3, then 1.2), and a 410 is a fact about
+// the environment, not a regression in this repo — asserting on it makes CI red
+// for something no commit here can fix.
+func skipIfModelRetired(t *testing.T, rec *httptest.ResponseRecorder) {
+	t.Helper()
+	if rec.Code == http.StatusGone || strings.Contains(rec.Body.String(), "ModelDeprecated") {
+		t.Skipf("upstream retired this model, skipping: %s", rec.Body.String())
 	}
 }
