@@ -460,7 +460,7 @@ func ForwardOpencode(w http.ResponseWriter, req *Request) error {
 		if ctx == nil {
 			ctx = context.Background()
 		}
-		resp, err := proxy.ForwardOpenAI(ctx, req.Client, &cfg, apiKey, transformedBody, req.IsStream)
+		resp, err := forwardOpencodeRequest(ctx, req.Client, &cfg, apiKey, transformedBody, req.IsStream)
 		if err != nil {
 			return fmt.Errorf("ForwardOpencode (muse-spark responses): %w", err)
 		}
@@ -531,7 +531,7 @@ func ForwardOpencode(w http.ResponseWriter, req *Request) error {
 	// wanted, and a non-streaming caller gets the SSE collapsed back into one
 	// JSON body below.
 	upstreamStream := req.IsStream || bodyRequestsStream(body)
-	resp, err := proxy.ForwardOpenAI(ctx, req.Client, &cfg, apiKey, body, upstreamStream)
+	resp, err := forwardOpencodeRequest(ctx, req.Client, &cfg, apiKey, body, upstreamStream)
 	if err != nil {
 		return fmt.Errorf("ForwardOpencode: %w", err)
 	}
