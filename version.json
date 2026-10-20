@@ -1,5 +1,5 @@
 {
   "latestVersion": "1.9.39",
   "downloadUrl": "https://github.com/arewedaks/9router-go/releases/latest",
-  "releaseNotes": "- chore: bump version to 1.9.38 (57a19ca)\n- feat(proxy): endpoint prune yang membuang proxy mati dari sebuah pool (61f608c)\n- chore(release): version.json -> v1.9.37 (1d1e5bd)\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
+  "releaseNotes": "- chore: bump version to 1.9.39 (6abde7c)\n- fix(proxy): Test all endpoints membaca verdict body, tambah auto-delete proxy mati (9768831)\n- fix(proxy): relay edge lolos Test, URL tanpa port tidak lagi ditolak (cbc2724)\n- test(chat): skip muse-spark saat upstream men-retire modelnya (16b3169)\n- chore(release): version.json -> v1.9.38 (249f854)\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
 }
