@@ -3340,6 +3340,13 @@
       Strict: fail the request instead of falling back to a direct connection
     </label>
 
+    <!-- Only armed after a run of Test all endpoints, so it can never remove an
+         entry the operator has not seen fail. -->
+    <label id="proxy-edit-autodelete-wrap" style="display:none; align-items:center; gap:7px; font-size:0.78rem; color:var(--muted); cursor:pointer; margin-top:8px;">
+      <input type="checkbox" id="proxy-edit-autodelete" style="accent-color:var(--primary);" onchange="applyAutoDeleteDead()">
+      Delete the dead endpoints above (keeps at least one, so the pool never empties)
+    </label>
+
     <div id="proxy-edit-msg" style="font-size:0.74rem; margin-top:10px; color:var(--muted);"></div>
     <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:16px;">
       <button class="btn" onclick="closeModal('proxy-edit-modal')">Cancel</button>
@@ -5816,6 +5823,11 @@
       }
     };
     rows.forEach(r => setBadge(r, "…", "wait", "Testing connection..."));
+    const autoWrap = document.getElementById("proxy-edit-autodelete-wrap");
+    const autoBox = document.getElementById("proxy-edit-autodelete");
+    if (autoBox) autoBox.checked = false;
+    if (autoWrap) autoWrap.style.display = "none";
+    let dead = 0;
 
     // Sequential on purpose: a pool can hold dozens of proxies and firing them
     // all at once is exactly the load the health check already bounds.
@@ -5828,13 +5840,45 @@
           body: JSON.stringify({ url: urls[i] }),
         });
         const data = await res.json().catch(() => ({}));
-        const ok = !!(res && res.ok);
+        // The test endpoint answers HTTP 200 for a dead proxy too: the verdict
+        // is in the body. Reading res.ok made every row green.
+        const ok = res.ok && data.ok === true;
+        if (!ok) dead++;
         setBadge(rows[i], ok ? "OK" : "DEAD", ok ? "ok" : "err", data.error || (ok ? "Endpoint active" : "Test failed"));
       } catch (e) {
+        dead++;
         setBadge(rows[i], "DEAD", "err", String(e));
       }
     }
     if (btn) btn.disabled = false;
+
+    // Only offer the delete when something actually failed, and only the
+    // endpoints that did: the badge is the record of what was tested.
+    if (dead > 0 && autoWrap) autoWrap.style.display = "inline-flex";
+    if (autoBox && dead > 0) autoBox.dataset.deadBefore = String(rows.length);
+  }
+
+  // Removes rows still badged DEAD, keeping at least one. An empty pool would
+  // silently send traffic from the host IP, which is worse than a dead entry.
+  function applyAutoDeleteDead() {
+    const box = document.getElementById("proxy-edit-rows");
+    const autoBox = document.getElementById("proxy-edit-autodelete");
+    if (!box || !autoBox || !autoBox.checked) return;
+    const rows = Array.from(box.querySelectorAll(".ppo-row"));
+    const dying = rows.filter(r => {
+      const b = r.querySelector(".ppo-badge");
+      return b && b.textContent.trim() === "DEAD";
+    });
+    if (!dying.length) return;
+    if (dying.length >= rows.length) {
+      toast("All endpoints are dead - keeping them so the pool does not go direct", true);
+      autoBox.checked = false;
+      return;
+    }
+    dying.forEach(r => r.remove());
+    // proxyRowValue reads the live DOM, so the counter follows the removal.
+    if (typeof updateProxyStats === "function") updateProxyStats();
+    toast(`Removed ${dying.length} dead endpoint(s). Save to apply.`);
   }
 
   async function submitProxyEdit() {

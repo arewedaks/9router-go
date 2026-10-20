@@ -65,6 +65,49 @@ func TestProxyDetailsOffersPerURLTest(t *testing.T) {
 	}
 }
 
+// The test endpoint answers HTTP 200 even for a dead proxy: the verdict lives in
+// the body as `ok`. Reading the HTTP status instead made every row report OK,
+// which is exactly the bug the badge is meant to prevent.
+func TestProxyPerURLTestReadsBodyVerdict(t *testing.T) {
+	ui := readEmbeddedUI(t)
+	fn := extractFunction(t, ui, "testProxyEditList")
+	if fn == "" {
+		t.Fatal("UI lacks testProxyEditList")
+	}
+	if !strings.Contains(fn, "data.ok") {
+		t.Error("per-URL verdict must come from the response body, not the HTTP status")
+	}
+	if strings.Contains(fn, "const ok = !!(res && res.ok)") {
+		t.Error("reading res.ok makes every entry look healthy")
+	}
+}
+
+// Auto-delete is offered only after a run produced dead entries, and must keep
+// at least one endpoint: an empty pool sends traffic from the host IP.
+func TestProxyAutoDeleteDeadIsGated(t *testing.T) {
+	ui := readEmbeddedUI(t)
+	if !strings.Contains(ui, `id="proxy-edit-autodelete"`) {
+		t.Fatal("the details modal needs an auto-delete checkbox")
+	}
+	hide := extractFunction(t, ui, "testProxyEditList")
+	if !strings.Contains(hide, `style.display = "none"`) {
+		t.Error("auto-delete must start hidden until something fails")
+	}
+	if !strings.Contains(hide, "dead > 0") {
+		t.Error("auto-delete must only be revealed when a test failed")
+	}
+	fn := extractFunction(t, ui, "applyAutoDeleteDead")
+	if fn == "" {
+		t.Fatal("UI lacks applyAutoDeleteDead")
+	}
+	if !strings.Contains(fn, "DEAD") {
+		t.Error("auto-delete must act only on rows badged DEAD")
+	}
+	if !strings.Contains(fn, "dying.length >= rows.length") {
+		t.Error("auto-delete must refuse to remove every endpoint")
+	}
+}
+
 // The entry rows must not reuse the settings-card .proxy-row class. Both used
 // to share the name, so the settings rule .proxy-row + .proxy-row (18px margin
 // plus a divider) was applied to every pool entry: the list rendered with a
