@@ -6494,19 +6494,24 @@
         <button class="btn btn-sm" onclick="testAllConnections('${d.provider}');">Test All Accounts</button>
         <span id="conn-test-progress" class="conn-test-progress"></span>
         <div style="margin-left:auto; display:flex; gap:7px; align-items:center; flex-wrap:wrap;">
-          <button class="btn btn-sm" onclick="toggleAllConnections(1)">Enable All</button>
-          <button class="btn btn-sm" onclick="toggleAllConnections(0)">Disable All</button>
+          <button class="btn btn-sm" id="conn-bulk-enable-btn" style="display:none;" onclick="toggleSelectedConns(1)">
+            <span class="msym" style="font-size:14px;vertical-align:-2px;">toggle_on</span> Enable Selected (<span class="conn-selected-count">0</span>)
+          </button>
+          <button class="btn btn-sm" id="conn-bulk-disable-btn" style="display:none;" onclick="toggleSelectedConns(0)">
+            <span class="msym" style="font-size:14px;vertical-align:-2px;">toggle_off</span> Disable Selected (<span class="conn-selected-count">0</span>)
+          </button>
           <button class="btn btn-sm btn-danger" id="conn-bulk-delete-btn" style="display:none;" onclick="deleteSelectedConns()">
-            <span class="msym" style="font-size:14px;vertical-align:-2px;">delete</span> Delete Selected (<span id="conn-selected-count">0</span>)
+            <span class="msym" style="font-size:14px;vertical-align:-2px;">delete</span> Delete Selected (<span class="conn-selected-count" id="conn-selected-count">0</span>)
           </button>
         </div>
       </div>
       ${accountRoundRobinControls(d)}
-      ${(d.connections || []).length > 1 ? `<div style="display:flex;align-items:center;gap:6px;padding:6px 2px;font-size:0.76rem;color:var(--muted);">
+      ${(d.connections || []).length > 1 ? `<div style="display:flex;align-items:center;gap:8px;padding:6px 2px;font-size:0.76rem;color:var(--muted);">
         <label style="display:flex;align-items:center;gap:5px;cursor:pointer;user-select:none;">
           <input type="checkbox" id="conn-select-all" onchange="toggleSelectAllConns(this.checked)" style="cursor:pointer;accent-color:var(--primary);">
           Select All
         </label>
+        <button type="button" class="btn btn-sm" onclick="invertConnSelection()" style="padding:2px 8px;font-size:0.75rem;">Invert</button>
       </div>` : ''}
       <div style="margin-top:4px;">${connsInner}</div>`;
 
@@ -10395,16 +10400,31 @@
     }
   }
 
+  function invertConnSelection() {
+    const cbs = document.querySelectorAll(".conn-select-cb");
+    cbs.forEach(cb => { cb.checked = !cb.checked; });
+    updateConnSelectionUI();
+  }
+
   function updateConnSelectionUI() {
     const cbs = document.querySelectorAll(".conn-select-cb");
     const checked = Array.from(cbs).filter(cb => cb.checked);
     const count = checked.length;
-    const btn = document.getElementById("conn-bulk-delete-btn");
-    const countEl = document.getElementById("conn-selected-count");
+    const delBtn = document.getElementById("conn-bulk-delete-btn");
+    const enBtn = document.getElementById("conn-bulk-enable-btn");
+    const disBtn = document.getElementById("conn-bulk-disable-btn");
+    const countEls = document.querySelectorAll(".conn-selected-count");
     const allCb = document.getElementById("conn-select-all");
 
-    if (btn) btn.style.display = count > 0 ? "inline-flex" : "none";
-    if (countEl) countEl.textContent = count;
+    const display = count > 0 ? "inline-flex" : "none";
+    if (delBtn) delBtn.style.display = display;
+    if (enBtn) enBtn.style.display = display;
+    if (disBtn) disBtn.style.display = display;
+
+    countEls.forEach(el => { el.textContent = count; });
+    const legacyCountEl = document.getElementById("conn-selected-count");
+    if (legacyCountEl) legacyCountEl.textContent = count;
+
     if (allCb) {
       allCb.checked = cbs.length > 0 && count === cbs.length;
       allCb.indeterminate = count > 0 && count < cbs.length;
@@ -10415,6 +10435,45 @@
     const cbs = document.querySelectorAll(".conn-select-cb");
     cbs.forEach(cb => { cb.checked = !!checked; });
     updateConnSelectionUI();
+  }
+
+  async function toggleSelectedConns(active) {
+    const cbs = document.querySelectorAll(".conn-select-cb:checked");
+    const ids = Array.from(cbs).map(cb => cb.getAttribute("data-id")).filter(Boolean);
+    if (!ids.length) return;
+
+    const enBtn = document.getElementById("conn-bulk-enable-btn");
+    const disBtn = document.getElementById("conn-bulk-disable-btn");
+    if (enBtn) enBtn.disabled = true;
+    if (disBtn) disBtn.disabled = true;
+
+    let updated = 0;
+    try {
+      for (const id of ids) {
+        try {
+          await api(`/api/dashboard/providers/${id}/toggle`, {
+            method: "POST",
+            body: JSON.stringify({ active: active ? 1 : 0 })
+          });
+          updated++;
+        } catch (_) {}
+      }
+      toast(`${active ? "Enabled" : "Disabled"} ${updated} account(s)`, false);
+      if (currentProviderId && document.getElementById("tab-provider-detail")?.classList.contains("active")) {
+        await openProviderDetail(currentProviderId, true);
+      }
+      const res = await api("/api/dashboard/providers");
+      if (res.ok) {
+        allProviders = await res.json();
+        updateCategoryCounts(allProviders);
+        filterProviders();
+      }
+    } catch (e) {
+      toast("Error updating accounts: " + e.message, true);
+    } finally {
+      if (enBtn) enBtn.disabled = false;
+      if (disBtn) disBtn.disabled = false;
+    }
   }
 
   async function deleteSelectedConns() {

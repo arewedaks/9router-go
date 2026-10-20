@@ -1641,7 +1641,7 @@ func (h *Handler) findDuplicateAPIKey(provider, skipID, key string) (*models.Pro
 	return nil, nil
 }
 
-// HandleToggleProvider toggles active state.
+// HandleToggleProvider toggles active state or sets it explicitly when an active field is provided.
 func (h *Handler) HandleToggleProvider(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if id == "" {
@@ -1649,10 +1649,28 @@ func (h *Handler) HandleToggleProvider(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	newState, err := h.repo.ToggleProviderConnection(id)
-	if err != nil {
-		handlerutil.WriteJSONError(w, http.StatusInternalServerError, err.Error())
-		return
+	var body struct {
+		Active *int `json:"active"`
+	}
+	if data, err := io.ReadAll(r.Body); err == nil && len(data) > 0 {
+		_ = json.Unmarshal(data, &body)
+	}
+
+	var newState int
+	if body.Active != nil {
+		target := *body.Active
+		if err := h.repo.SetConnectionActive(id, target); err != nil {
+			handlerutil.WriteJSONError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		newState = target
+	} else {
+		var err error
+		newState, err = h.repo.ToggleProviderConnection(id)
+		if err != nil {
+			handlerutil.WriteJSONError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
 	}
 
 	handlerutil.WriteJSON(w, http.StatusOK, map[string]any{

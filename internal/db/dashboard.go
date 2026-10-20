@@ -92,6 +92,16 @@ func (r *Repo) ToggleProviderConnection(id string) (int, error) {
 	return newVal, nil
 }
 
+// SetConnectionActive explicitly sets the isActive state of a provider connection.
+func (r *Repo) SetConnectionActive(id string, active int) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+	_, err := r.db.Exec("UPDATE providerConnections SET isActive = ?, updatedAt = ? WHERE id = ?", active, now, id)
+	if err != nil {
+		return fmt.Errorf("set connection active: %w", err)
+	}
+	return nil
+}
+
 // DeleteProviderConnection removes a provider connection by ID.
 func (r *Repo) DeleteProviderConnection(id string) error {
 	_, err := r.db.Exec("DELETE FROM providerConnections WHERE id = ?", id)

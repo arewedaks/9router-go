@@ -966,25 +966,28 @@ func TestUIModelDisableNoConfirmAndTwoModeAutoDisable(t *testing.T) {
 	}
 }
 
-// TestUIEnableDisableAllInConnBar ensures Enable All and Disable All buttons
+// TestUIBulkSelectedActionsInConnBar ensures bulk action buttons (Enable Selected, Disable Selected, Delete Selected)
 // are placed in the Connections toolbar alongside Test All Accounts.
-func TestUIEnableDisableAllInConnBar(t *testing.T) {
+func TestUIBulkSelectedActionsInConnBar(t *testing.T) {
 	body := readEmbeddedUI(t)
 
 	barIdx := strings.LastIndex(body, `<div class="conn-test-bar">`)
 	if barIdx == -1 {
 		t.Fatal("missing conn-test-bar div in UI")
 	}
-	barContent := body[barIdx : barIdx+800]
+	barContent := body[barIdx : barIdx+1500]
 
-	if !strings.Contains(barContent, "toggleAllConnections(1)") {
-		t.Error("conn-test-bar must contain Enable All button")
+	if !strings.Contains(barContent, "toggleSelectedConns(1)") {
+		t.Error("conn-test-bar must contain Enable Selected button")
 	}
-	if !strings.Contains(barContent, "toggleAllConnections(0)") {
-		t.Error("conn-test-bar must contain Disable All button")
+	if !strings.Contains(barContent, "toggleSelectedConns(0)") {
+		t.Error("conn-test-bar must contain Disable Selected button")
+	}
+	if !strings.Contains(barContent, "deleteSelectedConns()") {
+		t.Error("conn-test-bar must contain Delete Selected button")
 	}
 	if !strings.Contains(barContent, "margin-left:auto") {
-		t.Error("Enable/Disable All buttons must be right-aligned with margin-left:auto")
+		t.Error("Bulk action buttons must be right-aligned with margin-left:auto")
 	}
 }
 
