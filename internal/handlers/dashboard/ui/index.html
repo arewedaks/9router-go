@@ -6253,7 +6253,11 @@
     if (!data || data.error) {
       return `<div class="quota-empty">Could not load quota${data && data.error ? ": " + escapeHtml(data.error) : ""}.</div>`;
     }
-    const conns = data.connections || [];
+    const conns = [...(data.connections || [])].sort((a, b) => {
+      const la = a.name || a.connectionId || "";
+      const lb = b.name || b.connectionId || "";
+      return la.localeCompare(lb, undefined, { numeric: true, sensitivity: "base" });
+    });
     if (!conns.length) {
       return `<div class="quota-empty">No accounts on this provider yet.</div>`;
     }
@@ -6440,8 +6444,13 @@
     // API key.
     const showKeyForm = oauthPanel === '';
     const addConnLabel = d.node ? 'Add API Key' : 'Add Connection';
-    const connsInner = (d.connections || []).length
-      ? d.connections.map(p => {
+    const sortedConns = [...(d.connections || [])].sort((a, b) => {
+      const la = a.accountLabel || a.email || a.name || a.id || "";
+      const lb = b.accountLabel || b.email || b.name || b.id || "";
+      return la.localeCompare(lb, undefined, { numeric: true, sensitivity: "base" });
+    });
+    const connsInner = sortedConns.length
+      ? sortedConns.map(p => {
           const label = p.accountLabel || p.email || p.name || p.id.substring(0, 12);
           const dot = acctDotClass(p);
           const connStatus = effectiveStatusOf(p);
@@ -10006,7 +10015,12 @@
   }
 
   function accountsExpanded(prov, accounts) {
-    return accounts.map(p => {
+    const sorted = [...(accounts || [])].sort((a, b) => {
+      const la = a.accountLabel || a.email || a.name || a.id || "";
+      const lb = b.accountLabel || b.email || b.name || b.id || "";
+      return la.localeCompare(lb, undefined, { numeric: true, sensitivity: "base" });
+    });
+    return sorted.map(p => {
       const label = p.accountLabel || p.email || p.name || p.id.substring(0, 12);
       const dot = acctDotClass(p);
       const chip = statusPillFor(p);
