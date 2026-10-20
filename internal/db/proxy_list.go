@@ -87,11 +87,20 @@ func NormalizeProxyURL(entry string) (string, bool) {
 		return "", false
 	}
 	port := u.Port()
-	if port == "" {
+	if port != "" {
+		p, err := strconv.Atoi(port)
+		if err != nil || p < 1 || p > 65535 {
+			return "", false
+		}
+	} else if u.Scheme != "http" && u.Scheme != "https" {
+		// http and https have a well-known default port, so a Cloudflare Worker
+		// relay (https://name.workers.dev) is a complete proxy address. SOCKS has
+		// no such default: guessing 1080 would send traffic somewhere the operator
+		// never named.
 		return "", false
-	}
-	p, err := strconv.Atoi(port)
-	if err != nil || p < 1 || p > 65535 {
+	} else if !strings.Contains(host, ".") {
+		// A host-only entry with no dot is a pasted word, not an endpoint
+		// ("not-a-proxy" from a list), and http:// would make it look valid.
 		return "", false
 	}
 	// Credentials must survive: a paid list authenticates per request, and

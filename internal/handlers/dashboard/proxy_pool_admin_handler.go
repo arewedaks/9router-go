@@ -218,7 +218,8 @@ func (h *Handler) HandleTestProxyPool(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if target := strings.TrimSpace(payload.URL); target != "" {
-		if err := probeProxy(r.Context(), target); err != nil {
+		poolType, _ := pool["type"].(string)
+		if err := probeProxyTyped(r.Context(), target, poolType); err != nil {
 			handlerutil.WriteJSON(w, http.StatusOK, map[string]any{"ok": false, "url": target, "error": err.Error()})
 			return
 		}
@@ -235,7 +236,8 @@ func (h *Handler) HandleTestProxyPool(w http.ResponseWriter, r *http.Request) {
 	// A test that only opens a TCP socket would pass for a proxy that cannot
 	// reach the internet, so the check goes all the way: CONNECT through the
 	// proxy to a real host and require a successful tunnel.
-	if err := probeProxy(r.Context(), target); err != nil {
+	poolType, _ := pool["type"].(string)
+	if err := probeProxyTyped(r.Context(), target, poolType); err != nil {
 		h.recordAndRespond(w, id, false, err.Error())
 		return
 	}
@@ -283,6 +285,60 @@ func firstProxyURL(pool map[string]any) string {
 // host and completes a TLS handshake. Returns nil only when the proxy actually
 // forwards traffic.
 func probeProxy(ctx context.Context, proxyAddr string) error {
+	return probeProxyTyped(ctx, proxyAddr, "")
+}
+
+// probeEdgeRelay checks an edge relay (Vercel/Cloudflare/Deno) the way it is
+// actually used at request time: the URL is rewritten to carry x-relay-target
+// and is called directly over HTTPS, with no CONNECT tunnel. Probing one as a
+// forward proxy fails for a healthy relay, which is what made the Test button
+// report a working Worker as broken.
+//
+// ponytail: any HTTP answer proves the Worker is deployed and routing. Reading
+// the forwarded payload would need a target host and credentials, and the relay
+// only forwards paths it was configured for.
+func probeEdgeRelay(ctx context.Context, relayAddr string) error {
+	normalised, ok := db.NormalizeProxyURL(relayAddr)
+	if !ok {
+		return fmt.Errorf("invalid proxy url %q", relayAddr)
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	client := &http.Client{Timeout: proxyTestTimeout}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, normalised, nil)
+	if err != nil {
+		return fmt.Errorf("invalid proxy url: %w", err)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("cannot reach relay: %w", err)
+	}
+	defer resp.Body.Close()
+	// A Worker that answers at all is deployed and reachable. 400/404 from the
+	// relay itself still proves egress; 5xx and 52x mean the Worker is broken.
+	if resp.StatusCode >= 500 {
+		return fmt.Errorf("relay answered %d", resp.StatusCode)
+	}
+	return nil
+}
+
+// isEdgeRelayType reports whether a stored pool type names an edge relay, which
+// must be probed by request rather than by CONNECT tunnel.
+func isEdgeRelayType(poolType string) bool {
+	switch strings.ToLower(strings.TrimSpace(poolType)) {
+	case "vercel", "cloudflare", "deno":
+		return true
+	}
+	return false
+}
+
+// probeProxyTyped picks the probe that matches how the pool is used at request
+// time. A forward proxy is tunnelled; an edge relay is called directly.
+func probeProxyTyped(ctx context.Context, proxyAddr, poolType string) error {
+	if isEdgeRelayType(poolType) {
+		return probeEdgeRelay(ctx, proxyAddr)
+	}
 	normalised, ok := db.NormalizeProxyURL(proxyAddr)
 	if !ok {
 		return fmt.Errorf("invalid proxy url %q", proxyAddr)
