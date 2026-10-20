@@ -6511,7 +6511,7 @@
           <input type="checkbox" id="conn-select-all" onchange="toggleSelectAllConns(this.checked)" style="cursor:pointer;accent-color:var(--primary);">
           Select All
         </label>
-        <button type="button" class="btn btn-sm" onclick="invertConnSelection()" style="padding:2px 8px;font-size:0.75rem;">Invert</button>
+        <button type="button" class="btn btn-sm" id="conn-invert-btn" onclick="invertConnSelection()" style="display:none;padding:2px 8px;font-size:0.75rem;">Invert</button>
       </div>` : ''}
       <div style="margin-top:4px;">${connsInner}</div>`;
 
@@ -10413,6 +10413,7 @@
     const delBtn = document.getElementById("conn-bulk-delete-btn");
     const enBtn = document.getElementById("conn-bulk-enable-btn");
     const disBtn = document.getElementById("conn-bulk-disable-btn");
+    const invertBtn = document.getElementById("conn-invert-btn");
     const countEls = document.querySelectorAll(".conn-selected-count");
     const allCb = document.getElementById("conn-select-all");
 
@@ -10420,6 +10421,7 @@
     if (delBtn) delBtn.style.display = display;
     if (enBtn) enBtn.style.display = display;
     if (disBtn) disBtn.style.display = display;
+    if (invertBtn) invertBtn.style.display = display;
 
     countEls.forEach(el => { el.textContent = count; });
     const legacyCountEl = document.getElementById("conn-selected-count");
