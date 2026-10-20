@@ -10053,11 +10053,17 @@
       groups[p.provider].push(p);
     });
 
-    // Sort provider groups by upstream registry priority (lower = first).
+    // Sort provider groups by upstream registry priority (lower = first),
+    // and break ties by provider display name alphabetically and numerically.
     order.sort((a, b) => {
-      const pa = groups[a][0].priorityRank || 999;
-      const pb = groups[b][0].priorityRank || 999;
-      return pa - pb;
+      const ha = groups[a][0];
+      const hb = groups[b][0];
+      const pa = ha.priorityRank || 999;
+      const pb = hb.priorityRank || 999;
+      if (pa !== pb) return pa - pb;
+      const na = ha.displayName || ha.registryName || ha.name || a;
+      const nb = hb.displayName || hb.registryName || hb.name || b;
+      return na.localeCompare(nb, undefined, { numeric: true, sensitivity: "base" });
     });
 
     // Bucket providers by their dashboard section (OAuth, Free Tier, API Key, …)
@@ -10068,6 +10074,26 @@
     order.forEach(prov => {
       const key = sectionKeyFor(groups[prov][0].category);
       (bySection[key] = bySection[key] || []).push(prov);
+    });
+
+    // Keep providers within each section (especially OpenAI-compatible custom endpoints)
+    // strictly and deterministically sorted by name.
+    Object.keys(bySection).forEach(sec => {
+      bySection[sec].sort((a, b) => {
+        const ha = groups[a][0];
+        const hb = groups[b][0];
+        if (sec === "custom") {
+          const na = ha.displayName || ha.registryName || ha.name || a;
+          const nb = hb.displayName || hb.registryName || hb.name || b;
+          return na.localeCompare(nb, undefined, { numeric: true, sensitivity: "base" });
+        }
+        const pa = ha.priorityRank || 999;
+        const pb = hb.priorityRank || 999;
+        if (pa !== pb) return pa - pb;
+        const na = ha.displayName || ha.registryName || ha.name || a;
+        const nb = hb.displayName || hb.registryName || hb.name || b;
+        return na.localeCompare(nb, undefined, { numeric: true, sensitivity: "base" });
+      });
     });
 
     const sections = CATEGORY_ORDER.filter(k => bySection[k] && bySection[k].length);
