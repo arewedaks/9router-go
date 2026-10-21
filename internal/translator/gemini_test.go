@@ -506,6 +506,20 @@ func TestWrapForAntigravityPreservesThoughtSignature(t *testing.T) {
 	}
 }
 
+func TestWrapForAntigravityPreservesSafetySettings(t *testing.T) {
+	src := []byte(`{"contents":[{"parts":[{"text":"test"}]}],"safetySettings":[{"category":"HARM_CATEGORY_HARASSMENT","threshold":"BLOCK_NONE"}]}`)
+	wrapped, err := WrapForAntigravity(src, "proj-1", "gemini-3.7-flash")
+	if err != nil {
+		t.Fatalf("WrapForAntigravity failed: %v", err)
+	}
+	if !strings.Contains(string(wrapped), "safetySettings") {
+		t.Fatalf("expected safetySettings to be preserved, got: %s", string(wrapped))
+	}
+	if !strings.Contains(string(wrapped), "HARM_CATEGORY_HARASSMENT") {
+		t.Fatalf("expected HARM_CATEGORY_HARASSMENT in wrapped output, got: %s", string(wrapped))
+	}
+}
+
 func TestTranslateOpenAIToGemini_MultipleSystemMessagesPreserved(t *testing.T) {
 	openaiJSON := []byte(`{
 		"model": "gemini-2.5-flash",

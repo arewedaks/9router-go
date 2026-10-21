@@ -182,6 +182,7 @@ type GeminiRequest struct {
 	Tools             []GeminiTool    `json:"tools,omitempty"`
 	ToolConfig        any             `json:"toolConfig,omitempty"`
 	GenerationConfig  jsontext.Value  `json:"generationConfig,omitempty"`
+	SafetySettings    jsontext.Value  `json:"safetySettings,omitempty"`
 }
 
 // GeminiResponse is the Gemini API response body (non-stream).
