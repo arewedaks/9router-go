@@ -156,9 +156,27 @@ func TestJailbreakPresetsAndModelBinding(t *testing.T) {
 	if err := repo.DeleteJailbreakPreset("writer"); err != nil {
 		t.Fatalf("delete writer: %v", err)
 	}
-	// After deleting writer, modelB gets nil doc
+	// After deleting writer, modelB gets nil doc and is automatically unbound to off
 	docBDeleted, err := repo.GetJailbreakDocForModel(modelB)
 	if err != nil || docBDeleted != nil {
 		t.Fatalf("expected nil after preset deletion, got %+v, err: %v", docBDeleted, err)
+	}
+	modelBEnabled, err := repo.JailbreakModelEnabled(modelB)
+	if err != nil {
+		t.Fatalf("modelB enabled check: %v", err)
+	}
+	if modelBEnabled {
+		t.Fatalf("expected modelB to be automatically unbound/disabled after preset deletion")
+	}
+
+	cfgsAfter, err := repo.ListJailbreakModelConfigs()
+	if err != nil {
+		t.Fatalf("list configs after delete: %v", err)
+	}
+	if cfgsAfter[modelB].Enabled {
+		t.Fatalf("expected modelB to not be enabled in configs after preset deletion")
+	}
+	if !cfgsAfter[modelA].Enabled || cfgsAfter[modelA].PresetID != "coder" {
+		t.Fatalf("modelA should remain armed to coder, got: %+v", cfgsAfter[modelA])
 	}
 }

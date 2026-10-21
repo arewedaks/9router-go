@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 )
 
 // JailbreakDoc is the agents.md-style injection document: one system prompt
@@ -128,7 +129,7 @@ func (r *Repo) SaveJailbreakPreset(d *JailbreakDoc) error {
 	return err
 }
 
-// DeleteJailbreakPreset removes a preset by ID.
+// DeleteJailbreakPreset removes a preset by ID and unbinds every model armed to it.
 func (r *Repo) DeleteJailbreakPreset(id string) error {
 	if id == "" {
 		return nil
@@ -142,6 +143,42 @@ func (r *Repo) DeleteJailbreakPreset(id string) error {
 			return err
 		}
 	}
+
+	// Automatically unbind every model armed to this preset.
+	rows, err := r.db.Query(`SELECT key, value FROM kv WHERE scope = ? AND key LIKE ?`,
+		jailbreakScope, jailbreakModelPrefix+"%")
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	var toDelete []string
+	for rows.Next() {
+		var k, raw string
+		if err := rows.Scan(&k, &raw); err != nil {
+			continue
+		}
+		var cfg JailbreakModelConfig
+		if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
+			continue
+		}
+		targetPreset := cfg.PresetID
+		if targetPreset == "" {
+			targetPreset = "default"
+		}
+		if targetPreset == id {
+			toDelete = append(toDelete, k)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, k := range toDelete {
+		if _, err := r.db.Exec(`DELETE FROM kv WHERE scope = ? AND key = ?`, jailbreakScope, k); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -269,8 +306,28 @@ func (r *Repo) ListJailbreakModels() (map[string]bool, error) {
 	return out, nil
 }
 
-// ListJailbreakModelConfigs returns all model configurations.
+// ListJailbreakModelConfigs returns all model configurations. Any models bound to
+// a preset that no longer exists are cleaned up and unbound to off.
 func (r *Repo) ListJailbreakModelConfigs() (map[string]JailbreakModelConfig, error) {
+	validPresets := map[string]bool{}
+	pRows, pErr := r.db.Query(
+		`SELECT key FROM kv WHERE scope = ? AND (key LIKE ? OR key = ?)`,
+		jailbreakScope, jailbreakDocPrefix+"%", jailbreakDocKey,
+	)
+	if pErr == nil {
+		for pRows.Next() {
+			var pk string
+			if pRows.Scan(&pk) == nil {
+				if pk == jailbreakDocKey || pk == jailbreakDocPrefix+"default" {
+					validPresets["default"] = true
+				} else if strings.HasPrefix(pk, jailbreakDocPrefix) {
+					validPresets[pk[len(jailbreakDocPrefix):]] = true
+				}
+			}
+		}
+		pRows.Close()
+	}
+
 	rows, err := r.db.Query(
 		`SELECT key, value FROM kv WHERE scope = ? AND key LIKE ?`,
 		jailbreakScope, jailbreakModelPrefix+"%",
@@ -280,10 +337,11 @@ func (r *Repo) ListJailbreakModelConfigs() (map[string]JailbreakModelConfig, err
 	}
 	defer rows.Close()
 	out := map[string]JailbreakModelConfig{}
+	var orphaned []string
 	for rows.Next() {
 		var k, raw string
 		if err := rows.Scan(&k, &raw); err != nil {
-			return nil, err
+			continue
 		}
 		var cfg JailbreakModelConfig
 		if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
@@ -293,8 +351,15 @@ func (r *Repo) ListJailbreakModelConfigs() (map[string]JailbreakModelConfig, err
 			if cfg.PresetID == "" {
 				cfg.PresetID = "default"
 			}
+			if len(validPresets) > 0 && !validPresets[cfg.PresetID] {
+				orphaned = append(orphaned, k)
+				continue
+			}
 			out[k[len(jailbreakModelPrefix):]] = cfg
 		}
+	}
+	for _, k := range orphaned {
+		_, _ = r.db.Exec(`DELETE FROM kv WHERE scope = ? AND key = ?`, jailbreakScope, k)
 	}
 	return out, rows.Err()
 }

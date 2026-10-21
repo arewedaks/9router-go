@@ -204,6 +204,21 @@ func TestJailbreakPresetCRUDRoutes(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("DELETE preset status = %d, want 200: %s", rec.Code, rec.Body.String())
 	}
+
+	// Verify that models previously bound to expert-coder are automatically unbound to off
+	req = httptest.NewRequest(http.MethodGet, "/api/dashboard/jailbreak/models", nil)
+	rec = httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET models status = %d, want 200", rec.Code)
+	}
+	var modelConfigsAfter map[string]map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &modelConfigsAfter); err != nil {
+		t.Fatalf("decode models: %v", err)
+	}
+	if _, stillArmed := modelConfigsAfter["anthropic/claude-3-7-sonnet"]; stillArmed {
+		t.Fatalf("model should be unbound to off after preset deletion, got: %+v", modelConfigsAfter["anthropic/claude-3-7-sonnet"])
+	}
 }
 
 func TestJailbreakModelRowMobileTwoLines(t *testing.T) {

@@ -11618,9 +11618,10 @@
   async function deleteJbPreset(id) {
     const p = jbPresetByID(id);
     if (!p) return;
-    const used = Object.values(jbBindings).filter(b => b && b.enabled && b.presetId === id).length;
+    const isTarget = b => b && b.enabled && (b.presetId === id || (!b.presetId && id === "default"));
+    const used = Object.values(jbBindings).filter(isTarget).length;
     const msg = used
-      ? 'Delete preset "' + (p.name || p.id) + '"? ' + used + " model(s) use it and will stop receiving a prompt."
+      ? 'Delete preset "' + (p.name || p.id) + '"? ' + used + " armed model(s) will automatically be unbound to off."
       : 'Delete preset "' + (p.name || p.id) + '"? This cannot be undone.';
     if (!await appConfirm(msg, { okText: "Delete", title: "Delete preset" })) return;
     try {
@@ -11628,11 +11629,11 @@
       if (!res.ok) throw new Error(errorMessage(await res.json().catch(() => null), res.status));
       jbPresets = jbPresets.filter(x => x.id !== id);
       for (const m of Object.keys(jbBindings)) {
-        if (jbBindings[m] && jbBindings[m].presetId === id) delete jbBindings[m];
+        if (isTarget(jbBindings[m])) delete jbBindings[m];
       }
       renderJbPresets();
       renderJailbreakModels();
-      toast("Preset deleted", false);
+      toast("Preset deleted and models unbound", false);
     } catch (e) {
       toast("Delete failed: " + e.message, true);
     }
@@ -11642,7 +11643,12 @@
     const host = document.getElementById("jb-models");
     host.textContent = "";
 
-    const isArmed = id => { const b = jbBindings[id]; return !!(b && b.enabled); };
+    const isArmed = id => {
+      const b = jbBindings[id];
+      if (!b || !b.enabled) return false;
+      const pid = b.presetId || "default";
+      return jbPresets.some(p => p.id === pid);
+    };
 
     // Count on the ids the page actually knows about, so the badge cannot drift
     // above the number of rows a user could bind.
@@ -11700,15 +11706,9 @@
         o.textContent = p.name || p.id;
         sel.appendChild(o);
       }
-      // A binding can outlive its preset (deleted elsewhere); show it rather
-      // than silently snapping the dropdown to Off.
-      if (on && binding.presetId && !presets.some(p => p.id === binding.presetId)) {
-        const o = document.createElement("option");
-        o.value = binding.presetId;
-        o.textContent = binding.presetId + " (missing)";
-        sel.appendChild(o);
-      }
-      sel.value = on && binding.presetId ? binding.presetId : "off";
+      const targetPreset = binding.presetId || (on ? "default" : "off");
+      const presetExists = presets.some(p => p.id === targetPreset);
+      sel.value = on && presetExists ? targetPreset : "off";
       sel.disabled = !presets.length && !on;
       sel.onchange = () => bindJailbreakModel(id, sel.value);
 
