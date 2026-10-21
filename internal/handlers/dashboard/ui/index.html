@@ -2730,6 +2730,7 @@
       <div style="display:flex;justify-content:space-between;align-items:center;margin-top:14px;gap:10px;flex-wrap:wrap;">
         <span class="badge badge-dim" id="jb-editor-size">0 chars</span>
         <div style="display:flex;gap:8px;">
+          <button class="btn" onclick="downloadCurrentJbEditor()"><span class="msym" style="font-size:16px;">download</span> Download .md</button>
           <button class="btn" onclick="document.getElementById('jb-file-input').click()"><span class="msym" style="font-size:16px;">upload_file</span> Upload .md</button>
           <button class="btn" onclick="closeModal('jb-editor-modal')">Cancel</button>
           <button class="btn btn-primary" onclick="saveJailbreakPreset()"><span class="msym" style="font-size:16px;">check</span> Save preset</button>
@@ -11459,6 +11460,7 @@
         return b;
       };
       actions.append(
+        mkBtn("download", "Download .md", () => downloadJbPreset(p.id)),
         mkBtn("edit_note", "Edit", () => openJbEditor("edit", p.id)),
         mkBtn("visibility", "Preview", () => openJbEditor("view", p.id)),
         mkBtn("delete", "Delete", () => deleteJbPreset(p.id)),
@@ -11613,6 +11615,41 @@
     } catch (e) {
       toast("Save failed: " + e.message, true);
     }
+  }
+
+  function downloadJbPresetFile(name, content) {
+    if (!content) {
+      toast("Preset prompt is empty", true);
+      return;
+    }
+    let filename = (name || "preset").trim();
+    if (!/\.(md|markdown|txt)$/i.test(filename)) {
+      filename += ".md";
+    }
+    const blob = new Blob([content], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    toast("Downloaded " + filename, false);
+  }
+
+  function downloadJbPreset(id) {
+    const p = jbPresetByID(id);
+    if (!p) return;
+    const filename = p.source || (p.name ? p.name.replace(/[^a-zA-Z0-9_-]+/g, "-") + ".md" : p.id + ".md");
+    downloadJbPresetFile(filename, p.prompt || "");
+  }
+
+  function downloadCurrentJbEditor() {
+    const name = document.getElementById("jb-editor-name").value.trim() ||
+      document.getElementById("jb-editor-source").textContent.trim();
+    const content = document.getElementById("jb-editor-text").value;
+    downloadJbPresetFile(name || "preset.md", content);
   }
 
   async function deleteJbPreset(id) {

@@ -229,9 +229,11 @@ func TestJailbreakModelRowMobileTwoLines(t *testing.T) {
 		`jb-model-select`,
 		`.jb-model-row`,
 		`.jb-model-select`,
+		`downloadJbPreset(`,
+		`downloadCurrentJbEditor()`,
 	} {
 		if !strings.Contains(ui, need) {
-			t.Errorf("jailbreak model row missing %s", need)
+			t.Errorf("jailbreak UI missing %s", need)
 		}
 	}
 }
