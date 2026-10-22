@@ -42,14 +42,22 @@ func TestForwardOpencode(t *testing.T) {
 		if r.Header.Get("x-opencode-client") != "cli" {
 			t.Errorf("expected cli client header, got %s", r.Header.Get("x-opencode-client"))
 		}
-		if len(r.Header.Get("x-opencode-project")) != 40 {
-			t.Errorf("expected 40-char hex x-opencode-project, got %s", r.Header.Get("x-opencode-project"))
+		if r.Header.Get("x-opencode-project") != "global" {
+			t.Errorf("v2 defaults x-opencode-project to global, got %s", r.Header.Get("x-opencode-project"))
 		}
 		if !strings.HasPrefix(r.Header.Get("x-opencode-session"), "ses_") {
 			t.Errorf("expected ses_ prefix on x-opencode-session, got %s", r.Header.Get("x-opencode-session"))
 		}
-		if !strings.HasPrefix(r.Header.Get("x-opencode-request"), "msg_") {
-			t.Errorf("expected msg_ prefix on x-opencode-request, got %s", r.Header.Get("x-opencode-request"))
+		// v2 mirrors the session over four twin headers and carries no
+		// x-opencode-request (a v1-only header).
+		sess := r.Header.Get("x-opencode-session")
+		for _, h := range []string{"x-opencode-session-id", "x-session-affinity", "x-session-id"} {
+			if r.Header.Get(h) != sess {
+				t.Errorf("%s must mirror x-opencode-session; got %q want %q", h, r.Header.Get(h), sess)
+			}
+		}
+		if v := r.Header.Get("x-opencode-request"); v != "" {
+			t.Errorf("x-opencode-request must not be sent: it is a v1-only header, got %s", v)
 		}
 		if r.Header.Get("User-Agent") != proxy.DefaultOpenCodeUA {
 			t.Errorf("expected User-Agent %s, got %s", proxy.DefaultOpenCodeUA, r.Header.Get("User-Agent"))

@@ -14,8 +14,8 @@ func TestBuildOpenCodeHeaders(t *testing.T) {
 	if headers["x-opencode-client"] != "cli" {
 		t.Errorf("expected x-opencode-client cli, got %s", headers["x-opencode-client"])
 	}
-	if len(headers["x-opencode-project"]) != 40 {
-		t.Errorf("expected 40-char hex x-opencode-project, got %s", headers["x-opencode-project"])
+	if headers["x-opencode-project"] != "global" {
+		t.Errorf("v2 defaults the project to the literal global, got %s", headers["x-opencode-project"])
 	}
 	if !proxy.OpenCodeSessionRegex.MatchString(headers["x-opencode-session"]) {
 		t.Errorf("expected canonical x-opencode-session matching regex, got %s", headers["x-opencode-session"])
@@ -23,8 +23,16 @@ func TestBuildOpenCodeHeaders(t *testing.T) {
 	if len(headers["x-opencode-session"]) != 30 {
 		t.Errorf("expected session length 30, got %d (%s)", len(headers["x-opencode-session"]), headers["x-opencode-session"])
 	}
-	if !proxy.OpenCodeRequestRegex.MatchString(headers["x-opencode-request"]) {
-		t.Errorf("expected canonical x-opencode-request matching regex, got %s", headers["x-opencode-request"])
+	// v2 sends the session under four twin headers; a v2 fingerprint that sets
+	// only one of them is the half-shape the gate refuses.
+	for _, h := range []string{"x-opencode-session-id", "x-session-affinity", "x-session-id"} {
+		if headers[h] != headers["x-opencode-session"] {
+			t.Errorf("%s must mirror x-opencode-session; got %q want %q", h, headers[h], headers["x-opencode-session"])
+		}
+	}
+	// x-opencode-request is a v1-only header: a v2 request must not carry it.
+	if _, ok := headers["x-opencode-request"]; ok {
+		t.Error("x-opencode-request must not be sent: it is a v1-only header")
 	}
 	if headers["Accept"] != "text/event-stream" {
 		t.Errorf("expected Accept text/event-stream, got %s", headers["Accept"])

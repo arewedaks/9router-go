@@ -12,14 +12,30 @@ import (
 
 const (
 	// DefaultOpenCodeUA is the official OpenCode fingerprint User-Agent.
-	// Upstream requires version >= 1.17.0 (PR #4105, PR #4111).
-	DefaultOpenCodeUA = "opencode/1.18.31 ai-sdk/provider-utils/4.0.46 runtime/bun/1.3.14"
+	//
+	// v1 ("opencode/1.18.31 ai-sdk/...") still answered 200 when measured on
+	// 2026-10-22, but the v2 shape is what the official 2.0.x CLI sends and what
+	// the gate has been tightening towards. The v2 gate matches this string
+	// whole — any prefix or suffix (an attribution UA, a runtime tag) stops it
+	// being "a v2 client" — so it is emitted verbatim and alone.
+	DefaultOpenCodeUA = "opencode/latest/2.0.29/cli"
+
+	// DefaultOpenCodeV1UA is the pre-v2 identity kept by the keyed lanes
+	// (opencode-zen, opencode-go), which upstream still fingerprints as v1.
+	DefaultOpenCodeV1UA = "opencode/1.18.31 ai-sdk/provider-utils/4.0.46 runtime/bun/1.3.14"
 
 	base62Chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 )
 
 // OpenCodeSessionRegex matches canonical OpenCode session IDs: ses_ + 12 hex + 14 Base62 (30 chars).
 var OpenCodeSessionRegex = regexp.MustCompile(`^ses_[0-9a-f]{12}[0-9A-Za-z]{14}$`)
+
+// openCodeDescendingTimePart matches the encoding half of a canonical session
+// id: the 12 hex digits must carry the descending timestamp layout
+// ~(ms<<12 | counter) with counter 1-63, so the low 12 bits land in 0xfc0-0xfff.
+// An ascending ts<<12 value or a sha256 digest is refused even when the ses_
+// shape is otherwise correct.
+var openCodeDescendingTimePart = regexp.MustCompile(`^[0-9a-f]{9}f[c-f][0-9a-f]$`)
 
 // OpenCodeRequestRegex matches canonical OpenCode request IDs: msg_ + 12 hex + 14 Base62 (30 chars).
 var OpenCodeRequestRegex = regexp.MustCompile(`^msg_[0-9a-f]{12}[0-9A-Za-z]{14}$`)
@@ -164,16 +180,22 @@ func BuildOpenCodeHeaders(rawHeaders map[string]string, sessionID string, isStre
 
 	// Do NOT add x-api-key: public. The gate rejects a request that carries it:
 	// measured 2026-10-15, identical headers and body answered 200 without the
-	// header and 403 FreeTierError with it added back. The official client sends
+	// header and 403 FreeTierError with it added back. The officia client sends
 	// only Authorization.
+	//
+	// v2 sends the session id under four twin header names and defaults the
+	// project to the literal "global". x-opencode-request is a v1-only header
+	// and is not emitted here: a v2 fingerprint does not carry it.
 	res := map[string]string{
-		"Content-Type":       "application/json",
-		"Authorization":      "Bearer public",
-		"User-Agent":         DefaultOpenCodeUA,
-		"x-opencode-client":  "cli",
-		"x-opencode-session": session,
-		"x-opencode-request": GenerateOpenCodeRequestID(),
-		"x-opencode-project": GenerateOpenCodeProjectID(),
+		"Content-Type":          "application/json",
+		"Authorization":         "Bearer public",
+		"User-Agent":            DefaultOpenCodeUA,
+		"x-opencode-client":     "cli",
+		"x-opencode-session":    session,
+		"x-opencode-session-id": session,
+		"x-session-affinity":    session,
+		"x-session-id":          session,
+		"x-opencode-project":    "global",
 	}
 	if isStream {
 		res["Accept"] = "text/event-stream"
@@ -188,12 +210,23 @@ func BuildOpenCodeHeaders(rawHeaders map[string]string, sessionID string, isStre
 		if lk == "x-opencode-session" {
 			trimmed := strings.TrimSpace(v)
 			if OpenCodeSessionRegex.MatchString(trimmed) {
+				// Keep the caller's id, but re-spread it over all four twin
+				// headers so a v2 request never carries a half-set session.
 				res["x-opencode-session"] = trimmed
+				res["x-opencode-session-id"] = trimmed
+				res["x-session-affinity"] = trimmed
+				res["x-session-id"] = trimmed
 			} else if trimmed != "" {
-				res["x-opencode-session"] = TranslateOpenCodeSessionID(trimmed, "")
+				translated := TranslateOpenCodeSessionID(trimmed, "")
+				res["x-opencode-session"] = translated
+				res["x-opencode-session-id"] = translated
+				res["x-session-affinity"] = translated
+				res["x-session-id"] = translated
 			}
 		}
-		if lk == "x-opencode-client" || lk == "x-opencode-request" || lk == "x-relay-target" || lk == "x-relay-path" {
+		// x-opencode-request is deliberately not forwarded: it is a v1-only
+		// header and has no place in a v2 fingerprint.
+		if lk == "x-opencode-client" || lk == "x-relay-target" || lk == "x-relay-path" {
 			res[k] = v
 		}
 		if lk == "x-opencode-project" {
