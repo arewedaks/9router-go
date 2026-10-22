@@ -161,15 +161,35 @@ func isCodebuddyProvider(providerID string) bool {
 	}
 }
 
-// fetchCodebuddyModels returns the local catalogue for a CodeBuddy connection.
+// fetchCodebuddyModels returns the local catalogue for a CodeBuddy-family
+// connection.
 //
 // There is no live path to attempt — the provider exposes no /models route, and
 // probing it on every Import would only add latency before the same outcome.
 // The result is reported as Supported (with a Warning) rather than an error so
 // the UI's Import button completes and the operator sees why the list is
 // static.
+//
+// WorkBuddy is a separate service (www.workbuddy.ai) with its own, much smaller
+// live catalogue, so it must not inherit the CodeBuddy list: ids that the
+// CodeBuddy gateway still serves (glm-5.0, glm-4.7, minimax-m2.5, deepseek-r1,
+// …) are rejected by WorkBuddy, and importing them seeds models that fail on
+// first use.
 func (h *Handler) fetchCodebuddyModels(providerID string) (*ModelFetchResult, error) {
 	canonical := providers.ResolveAlias(providerID)
+	if canonical == "workbuddy" {
+		models := providers.GetProviderModels(canonical)
+		out := make([]UpstreamModel, 0, len(models))
+		for _, id := range models {
+			out = append(out, UpstreamModel{ID: id, Name: id, Kind: inferModelKind(id)})
+		}
+		return &ModelFetchResult{
+			Provider:  canonical,
+			Models:    out,
+			Supported: true,
+			Warning:   "WorkBuddy exposes no /models endpoint — using WorkBuddy's own catalogue.",
+		}, nil
+	}
 	return &ModelFetchResult{
 		Provider:  canonical,
 		Models:    codebuddyStaticModels(),
@@ -178,10 +198,18 @@ func (h *Handler) fetchCodebuddyModels(providerID string) (*ModelFetchResult, er
 	}, nil
 }
 
-// codebuddyProbeModel returns a known-good model id for the CodeBuddy probe.
-// Using the first model from the static catalogue avoids the "unknown model"
+// codebuddyProbeModel returns a known-good model id for the CodeBuddy-family
+// probe. Using a model the variant actually serves avoids the "unknown model"
 // rejection that probing with arbitrary ids (e.g. gpt-4o-mini) would get.
-func codebuddyProbeModel() string {
+//
+// WorkBuddy answers on a smaller catalogue than CodeBuddy, so the probe id is
+// taken from the provider's own registry entry rather than the CodeBuddy table.
+func codebuddyProbeModel(provider string) string {
+	if providers.ResolveAlias(provider) == "workbuddy" {
+		if models := providers.GetProviderModels("workbuddy"); len(models) > 0 {
+			return models[0]
+		}
+	}
 	return codebuddyStaticCatalog[0].ID
 }
 
@@ -197,12 +225,16 @@ func (h *Handler) probeCodebuddyConnection(ctx context.Context, connID string, r
 		return out
 	}
 
-	// Derive the base URL from the provider variant. Both variants accept the
-	// same request body shape; only the host and the X-Conversation headers
-	// differ.
-	isIntl := strings.EqualFold(provider, "codebuddy-intl") || strings.EqualFold(provider, "workbuddy")
+	// Derive the base URL from the provider variant. All three variants accept
+	// the same request body shape; only the host and the X-Conversation headers
+	// differ. WorkBuddy is its own service on its own host — routing it to
+	// codebuddy.ai probed an account against the wrong gateway, so a perfectly
+	// valid WorkBuddy credential reported as failing.
 	baseURL := "https://copilot.tencent.com/v2/chat/completions"
-	if isIntl {
+	switch {
+	case strings.EqualFold(provider, "workbuddy") || strings.EqualFold(provider, "wb"):
+		baseURL = "https://www.workbuddy.ai/v2/chat/completions"
+	case strings.EqualFold(provider, "codebuddy-intl") || strings.EqualFold(provider, "cbai"):
 		baseURL = "https://www.codebuddy.ai/v2/chat/completions"
 	}
 	if h.codebuddyBaseOverride != "" {
@@ -210,7 +242,7 @@ func (h *Handler) probeCodebuddyConnection(ctx context.Context, connID string, r
 	}
 
 	cfg := providers.KnownProviders[provider]
-	return h.probeCodebuddyAgainstURL(ctx, baseURL, connID, token, cfg, out)
+	return h.probeCodebuddyAgainstURL(ctx, baseURL, connID, token, cfg, out, provider)
 }
 
 // probeCodebuddyAgainstURL is the testable core: it fires one probe against a
@@ -222,8 +254,12 @@ func (h *Handler) probeCodebuddyConnection(ctx context.Context, connID string, r
 // real chat request sends. A hand-rolled body is refused by the gateway's client
 // fingerprint (code 11128) or the non-stream guard (code 11101), which would
 // make a healthy account look broken.
-func (h *Handler) probeCodebuddyAgainstURL(ctx context.Context, baseURL, connID, token string, cfg providers.ProviderConfig, out connectionTestResult) connectionTestResult {
-	body, err := executor.BuildCodebuddyProbeBody(codebuddyProbeModel())
+func (h *Handler) probeCodebuddyAgainstURL(ctx context.Context, baseURL, connID, token string, cfg providers.ProviderConfig, out connectionTestResult, provider ...string) connectionTestResult {
+	probeProvider := ""
+	if len(provider) > 0 {
+		probeProvider = provider[0]
+	}
+	body, err := executor.BuildCodebuddyProbeBody(codebuddyProbeModel(probeProvider))
 	if err != nil {
 		out.Error = "Could not build CodeBuddy probe body: " + err.Error()
 		return out

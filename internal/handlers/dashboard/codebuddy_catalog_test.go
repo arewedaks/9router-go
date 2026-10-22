@@ -392,3 +392,86 @@ func TestTruncateCutsOnRuneBoundary(t *testing.T) {
 		t.Errorf("truncate did not cap length: %d bytes", len(got))
 	}
 }
+
+// WorkBuddy is a separate service from CodeBuddy (its own host, its own much
+// smaller live catalogue). Treating it as another CodeBuddy variant sent two
+// things wrong: the Import button handed the operator CodeBuddy's model list
+// (ids WorkBuddy rejects), and the probe fired at www.codebuddy.ai, so a valid
+// WorkBuddy credential reported as failing against a gateway that had never
+// seen that account.
+func TestWorkbuddyUsesItsOwnCatalogueNotCodebuddy(t *testing.T) {
+	ui := &Handler{}
+	res, err := ui.fetchCodebuddyModels("workbuddy")
+	if err != nil {
+		t.Fatalf("fetchCodebuddyModels(workbuddy): %v", err)
+	}
+
+	got := make(map[string]bool, len(res.Models))
+	for _, m := range res.Models {
+		got[m.ID] = true
+	}
+
+	want := providers.GetProviderModels("workbuddy")
+	if len(want) == 0 {
+		t.Fatal("workbuddy has no registry catalogue — the test cannot assert anything")
+	}
+	for _, id := range want {
+		if !got[id] {
+			t.Errorf("workbuddy catalogue is missing its own model %q", id)
+		}
+	}
+
+	// Ids that only CodeBuddy serves must not leak into the WorkBuddy import.
+	for _, id := range []string{"glm-5.0", "glm-4.7", "minimax-m2.5", "deepseek-r1"} {
+		if got[id] {
+			t.Errorf("workbuddy catalogue leaked CodeBuddy-only model %q", id)
+		}
+	}
+
+	if len(res.Models) != len(want) {
+		t.Errorf("workbuddy catalogue has %d models, registry says %d", len(res.Models), len(want))
+	}
+}
+
+// TestWorkbuddyCatalogueComesFromItsOwnRegistry proves the split is keyed on the
+// provider and not on the shared CodeBuddy code path.
+//
+// The two lists happen to overlap after CodeBuddy's retired-id filter (both end
+// up serving the same eight ids), so set equality proves nothing. What does
+// prove the split is order: WorkBuddy returns its registry entry verbatim,
+// while codebuddy-intl returns the CodeBuddy static table — a different source
+// that merely filters down to the same members.
+func TestWorkbuddyCatalogueComesFromItsOwnRegistry(t *testing.T) {
+	ui := &Handler{}
+
+	wb, err := ui.fetchCodebuddyModels("workbuddy")
+	if err != nil {
+		t.Fatalf("fetchCodebuddyModels(workbuddy): %v", err)
+	}
+
+	want := providers.GetProviderModels("workbuddy")
+	if len(want) == 0 {
+		t.Fatal("workbuddy has no registry catalogue — the test cannot assert anything")
+	}
+	if len(wb.Models) != len(want) {
+		t.Fatalf("workbuddy has %d models, registry says %d", len(wb.Models), len(want))
+	}
+	for i, id := range want {
+		if wb.Models[i].ID != id {
+			t.Errorf("workbuddy model %d is %q, registry says %q (order must follow the registry)", i, wb.Models[i].ID, id)
+		}
+	}
+
+	// The CodeBuddy path must be untouched: it still answers from the static
+	// table, which carries the IDs the WorkBuddy catalogue never had.
+	cb, err := ui.fetchCodebuddyModels("codebuddy-intl")
+	if err != nil {
+		t.Fatalf("fetchCodebuddyModels(codebuddy-intl): %v", err)
+	}
+	if len(cb.Models) == 0 {
+		t.Fatal("codebuddy-intl catalogue is empty")
+	}
+	if cb.Models[0].ID == wb.Models[0].ID && len(cb.Models) == len(wb.Models) {
+		t.Log("catalogues overlap after filtering; the order assertion above is what pins the split")
+	}
+}
