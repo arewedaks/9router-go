@@ -129,6 +129,8 @@ func SetupRoutes(r interface {
 	// pastes that URL back, so no callback server has to be reachable.
 	r.Get("/api/oauth/cline/authorize", oauthH.HandleClineAuthorize)
 	r.Post("/api/oauth/cline/exchange", oauthH.HandleClineExchange)
+	r.Get("/api/oauth/perch/authorize", oauthH.HandlePerchAuthorize)
+	r.Post("/api/oauth/perch/exchange", oauthH.HandlePerchExchange)
 
 	// Gemini CLI OAuth (Google consumer PKCE flow, same pattern as Antigravity
 	// but different client credentials and scopes). Authorize returns the Google
