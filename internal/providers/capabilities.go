@@ -138,6 +138,11 @@ var modelCapabilities = map[string]Capabilities{
 	"kimi-for-coding-highspeed":        {Vision: true, VideoInput: true, Reasoning: true, Tools: true},
 	"kimi-k2.7-code":                   {Vision: true, VideoInput: true, Reasoning: true, Tools: true},
 	"kimi-k2.7-code-highspeed":         {Vision: true, VideoInput: true, Reasoning: true, Tools: true},
+	"deepseek-flash-starter":          {Vision: true, Reasoning: true, Tools: true},
+	"glm-5.3-flash-starter":           {Vision: true, Reasoning: true, Tools: true},
+	"minimax-m3.1-flash-starter":      {Vision: true, Reasoning: true, Tools: true},
+	"beam-1.0-starter":                {Reasoning: true, Tools: true},
+	"laguna-s":                        {Reasoning: true, Tools: true},
 }
 
 var providerCapabilities = map[string]map[string]Capabilities{
@@ -206,6 +211,20 @@ var providerCapabilities = map[string]map[string]Capabilities{
 	"poolside": {
 		"laguna-s-2.1":  {Reasoning: true, Tools: true},
 		"laguna-xs-2.1": {Reasoning: true, Tools: true},
+	},
+	"perch": {
+		"deepseek-flash-starter":     {Vision: true, Reasoning: true, Tools: true},
+		"glm-5.3-flash-starter":      {Vision: true, Reasoning: true, Tools: true},
+		"minimax-m3.1-flash-starter": {Vision: true, Reasoning: true, Tools: true},
+		"beam-1.0-starter":           {Reasoning: true, Tools: true},
+		"laguna-s":                   {Reasoning: true, Tools: true},
+	},
+	"pch": {
+		"deepseek-flash-starter":     {Vision: true, Reasoning: true, Tools: true},
+		"glm-5.3-flash-starter":      {Vision: true, Reasoning: true, Tools: true},
+		"minimax-m3.1-flash-starter": {Vision: true, Reasoning: true, Tools: true},
+		"beam-1.0-starter":           {Reasoning: true, Tools: true},
+		"laguna-s":                   {Reasoning: true, Tools: true},
 	},
 }
 
@@ -439,6 +458,10 @@ type tokenFamily struct {
 var tokenFamilies = []tokenFamily{
 	{[]string{"deepseek-v4.1-flash", "deepseek-v4-flash"}, 1000000, 128000},
 	{[]string{"gemini-1.5", "gemini-2.0", "gemini-2.5", "gemini-3", "glm-5.3-flash"}, 1048576, 65536},
+	{[]string{"deepseek-flash-starter"}, 1048576, 32768},
+	{[]string{"minimax-m3.1-flash"}, 1000000, 524288},
+	{[]string{"beam-1.0"}, 1048576, 131072},
+	{[]string{"laguna-s"}, 262144, 32768},
 	{[]string{"grok-4.5", "grok-4.6"}, 524288, 32768},
 	{[]string{"gpt-6"}, 272000, 128000},
 	{[]string{"claude-3", "claude-sonnet", "claude-opus", "claude-haiku"}, 200000, 8192},

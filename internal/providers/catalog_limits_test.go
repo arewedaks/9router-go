@@ -151,3 +151,53 @@ func TestRoutingLimitsKeepDefault(t *testing.T) {
 		t.Errorf("routing fallback must keep its default, got ctx=%d out=%d", cw, mo)
 	}
 }
+
+func TestPerchModelTokenLimits(t *testing.T) {
+	clearCatalog()
+	defer clearCatalog()
+
+	cases := []struct {
+		model       string
+		wantCtx     int
+		wantMaxOut  int
+		wantVision  bool
+		wantReason  bool
+	}{
+		{"deepseek-flash-starter", 1048576, 32768, true, true},
+		{"glm-5.3-flash-starter", 1048576, 65536, true, true},
+		{"minimax-m3.1-flash-starter", 1000000, 524288, true, true},
+		{"beam-1.0-starter", 1048576, 131072, false, true},
+		{"laguna-s", 262144, 32768, false, true},
+	}
+
+	for _, c := range cases {
+		// Test via GetModelTokenLimitsFor (both with "perch" provider and without)
+		for _, prov := range []string{"perch", "pch", ""} {
+			ctx, maxOut := GetModelTokenLimitsFor(prov, c.model)
+			if ctx != c.wantCtx || maxOut != c.wantMaxOut {
+				t.Errorf("[%s] GetModelTokenLimitsFor(%q, %q) = (%d, %d), want (%d, %d)",
+					prov, prov, c.model, ctx, maxOut, c.wantCtx, c.wantMaxOut)
+			}
+		}
+
+		// Test display token limits for dashboard
+		dispCtx, dispMax := GetDisplayTokenLimits("perch", c.model)
+		if dispCtx != c.wantCtx || dispMax != c.wantMaxOut {
+			t.Errorf("GetDisplayTokenLimits(perch, %q) = (%d, %d), want (%d, %d)",
+				c.model, dispCtx, dispMax, c.wantCtx, c.wantMaxOut)
+		}
+
+		// Test capabilities
+		caps := GetCapabilitiesForModel("perch", c.model)
+		if caps.Vision != c.wantVision {
+			t.Errorf("GetCapabilitiesForModel(perch, %q).Vision = %v, want %v", c.model, caps.Vision, c.wantVision)
+		}
+		if caps.Reasoning != c.wantReason {
+			t.Errorf("GetCapabilitiesForModel(perch, %q).Reasoning = %v, want %v", c.model, caps.Reasoning, c.wantReason)
+		}
+		if !caps.Tools {
+			t.Errorf("GetCapabilitiesForModel(perch, %q).Tools = false, want true", c.model)
+		}
+	}
+}
+

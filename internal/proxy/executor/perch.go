@@ -328,6 +328,7 @@ func ForwardPerch(w http.ResponseWriter, req *Request) error {
 	}
 
 	model := strings.TrimPrefix(oreq.Model, "perch/")
+	model = strings.TrimPrefix(model, "pch/")
 	option, ok := PerchModelOption[model]
 	if !ok {
 		return &proxy.UpstreamError{
