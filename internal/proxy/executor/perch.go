@@ -300,8 +300,16 @@ func ForwardPerch(w http.ResponseWriter, req *Request) error {
 	var oreq struct {
 		Model     string `json:"model"`
 		Messages  []struct {
-			Role    string          `json:"role"`
-			Content any             `json:"content"`
+			Role      string          `json:"role"`
+			Content   any             `json:"content"`
+			ToolCalls []struct {
+				ID       string `json:"id"`
+				Type     string `json:"type"`
+				Function struct {
+					Name      string `json:"name"`
+					Arguments string `json:"arguments"`
+				} `json:"function"`
+			} `json:"tool_calls,omitempty"`
 		} `json:"messages"`
 		MaxTokens   int            `json:"max_tokens"`
 		Stream      bool           `json:"stream"`
@@ -331,19 +339,37 @@ func ForwardPerch(w http.ResponseWriter, req *Request) error {
 	msgs := make([]perchMessage, 0, len(oreq.Messages))
 	for _, m := range oreq.Messages {
 		text := sanitizePerchText(perchText(m.Content))
-		// Drop empty messages: a previous interrupted turn leaves an empty assistant
-		// message in the client history, which Perch rejects with code "api_error"
-		// ("The model couldn't complete that step").
+		role := m.Role
+
+		// If this is an assistant message with tool_calls, synthesize an informative text
+		// so the turn is never dropped as empty. Dropping it leaves the subsequent tool
+		// result without an assistant invocation, causing Perch to answer 400 api_error.
+		if role == "assistant" && len(m.ToolCalls) > 0 {
+			var names []string
+			for _, tc := range m.ToolCalls {
+				if tc.Function.Name != "" {
+					names = append(names, tc.Function.Name)
+				}
+			}
+			callDesc := "I will use the tool: " + strings.Join(names, ", ")
+			if text != "" {
+				text = text + "\n" + callDesc
+			} else {
+				text = callDesc
+			}
+		}
+
+		// Drop empty messages: Perch rejects empty messages with code "api_error"
 		if strings.TrimSpace(text) == "" {
 			continue
 		}
-		role := m.Role
-		// Perch's model-call API rejects role="tool" when unaccompanied by official
-		// tool-use context. Flatten it into a user message so tool results are kept
-		// in context without breaking the upstream validator.
+
+		// Perch's model-call API rejects role="tool" as an orphaned message. Flatten it into
+		// a user message with a result header so tool results are kept in context without
+		// breaking the upstream validator.
 		if role == "tool" {
 			role = "user"
-			text = "[Tool Result] " + text
+			text = "[Tool Result]:\n" + text
 		}
 		msgs = append(msgs, perchMessage{Role: role, Content: text})
 	}
