@@ -277,6 +277,15 @@ func (h *OAuthHandler) HandlePerchExchange(w http.ResponseWriter, r *http.Reques
 	if session.ExpiresIn > 0 {
 		data["expiresAt"] = time.Now().UTC().Add(time.Duration(session.ExpiresIn) * time.Second).Format(time.RFC3339)
 	}
+	// The account/workspace ids are what Perch's gate reads to decide a request
+	// came from its own client. They are captured once here because the model
+	// call needs them on every turn, and looking them up per request would add a
+	// round trip to every turn. Best effort: a failure leaves the lane working
+	// but un-attributed, which is what it was before this field existed.
+	if uid, wid := fetchPerchAttributionIDs(ctx, session.AccessToken); uid != "" && wid != "" {
+		data["perchUserId"] = uid
+		data["perchWorkspaceId"] = wid
+	}
 	raw, err := json.Marshal(data)
 	if err != nil {
 		handlerutil.WriteJSONError(w, http.StatusInternalServerError, "encode connection data")
@@ -297,6 +306,52 @@ func (h *OAuthHandler) HandlePerchExchange(w http.ResponseWriter, r *http.Reques
 		"connection": connID,
 		"email":      session.User.Email,
 	})
+}
+
+// fetchPerchAttributionIDs reads the account and workspace ids the CLI attaches
+// to every model call. They come from the account endpoint the CLI itself uses:
+//
+//	GET https://app.perchai.app/api/perchai/account
+//	→ {"profile":{"id":…}, "session":{"workspaceId":…}}
+//
+// Returning empty strings is not an error: the connection still works without
+// attribution, it just looks less like the official client.
+func fetchPerchAttributionIDs(ctx context.Context, accessToken string) (userID, workspaceID string) {
+	if strings.TrimSpace(accessToken) == "" {
+		return "", ""
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, perchAppURL+"/api/perchai/account", nil)
+	if err != nil {
+		return "", ""
+	}
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("User-Agent", "perchai-cli/unknown")
+	resp, err := perchHTTPClient().Do(req)
+	if err != nil {
+		return "", ""
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", ""
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
+	var acct struct {
+		Profile struct {
+			ID string `json:"id"`
+		} `json:"profile"`
+		Session struct {
+			UserID      string `json:"userId"`
+			WorkspaceID string `json:"workspaceId"`
+		} `json:"session"`
+	}
+	if err := json.Unmarshal(body, &acct); err != nil {
+		return "", ""
+	}
+	uid := acct.Session.UserID
+	if uid == "" {
+		uid = acct.Profile.ID
+	}
+	return uid, acct.Session.WorkspaceID
 }
 
 // extractPerchCode accepts either a bare code or the whole redirect URL and

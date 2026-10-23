@@ -31,6 +31,10 @@ type Request struct {
 	ResponseBuf    io.Writer         // writer to capture response text for token estimation & logging
 	StartTime      time.Time         // request start time for TTFT tracking
 	TTFT           *int64            // pointer to TTFT metric (ms to first chunk)
+	// Perch account identity, captured at sign-in and sent as the attribution
+	// block on every model call. Empty for every other provider.
+	PerchUserID      string
+	PerchWorkspaceID string
 }
 
 // Executor forwards a request upstream and writes the response.

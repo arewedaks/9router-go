@@ -48,11 +48,14 @@ func TestPerchForwardSendsManualModelOption(t *testing.T) {
 	if got := gotBody["manualModelOptionId"]; got != "openrouter-deepseek-deepseek-v4-1-flash-1017-cloudflare" {
 		t.Errorf("manualModelOptionId = %v, want the openrouter option id for deepseek-flash-starter", got)
 	}
-	if _, has := gotBody["preferredModelId"]; has {
-		t.Error("preferredModelId must not be sent: the server ignores it and it is not the pin")
+	// preferredModelId and strictManual:false are what the CLI sends. Neither
+	// pins the model (manualModelOptionId does), but the envelope has to match
+	// the official client or the gate treats the request as unbound.
+	if gotBody["preferredModelId"] == nil {
+		t.Error("preferredModelId must be sent: the CLI always includes it")
 	}
-	if gotBody["strictManual"] != true {
-		t.Error("strictManual must be true, otherwise the server may substitute its default model")
+	if gotBody["strictManual"] != false {
+		t.Error("strictManual must be false: that is what the CLI sends")
 	}
 	if gotBody["clientSurface"] != "cli" {
 		t.Errorf("clientSurface = %v, want cli", gotBody["clientSurface"])
@@ -178,5 +181,83 @@ func TestPerchRunIDShape(t *testing.T) {
 	}
 	if len(parts[3]) != 8 {
 		t.Errorf("suffix %q should be 8 chars", parts[3])
+	}
+}
+
+// The CLI binds every model call to the account with an attribution block
+// (userId / workspaceId / runId / lane / source). Without it Perch treats the
+// request as unbound and answers 403 perch_surface_required — clientSurface
+// alone is just a string the caller asserts.
+func TestPerchForwardSendsAttribution(t *testing.T) {
+	var got map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(raw, &got)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"ok":true,"text":"X","model":"m","finishReason":"stop"}`)
+	}))
+	defer srv.Close()
+
+	cfg := providers.KnownProviders["perch"]
+	cfg.BaseURL = srv.URL
+	rec := httptest.NewRecorder()
+	req := &Request{
+		Ctx: context.Background(), Client: http.DefaultClient, Config: &cfg,
+		APIKey: "tok",
+		Body:   []byte(`{"model":"deepseek-flash-starter","messages":[{"role":"user","content":"hi"}]}`),
+		SessionID:        "conv-1",
+		PerchUserID:      "user-abc",
+		PerchWorkspaceID: "ws-xyz",
+	}
+	if err := ForwardPerch(rec, req); err != nil {
+		t.Fatalf("ForwardPerch: %v", err)
+	}
+	attr, ok := got["attribution"].(map[string]any)
+	if !ok {
+		t.Fatalf("no attribution in body: %v", got)
+	}
+	for k, want := range map[string]string{
+		"userId": "user-abc", "workspaceId": "ws-xyz",
+		"lane": "chat", "source": "cli",
+	} {
+		if attr[k] != want {
+			t.Errorf("attribution.%s = %v, want %q", k, attr[k], want)
+		}
+	}
+	if attr["runId"] != got["runId"] {
+		t.Errorf("attribution.runId %v must match the body runId %v", attr["runId"], got["runId"])
+	}
+	if got["strictManual"] != false {
+		t.Error("strictManual must be false: the CLI sends false, true pins differently")
+	}
+	if got["preferredModelId"] == nil {
+		t.Error("preferredModelId missing: the CLI always sends it")
+	}
+}
+
+// Without captured ids there is nothing to attribute, and sending an empty
+// block would be worse than omitting it.
+func TestPerchForwardOmitsEmptyAttribution(t *testing.T) {
+	var got map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(raw, &got)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"ok":true,"text":"X","model":"m"}`)
+	}))
+	defer srv.Close()
+
+	cfg := providers.KnownProviders["perch"]
+	cfg.BaseURL = srv.URL
+	rec := httptest.NewRecorder()
+	req := &Request{
+		Ctx: context.Background(), Client: http.DefaultClient, Config: &cfg, APIKey: "tok",
+		Body: []byte(`{"model":"deepseek-flash-starter","messages":[{"role":"user","content":"hi"}]}`),
+	}
+	if err := ForwardPerch(rec, req); err != nil {
+		t.Fatalf("ForwardPerch: %v", err)
+	}
+	if _, has := got["attribution"]; has {
+		t.Error("attribution must be omitted when no ids were captured")
 	}
 }

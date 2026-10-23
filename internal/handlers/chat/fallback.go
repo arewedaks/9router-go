@@ -375,8 +375,10 @@ func (h *ChatHandler) tryForwardWithConnection(
 			ToolNameMap:    claudeToolMap,
 			UpstreamClaude: upstreamClaudeWanted(isAnthropic, providerCfg, claudeNative),
 			ResponseBuf:    &metrics.ResponseBuf,
-			StartTime:      start,
-			TTFT:           &metrics.TTFT,
+			StartTime:        start,
+			TTFT:             &metrics.TTFT,
+			PerchUserID:      connData.PerchUserID,
+			PerchWorkspaceID: connData.PerchWorkspaceID,
 		})
 	} else if providerCfg.IsGeminiNative() {
 		fwdErr = h.forwardGeminiNativeRequest(ctx, w, provider, providerCfg, apiKey, connectionID, pipedBody, isStream, translateResponse, metrics)

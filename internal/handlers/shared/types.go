@@ -32,6 +32,11 @@ type ConnectionData struct {
 	ConnectionNoProxy      string                 `json:"connectionNoProxy,omitempty"`
 	StrictProxy            bool                   `json:"strictProxy,omitempty"`
 	ProviderSpecificData   map[string]interface{} `json:"providerSpecificData,omitempty"`
+	// Perch account identity, written at sign-in and read on every model call
+	// to build the attribution block that ties a request to the account. Only
+	// the Perch lane uses these.
+	PerchUserID      string `json:"perchUserId,omitempty"`
+	PerchWorkspaceID string `json:"perchWorkspaceId,omitempty"`
 }
 
 // UsageLogInfo holds request context needed to log a usage record.

@@ -88,7 +88,26 @@ func (h *ChatHandler) HandleChatCompletions(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	ctx := handlerutil.WithSessionID(r.Context(), handlerutil.ExtractSessionID(r))
+	sessID := handlerutil.ExtractSessionID(r)
+	// DIAG: header dan identitas apa yang dikirim klien untuk request ini.
+	{
+		hdrs := map[string]string{}
+		for _, k := range []string{"x-session-id", "session-id", "session_id",
+			"x-claude-code-session-id", "x-amp-thread-id", "user-agent",
+			"x-title", "x-stainless-package-version", "anthropic-beta"} {
+			if v := r.Header.Get(k); v != "" {
+				hdrs[k] = v
+			}
+		}
+		log.Warn("client-diag", "inbound",
+			"model", reqBody.Model,
+			"resolved", modelInfo.Model,
+			"provider", modelInfo.Provider,
+			"session_id", sessID,
+			"stream", reqBody.Stream,
+			"headers", fmt.Sprintf("%v", hdrs))
+	}
+	ctx := handlerutil.WithSessionID(r.Context(), sessID)
 	// Per-request token-saver opt-out, decided once at the HTTP boundary so the
 	// decision travels with the request instead of being re-read per stage.
 	ctx = tokensaver.WithBypass(ctx, r.Header.Get(tokensaver.BypassHeader))

@@ -44,6 +44,7 @@ import (
 	"strings"
 	"time"
 
+	"9router/proxy/internal/log"
 	"9router/proxy/internal/proxy"
 )
 
@@ -67,14 +68,36 @@ var PerchModelOption = map[string]string{
 // even when empty so the endpoint sees the same shape it expects from its own
 // client.
 type perchBody struct {
-	Request            perchRequest `json:"request"`
-	RunID              string       `json:"runId"`
-	Lane               string       `json:"lane"`
-	StrictManual       bool         `json:"strictManual"`
-	ManualModelOption  string       `json:"manualModelOptionId,omitempty"`
-	AvoidModelIDs      []string     `json:"avoidModelIds"`
-	ClientSurface      string       `json:"clientSurface"`
-	ResendAfterOutput  bool         `json:"resendAfterOutput"`
+	Request           perchRequest     `json:"request"`
+	RunID             string           `json:"runId"`
+	Lane              string           `json:"lane"`
+	StrictManual      bool             `json:"strictManual"`
+	PreferredModelID  string           `json:"preferredModelId,omitempty"`
+	ManualModelOption string           `json:"manualModelOptionId,omitempty"`
+	AvoidModelIDs     []string         `json:"avoidModelIds"`
+	Attribution       *perchAttribution `json:"attribution,omitempty"`
+	ClientSurface     string           `json:"clientSurface"`
+	ResendAfterOutput bool             `json:"resendAfterOutput"`
+}
+
+// perchAttribution is the identity block the CLI attaches to every model call.
+//
+// Measured against a live CLI (2026-10-23): the request it sends carries
+// userId / workspaceId / runId / lane / source, and the same call without that
+// block is what Perch answers with
+//
+//	403 perch_surface_required "Repeated direct-access attempts…"
+//
+// clientSurface alone is a string the caller asserts; attribution is the
+// account binding the server can check. BillingMultiplier is sent as null by the
+// CLI and is kept so the shape matches byte for byte.
+type perchAttribution struct {
+	UserID            string  `json:"userId"`
+	WorkspaceID       string  `json:"workspaceId"`
+	RunID             string  `json:"runId"`
+	Lane              string  `json:"lane"`
+	Source            string  `json:"source"`
+	BillingMultiplier *int    `json:"billingMultiplier"`
 }
 
 type perchRequest struct {
@@ -136,6 +159,29 @@ func perchRunID(req *Request) string {
 	return "tkt-cli-" + fmt.Sprint(time.Now().UnixMilli()) + "-" + suffix
 }
 
+// perchAttributionFor builds the identity block the CLI sends with every model
+// call. The account and workspace ids are captured at sign-in (see the Perch
+// OAuth exchange); without them the request still goes out, it simply carries no
+// attribution and looks like an unbound caller to Perch's gate.
+func perchAttributionFor(req *Request, runID string) *perchAttribution {
+	if req == nil {
+		return nil
+	}
+	uid := strings.TrimSpace(req.PerchUserID)
+	wid := strings.TrimSpace(req.PerchWorkspaceID)
+	if uid == "" || wid == "" {
+		return nil
+	}
+	return &perchAttribution{
+		UserID:            uid,
+		WorkspaceID:       wid,
+		RunID:             runID,
+		Lane:              "chat",
+		Source:            "cli",
+		BillingMultiplier: nil,
+	}
+}
+
 // ForwardPerch converts an OpenAI chat-completions request into a Perch model
 // call and translates the answer back.
 func ForwardPerch(w http.ResponseWriter, req *Request) error {
@@ -172,13 +218,16 @@ func ForwardPerch(w http.ResponseWriter, req *Request) error {
 		msgs = append(msgs, perchMessage{Role: m.Role, Content: perchText(m.Content)})
 	}
 
+	runID := perchRunID(req)
 	body := perchBody{
 		Request:           perchRequest{Messages: msgs, MaxTokens: oreq.MaxTokens},
-		RunID:             perchRunID(req),
+		RunID:             runID,
 		Lane:              "chat",
-		StrictManual:      true,
+		StrictManual:      false,
+		PreferredModelID:  option,
 		ManualModelOption: option,
 		AvoidModelIDs:     []string{},
+		Attribution:       perchAttributionFor(req, runID),
 		ClientSurface:     "cli",
 		ResendAfterOutput: true,
 	}
@@ -213,6 +262,26 @@ func ForwardPerch(w http.ResponseWriter, req *Request) error {
 		return fmt.Errorf("perch: upstream: %w", err)
 	}
 	defer resp.Body.Close()
+
+	// DIAG: rekam apa yang dikirim dan apa jawabannya, untuk setiap panggilan.
+	{
+		sessID := ""
+		connID := ""
+		if req != nil {
+			sessID = req.SessionID
+			connID = req.ConnectionID
+		}
+		log.Warn("perch-diag", "call",
+			"status", resp.StatusCode,
+			"session_id", sessID,
+			"connection_id", connID,
+			"run_id", body.RunID,
+			"model_option", option,
+			"max_tokens", oreq.MaxTokens,
+			"stream", oreq.Stream,
+			"user_agent", perchUserAgent,
+			"body_bytes", len(raw))
+	}
 
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
