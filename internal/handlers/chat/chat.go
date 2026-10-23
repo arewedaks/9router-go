@@ -836,15 +836,35 @@ func (h *ChatHandler) cachedModelIDs(provID, outputAlias string) []string {
 	if h.Repo == nil {
 		return nil
 	}
+	// Every spelling the cache might have been written under. An import keyed
+	// by a different alias than the one this list renders is the bug that made
+	// Perch invisible here: the rows were stored under "perchai" while
+	// GetProviderAlias returned "pch" (it picks whichever alias the map
+	// iteration reached first), so the lookup missed them entirely and
+	// /v1/models advertised nothing for a provider that had just imported four
+	// models.
 	keys := []string{provID}
-	if outputAlias != "" && outputAlias != provID {
-		keys = append(keys, outputAlias)
+	add := func(k string) {
+		if k == "" || k == provID {
+			return
+		}
+		for _, existing := range keys {
+			if existing == k {
+				return
+			}
+		}
+		keys = append(keys, k)
 	}
-	if canon := providers.ResolveAlias(provID); canon != "" && canon != provID {
-		keys = append(keys, canon)
+	add(outputAlias)
+	add(providers.ResolveAlias(provID))
+	add(providers.ResolveAlias(outputAlias))
+	for _, a := range providers.AliasesFor(provID) {
+		add(a)
 	}
-	if canon := providers.ResolveAlias(outputAlias); canon != "" && canon != outputAlias {
-		keys = append(keys, canon)
+	if canon := providers.ResolveAlias(provID); canon != "" {
+		for _, a := range providers.AliasesFor(canon) {
+			add(a)
+		}
 	}
 
 	cached, err := h.Repo.ListCachedModels(keys...)
