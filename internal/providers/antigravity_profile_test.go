@@ -1,6 +1,9 @@
 package providers
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestNormalizeAntigravityClientProfile(t *testing.T) {
 	cases := []struct {
@@ -50,24 +53,42 @@ func TestIsAntigravityClientProfile(t *testing.T) {
 }
 
 func TestAntigravityUserAgent_IDE(t *testing.T) {
-	const want = "antigravity/ide/2.11.0 darwin/arm64"
+	// The IDE profile emits the CLI identity: upstream unified them after the
+	// 'ide' flavor was answered HTTP 404 for Gemini 4 Argon tiered models.
+	const want = "antigravity/cli/1.4.0 (aidev_client; os_type=windows; arch=amd64; cl=1000494485; auth_method=consumer)"
 	if got := AntigravityUserAgent(AntigravityProfileIDE); got != want {
 		t.Errorf("IDE UA = %q, want %q", got, want)
 	}
 }
 
 func TestAntigravityUserAgent_CLI(t *testing.T) {
-	const want = "antigravity/cli/1.1.5 (aidev_client; os_type=darwin; arch=arm64; auth_method=consumer)"
+	const want = "antigravity/cli/1.4.0 (aidev_client; os_type=windows; arch=amd64; cl=1000494485; auth_method=consumer)"
 	if got := AntigravityUserAgent(AntigravityProfileCLI); got != want {
 		t.Errorf("CLI UA = %q, want %q", got, want)
 	}
 }
 
-// An unknown profile string must behave exactly like the historical IDE
-// default so existing connections keep working unchanged.
+// An unknown profile string must behave exactly like the IDE default so
+// existing connections keep working unchanged.
 func TestAntigravityUserAgent_UnknownFallsBackToIDE(t *testing.T) {
-	const want = "antigravity/ide/2.11.0 darwin/arm64"
-	if got := AntigravityUserAgent(AntigravityClientProfile("bogus")); got != want {
-		t.Errorf("unknown profile UA = %q, want %q", got, want)
+	if got, want := AntigravityUserAgent(AntigravityClientProfile("bogus")), AntigravityUserAgent(AntigravityProfileIDE); got != want {
+		t.Errorf("unknown profile UA = %q, want the IDE default %q", got, want)
+	}
+}
+
+// Both profiles must resolve to one identity. A split would mean the operator's
+// profile setting silently changes which models the account can reach.
+func TestAntigravityProfilesShareOneIdentity(t *testing.T) {
+	ide, cli := AntigravityUserAgent(AntigravityProfileIDE), AntigravityUserAgent(AntigravityProfileCLI)
+	if ide != cli {
+		t.Errorf("IDE UA %q and CLI UA %q must be identical", ide, cli)
+	}
+	for _, want := range []string{"antigravity/cli/1.4.0", "cl=1000494485", "auth_method=consumer"} {
+		if !strings.Contains(cli, want) {
+			t.Errorf("UA %q is missing %q", cli, want)
+		}
+	}
+	if strings.Contains(cli, "antigravity/ide/") {
+		t.Error("the ide/ flavor is refused by the Argon lanes and must not be emitted")
 	}
 }

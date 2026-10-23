@@ -460,16 +460,22 @@ func TestAntigravityHumanizesTieredModelIDs(t *testing.T) {
 // set. The handler used to send "antigravity/1.0.0" regardless of the configured
 // profile, so an IDE connection reported six fewer models than the picker.
 func TestAntigravityQuotaSendsProfileUserAgent(t *testing.T) {
+	// Both profiles resolve to one identity now: the ide/ flavor is answered
+	// HTTP 404 for Gemini 4 Argon models, so the quota RPCs send the CLI shape
+	// for every profile. What this test still guards is that the value reaching
+	// the wire is the real identity rather than the old hardcoded
+	// "antigravity/1.0.0" that made an IDE connection report six fewer models.
+	want := providers.AntigravityUserAgent(providers.AntigravityProfileCLI)
 	cases := []struct {
 		profile string
 		want    string
 	}{
-		{"ide", "antigravity/ide/2.11.0 darwin/arm64"},
-		{"cli", "antigravity/cli/1.1.5 (aidev_client; os_type=darwin; arch=arm64; auth_method=consumer)"},
+		{"ide", want},
+		{"cli", want},
 		// An unset profile is the IDE default, not the malformed legacy string.
-		{"", "antigravity/ide/2.11.0 darwin/arm64"},
+		{"", want},
 		// An unknown value normalises to ide rather than reaching the wire raw.
-		{"bogus", "antigravity/ide/2.11.0 darwin/arm64"},
+		{"bogus", want},
 	}
 	for _, c := range cases {
 		as := newAntigravityServer(t)

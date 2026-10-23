@@ -194,8 +194,13 @@ func TestFetchAntigravityModels_LiveHTTP(t *testing.T) {
 	if !strings.HasPrefix(gotAuth, "Bearer ya29.") {
 		t.Errorf("expected Bearer token, got %q", gotAuth)
 	}
-	if !strings.Contains(gotUA, "antigravity/ide/") || !strings.Contains(gotUA, "darwin/arm64") {
+	// The fetch path now sends the CLI identity for both profiles: the ide/
+	// flavor is answered HTTP 404 for the newer Argon models.
+	if !strings.Contains(gotUA, "antigravity/cli/") {
 		t.Errorf("unexpected User-Agent %q", gotUA)
+	}
+	if strings.Contains(gotUA, "antigravity/ide/") {
+		t.Errorf("ide/ flavor must not be sent, got %q", gotUA)
 	}
 	if len(res.Models) != 9 {
 		t.Fatalf("expected 9 models, got %d: %+v", len(res.Models), res.Models)

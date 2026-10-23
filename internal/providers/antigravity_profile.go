@@ -26,15 +26,23 @@ const (
 	AntigravityProfileCLI AntigravityClientProfile = "cli"
 )
 
-// Version constants. The IDE version matches the value this fork already sent
-// before profiles existed, so the default behaviour is byte-for-byte unchanged.
-// The CLI version mirrors OmniRoute's embedded fallback (1.1.5).
+// Version constants. Bumped to the pair upstream ships with Gemini 4 Argon:
+// the 'ide' flavor was answered HTTP 404 for that model family, and the CLI
+// identity is the one the tiered Argon lanes accept (upstream
+// decolua/9router#4934). The IDE version is kept separately because the MITM
+// handlers and quota paths still emit it in their metadata block.
 const (
-	antigravityIDEVersion = "2.11.0"
-	antigravityCLIVersion = "1.1.5"
+	antigravityIDEVersion = "2.23.0"
+	antigravityCLIVersion = "1.4.0"
 
-	antigravityOS  = "darwin"
-	antigravityCPU = "arm64"
+	antigravityOS  = "windows"
+	antigravityCPU = "amd64"
+
+	// antigravityClientID is the `cl=` parameter the official CLI carries in its
+	// User-Agent. The Cloud Code backend reads it as a client-build marker; an
+	// identity without it is still answered, but the Argon lanes expect the
+	// full shape.
+	antigravityClientID = "1000494485"
 )
 
 // NormalizeAntigravityClientProfile coerces an arbitrary stored value into a
@@ -79,14 +87,18 @@ func (p AntigravityClientProfile) String() string { return string(p) }
 
 // AntigravityUserAgent returns the User-Agent header for the given profile.
 //
-// ide → antigravity/ide/<ver> darwin/arm64
-// cli → antigravity/cli/<ver> (aidev_client; os_type=darwin; arch=arm64; auth_method=consumer)
+// Both profiles now emit the CLI identity. Upstream unified them after finding
+// that the 'ide' flavor is answered HTTP 404 for Gemini 4 Argon tiered models:
+// the two clients share one OAuth client id and one Code Assist backend, so the
+// backend only distinguishes them by this string, and only the CLI shape is
+// accepted by the newer model families.
+//
+// cli/ide → antigravity/cli/<ver> (aidev_client; os_type=…; arch=…; cl=…;
+//           auth_method=consumer)
 func AntigravityUserAgent(profile AntigravityClientProfile) string {
-	if profile == AntigravityProfileCLI {
-		return "antigravity/cli/" + antigravityCLIVersion +
-			" (aidev_client; os_type=" + antigravityOS +
-			"; arch=" + antigravityCPU +
-			"; auth_method=consumer)"
-	}
-	return "antigravity/ide/" + antigravityIDEVersion + " " + antigravityOS + "/" + antigravityCPU
+	return "antigravity/cli/" + antigravityCLIVersion +
+		" (aidev_client; os_type=" + antigravityOS +
+		"; arch=" + antigravityCPU +
+		"; cl=" + antigravityClientID +
+		"; auth_method=consumer)"
 }

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"9router/proxy/internal/db"
+	"9router/proxy/internal/providers"
 )
 
 // newAntigravityHandler returns a chat handler backed by a temp DB so the
@@ -30,8 +31,13 @@ func TestAntigravityUserAgentFollowsGlobalSetting(t *testing.T) {
 	if err != nil {
 		t.Fatalf("getProviderConfig: %v", err)
 	}
-	if ua := cfg.StaticHeaders["User-Agent"]; !strings.Contains(ua, "antigravity/ide/") {
-		t.Fatalf("default profile should be IDE, got %q", ua)
+	// Both profiles now resolve to one identity (the CLI shape), because the
+	// ide/ flavor is answered HTTP 404 for Gemini 4 Argon models. What this test
+	// still has to prove is that the setting is read from the repository at all:
+	// a config that ignored it would keep emitting whatever was compiled in.
+	want := providers.AntigravityUserAgent(providers.AntigravityProfileIDE)
+	if ua := cfg.StaticHeaders["User-Agent"]; ua != want {
+		t.Fatalf("default profile UA = %q, want %q", ua, want)
 	}
 
 	if err := h.Repo.SetAntigravityClientProfile("cli"); err != nil {
@@ -56,8 +62,8 @@ func TestAntigravityUserAgentFollowsGlobalSetting(t *testing.T) {
 	if err != nil {
 		t.Fatalf("getProviderConfig: %v", err)
 	}
-	if ua := cfg.StaticHeaders["User-Agent"]; !strings.Contains(ua, "antigravity/ide/") {
-		t.Fatalf("switching back should restore IDE, got %q", ua)
+	if ua := cfg.StaticHeaders["User-Agent"]; ua != providers.AntigravityUserAgent(providers.AntigravityProfileIDE) {
+		t.Fatalf("switching back should restore the IDE profile's identity, got %q", ua)
 	}
 }
 
@@ -80,7 +86,11 @@ func TestAntigravityIgnoresStalePerConnectionProfile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("getProviderConfig: %v", err)
 	}
-	if ua := cfg.StaticHeaders["User-Agent"]; !strings.Contains(ua, "antigravity/ide/") {
-		t.Fatalf("stale per-connection profile must not win; got %q", ua)
+	// A stale per-connection profile must not override the account-wide
+	// setting. Both profiles share one identity now, so pin the exact value the
+	// global default produces rather than a substring of the old ide/ shape.
+	want := providers.AntigravityUserAgent(providers.AntigravityProfileIDE)
+	if ua := cfg.StaticHeaders["User-Agent"]; ua != want {
+		t.Fatalf("stale per-connection profile must not win; got %q want %q", ua, want)
 	}
 }
