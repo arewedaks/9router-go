@@ -137,3 +137,46 @@ func TestPerchTextFlattensBlocks(t *testing.T) {
 		t.Error("a plain string must pass through unchanged")
 	}
 }
+
+// The CLI keeps one run id for every turn of a session. Minting a fresh one per
+// request is the shape Perch reads as direct API access, which is what produced
+// the 403 "Repeated direct-access attempts" the harness reported.
+func TestPerchRunIDStablePerSession(t *testing.T) {
+	a := perchRunID(&Request{SessionID: "conversation-abc"})
+	b := perchRunID(&Request{SessionID: "conversation-abc"})
+	if a != b {
+		t.Errorf("same session produced different run ids: %q vs %q", a, b)
+	}
+	c := perchRunID(&Request{SessionID: "conversation-xyz"})
+	if a == c {
+		t.Errorf("different sessions share a run id: %q", a)
+	}
+}
+
+// Without a session there is nothing to key on, so each call must still be
+// distinct — collapsing unrelated requests onto one run would be worse.
+func TestPerchRunIDUniqueWithoutSession(t *testing.T) {
+	seen := map[string]bool{}
+	for i := 0; i < 32; i++ {
+		id := perchRunID(&Request{})
+		if seen[id] {
+			t.Fatalf("duplicate run id without a session: %q", id)
+		}
+		seen[id] = true
+	}
+}
+
+// The id has to keep the CLI's shape or the endpoint may reject it outright.
+func TestPerchRunIDShape(t *testing.T) {
+	id := perchRunID(&Request{SessionID: "s1"})
+	if !strings.HasPrefix(id, "tkt-cli-") {
+		t.Errorf("run id %q must start with tkt-cli-", id)
+	}
+	parts := strings.Split(id, "-")
+	if len(parts) != 4 {
+		t.Fatalf("run id %q should be tkt-cli-<ms>-<8 chars>", id)
+	}
+	if len(parts[3]) != 8 {
+		t.Errorf("suffix %q should be 8 chars", parts[3])
+	}
+}

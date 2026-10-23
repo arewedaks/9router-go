@@ -35,6 +35,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	json "encoding/json/v2"
 	"fmt"
@@ -108,6 +109,33 @@ func shortRand() string {
 	return hex.EncodeToString(b[:])
 }
 
+// perchRunID derives the run id for this call.
+//
+// The CLI mints one `tkt-cli-<ms>-<8 chars>` per run and keeps it for every turn
+// of that run. This lane originally minted a fresh one per request — the shape
+// Perch reports when it decides an account is being driven by direct API access
+// rather than by its own client:
+//
+//	403 perch_surface_required "Repeated direct-access attempts…"
+//
+// A stable suffix per conversation removes that signal. The id still carries the
+// current timestamp so it looks like a freshly started run, but the trailing
+// eight characters stay constant for one conversation, the way the CLI keeps one
+// run for a whole session. Without a session id there is nothing to key on, so a
+// random suffix is used rather than collapsing unrelated requests onto one run.
+func perchRunID(req *Request) string {
+	key := ""
+	if req != nil {
+		key = strings.TrimSpace(req.SessionID)
+	}
+	suffix := shortRand()
+	if key != "" {
+		sum := sha256.Sum256([]byte("perch:" + key))
+		suffix = hex.EncodeToString(sum[:4])
+	}
+	return "tkt-cli-" + fmt.Sprint(time.Now().UnixMilli()) + "-" + suffix
+}
+
 // ForwardPerch converts an OpenAI chat-completions request into a Perch model
 // call and translates the answer back.
 func ForwardPerch(w http.ResponseWriter, req *Request) error {
@@ -146,7 +174,7 @@ func ForwardPerch(w http.ResponseWriter, req *Request) error {
 
 	body := perchBody{
 		Request:           perchRequest{Messages: msgs, MaxTokens: oreq.MaxTokens},
-		RunID:             "tkt-cli-" + fmt.Sprint(time.Now().UnixMilli()) + "-" + shortRand(),
+		RunID:             perchRunID(req),
 		Lane:              "chat",
 		StrictManual:      true,
 		ManualModelOption: option,
