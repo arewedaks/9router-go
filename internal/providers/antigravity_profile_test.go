@@ -53,9 +53,10 @@ func TestIsAntigravityClientProfile(t *testing.T) {
 }
 
 func TestAntigravityUserAgent_IDE(t *testing.T) {
-	// The IDE profile emits the CLI identity: upstream unified them after the
-	// 'ide' flavor was answered HTTP 404 for Gemini 4 Argon tiered models.
-	const want = "antigravity/cli/1.4.0 (aidev_client; os_type=windows; arch=amd64; cl=1000494485; auth_method=consumer)"
+	// The IDE app identifies as plain antigravity/<version>. The old
+	// "antigravity/ide/<ver> darwin/arm64" shape is what the Code Assist backend
+	// answers HTTP 404 to for the Gemini 4 Argon tiered models.
+	const want = "antigravity/2.23.0"
 	if got := AntigravityUserAgent(AntigravityProfileIDE); got != want {
 		t.Errorf("IDE UA = %q, want %q", got, want)
 	}
@@ -76,19 +77,26 @@ func TestAntigravityUserAgent_UnknownFallsBackToIDE(t *testing.T) {
 	}
 }
 
-// Both profiles must resolve to one identity. A split would mean the operator's
-// profile setting silently changes which models the account can reach.
-func TestAntigravityProfilesShareOneIdentity(t *testing.T) {
+// The dropdown has to change the wire, or it is a control that does nothing.
+// Guard both halves: the two profiles must differ, and neither may resurrect
+// the retired ide/ flavor the Argon lanes reject.
+func TestAntigravityProfilesDifferAndAvoidRetiredFlavor(t *testing.T) {
 	ide, cli := AntigravityUserAgent(AntigravityProfileIDE), AntigravityUserAgent(AntigravityProfileCLI)
-	if ide != cli {
-		t.Errorf("IDE UA %q and CLI UA %q must be identical", ide, cli)
+	if ide == cli {
+		t.Errorf("IDE and CLI must differ, both resolved to %q — the profile dropdown would be inert", ide)
 	}
-	for _, want := range []string{"antigravity/cli/1.4.0", "cl=1000494485", "auth_method=consumer"} {
-		if !strings.Contains(cli, want) {
-			t.Errorf("UA %q is missing %q", cli, want)
+	for name, ua := range map[string]string{"ide": ide, "cli": cli} {
+		if strings.Contains(ua, "antigravity/ide/") {
+			t.Errorf("%s UA %q uses the retired ide/ flavor", name, ua)
+		}
+		if !strings.HasPrefix(ua, "antigravity/") {
+			t.Errorf("%s UA %q does not start with antigravity/", name, ua)
 		}
 	}
-	if strings.Contains(cli, "antigravity/ide/") {
-		t.Error("the ide/ flavor is refused by the Argon lanes and must not be emitted")
+	if !strings.Contains(ide, "2.23.0") {
+		t.Errorf("IDE UA %q must carry the current 2.23.0 version", ide)
+	}
+	if !strings.Contains(cli, "cli/1.4.0") || !strings.Contains(cli, "cl=1000494485") {
+		t.Errorf("CLI UA %q is missing the 1.4.0 identity or the cl= marker", cli)
 	}
 }

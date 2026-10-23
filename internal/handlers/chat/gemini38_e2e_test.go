@@ -43,11 +43,11 @@ func TestE2E_Gemini38_FlashHigh_NonStream_ToolCall(t *testing.T) {
 		if !strings.Contains(r.URL.Path, "generateContent") {
 			t.Errorf("expected generateContent path, got %s", r.URL.Path)
 		}
-		// Check the User-Agent carries the current Antigravity identity. The
-		// version moves with the upstream client (1.4.0 today); pin the shape and
-		// the flavor, not a literal that will silently rot on the next bump.
-		if ua := r.Header.Get("User-Agent"); !strings.Contains(ua, "antigravity/cli/1.") {
-			t.Errorf("expected an antigravity/cli/1.x User-Agent, got %q", ua)
+		// The chat path carries the configured profile's identity. Default is IDE,
+		// whose shape is plain antigravity/<version> — pin the shape, not a literal
+		// that rots on the next bump.
+		if ua := r.Header.Get("User-Agent"); !strings.HasPrefix(ua, "antigravity/") {
+			t.Errorf("expected an antigravity/ User-Agent, got %q", ua)
 		}
 		// Read actual body
 		buf := new(bytes.Buffer)

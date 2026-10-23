@@ -44,7 +44,6 @@ const (
 	// full shape.
 	antigravityClientID = "1000494485"
 )
-
 // NormalizeAntigravityClientProfile coerces an arbitrary stored value into a
 // known profile. Unknown or absent values fall back to "ide".
 //
@@ -87,18 +86,24 @@ func (p AntigravityClientProfile) String() string { return string(p) }
 
 // AntigravityUserAgent returns the User-Agent header for the given profile.
 //
-// Both profiles now emit the CLI identity. Upstream unified them after finding
-// that the 'ide' flavor is answered HTTP 404 for Gemini 4 Argon tiered models:
-// the two clients share one OAuth client id and one Code Assist backend, so the
-// backend only distinguishes them by this string, and only the CLI shape is
-// accepted by the newer model families.
+// ide → antigravity/<ver>                    (the IDE app's own shape)
+// cli → antigravity/cli/<ver> (aidev_client; os_type=…; arch=…; cl=…;
+//        auth_method=consumer)               (the standalone `agy` CLI)
 //
-// cli/ide → antigravity/cli/<ver> (aidev_client; os_type=…; arch=…; cl=…;
-//           auth_method=consumer)
+// The two are genuinely different clients and stay different strings: the
+// profile setting would be a no-op otherwise. What changed is the ide shape.
+// It used to be `antigravity/ide/<ver> darwin/arm64` — a flavor the Code Assist
+// backend answers HTTP 404 to for the Gemini 4 Argon tiered models. The IDE app
+// itself identifies as plain `antigravity/<version>` (see the MITM handler,
+// which sends exactly that when it rewrites the metadata block), so the ide
+// profile now emits the real IDE shape instead of being folded into the CLI.
 func AntigravityUserAgent(profile AntigravityClientProfile) string {
-	return "antigravity/cli/" + antigravityCLIVersion +
-		" (aidev_client; os_type=" + antigravityOS +
-		"; arch=" + antigravityCPU +
-		"; cl=" + antigravityClientID +
-		"; auth_method=consumer)"
+	if profile == AntigravityProfileCLI {
+		return "antigravity/cli/" + antigravityCLIVersion +
+			" (aidev_client; os_type=" + antigravityOS +
+			"; arch=" + antigravityCPU +
+			"; cl=" + antigravityClientID +
+			"; auth_method=consumer)"
+	}
+	return "antigravity/" + antigravityIDEVersion
 }

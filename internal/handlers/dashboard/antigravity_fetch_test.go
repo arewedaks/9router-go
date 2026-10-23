@@ -194,9 +194,9 @@ func TestFetchAntigravityModels_LiveHTTP(t *testing.T) {
 	if !strings.HasPrefix(gotAuth, "Bearer ya29.") {
 		t.Errorf("expected Bearer token, got %q", gotAuth)
 	}
-	// The fetch path now sends the CLI identity for both profiles: the ide/
-	// flavor is answered HTTP 404 for the newer Argon models.
-	if !strings.Contains(gotUA, "antigravity/cli/") {
+	// Discovery presents the profile's real identity. The default profile is IDE,
+	// whose shape is plain antigravity/<version>.
+	if !strings.HasPrefix(gotUA, "antigravity/") {
 		t.Errorf("unexpected User-Agent %q", gotUA)
 	}
 	if strings.Contains(gotUA, "antigravity/ide/") {

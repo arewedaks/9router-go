@@ -256,21 +256,22 @@ func TestExtractAntigravityProjectID(t *testing.T) {
 	}
 }
 
-// Both profiles carry the CLI identity. They used to differ, but the 'ide'
-// flavor is answered HTTP 404 for Gemini 4 Argon tiered models, so the two
-// clients now present one User-Agent (upstream decolua/9router#4934). A future
-// change that splits them again would silently cost the operator those models.
-func TestAntigravityOAuthUserAgent_SharesOneIdentity(t *testing.T) {
+// The profile must reach the OAuth login, or the dropdown would only affect
+// chat while the account was consented to under a different identity. The two
+// shapes stay distinct: the retired "antigravity/ide/<ver>" flavor is answered
+// HTTP 404 for Gemini 4 Argon, so IDE presents the real IDE string
+// "antigravity/<version>" and CLI keeps the full aidev_client form.
+func TestAntigravityOAuthUserAgent_DiffersPerProfile(t *testing.T) {
 	ide := antigravityOAuthUserAgent(providers.AntigravityProfileIDE)
 	cli := antigravityOAuthUserAgent(providers.AntigravityProfileCLI)
-	if ide != cli {
-		t.Fatalf("IDE and CLI must present the same User-Agent; got %q and %q", ide, cli)
+	if ide == cli {
+		t.Fatalf("IDE and CLI must present different User-Agents; both are %q", ide)
+	}
+	if strings.Contains(ide, "antigravity/ide/") {
+		t.Errorf("IDE UA = %q, must not use the retired ide/ flavor", ide)
 	}
 	if !strings.Contains(cli, "antigravity/cli/") {
 		t.Errorf("CLI UA = %q, want the cli/ flavor", cli)
-	}
-	if strings.Contains(ide, "antigravity/ide/") {
-		t.Errorf("IDE UA = %q, must not use the ide/ flavor the Argon lanes reject", ide)
 	}
 }
 
