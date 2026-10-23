@@ -44,6 +44,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"9router/proxy/internal/log"
@@ -254,6 +255,28 @@ const (
 	perchTurnTicketURL = "https://app.perchai.app/api/perch-terminal/turn-ticket"
 	perchTurnTicketHdr = "x-perch-turn-ticket"
 )
+
+// perchSurfaceCooldownFor is how long this lane stops calling Perch after the
+// hosted-model gate refuses a turn. The refusal is per account and per plan, so
+// retrying immediately cannot succeed — it only adds to the "repeated
+// direct-access attempts" Perch counts.
+const perchSurfaceCooldownFor = 10 * time.Minute
+
+var perchSurfaceCooldown struct {
+	mu    sync.Mutex
+	until time.Time
+}
+
+// perchSurfaceBlocked reports whether the gate tripped and the cooldown is still
+// running, returning the remaining wait.
+func perchSurfaceBlocked() (bool, time.Duration) {
+	perchSurfaceCooldown.mu.Lock()
+	defer perchSurfaceCooldown.mu.Unlock()
+	if time.Now().Before(perchSurfaceCooldown.until) {
+		return true, time.Until(perchSurfaceCooldown.until).Round(time.Second)
+	}
+	return false, 0
+}
 
 // perchTurnTicketURLFor derives the ticket endpoint from the model-call endpoint
 // so a test or a self-hosted override keeps both calls on the same host.
@@ -515,7 +538,32 @@ func ForwardPerch(w http.ResponseWriter, req *Request) error {
 		}
 	}
 
-	runID := perchRunID(req)
+	ctx := req.Ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	if blocked, wait := perchSurfaceBlocked(); blocked {
+		return &proxy.UpstreamError{
+			StatusCode: http.StatusServiceUnavailable,
+			Body:       []byte(`{"error":{"message":"Perch sedang menahan lane ini (perch_surface_required). Coba lagi dalam ` + wait.String() + `, atau pakai provider lain.","type":"perch_surface_required"}}`),
+		}
+	}
+
+	endpoint := "https://app.perchai.app/api/perch-terminal/model-call"
+	if req.Config != nil && req.Config.BaseURL != "" {
+		endpoint = req.Config.BaseURL
+	}
+
+	// The ticket gates the call and carries the runId it was issued for, so the
+	// body is built *after* minting: Perch pairs the header with body.runId, and
+	// a body minted independently never matches.
+	ticket := fetchPerchTurnTicket(ctx, req.Client, req.APIKey, "cli", endpoint)
+	runID := ticket.RunID
+	if runID == "" {
+		runID = perchRunID(req)
+	}
+
 	body := perchBody{
 		Request: perchRequest{
 			Messages:    msgs,
@@ -540,16 +588,6 @@ func ForwardPerch(w http.ResponseWriter, req *Request) error {
 	}
 	bodyBytes := len(raw)
 
-	ctx := req.Ctx
-	if ctx == nil {
-		ctx = context.Background()
-	}
-
-	endpoint := "https://app.perchai.app/api/perch-terminal/model-call"
-	if req.Config != nil && req.Config.BaseURL != "" {
-		endpoint = req.Config.BaseURL
-	}
-
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(raw))
 	if err != nil {
 		return fmt.Errorf("perch: build request: %w", err)
@@ -560,22 +598,7 @@ func ForwardPerch(w http.ResponseWriter, req *Request) error {
 	if oreq.Stream {
 		httpReq.Header.Set("Accept", "text/event-stream")
 	}
-
-	// The ticket gates the call and carries the runId it was issued for, so the
-	// body's runId has to match the ticket or Perch ignores the pairing.
-	if ticket := fetchPerchTurnTicket(ctx, req.Client, req.APIKey, "cli", endpoint); ticket.Ticket != "" {
-		if ticket.RunID != "" {
-			runID = ticket.RunID
-			body.RunID = runID
-			if body.Attribution != nil {
-				body.Attribution.RunID = runID
-			}
-		}
-		if raw, mErr := json.Marshal(body); mErr == nil {
-			httpReq.Body = io.NopCloser(bytes.NewReader(raw))
-			httpReq.ContentLength = int64(len(raw))
-			bodyBytes = len(raw)
-		}
+	if ticket.Ticket != "" {
 		httpReq.Header.Set(perchTurnTicketHdr, ticket.Ticket)
 	}
 
@@ -628,12 +651,18 @@ func ForwardPerch(w http.ResponseWriter, req *Request) error {
 
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
-		if resp.StatusCode == http.StatusForbidden && bytes.Contains(b, []byte("not_authorized")) {
-			if _, _, tierRequired := resolvePerchAttribution(req.Ctx, req.Client, req.APIKey); tierRequired {
-				return &proxy.UpstreamError{
-					StatusCode: http.StatusForbidden,
-					Body:       []byte(`{"error":{"message":"Akun Perch memerlukan pemilihan paket: silakan buka https://chat.perchai.app di browser, login dengan akun ini, pilih paket Starter (gratis), lalu coba kembali."}}`),
-				}
+		if resp.StatusCode == http.StatusForbidden && bytes.Contains(b, []byte("perch_surface_required")) {
+			// A 403 perch_surface_required is the hosted-model gate, not a broken
+			// request: the same body, ticket and attribution answered 200 earlier
+			// the same day, so the account or the plan moved behind our back.
+			// Without caching it, every client retry burns another direct-access
+			// attempt, which is the escalation Perch's message warns about.
+			perchSurfaceCooldown.mu.Lock()
+			perchSurfaceCooldown.until = time.Now().Add(perchSurfaceCooldownFor)
+			perchSurfaceCooldown.mu.Unlock()
+			return &proxy.UpstreamError{
+				StatusCode: http.StatusServiceUnavailable,
+				Body:       []byte(`{"error":{"message":"Perch menolak model hosted untuk akun ini (perch_surface_required). Paket akun hanya mengizinkan Perch AI Web/Desktop/CLI, bukan akses API langsung. Cek plan di https://chat.perchai.app atau pakai provider lain untuk model ini. Request berikutnya ditahan 10 menit agar tidak dianggap upaya akses langsung berulang.","type":"perch_surface_required"}}`),
 			}
 		}
 		return &proxy.UpstreamError{StatusCode: resp.StatusCode, Body: b}
