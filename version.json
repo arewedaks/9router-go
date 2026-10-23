@@ -1,5 +1,5 @@
 {
-  "latestVersion": "1.9.40",
+  "latestVersion": "1.9.41",
   "downloadUrl": "https://github.com/arewedaks/9router-go/releases/latest",
-  "releaseNotes": "- chore: bump version to 1.9.40 (6c26d60)\n- fix(dashboard): tombol invert hanya muncul saat mode selection aktif (a99bf28)\n- feat(dashboard): ganti enable/disable all dengan aksi bulk selected (enable, disable, delete) dan tombol invert (b98a93a)\n- fix(dashboard): pastikan urutan provider OpenAI Compatible stabil dan berurutan abjad/angka (4d0e519)\n- fix(dashboard): urutkan list akun provider secara alami berdasarkan abjad dan angka (0f5695e)\n- feat(opencode): port Bun BoringSSL stealth transport dari upstream #389 (258bad9)\n- chore(release): version.json -> v1.9.39 (4d3eb6e)\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
+  "releaseNotes": "- fix(workbuddy): pisahkan dari CodeBuddy untuk katalog model dan probe koneksi (63d559f)\n- feat(opencode): samakan fingerprint free tier ke bentuk v2 (UA 2.0.29, 4 session header, project global) (96af6d4)\n- fix(translator): pertahankan safetySettings Gemini saat dibungkus ke envelope Antigravity (1933ad7)\n- feat(jailbreak): tambah tombol download preset .md di list dan modal editor (163f85b)\n- fix(jailbreak): unbind model ke off secara otomatis saat preset/agent dihapus (5877bab)\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
 }
