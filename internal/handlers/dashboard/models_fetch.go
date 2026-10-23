@@ -247,6 +247,13 @@ func (h *Handler) fetchUpstreamModels(providerID, data string, timeout time.Dura
 		return h.fetchCodebuddyModels(canonical)
 	}
 
+	// Perch has no /models route either: the CLI asks for a default model and
+	// then names the model per request. Served from the verified Starter
+	// catalogue — see perch_catalog.go.
+	if canonical == "perch" || providerID == "perch" {
+		return h.fetchPerchModels(canonical)
+	}
+
 	// MiMo Code Free is keyless and has no /models route either; Import is
 	// served from the platform model ids — see mimo_catalog.go.
 	if isMimoFreeProvider(canonical) || isMimoFreeProvider(providerID) {
