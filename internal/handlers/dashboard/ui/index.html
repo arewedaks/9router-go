@@ -6424,6 +6424,7 @@
       { ids: ["codebuddy-cn", "cbcn", "codebuddy-intl", "cbai", "workbuddy", "wb"], render: p => codebuddyOAuthPanelHtml(p) },
       { ids: ["github", "gh", "copilot"], render: () => githubOAuthPanelHtml() },
       { ids: ["cline", "cl", "clinepass", "cp"], render: p => clineOAuthPanelHtml(p) },
+      { ids: ["perch", "pch", "perchai"], render: p => perchOAuthPanelHtml(p) },
       { ids: ["gemini-cli", "gc"], render: p => geminiCliOAuthPanelHtml(p) },
       { ids: ["kiro", "kr"], render: p => kiroOAuthPanelHtml(p) },
       { ids: ["kilocode", "kc"], render: p => kilocodeOAuthPanelHtml(p) },
@@ -8400,6 +8401,121 @@
   // Pending Cline context between authorize and exchange. Cline does not
   // round-trip a state value, so only the redirect URI has to be remembered.
   let clineOAuthCtx = null;
+
+  // ---- Perch (Supabase Auth: Google/GitHub, PKCE loopback) -------------
+  // Perch runs no OAuth server of its own: the CLI asks Perch for the Supabase
+  // coordinates and then hands the browser to Supabase. The handshake is
+  // authorization-code + PKCE, and Supabase bounces back to a loopback address
+  // nothing is listening on, so the operator copies the address bar back — the
+  // same paste-back shape Cline and Antigravity use.
+  function perchOAuthPanelHtml(providerId) {
+    return `
+      <div class="add-form oauth-form">
+        <div class="add-form-title"><span class="msym">passkey</span>Add via Perch sign-in</div>
+        <div style="font-size:0.72rem; color:var(--muted); margin-bottom:8px;">
+          Sign in with the Google or GitHub account you use for Perch. After you approve,
+          the browser lands on a <code>127.0.0.1</code> address that will not load — that is
+          expected. Copy the full address bar URL and paste it below.
+        </div>
+        <div class="add-form-grid oauth-grid">
+          <div>
+            <label class="field-label">Account name (optional)</label>
+            <input type="text" id="oauth-pch-name" placeholder="auto-filled from Perch">
+          </div>
+          <div>
+            <label class="field-label">Identity provider</label>
+            <select id="oauth-pch-provider">
+              <option value="google">Google</option>
+              <option value="github">GitHub</option>
+            </select>
+          </div>
+          <div style="display:flex; align-items:flex-end;">
+            <button class="btn btn-primary" id="oauth-pch-start" onclick="startPerchOAuth('${providerId}')">Sign in</button>
+          </div>
+        </div>
+        <div id="oauth-pch-step2" style="display:none; margin-top:10px;">
+          <label class="field-label">Callback URL (or raw code)</label>
+          <div class="auth-add">
+            <input type="text" id="oauth-pch-callback" placeholder="http://127.0.0.1:20128/oauth/perch/callback?code=...">
+            <button class="btn btn-primary" onclick="finishPerchOAuth('${providerId}')">Finish</button>
+          </div>
+        </div>
+        <div id="oauth-pch-msg" style="font-size:0.75rem; margin-top:8px; color:var(--muted);"></div>
+      </div>`;
+  }
+
+  // The verifier and project URL travel between authorize and exchange: the
+  // server keeps no session, so the page holds them.
+  let perchOAuthCtx = null;
+
+  async function startPerchOAuth(providerId) {
+    const msg = document.getElementById("oauth-pch-msg");
+    msg.style.color = "var(--muted)";
+    msg.textContent = "Requesting authorization URL…";
+    const provider = (document.getElementById("oauth-pch-provider") || {}).value || "google";
+
+    try {
+      const res = await api("/api/oauth/perch/authorize?provider=" + encodeURIComponent(provider));
+      const data = await res.json();
+      if (!res.ok) {
+        msg.style.color = "var(--danger)";
+        msg.textContent = errorMessage(data, res.status);
+        return;
+      }
+      perchOAuthCtx = { codeVerifier: data.codeVerifier, supabaseUrl: data.supabaseUrl };
+      const step2 = document.getElementById("oauth-pch-step2");
+      if (step2) step2.style.display = "block";
+      msg.style.color = "var(--muted)";
+      msg.textContent = "Approve the sign-in in the new tab, then paste the address it lands on.";
+      if (data.authorizeUrl) window.open(data.authorizeUrl, "_blank", "noopener");
+    } catch (e) {
+      msg.style.color = "var(--danger)";
+      msg.textContent = String(e);
+    }
+  }
+
+  async function finishPerchOAuth(providerId) {
+    const msg = document.getElementById("oauth-pch-msg");
+    const input = document.getElementById("oauth-pch-callback");
+    const value = (input && input.value || "").trim();
+    if (!value) {
+      msg.style.color = "var(--danger)";
+      msg.textContent = "Paste the callback URL first.";
+      return;
+    }
+    if (!perchOAuthCtx || !perchOAuthCtx.codeVerifier) {
+      msg.style.color = "var(--danger)";
+      msg.textContent = "Click Sign in first — the PKCE verifier from that step is required.";
+      return;
+    }
+    msg.style.color = "var(--muted)";
+    msg.textContent = "Completing sign-in…";
+    try {
+      const res = await api("/api/oauth/perch/exchange", {
+        method: "POST",
+        body: JSON.stringify({
+          redirectUrl: value,
+          codeVerifier: perchOAuthCtx.codeVerifier,
+          supabaseUrl: perchOAuthCtx.supabaseUrl,
+          name: (document.getElementById("oauth-pch-name") || {}).value || "",
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        msg.style.color = "var(--danger)";
+        msg.textContent = errorMessage(data, res.status);
+        return;
+      }
+      perchOAuthCtx = null;
+      msg.style.color = "var(--accent)";
+      msg.textContent = `Added ${data.email || data.connection || "account"}.`;
+      if (typeof loadDetail === "function") loadDetail(providerId);
+      if (typeof loadProviders === "function") loadProviders();
+    } catch (e) {
+      msg.style.color = "var(--danger)";
+      msg.textContent = String(e);
+    }
+  }
 
   async function startClineOAuth(providerId) {
     const msg = document.getElementById("oauth-cl-msg");
