@@ -88,6 +88,8 @@ var ProviderAliasMap = map[string]string{
 	"samba":          "sambanova",
 	"tr":             "trae",
 	"tm":             "twinmind",
+	"pch":            "perch",
+	"perchai":        "perch",
 	"ws":             "windsurf",
 	"xq":             "xquik",
 	"zd":             "zed",

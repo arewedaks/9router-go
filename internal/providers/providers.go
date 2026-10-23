@@ -907,6 +907,15 @@ var KnownProviders = map[string]ProviderConfig{
 		AuthHeader: "Authorization",
 		AuthScheme: "bearer",
 	},
+	// perch exposes its free Starter models through the CLI's own internal
+	// endpoint rather than an OpenAI-compatible route. One POST per turn: the
+	// per-turn ticket the CLI fetches is single-use and not required — the
+	// account JWT alone is accepted (measured 2026-10-23).
+	"perch": {
+		BaseURL:    "https://app.perchai.app/api/perch-terminal/model-call",
+		AuthHeader: "Authorization",
+		AuthScheme: "bearer",
+	},
 }
 
 // RetryableStatusCodes are HTTP status codes that trigger account fallback.
