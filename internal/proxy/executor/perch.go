@@ -452,7 +452,7 @@ func ForwardPerch(w http.ResponseWriter, req *Request) error {
 	}
 
 	if oreq.Stream {
-		return perchStream(w, resp.Body, model)
+		return perchStream(w, resp.Body, req, model)
 	}
 
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
@@ -545,10 +545,10 @@ func perchText(v any) string {
 // comment lines and `{type,text}` events; both are translated here so a client
 // never sees the upstream shape.
 // perchStream forwards Perch's SSE stream as OpenAI chunks. Perch emits
-// text_delta, reasoning_delta, tool_call_delta, tool_use_end, and done.
+// answer_delta, reasoning_delta, tool_call_delta, tool_use_end, and done.
 // A coding harness like Pi decides its next step from tool_calls; dropping
-// tool_call_delta was the bug that made Pi stall with empty turns.
-func perchStream(w http.ResponseWriter, body io.Reader, model string) error {
+// answer_delta or tool_call_delta was the bug that made Pi stall with empty turns.
+func perchStream(w http.ResponseWriter, body io.Reader, req *Request, model string) error {
 	flusher, _ := w.(http.Flusher)
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
@@ -562,6 +562,8 @@ func perchStream(w http.ResponseWriter, body io.Reader, model string) error {
 	sentRole := false
 	hasToolCalls := false
 	lastFinishReason := "stop"
+	var fullText strings.Builder
+	var finalUsage map[string]any
 
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
@@ -580,11 +582,12 @@ func perchStream(w http.ResponseWriter, body io.Reader, model string) error {
 		evType, _ := raw["type"].(string)
 
 		switch evType {
-		case "text_delta", "content_delta":
+		case "answer_delta", "text_delta", "content_delta":
 			text, _ := raw["text"].(string)
 			if text == "" {
 				continue
 			}
+			fullText.WriteString(text)
 			delta := map[string]any{"content": text}
 			if !sentRole {
 				delta["role"] = "assistant"
@@ -596,14 +599,33 @@ func perchStream(w http.ResponseWriter, body io.Reader, model string) error {
 				"created": time.Now().Unix(),
 				"model":   model,
 				"choices": []map[string]any{{"index": 0, "delta": delta}},
-			})
+			}, req)
+			if flusher != nil {
+				flusher.Flush()
+			}
+
+		case "reasoning_delta":
+			text, _ := raw["text"].(string)
+			if text == "" {
+				continue
+			}
+			delta := map[string]any{"reasoning_content": text}
+			if !sentRole {
+				delta["role"] = "assistant"
+				sentRole = true
+			}
+			writeSSEChunk(w, map[string]any{
+				"id":      id,
+				"object":  "chat.completion.chunk",
+				"created": time.Now().Unix(),
+				"model":   model,
+				"choices": []map[string]any{{"index": 0, "delta": delta}},
+			}, req)
 			if flusher != nil {
 				flusher.Flush()
 			}
 
 		case "tool_call_delta", "tool_use_end":
-			// Perch emits toolCalls array with id/name/arguments. We emit an
-			// OpenAI tool_calls chunk.
 			callsRaw, ok := raw["toolCalls"].([]any)
 			if !ok || len(callsRaw) == 0 {
 				continue
@@ -659,7 +681,7 @@ func perchStream(w http.ResponseWriter, body io.Reader, model string) error {
 					"created": time.Now().Unix(),
 					"model":   model,
 					"choices": []map[string]any{{"index": 0, "delta": delta}},
-				})
+				}, req)
 				if flusher != nil {
 					flusher.Flush()
 				}
@@ -678,7 +700,7 @@ func perchStream(w http.ResponseWriter, body io.Reader, model string) error {
 						"type":    "upstream_error",
 						"code":    errCode,
 					},
-				})
+				}, req)
 				if flusher != nil {
 					flusher.Flush()
 				}
@@ -688,6 +710,52 @@ func perchStream(w http.ResponseWriter, body io.Reader, model string) error {
 				}
 				return fmt.Errorf("perch stream error: %s (code=%s)", errMsg, errCode)
 			}
+
+			// If no text chunks were emitted before done (and no tool calls), emit the text from done
+			if fullText.Len() == 0 && !hasToolCalls {
+				doneText, _ := raw["text"].(string)
+				if doneText == "" {
+					if contentArr, ok := raw["content"].([]any); ok {
+						var sb strings.Builder
+						for _, item := range contentArr {
+							if itemMap, ok := item.(map[string]any); ok {
+								if (itemMap["type"] == "text" || itemMap["type"] == "output") && itemMap["text"] != nil {
+									sb.WriteString(fmt.Sprint(itemMap["text"]))
+								}
+							}
+						}
+						doneText = sb.String()
+					}
+				}
+				if doneText != "" {
+					delta := map[string]any{"content": doneText}
+					if !sentRole {
+						delta["role"] = "assistant"
+						sentRole = true
+					}
+					writeSSEChunk(w, map[string]any{
+						"id":      id,
+						"object":  "chat.completion.chunk",
+						"created": time.Now().Unix(),
+						"model":   model,
+						"choices": []map[string]any{{"index": 0, "delta": delta}},
+					}, req)
+					if flusher != nil {
+						flusher.Flush()
+					}
+				}
+			}
+
+			if u, ok := raw["usage"].(map[string]any); ok {
+				inTokens, _ := u["inputTokens"].(float64)
+				outTokens, _ := u["outputTokens"].(float64)
+				finalUsage = map[string]any{
+					"prompt_tokens":     int(inTokens),
+					"completion_tokens": int(outTokens),
+					"total_tokens":      int(inTokens + outTokens),
+				}
+			}
+
 			if fr, ok := raw["finishReason"].(string); ok && fr != "" {
 				lastFinishReason = perchFinish(fr)
 			}
@@ -697,14 +765,17 @@ func perchStream(w http.ResponseWriter, body io.Reader, model string) error {
 		}
 	}
 
-	final := map[string]any{
+	finalChunk := map[string]any{
 		"id":      id,
 		"object":  "chat.completion.chunk",
 		"created": time.Now().Unix(),
 		"model":   model,
 		"choices": []map[string]any{{"index": 0, "delta": map[string]any{}, "finish_reason": lastFinishReason}},
 	}
-	writeSSEChunk(w, final)
+	if finalUsage != nil {
+		finalChunk["usage"] = finalUsage
+	}
+	writeSSEChunk(w, finalChunk, req)
 	_, _ = io.WriteString(w, "data: [DONE]\n\n")
 	if flusher != nil {
 		flusher.Flush()
@@ -712,14 +783,22 @@ func perchStream(w http.ResponseWriter, body io.Reader, model string) error {
 	return sc.Err()
 }
 
-func writeSSEChunk(w io.Writer, v any) {
+func writeSSEChunk(w io.Writer, v any, req *Request) {
 	b, err := json.Marshal(v)
 	if err != nil {
 		return
 	}
-	_, _ = io.WriteString(w, "data: ")
-	_, _ = w.Write(b)
-	_, _ = io.WriteString(w, "\n\n")
+	line := append([]byte("data: "), b...)
+	line = append(line, "\n\n"...)
+	if req != nil {
+		if req.ResponseBuf != nil {
+			req.ResponseBuf.Write(line)
+		}
+		if req.TTFT != nil && *req.TTFT == 0 && !req.StartTime.IsZero() {
+			*req.TTFT = time.Since(req.StartTime).Milliseconds()
+		}
+	}
+	_, _ = w.Write(line)
 }
 
 // perchToolCallsOf collects the calls Perch reported, from either shape it uses:

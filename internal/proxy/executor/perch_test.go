@@ -340,7 +340,7 @@ func TestPerchStreamTranslatesToolCalls(t *testing.T) {
 	}, "\n")
 
 	rec := httptest.NewRecorder()
-	if err := perchStream(rec, strings.NewReader(sseBody), "deepseek-flash-starter"); err != nil {
+	if err := perchStream(rec, strings.NewReader(sseBody), nil, "deepseek-flash-starter"); err != nil {
 		t.Fatalf("perchStream: %v", err)
 	}
 
@@ -413,12 +413,45 @@ func TestPerchStreamEmitsErrorOnDoneNotOK(t *testing.T) {
 	}, "\n")
 
 	rec := httptest.NewRecorder()
-	err := perchStream(rec, strings.NewReader(sseBody), "deepseek-flash-starter")
+	err := perchStream(rec, strings.NewReader(sseBody), nil, "deepseek-flash-starter")
 	if err == nil {
 		t.Fatal("expected error from perchStream when done ok=false")
 	}
 	out := rec.Body.String()
 	if !strings.Contains(out, `"error"`) || !strings.Contains(out, "api_error") {
 		t.Fatalf("expected error block in stream output, got: %s", out)
+	}
+}
+
+// Perch emits text in `answer_delta` and thinking in `reasoning_delta`.
+// If `perchStream` drops them, the client sees 0 output tokens.
+func TestPerchStreamTranslatesAnswerAndReasoningDelta(t *testing.T) {
+	sseBody := strings.Join([]string{
+		": keepalive",
+		`data: {"type":"reasoning_delta","text":"I should say hello."}`,
+		`data: {"type":"answer_delta","text":"Hello there!"}`,
+		`data: {"type":"done","ok":true,"text":"Hello there!","finishReason":"stop","usage":{"inputTokens":10,"outputTokens":5}}`,
+		"",
+	}, "\n")
+
+	rec := httptest.NewRecorder()
+	var buf strings.Builder
+	req := &Request{ResponseBuf: &buf}
+	if err := perchStream(rec, strings.NewReader(sseBody), req, "minimax-m3.1-flash-starter"); err != nil {
+		t.Fatalf("perchStream: %v", err)
+	}
+
+	out := rec.Body.String()
+	if !strings.Contains(out, `"reasoning_content":"I should say hello."`) {
+		t.Errorf("stream missing reasoning_content: %s", out)
+	}
+	if !strings.Contains(out, `"content":"Hello there!"`) {
+		t.Errorf("stream missing content: %s", out)
+	}
+	if !strings.Contains(out, `"completion_tokens":5`) {
+		t.Errorf("stream missing completion_tokens usage: %s", out)
+	}
+	if buf.Len() == 0 {
+		t.Error("ResponseBuf should have captured stream output")
 	}
 }
