@@ -188,6 +188,51 @@ func perchRunID(req *Request) string {
 	return "tkt-cli-" + fmt.Sprint(time.Now().UnixMilli()) + "-" + suffix
 }
 
+// resolvePerchAttribution queries /api/perchai/account using the active access token
+// to dynamically resolve userId, workspaceId, and whether tier selection is pending.
+func resolvePerchAttribution(ctx context.Context, client *http.Client, token string) (userID, workspaceID string, tierRequired bool) {
+	if client == nil || strings.TrimSpace(token) == "" {
+		return "", "", false
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://app.perchai.app/api/perchai/account", nil)
+	if err != nil {
+		return "", "", false
+	}
+	httpReq.Header.Set("Authorization", "Bearer "+token)
+	httpReq.Header.Set("User-Agent", perchUserAgent)
+
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		return "", "", false
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", "", false
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
+	var acct struct {
+		Profile struct {
+			ID string `json:"id"`
+		} `json:"profile"`
+		Session struct {
+			UserID                string `json:"userId"`
+			WorkspaceID           string `json:"workspaceId"`
+			TierSelectionRequired bool   `json:"tierSelectionRequired"`
+		} `json:"session"`
+	}
+	if err := json.Unmarshal(body, &acct); err != nil {
+		return "", "", false
+	}
+	uid := acct.Session.UserID
+	if uid == "" {
+		uid = acct.Profile.ID
+	}
+	return uid, acct.Session.WorkspaceID, acct.Session.TierSelectionRequired
+}
+
 // perchAttributionFor builds the identity block the CLI sends with every model
 // call. The account and workspace ids are captured at sign-in (see the Perch
 // OAuth exchange); without them the request still goes out, it simply carries no
@@ -381,6 +426,18 @@ func ForwardPerch(w http.ResponseWriter, req *Request) error {
 		}
 	}
 
+	if req.PerchUserID == "" || req.PerchWorkspaceID == "" {
+		if uid, wid, tierRequired := resolvePerchAttribution(req.Ctx, req.Client, req.APIKey); tierRequired {
+			return &proxy.UpstreamError{
+				StatusCode: http.StatusForbidden,
+				Body:       []byte(`{"error":{"message":"Akun Perch memerlukan pemilihan paket: silakan buka https://chat.perchai.app di browser, login dengan akun ini, pilih paket Starter (gratis), lalu coba kembali."}}`),
+			}
+		} else if uid != "" && wid != "" {
+			req.PerchUserID = uid
+			req.PerchWorkspaceID = wid
+		}
+	}
+
 	runID := perchRunID(req)
 	body := perchBody{
 		Request: perchRequest{
@@ -475,6 +532,14 @@ func ForwardPerch(w http.ResponseWriter, req *Request) error {
 
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
+		if resp.StatusCode == http.StatusForbidden && bytes.Contains(b, []byte("not_authorized")) {
+			if _, _, tierRequired := resolvePerchAttribution(req.Ctx, req.Client, req.APIKey); tierRequired {
+				return &proxy.UpstreamError{
+					StatusCode: http.StatusForbidden,
+					Body:       []byte(`{"error":{"message":"Akun Perch memerlukan pemilihan paket: silakan buka https://chat.perchai.app di browser, login dengan akun ini, pilih paket Starter (gratis), lalu coba kembali."}}`),
+				}
+			}
+		}
 		return &proxy.UpstreamError{StatusCode: resp.StatusCode, Body: b}
 	}
 
