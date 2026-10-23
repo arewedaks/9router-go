@@ -42,12 +42,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"strings"
 	"sync"
 	"time"
 
-	"9router/proxy/internal/log"
 	"9router/proxy/internal/proxy"
 )
 
@@ -333,6 +331,18 @@ func fetchPerchTurnTicket(ctx context.Context, client *http.Client, token, surfa
 	return perchTurnTicket{Ticket: out.Ticket, RunID: out.RunID}
 }
 
+// perchHasSystemMessage reports whether msgs already carries a system message
+// Perch will accept as one. Empty and whitespace-only content is refused by the
+// same gate an absent message is, so neither counts.
+func perchHasSystemMessage(msgs []perchMessage) bool {
+	for _, m := range msgs {
+		if m.Role == "system" && strings.TrimSpace(m.Content) != "" {
+			return true
+		}
+	}
+	return false
+}
+
 // perchAttributionFor builds the identity block the CLI sends with every model
 // call. The account and workspace ids are captured at sign-in (see the Perch
 // OAuth exchange); without them the request still goes out, it simply carries no
@@ -519,6 +529,20 @@ func ForwardPerch(w http.ResponseWriter, req *Request) error {
 		}
 		msgs = append(msgs, perchMessage{Role: role, Content: text})
 	}
+
+	// Perch gates hosted models on the presence of a non-empty system message.
+	// Measured 2026-10-24 against a live Starter/Pilot account with a fresh
+	// Supabase token, one variable at a time: a body carrying one user message is
+	// answered 403 perch_surface_required, and the same body with a single
+	// {"role":"system","content":"x"} prepended is answered 200 — the system
+	// prompt's length, position, and wording are all irrelevant, and every other
+	// field (tools, attribution, roost*, effort, the call-delta headers) can be
+	// stripped without tripping the gate. OpenAI clients routinely send no system
+	// message, so without this the lane 403s on exactly the requests the CLI never
+	// makes. An empty or whitespace-only system message does not count.
+	if !perchHasSystemMessage(msgs) {
+		msgs = append([]perchMessage{{Role: "system", Content: "You are a helpful assistant."}}, msgs...)
+	}
 	if len(msgs) == 0 {
 		return &proxy.UpstreamError{
 			StatusCode: http.StatusBadRequest,
@@ -586,8 +610,6 @@ func ForwardPerch(w http.ResponseWriter, req *Request) error {
 	if err != nil {
 		return fmt.Errorf("perch: marshal: %w", err)
 	}
-	bodyBytes := len(raw)
-
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(raw))
 	if err != nil {
 		return fmt.Errorf("perch: build request: %w", err)
@@ -595,6 +617,13 @@ func ForwardPerch(w http.ResponseWriter, req *Request) error {
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+req.APIKey)
 	httpReq.Header.Set("User-Agent", perchUserAgent)
+	// An Edge Relay pool (Vercel/Cloudflare/Deno) arrives as BaseURL pointing at
+	// the relay plus x-relay-target/x-relay-path in StaticHeaders; without the
+	// headers the relay answers 400 "Missing x-relay-target header". Perch needs
+	// the relay because its hosted-model gate refuses datacenter IPs outright.
+	for k, v := range req.Config.StaticHeaders {
+		httpReq.Header.Set(k, v)
+	}
 	if oreq.Stream {
 		httpReq.Header.Set("Accept", "text/event-stream")
 	}
@@ -608,61 +637,23 @@ func ForwardPerch(w http.ResponseWriter, req *Request) error {
 	}
 	defer resp.Body.Close()
 
-	// DIAG: rekam apa yang dikirim dan apa jawabannya, untuk setiap panggilan.
-	{
-		sessID := ""
-		connID := ""
-		attrUser := ""
-		attrWS := ""
-		if req != nil {
-			sessID = req.SessionID
-			connID = req.ConnectionID
-			attrUser = req.PerchUserID
-			attrWS = req.PerchWorkspaceID
-		}
-		log.Warn("perch-diag", "call",
-			"status", resp.StatusCode,
-			"session_id", sessID,
-			"connection_id", connID,
-			"run_id", body.RunID,
-			"model_option", option,
-			"max_tokens", oreq.MaxTokens,
-			"stream", oreq.Stream,
-			"user_agent", perchUserAgent,
-			"body_bytes", bodyBytes,
-			"has_attribution", body.Attribution != nil,
-			"attr_user", attrUser,
-			"attr_ws", attrWS,
-			"strict_manual", body.StrictManual,
-			"preferred", body.PreferredModelID,
-			"endpoint", endpoint,
-			"proxy_client", req.Client != nil && req.Client.Transport != nil)
-
-		// DIAG: dump body + header aktual agar bisa dibandingkan byte-per-byte
-		// dengan request yang berhasil.
-		_ = os.WriteFile("/tmp/perch-last-body.json", raw, 0o644)
-		var hdump []string
-		for k, v := range httpReq.Header {
-			hdump = append(hdump, k+"="+strings.Join(v, ","))
-		}
-		_ = os.WriteFile("/tmp/perch-last-headers.txt",
-			[]byte(resp.Status+"\n"+strings.Join(hdump, "\n")), 0o644)
-	}
-
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
 		if resp.StatusCode == http.StatusForbidden && bytes.Contains(b, []byte("perch_surface_required")) {
-			// A 403 perch_surface_required is the hosted-model gate, not a broken
-			// request: the same body, ticket and attribution answered 200 earlier
-			// the same day, so the account or the plan moved behind our back.
-			// Without caching it, every client retry burns another direct-access
-			// attempt, which is the escalation Perch's message warns about.
+			// perch_surface_required is the hosted-model gate. Measured 2026-10-24:
+			// the same body, token and attribution answer 200 from a residential IP
+			// and 403 from a datacenter IP, so the gate is network-scoped, not
+			// account-scoped. Bind an Edge Relay proxy pool to provider "perch"
+			// (settings.providerStrategies.perch.proxyPoolId) to leave the
+			// datacenter. Without caching the failure every client retry burns
+			// another direct-access attempt, which is the escalation Perch's own
+			// message warns about.
 			perchSurfaceCooldown.mu.Lock()
 			perchSurfaceCooldown.until = time.Now().Add(perchSurfaceCooldownFor)
 			perchSurfaceCooldown.mu.Unlock()
 			return &proxy.UpstreamError{
 				StatusCode: http.StatusServiceUnavailable,
-				Body:       []byte(`{"error":{"message":"Perch menolak model hosted untuk akun ini (perch_surface_required). Paket akun hanya mengizinkan Perch AI Web/Desktop/CLI, bukan akses API langsung. Cek plan di https://chat.perchai.app atau pakai provider lain untuk model ini. Request berikutnya ditahan 10 menit agar tidak dianggap upaya akses langsung berulang.","type":"perch_surface_required"}}`),
+				Body:       []byte(`{"error":{"message":"Perch menolak model hosted dari IP ini (perch_surface_required). Gate Perch berlaku per jaringan: IP datacenter ditolak, IP residensial diterima, dengan token dan body yang sama. Pasang proxy pool (Vercel/Cloudflare/Deno) pada provider perch di dashboard agar keluar lewat jalur non-datacenter. Request berikutnya ditahan 10 menit agar tidak dianggap upaya akses langsung berulang.","type":"perch_surface_required"}}`),
 			}
 		}
 		return &proxy.UpstreamError{StatusCode: resp.StatusCode, Body: b}

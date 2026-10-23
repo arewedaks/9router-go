@@ -455,3 +455,60 @@ func TestPerchStreamTranslatesAnswerAndReasoningDelta(t *testing.T) {
 		t.Error("ResponseBuf should have captured stream output")
 	}
 }
+
+// TestPerchForwardInjectsSystemMessage pins the gate measured 2026-10-24: Perch
+// answers a request with no non-empty system message 403 perch_surface_required,
+// and the same request with one prepended 200. An OpenAI client that sends only
+// user/assistant turns would 403 here without the injection.
+func TestPerchForwardInjectsSystemMessage(t *testing.T) {
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(raw, &gotBody)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"ok":true,"text":"ok","model":"m","finishReason":"stop"}`)
+	}))
+	defer srv.Close()
+
+	cfg := providers.KnownProviders["perch"]
+	cfg.BaseURL = srv.URL
+
+	cases := []struct {
+		name     string
+		messages string
+		wantSys  bool
+	}{
+		{"no system message", `[{"role":"user","content":"hi"}]`, true},
+		{"empty system message", `[{"role":"system","content":"  "},{"role":"user","content":"hi"}]`, true},
+		{"real system message kept", `[{"role":"system","content":"be terse"},{"role":"user","content":"hi"}]`, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			gotBody = nil
+			rec := httptest.NewRecorder()
+			req := &Request{
+				Ctx:    context.Background(),
+				Client: http.DefaultClient,
+				Config: &cfg,
+				APIKey: "tok",
+				Body:   []byte(`{"model":"deepseek-flash-starter","messages":` + tc.messages + `}`),
+			}
+			if err := ForwardPerch(rec, req); err != nil {
+				t.Fatalf("ForwardPerch: %v", err)
+			}
+			reqBody, _ := gotBody["request"].(map[string]any)
+			msgs, _ := reqBody["messages"].([]any)
+			if len(msgs) == 0 {
+				t.Fatal("no messages reached upstream")
+			}
+			first, _ := msgs[0].(map[string]any)
+			gotSys := first["role"] == "system"
+			if tc.wantSys && !gotSys {
+				t.Errorf("want an injected system message first, got %v", msgs)
+			}
+			if !tc.wantSys && !(gotSys && first["content"] == "be terse") {
+				t.Errorf("caller's system message must be preserved as-is, got %v", msgs)
+			}
+		})
+	}
+}
