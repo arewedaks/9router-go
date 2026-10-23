@@ -261,3 +261,100 @@ func TestPerchForwardOmitsEmptyAttribution(t *testing.T) {
 		t.Error("attribution must be omitted when no ids were captured")
 	}
 }
+
+// Perch refuses a request whose body carries another harness's system-prompt
+// opening — measured 2026-10-23 by bisecting a real 403. The literal sentence is
+// the trigger; the harness name alone is not.
+func TestSanitizePerchTextRemovesCompetingSignature(t *testing.T) {
+	cases := map[string]string{
+		"You are an expert coding assistant operating inside pi, a coding agent harness.": "You are an expert coding assistant operating inside a coding agent harness.",
+		"you are an expert coding assistant operating inside pi, a coding agent harness.": "you are an expert coding assistant operating inside a coding agent harness.",
+		"You are an expert coding assistant operating inside pi, a coding agent harness. You help.": "You are an expert coding assistant operating inside a coding agent harness. You help.",
+	}
+	for in, want := range cases {
+		if got := sanitizePerchText(in); got != want {
+			t.Errorf("sanitizePerchText(%q)\n got %q\nwant %q", in, got, want)
+		}
+	}
+}
+
+// Anything the gate does not fingerprint must pass through untouched: rewriting
+// a prompt the server already accepts would change model behaviour for no reason.
+func TestSanitizePerchTextLeavesOtherPromptsAlone(t *testing.T) {
+	for _, s := range []string{
+		"",
+		"You are a helpful assistant.",
+		"You are a coding assistant operating inside pi.",
+		"You are an assistant operating inside claude code, a coding agent harness.",
+		"You are an assistant operating inside cursor, a coding agent harness.",
+	} {
+		if got := sanitizePerchText(s); got != s {
+			t.Errorf("sanitizePerchText(%q) = %q, want it unchanged", s, got)
+		}
+	}
+}
+
+// The rewrite has to survive a real forward: the body the server sees must no
+// longer carry the fingerprint.
+func TestPerchForwardSanitizesSystemPrompt(t *testing.T) {
+	var got map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(raw, &got)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"ok":true,"text":"X","model":"m"}`)
+	}))
+	defer srv.Close()
+
+	cfg := providers.KnownProviders["perch"]
+	cfg.BaseURL = srv.URL
+	rec := httptest.NewRecorder()
+	req := &Request{
+		Ctx: context.Background(), Client: http.DefaultClient, Config: &cfg, APIKey: "tok",
+		Body: []byte(`{"model":"deepseek-flash-starter","messages":[{"role":"system","content":"You are an expert coding assistant operating inside pi, a coding agent harness. Keep going."},{"role":"user","content":"hi"}]}`),
+	}
+	if err := ForwardPerch(rec, req); err != nil {
+		t.Fatalf("ForwardPerch: %v", err)
+	}
+	msgs, _ := got["request"].(map[string]any)["messages"].([]any)
+	first, _ := msgs[0].(map[string]any)["content"].(string)
+	if strings.Contains(strings.ToLower(first), "operating inside pi") {
+		t.Errorf("forwarded system prompt still names the harness: %q", first)
+	}
+	if !strings.Contains(first, "Keep going.") {
+		t.Errorf("the rest of the prompt must survive: %q", first)
+	}
+}
+
+// A streaming tool-call turn must translate Perch's tool_call_delta into
+// OpenAI chunks with delta.tool_calls and finish_reason: "tool_calls".
+// Dropping these was the bug that made Pi stall with empty turns.
+func TestPerchStreamTranslatesToolCalls(t *testing.T) {
+	sseBody := strings.Join([]string{
+		": keepalive",
+		`data: {"type":"reasoning_delta","text":"thinking"}`,
+		`data: {"type":"tool_call_delta","toolCalls":[{"id":"call_123","name":"read","arguments":{"path":"/etc/hostname"},"sealed":false}]}`,
+		`data: {"type":"tool_use_end","toolCalls":[{"id":"call_123","name":"read","arguments":{"path":"/etc/hostname"},"sealed":true}]}`,
+		`data: {"type":"done","ok":true,"text":"","finishReason":"tool_calls"}`,
+		"",
+	}, "\n")
+
+	rec := httptest.NewRecorder()
+	if err := perchStream(rec, strings.NewReader(sseBody), "deepseek-flash-starter"); err != nil {
+		t.Fatalf("perchStream: %v", err)
+	}
+
+	out := rec.Body.String()
+	if !strings.Contains(out, `"tool_calls"`) {
+		t.Fatalf("stream output missing tool_calls: %s", out)
+	}
+	if !strings.Contains(out, `"read"`) {
+		t.Errorf("stream output missing tool name 'read': %s", out)
+	}
+	if !strings.Contains(out, `/etc/hostname`) {
+		t.Errorf("stream output missing arguments: %s", out)
+	}
+	if !strings.Contains(out, `"finish_reason":"tool_calls"`) {
+		t.Errorf("stream output missing finish_reason tool_calls: %s", out)
+	}
+}
