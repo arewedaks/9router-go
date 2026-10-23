@@ -351,8 +351,8 @@ func TestPerchStreamTranslatesToolCalls(t *testing.T) {
 	if !strings.Contains(out, `"read"`) {
 		t.Errorf("stream output missing tool name 'read': %s", out)
 	}
-	if !strings.Contains(out, `/etc/hostname`) {
-		t.Errorf("stream output missing arguments: %s", out)
+	if cnt := strings.Count(out, `/etc/hostname`); cnt != 1 {
+		t.Errorf("arguments must appear exactly once in delta stream, got %d occurrences: %s", cnt, out)
 	}
 	if !strings.Contains(out, `"finish_reason":"tool_calls"`) {
 		t.Errorf("stream output missing finish_reason tool_calls: %s", out)

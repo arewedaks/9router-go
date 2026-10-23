@@ -591,6 +591,9 @@ func perchStream(w http.ResponseWriter, body io.Reader, req *Request, model stri
 	var fullText strings.Builder
 	var finalUsage map[string]any
 
+	sentCallID := make(map[int]bool)
+	sentArgs := make(map[int]string)
+
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
 		if line == "" || strings.HasPrefix(line, ":") || !strings.HasPrefix(line, "data:") {
@@ -666,30 +669,49 @@ func perchStream(w http.ResponseWriter, body io.Reader, req *Request, model stri
 				}
 				cid, _ := c["id"].(string)
 				cname, _ := c["name"].(string)
-				args := ""
+
+				fullArgs := ""
 				if rawArgs, ok := c["rawArguments"].(string); ok && rawArgs != "" {
-					args = rawArgs
+					fullArgs = rawArgs
 				} else if parsedArgs, ok := c["arguments"].(map[string]any); ok && len(parsedArgs) > 0 {
 					if b, err := json.Marshal(parsedArgs); err == nil {
-						args = string(b)
+						fullArgs = string(b)
 					}
 				}
 
-				fnObj := map[string]any{}
-				if cname != "" {
-					fnObj["name"] = cname
+				prev := sentArgs[callIdx]
+				var deltaArgs string
+				if strings.HasPrefix(fullArgs, prev) {
+					deltaArgs = fullArgs[len(prev):]
+				} else if fullArgs != "" && prev == "" {
+					deltaArgs = fullArgs
 				}
-				if args != "" {
-					fnObj["arguments"] = args
+				sentArgs[callIdx] = fullArgs
+
+				// If we already sent the tool declaration and no new arguments bytes arrived, skip emitting duplicate chunk
+				if sentCallID[callIdx] && deltaArgs == "" {
+					continue
 				}
 
+				fnObj := map[string]any{}
 				tcItem := map[string]any{
 					"index": callIdx,
-					"type":  "function",
 				}
-				if cid != "" {
-					tcItem["id"] = cid
+
+				if !sentCallID[callIdx] {
+					sentCallID[callIdx] = true
+					tcItem["type"] = "function"
+					if cid != "" {
+						tcItem["id"] = cid
+					}
+					if cname != "" {
+						fnObj["name"] = cname
+					}
 				}
+				if deltaArgs != "" {
+					fnObj["arguments"] = deltaArgs
+				}
+
 				if len(fnObj) > 0 {
 					tcItem["function"] = fnObj
 				}
