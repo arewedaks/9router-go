@@ -330,7 +330,28 @@ func ForwardPerch(w http.ResponseWriter, req *Request) error {
 
 	msgs := make([]perchMessage, 0, len(oreq.Messages))
 	for _, m := range oreq.Messages {
-		msgs = append(msgs, perchMessage{Role: m.Role, Content: sanitizePerchText(perchText(m.Content))})
+		text := sanitizePerchText(perchText(m.Content))
+		// Drop empty messages: a previous interrupted turn leaves an empty assistant
+		// message in the client history, which Perch rejects with code "api_error"
+		// ("The model couldn't complete that step").
+		if strings.TrimSpace(text) == "" {
+			continue
+		}
+		role := m.Role
+		// Perch's model-call API rejects role="tool" when unaccompanied by official
+		// tool-use context. Flatten it into a user message so tool results are kept
+		// in context without breaking the upstream validator.
+		if role == "tool" {
+			role = "user"
+			text = "[Tool Result] " + text
+		}
+		msgs = append(msgs, perchMessage{Role: role, Content: text})
+	}
+	if len(msgs) == 0 {
+		return &proxy.UpstreamError{
+			StatusCode: http.StatusBadRequest,
+			Body:       []byte(`{"error":{"message":"messages required"}}`),
+		}
 	}
 
 	runID := perchRunID(req)
@@ -645,6 +666,28 @@ func perchStream(w http.ResponseWriter, body io.Reader, model string) error {
 			}
 
 		case "done":
+			if ok, hasOk := raw["ok"].(bool); hasOk && !ok {
+				errMsg, _ := raw["error"].(string)
+				if errMsg == "" {
+					errMsg = "Perch model call failed"
+				}
+				errCode, _ := raw["errorCode"].(string)
+				writeSSEChunk(w, map[string]any{
+					"error": map[string]any{
+						"message": errMsg,
+						"type":    "upstream_error",
+						"code":    errCode,
+					},
+				})
+				if flusher != nil {
+					flusher.Flush()
+				}
+				_, _ = io.WriteString(w, "data: [DONE]\n\n")
+				if flusher != nil {
+					flusher.Flush()
+				}
+				return fmt.Errorf("perch stream error: %s (code=%s)", errMsg, errCode)
+			}
 			if fr, ok := raw["finishReason"].(string); ok && fr != "" {
 				lastFinishReason = perchFinish(fr)
 			}

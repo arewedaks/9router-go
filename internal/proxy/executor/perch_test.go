@@ -358,3 +358,67 @@ func TestPerchStreamTranslatesToolCalls(t *testing.T) {
 		t.Errorf("stream output missing finish_reason tool_calls: %s", out)
 	}
 }
+
+// An interrupted turn leaves an empty assistant message and an orphaned
+// role="tool" message in the client's history. Perch's API returns
+// "api_error: The model couldn't complete that step" when given those.
+// They must be normalized (empty dropped, tool flattened to user).
+func TestPerchForwardNormalizesEmptyAndToolMessages(t *testing.T) {
+	var got map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(raw, &got)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"ok":true,"text":"ANSWER","model":"m","finishReason":"stop"}`)
+	}))
+	defer srv.Close()
+
+	cfg := providers.KnownProviders["perch"]
+	cfg.BaseURL = srv.URL
+	rec := httptest.NewRecorder()
+	req := &Request{
+		Ctx: context.Background(), Client: http.DefaultClient, Config: &cfg, APIKey: "tok",
+		Body: []byte(`{"model":"deepseek-flash-starter","messages":[
+			{"role":"system","content":"System prompt"},
+			{"role":"user","content":"First prompt"},
+			{"role":"assistant","content":""},
+			{"role":"tool","content":"Error from tool execution"},
+			{"role":"user","content":"Next prompt"}
+		]}`),
+	}
+	if err := ForwardPerch(rec, req); err != nil {
+		t.Fatalf("ForwardPerch: %v", err)
+	}
+
+	msgs, ok := got["request"].(map[string]any)["messages"].([]any)
+	if !ok {
+		t.Fatalf("expected messages array: %v", got)
+	}
+	if len(msgs) != 4 {
+		t.Fatalf("expected 4 messages (empty assistant dropped), got %d: %+v", len(msgs), msgs)
+	}
+	m2 := msgs[2].(map[string]any)
+	if m2["role"] != "user" || !strings.Contains(m2["content"].(string), "[Tool Result]") {
+		t.Errorf("tool message was not flattened to user role with [Tool Result] prefix: %+v", m2)
+	}
+}
+
+// When Perch's stream ends with ok: false, perchStream must emit an error
+// chunk rather than silently ending with finish_reason: stop.
+func TestPerchStreamEmitsErrorOnDoneNotOK(t *testing.T) {
+	sseBody := strings.Join([]string{
+		": keepalive",
+		`data: {"type":"done","ok":false,"error":"The model couldn't complete that step.","errorCode":"api_error"}`,
+		"",
+	}, "\n")
+
+	rec := httptest.NewRecorder()
+	err := perchStream(rec, strings.NewReader(sseBody), "deepseek-flash-starter")
+	if err == nil {
+		t.Fatal("expected error from perchStream when done ok=false")
+	}
+	out := rec.Body.String()
+	if !strings.Contains(out, `"error"`) || !strings.Contains(out, "api_error") {
+		t.Fatalf("expected error block in stream output, got: %s", out)
+	}
+}
