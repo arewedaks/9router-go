@@ -36,8 +36,19 @@ var ProviderModels = map[string][]string{
 	"codebuddy-intl": {"glm-5.2", "glm-5.1", "glm-5.0", "glm-5.0-turbo", "glm-5v-turbo", "glm-4.7", "minimax-m3", "minimax-m2.7", "kimi-k2.7", "kimi-k2.6", "kimi-k2.5", "hy3-preview", "deepseek-v4-pro", "deepseek-v4-flash", "deepseek-v3-2-volc"},
 	// The 8 models a live WorkBuddy account actually served (probed one by one);
 	// the CodeBuddy catalogue above still lists ids its gateway now rejects.
-	"workbuddy": {"glm-5.2", "glm-5.1", "glm-5v-turbo", "minimax-m3", "kimi-k2.7", "kimi-k2.6", "kimi-k2.5", "deepseek-v4.1-flash"},
-	"wb":        {"glm-5.2", "glm-5.1", "glm-5v-turbo", "minimax-m3", "kimi-k2.7", "kimi-k2.6", "kimi-k2.5", "deepseek-v4.1-flash"},
+	// Probed one by one against a live WorkBuddy account (2026-10-23, one
+	// request per model). 32 candidates went in; 15 answered 200. The rest are
+	// either rejected (11102 "service info not found") or rate-limited
+	// (14003, which is transient and must not be recorded as dead).
+	//
+	// glm-5.0 is the one unresolved id: it answered 14003 on every attempt, so it
+	// is left out rather than guessed at — seeding an id that turns out to be
+	// dead is worse than seeding fewer models.
+	//
+	// step-5-preview and hy4-preview are live but were never in any catalogue
+	// before this probe, which is why they never appeared in Import.
+	"workbuddy": {"glm-5.3", "glm-5.3-flash", "glm-5.2", "glm-5.1", "glm-5v-turbo", "claude-opus-4.6", "claude-sonnet-4.6", "minimax-m3", "kimi-k2.8-preview", "kimi-k2.7", "kimi-k2.6", "kimi-k2.5", "hy4-preview", "hy3", "step-5-preview", "deepseek-v4.1-flash"},
+	"wb":        {"glm-5.3", "glm-5.3-flash", "glm-5.2", "glm-5.1", "glm-5v-turbo", "claude-opus-4.6", "claude-sonnet-4.6", "minimax-m3", "kimi-k2.8-preview", "kimi-k2.7", "kimi-k2.6", "kimi-k2.5", "hy4-preview", "hy3", "step-5-preview", "deepseek-v4.1-flash"},
 	"codex": {"gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-sol-review", "gpt-5.6-terra", "gpt-5.6-terra-review", "gpt-5.6-luna", "gpt-5.6-luna-review", "gpt-5.5", "gpt-5.5-review", "gpt-5.4", "gpt-5.4-review", "gpt-5.4-mini", "gpt-5.4-mini-review", "gpt-5.3-codex-spark", "gpt-5.3-codex-spark-review", "gpt-5.6-sol-image", "gpt-5.6-terra-image", "gpt-5.6-luna-image", "gpt-5.5-image", "gpt-5.4-image", "gpt-5.3-image"},
 	"cohere": {"command-r-plus-08-2024", "command-r-08-2024", "command-a-03-2025"},
 	"comfyui": {"flux-dev", "sdxl"},
