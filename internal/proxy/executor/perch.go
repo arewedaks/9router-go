@@ -233,6 +233,83 @@ func resolvePerchAttribution(ctx context.Context, client *http.Client, token str
 	return uid, acct.Session.WorkspaceID, acct.Session.TierSelectionRequired
 }
 
+// perchTurnTicket is the short-lived token Perch requires before it will serve
+// a hosted model call.
+//
+// Without it the endpoint answers
+//
+//	403 perch_surface_required "Your plan includes Perch-hosted models for use
+//	in Perch AI Web, Desktop, and CLI only. Direct API access is not included."
+//
+// This is not a prompt or attribution gate: measured 2026-10-23 by stripping the
+// body down to a single user message and by adding a valid attribution block —
+// both still 403. Minting the ticket and echoing it back, together with the runId
+// the ticket was issued for, is what flips the same body to 200.
+type perchTurnTicket struct {
+	Ticket  string `json:"ticket"`
+	RunID   string `json:"runId"`
+}
+
+const (
+	perchTurnTicketURL = "https://app.perchai.app/api/perch-terminal/turn-ticket"
+	perchTurnTicketHdr = "x-perch-turn-ticket"
+)
+
+// perchTurnTicketURLFor derives the ticket endpoint from the model-call endpoint
+// so a test or a self-hosted override keeps both calls on the same host.
+func perchTurnTicketURLFor(endpoint string) string {
+	const suffix = "/api/perch-terminal/model-call"
+	if strings.HasSuffix(endpoint, suffix) {
+		return strings.TrimSuffix(endpoint, suffix) + "/api/perch-terminal/turn-ticket"
+	}
+	return perchTurnTicketURL
+}
+
+// fetchPerchTurnTicket mints one ticket. A failure returns an empty ticket and
+// the caller proceeds without the header, so the upstream error is what the
+// operator sees rather than a locally invented one.
+func fetchPerchTurnTicket(ctx context.Context, client *http.Client, token, surface, endpoint string) perchTurnTicket {
+	if client == nil || strings.TrimSpace(token) == "" {
+		return perchTurnTicket{}
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if surface == "" {
+		surface = "cli"
+	}
+	payload, err := json.Marshal(map[string]string{"surface": surface, "profile": "standard"})
+	if err != nil {
+		return perchTurnTicket{}
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, perchTurnTicketURLFor(endpoint), bytes.NewReader(payload))
+	if err != nil {
+		return perchTurnTicket{}
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer "+token)
+	httpReq.Header.Set("User-Agent", perchUserAgent)
+
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		return perchTurnTicket{}
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return perchTurnTicket{}
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 16*1024))
+	var out struct {
+		OK      bool   `json:"ok"`
+		Ticket  string `json:"ticket"`
+		RunID   string `json:"runId"`
+	}
+	if err := json.Unmarshal(body, &out); err != nil || !out.OK || out.Ticket == "" {
+		return perchTurnTicket{}
+	}
+	return perchTurnTicket{Ticket: out.Ticket, RunID: out.RunID}
+}
+
 // perchAttributionFor builds the identity block the CLI sends with every model
 // call. The account and workspace ids are captured at sign-in (see the Perch
 // OAuth exchange); without them the request still goes out, it simply carries no
@@ -461,6 +538,7 @@ func ForwardPerch(w http.ResponseWriter, req *Request) error {
 	if err != nil {
 		return fmt.Errorf("perch: marshal: %w", err)
 	}
+	bodyBytes := len(raw)
 
 	ctx := req.Ctx
 	if ctx == nil {
@@ -481,6 +559,24 @@ func ForwardPerch(w http.ResponseWriter, req *Request) error {
 	httpReq.Header.Set("User-Agent", perchUserAgent)
 	if oreq.Stream {
 		httpReq.Header.Set("Accept", "text/event-stream")
+	}
+
+	// The ticket gates the call and carries the runId it was issued for, so the
+	// body's runId has to match the ticket or Perch ignores the pairing.
+	if ticket := fetchPerchTurnTicket(ctx, req.Client, req.APIKey, "cli", endpoint); ticket.Ticket != "" {
+		if ticket.RunID != "" {
+			runID = ticket.RunID
+			body.RunID = runID
+			if body.Attribution != nil {
+				body.Attribution.RunID = runID
+			}
+		}
+		if raw, mErr := json.Marshal(body); mErr == nil {
+			httpReq.Body = io.NopCloser(bytes.NewReader(raw))
+			httpReq.ContentLength = int64(len(raw))
+			bodyBytes = len(raw)
+		}
+		httpReq.Header.Set(perchTurnTicketHdr, ticket.Ticket)
 	}
 
 	resp, err := req.Client.Do(httpReq)
@@ -510,7 +606,7 @@ func ForwardPerch(w http.ResponseWriter, req *Request) error {
 			"max_tokens", oreq.MaxTokens,
 			"stream", oreq.Stream,
 			"user_agent", perchUserAgent,
-			"body_bytes", len(raw),
+			"body_bytes", bodyBytes,
 			"has_attribution", body.Attribution != nil,
 			"attr_user", attrUser,
 			"attr_ws", attrWS,
