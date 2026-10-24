@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"9router/proxy/internal/providers"
+
 	"bytes"
 	json "encoding/json/v2"
 	"net/http"
@@ -127,18 +129,21 @@ func TestHandleAntigravity_CatalogPreserve(t *testing.T) {
 
 	HandleAntigravity(w, req, body)
 
-	if len(capturedBody) == 0 {
+	if capturedBody == nil {
 		t.Fatal("expected captured body")
 	}
 	var parsed map[string]any
 	_ = json.Unmarshal(capturedBody, &parsed)
-	// For catalog, should NOT override to 1.23.2
+	// The invariant is behavioural, not a version literal: a catalog request
+	// keeps whatever the caller sent, so it must never be rewritten to the
+	// build the generation path pins.
+	current := providers.AntigravityUserAgentIDEEdition()
 	if meta, ok := parsed["metadata"].(map[string]any); ok {
-		if meta["ideVersion"] == "1.23.2" {
-			t.Error("catalog request should preserve 2.11.0, not override to 1.23.2")
+		if meta["ideVersion"] == current {
+			t.Errorf("catalog request should preserve its own ideVersion, not override to %s", current)
 		}
 	}
-	if capturedUA == "antigravity/1.23.2" {
+	if capturedUA == "antigravity/"+current {
 		t.Error("catalog should preserve User-Agent, not override")
 	}
 
@@ -151,16 +156,18 @@ func TestHandleAntigravity_CatalogPreserve(t *testing.T) {
 
 	HandleAntigravity(w2, req2, body2)
 
-	if len(capturedBody) == 0 {
+	if capturedBody == nil {
 		t.Fatal("expected captured body for generation")
 	}
 	_ = json.Unmarshal(capturedBody, &parsed)
 	if meta, ok := parsed["metadata"].(map[string]any); ok {
-		if meta["ideVersion"] != "1.23.2" {
-			t.Errorf("generation should override to 1.23.2, got %v", meta["ideVersion"])
+		if meta["ideVersion"] != current {
+			t.Errorf("generation should override ideVersion to %s, got %v", current, meta["ideVersion"])
 		}
 	}
-	if capturedUA != "antigravity/1.23.2" {
-		t.Errorf("generation should override User-Agent to 1.23.2, got %q", capturedUA)
+	// And it must agree with what the router's own traffic presents.
+	if capturedUA != providers.AntigravityUserAgent(providers.AntigravityProfileIDE) {
+		t.Errorf("generation UA %q disagrees with the chat-path UA %q",
+			capturedUA, providers.AntigravityUserAgent(providers.AntigravityProfileIDE))
 	}
 }

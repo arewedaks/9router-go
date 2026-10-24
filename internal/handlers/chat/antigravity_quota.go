@@ -621,9 +621,9 @@ func FetchAntigravityWeeklyQuota(ctx context.Context, client *http.Client, acces
 	}
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", "antigravity/1.0.0")
+	req.Header.Set("User-Agent", providers.AntigravityUserAgent(providers.AntigravityProfileIDE))
 	req.Header.Set("X-Client-Name", "antigravity")
-	req.Header.Set("X-Client-Version", "0.1.0")
+	req.Header.Set("X-Client-Version", providers.AntigravityUserAgentIDEEdition())
 
 	if client == nil {
 		client = &http.Client{Timeout: 10 * time.Second}

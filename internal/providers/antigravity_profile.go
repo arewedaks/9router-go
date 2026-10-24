@@ -26,14 +26,20 @@ const (
 	AntigravityProfileCLI AntigravityClientProfile = "cli"
 )
 
-// Version constants. Bumped to the pair upstream ships with Gemini 4 Argon:
-// the 'ide' flavor was answered HTTP 404 for that model family, and the CLI
-// identity is the one the tiered Argon lanes accept (upstream
-// decolua/9router#4934). The IDE version is kept separately because the MITM
-// handlers and quota paths still emit it in their metadata block.
+// Version constants for the two clients we imitate. Both are kept here, in one
+// place, because a second copy is how the same binary ends up presenting two
+// different identities — see the note on AntigravityUserAgent.
+//
+// Track them against Google's own release feed. Antigravity 2.x is the desktop
+// app whose UA is the bare `antigravity/<version>` form; the IDE is a separate,
+// legacy product whose numbering restarted at 2.0.1; `agy` is the CLI.
+//
+//	antigravity 2.0 app : 2.26.0  (2026-10-23)
+//	antigravity IDE     : 2.5.5   (legacy, superseded by the 2.0 app)
+//	antigravity CLI agy : 1.4.6   (2026-10-23)
 const (
-	antigravityIDEVersion = "2.23.0"
-	antigravityCLIVersion = "1.4.0"
+	antigravityIDEVersion = "2.26.0"
+	antigravityCLIVersion = "1.4.6"
 
 	antigravityOS  = "windows"
 	antigravityCPU = "amd64"
@@ -44,6 +50,7 @@ const (
 	// full shape.
 	antigravityClientID = "1000494485"
 )
+
 // NormalizeAntigravityClientProfile coerces an arbitrary stored value into a
 // known profile. Unknown or absent values fall back to "ide".
 //
@@ -88,7 +95,8 @@ func (p AntigravityClientProfile) String() string { return string(p) }
 //
 // ide → antigravity/<ver>                    (the IDE app's own shape)
 // cli → antigravity/cli/<ver> (aidev_client; os_type=…; arch=…; cl=…;
-//        auth_method=consumer)               (the standalone `agy` CLI)
+//
+//	auth_method=consumer)               (the standalone `agy` CLI)
 //
 // The two are genuinely different clients and stay different strings: the
 // profile setting would be a no-op otherwise. What changed is the ide shape.
@@ -107,3 +115,8 @@ func AntigravityUserAgent(profile AntigravityClientProfile) string {
 	}
 	return "antigravity/" + antigravityIDEVersion
 }
+
+// AntigravityUserAgentIDEEdition returns just the version component of the IDE
+// User-Agent, for callers that build the header themselves: the MITM handler
+// writes `antigravity/<version>` and the matching metadata block.
+func AntigravityUserAgentIDEEdition() string { return antigravityIDEVersion }

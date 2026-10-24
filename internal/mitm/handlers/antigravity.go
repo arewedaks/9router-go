@@ -4,15 +4,19 @@ import (
 	json "encoding/json/v2"
 	"net/http"
 	"strings"
-)
 
-const antigravityIDEVersion = "1.23.2"
+	"9router/proxy/internal/providers"
+)
 
 // HandleAntigravity intercepts Antigravity Gemini-native requests and forwards to 9router.
 // It preserves client identity for catalog requests (fetchAvailableModels) and only
 // overrides IDE version for generation endpoints (:generateContent/:streamGenerateContent)
 // to keep compatibility while letting the IDE see new models (#3414).
 func HandleAntigravity(w http.ResponseWriter, r *http.Request, body []byte) {
+	// One identity for the whole binary: the version comes from the providers
+	// package so the intercepted IDE traffic and the router's own chat traffic
+	// cannot disagree about which client build they are.
+	ideVersion := providers.AntigravityUserAgentIDEEdition()
 	// Decide whether to override IDE version based on request URL
 	requestURL := r.URL.String()
 	isGeneration := strings.Contains(requestURL, ":generateContent") || strings.Contains(requestURL, ":streamGenerateContent")
@@ -26,15 +30,15 @@ func HandleAntigravity(w http.ResponseWriter, r *http.Request, body []byte) {
 	// Apply IDE version override only for generation endpoints
 	if isGeneration {
 		// Override User-Agent header
-		r.Header.Set("User-Agent", "antigravity/"+antigravityIDEVersion)
+		r.Header.Set("User-Agent", "antigravity/"+ideVersion)
 		// Override body metadata.ideVersion if present
 		if meta, ok := reqBody["metadata"].(map[string]any); ok {
-			meta["ideVersion"] = antigravityIDEVersion
+			meta["ideVersion"] = ideVersion
 			reqBody["metadata"] = meta
 		} else if meta, ok := reqBody["request"].(map[string]any); ok {
 			// Some payloads nest metadata inside request
 			if innerMeta, ok := meta["metadata"].(map[string]any); ok {
-				innerMeta["ideVersion"] = antigravityIDEVersion
+				innerMeta["ideVersion"] = ideVersion
 			}
 		}
 	}

@@ -42,10 +42,10 @@ var antigravityDiscoveryHosts = []string{
 	"https://cloudcode-pa.googleapis.com",
 }
 
-// antigravityUserAgent is the default IDE User-Agent used only as a last-resort
-// fallback. The canonical builder lives in the providers package
-// (AntigravityUserAgent), which knows about the ide|cli client profiles.
-const antigravityUserAgent = "antigravity/ide/2.11.0 darwin/arm64"
+// antigravityUserAgent is the last-resort fallback used only when settings
+// cannot be read. It is not a literal: a stale hardcoded UA here is how this
+// file once advertised a client build the router never otherwise presented.
+var antigravityUserAgent = providers.AntigravityUserAgent(providers.AntigravityProfileIDE)
 
 // The catalogue filter (non-chat blocklists + IsDiscoverableAntigravityModel)
 // lives in internal/providers so the quota tracker and the model picker share
