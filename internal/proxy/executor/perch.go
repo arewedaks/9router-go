@@ -465,6 +465,8 @@ func ForwardPerch(w http.ResponseWriter, req *Request) error {
 					Arguments string `json:"arguments"`
 				} `json:"function"`
 			} `json:"tool_calls,omitempty"`
+			ToolCallID string `json:"tool_call_id"`
+			Name       string `json:"name"`
 		} `json:"messages"`
 		MaxTokens   int            `json:"max_tokens"`
 		Stream      bool           `json:"stream"`
@@ -500,14 +502,21 @@ func ForwardPerch(w http.ResponseWriter, req *Request) error {
 		// If this is an assistant message with tool_calls, synthesize an informative text
 		// so the turn is never dropped as empty. Dropping it leaves the subsequent tool
 		// result without an assistant invocation, causing Perch to answer 400 api_error.
+		// The arguments go in: a harness replays the whole history on the next turn, and
+		// a bare list of tool names ("I will use the tool: bash, bash") leaves the model
+		// with no record of what it asked for — it answers nothing and the turn stalls.
 		if role == "assistant" && len(m.ToolCalls) > 0 {
 			var names []string
 			for _, tc := range m.ToolCalls {
-				if tc.Function.Name != "" {
-					names = append(names, tc.Function.Name)
+				call := tc.Function.Name
+				if args := strings.TrimSpace(tc.Function.Arguments); args != "" {
+					call += " " + args
+				}
+				if strings.TrimSpace(call) != "" {
+					names = append(names, call)
 				}
 			}
-			callDesc := "I will use the tool: " + strings.Join(names, ", ")
+			callDesc := "I will use the tool: " + strings.Join(names, "; ")
 			if text != "" {
 				text = text + "\n" + callDesc
 			} else {
@@ -522,10 +531,19 @@ func ForwardPerch(w http.ResponseWriter, req *Request) error {
 
 		// Perch's model-call API rejects role="tool" as an orphaned message. Flatten it into
 		// a user message with a result header so tool results are kept in context without
-		// breaking the upstream validator.
+		// breaking the upstream validator. The call id and tool name go in the label: with
+		// several calls in one turn, an unlabeled "[Tool Result]" makes the results
+		// indistinguishable from each other, which is what makes the follow-up turn stall.
 		if role == "tool" {
 			role = "user"
-			text = "[Tool Result]:\n" + text
+			label := "[Tool Result]"
+			if m.Name != "" {
+				label += " " + m.Name
+			}
+			if m.ToolCallID != "" {
+				label += " (" + m.ToolCallID + ")"
+			}
+			text = label + ":\n" + text
 		}
 		msgs = append(msgs, perchMessage{Role: role, Content: text})
 	}
@@ -773,8 +791,15 @@ func perchStream(w http.ResponseWriter, body io.Reader, req *Request, model stri
 	var fullText strings.Builder
 	var finalUsage map[string]any
 
-	sentCallID := make(map[int]bool)
-	sentArgs := make(map[int]string)
+	sentCallID := make(map[string]bool)
+	sentArgs := make(map[string]string)
+	// Per-call state is keyed by call id, not by position in the event's array.
+	// Perch may deliver each call in its own event with the array restarting at
+	// index 0; keying by index then makes call 2 look like a repeat of call 1,
+	// so its declaration is suppressed and the client never runs it — the turn
+	// ends with the harness waiting for a tool result that was never requested.
+	callOrdinal := make(map[string]int)
+	nextOrdinal := 0
 
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
@@ -852,6 +877,20 @@ func perchStream(w http.ResponseWriter, body io.Reader, req *Request, model stri
 				cid, _ := c["id"].(string)
 				cname, _ := c["name"].(string)
 
+				// Identity is the id when Perch gives one; otherwise fall back on
+				// the position within the event. Never on the position alone: a
+				// stream that reuses index 0 for every call would collapse them.
+				key := cid
+				if key == "" {
+					key = fmt.Sprintf("idx:%d", callIdx)
+				}
+				ordinal, seen := callOrdinal[key]
+				if !seen {
+					ordinal = nextOrdinal
+					callOrdinal[key] = ordinal
+					nextOrdinal++
+				}
+
 				fullArgs := ""
 				if rawArgs, ok := c["rawArguments"].(string); ok && rawArgs != "" {
 					fullArgs = rawArgs
@@ -861,27 +900,27 @@ func perchStream(w http.ResponseWriter, body io.Reader, req *Request, model stri
 					}
 				}
 
-				prev := sentArgs[callIdx]
+				prev := sentArgs[key]
 				var deltaArgs string
 				if strings.HasPrefix(fullArgs, prev) {
 					deltaArgs = fullArgs[len(prev):]
 				} else if fullArgs != "" && prev == "" {
 					deltaArgs = fullArgs
 				}
-				sentArgs[callIdx] = fullArgs
+				sentArgs[key] = fullArgs
 
 				// If we already sent the tool declaration and no new arguments bytes arrived, skip emitting duplicate chunk
-				if sentCallID[callIdx] && deltaArgs == "" {
+				if sentCallID[key] && deltaArgs == "" {
 					continue
 				}
 
 				fnObj := map[string]any{}
 				tcItem := map[string]any{
-					"index": callIdx,
+					"index": ordinal,
 				}
 
-				if !sentCallID[callIdx] {
-					sentCallID[callIdx] = true
+				if !sentCallID[key] {
+					sentCallID[key] = true
 					tcItem["type"] = "function"
 					if cid != "" {
 						tcItem["id"] = cid
