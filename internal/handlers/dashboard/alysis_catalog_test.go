@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"strings"
 	"testing"
 
 	"9router/proxy/internal/models"
@@ -114,5 +116,42 @@ func TestImportModelsAlysisCachesGatewayCatalogue(t *testing.T) {
 		if !have[id] {
 			t.Errorf("model %q is missing from the cache key %q that /v1/models reads", id, key)
 		}
+	}
+}
+
+// TestAlysisUsesOAuthSignInPanel pins the dashboard half of the OAuth switch:
+// renderProviderDetail only hides the paste-a-key form when a panel is listed
+// for the provider, so an Alysis entry missing from OAUTH_PANELS silently
+// re-offers "Add connection" with an API-key field the flow never produces.
+func TestAlysisUsesOAuthSignInPanel(t *testing.T) {
+	raw, err := os.ReadFile("ui/index.html")
+	if err != nil {
+		t.Fatalf("read ui/index.html: %v", err)
+	}
+	html := string(raw)
+
+	idx := strings.Index(html, "const OAUTH_PANELS = [")
+	if idx < 0 {
+		t.Fatal("OAUTH_PANELS is missing; the provider tab no longer has an OAuth panel table")
+	}
+	table := html[idx:]
+	if end := strings.Index(table, "];"); end > 0 {
+		table = table[:end]
+	}
+
+	entry := -1
+	for _, line := range strings.Split(table, "\n") {
+		if strings.Contains(line, `"alysis"`) {
+			entry = 1
+			if !strings.Contains(line, "genericOAuthPanelHtml") {
+				t.Errorf("Alysis is listed without the generic device-flow panel: %s", line)
+			}
+		}
+	}
+	if entry < 0 {
+		t.Fatal("Alysis is not in OAUTH_PANELS, so the provider tab still shows the API-key form")
+	}
+	if !strings.Contains(html, "function genericOAuthPanelHtml(") {
+		t.Fatal("genericOAuthPanelHtml() is missing")
 	}
 }

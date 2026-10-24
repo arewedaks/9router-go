@@ -6429,6 +6429,9 @@
       { ids: ["kiro", "kr"], render: p => kiroOAuthPanelHtml(p) },
       { ids: ["kilocode", "kc"], render: p => kilocodeOAuthPanelHtml(p) },
       { ids: ["freebuff", "fb"], render: p => freebuffOAuthPanelHtml(p) },
+      // Alysis signs in with an RFC 8628 device code at alysiscode.com/activate;
+      // the generic panel's device branch drives it unmodified.
+      { ids: ["alysis", "alys"], render: p => genericOAuthPanelHtml(p) },
       // Providers whose flow is driven by the generic spec table on the server.
       { ids: ["kimi", "kimi-coding", "grok-cli", "gcli", "gb", "grok-build", "claude", "cc",
               "iflow", "if", "gitlab", "gl", "xai", "cursor", "cu", "codex", "cx",
