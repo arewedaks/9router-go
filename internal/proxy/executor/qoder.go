@@ -436,6 +436,24 @@ func qoderStatusReport(envelopeBody string) (int, string) {
 		return http.StatusUnauthorized, "Qoder session expired — sign in again"
 	case "101":
 		return http.StatusUnauthorized, "Qoder signature rejected"
+	case "10605":
+		// RESOURCE_LIMIT: the account's concurrency queue is full. The message
+		// nests the real payload, which carries how long to wait.
+		var q struct {
+			RetryAfterSeconds int  `json:"retryAfterSeconds"`
+			WaitTime          int  `json:"waitTime"`
+			ServiceAvailable  bool `json:"serviceAvailable"`
+		}
+		_ = json.Unmarshal([]byte(inner.Message), &q)
+		secs := q.RetryAfterSeconds
+		if secs == 0 {
+			secs = q.WaitTime
+		}
+		if !q.ServiceAvailable && secs > 0 {
+			return http.StatusTooManyRequests, fmt.Sprintf(
+				"Qoder: account is busy (plan queue full) — retry in about %ds", secs)
+		}
+		return http.StatusTooManyRequests, "Qoder: account is busy — retry shortly"
 	}
 	return http.StatusBadGateway, inner.Message
 }

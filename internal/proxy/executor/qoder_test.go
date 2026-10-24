@@ -170,3 +170,27 @@ func TestBuildQoderBodySystemMessage(t *testing.T) {
 		t.Errorf("system prompt not prepended as a message: %s", raw)
 	}
 }
+
+// TestQoderStatusReport pins the operator-facing mapping for the three codes a
+// signed-in account actually hits.
+func TestQoderStatusReport(t *testing.T) {
+	cases := []struct {
+		body   string
+		status int
+		want   string
+	}{
+		{`{"code":"112","message":"{}"}`, http.StatusPaymentRequired, "not included in your current plan"},
+		{`{"code":"105","message":"x"}`, http.StatusUnauthorized, "session expired"},
+		{`{"code":"10605","message":"{\"isQueued\":true,\"retryAfterSeconds\":30,\"serviceAvailable\":false}"}`,
+			http.StatusTooManyRequests, "account is busy"},
+	}
+	for _, c := range cases {
+		status, msg := qoderStatusReport(c.body)
+		if status != c.status {
+			t.Errorf("%s: status = %d, want %d", c.body, status, c.status)
+		}
+		if !strings.Contains(msg, c.want) {
+			t.Errorf("%s: message %q does not mention %q", c.body, msg, c.want)
+		}
+	}
+}
