@@ -298,10 +298,11 @@ func (h *Handler) ServeProviderLogo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// The assets are immutable for a given build, so let the browser keep them.
-	// ETag lets a hard-refresh still revalidate instead of re-downloading.
+	// Revalidate on every load rather than caching blind for a day: the URL has
+	// no build identifier, so a new binary that changes a logo kept serving the
+	// old bytes until the entry expired. The ETag makes the check a 304.
 	w.Header().Set("Content-Type", contentType)
-	w.Header().Set("Cache-Control", "public, max-age=86400")
+	w.Header().Set("Cache-Control", "public, no-cache")
 	w.Header().Set("ETag", assetETag(data))
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(data)

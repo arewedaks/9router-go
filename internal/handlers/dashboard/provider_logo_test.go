@@ -255,8 +255,8 @@ func TestProviderLogoSetsCacheAndETag(t *testing.T) {
 		t.Fatalf("status = %d, want 200", w.Code)
 	}
 
-	if cc := w.Header().Get("Cache-Control"); !strings.Contains(cc, "max-age") {
-		t.Errorf("Cache-Control = %q, want a max-age", cc)
+	if cc := w.Header().Get("Cache-Control"); !strings.Contains(cc, "no-cache") {
+		t.Errorf("Cache-Control = %q, want no-cache so a rebuilt logo is picked up", cc)
 	}
 	etag := w.Header().Get("ETag")
 	if etag == "" {
