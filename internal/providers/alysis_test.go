@@ -15,8 +15,13 @@ func TestAlysisProviderRegistered(t *testing.T) {
 	if !ok {
 		t.Fatal("Alysis is missing from the provider registry")
 	}
-	if meta.AuthType != "apikey" || meta.Alias != "alys" {
-		t.Errorf("authType/alias = %q/%q, want apikey/alys", meta.AuthType, meta.Alias)
+	if meta.AuthType != "oauth" || meta.Alias != "alys" {
+		t.Errorf("authType/alias = %q/%q, want oauth/alys", meta.AuthType, meta.Alias)
+	}
+	// The CLI signs in with a device flow, so the dashboard must offer it in the
+	// OAuth section — that section is the only one with a sign-in button.
+	if meta.Category != CategoryOAuth {
+		t.Errorf("category = %q, want %q", meta.Category, CategoryOAuth)
 	}
 
 	cfg, ok := KnownProviders["alysis"]
@@ -40,13 +45,13 @@ func TestAlysisProviderRegistered(t *testing.T) {
 	// GetCatalogByCategory is what the dashboard's /providers/catalog serialises,
 	// so an entry present in providerRegistry but absent here is invisible.
 	found := false
-	for _, m := range GetCatalogByCategory()[CategoryAPIKey] {
+	for _, m := range GetCatalogByCategory()[CategoryOAuth] {
 		if m.ID == "alysis" {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Error("Alysis is not in the API-key category the dashboard catalog returns")
+		t.Error("Alysis is not in the OAuth category the dashboard catalog returns")
 	}
 }

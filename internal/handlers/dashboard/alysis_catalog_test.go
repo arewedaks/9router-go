@@ -29,18 +29,18 @@ func TestCatalogEndpointExposesAlysis(t *testing.T) {
 		t.Fatalf("decode catalog: %v", err)
 	}
 
-	for _, m := range catalog[string(providers.CategoryAPIKey)] {
+	for _, m := range catalog[string(providers.CategoryOAuth)] {
 		if m["id"] == "alysis" {
 			if m["name"] != "Alysis Code" {
 				t.Errorf("name = %v, want Alysis Code", m["name"])
 			}
-			if m["authType"] != "apikey" {
-				t.Errorf("authType = %v, want apikey", m["authType"])
+			if m["authType"] != "oauth" {
+				t.Errorf("authType = %v, want oauth", m["authType"])
 			}
 			return
 		}
 	}
-	t.Fatalf("Alysis Code is absent from the dashboard catalog: %v", catalog[string(providers.CategoryAPIKey)])
+	t.Fatalf("Alysis Code is absent from the dashboard catalog: %v", catalog[string(providers.CategoryOAuth)])
 }
 
 // Import is how an Alysis connection becomes usable: buildModelsList has no
@@ -76,9 +76,9 @@ func TestImportModelsAlysisCachesGatewayCatalogue(t *testing.T) {
 	if err := repo.UpsertProviderConnection(&models.ProviderConnection{
 		ID:       "alysis-1",
 		Provider: "alysis",
-		AuthType: "apikey",
+		AuthType: "oauth",
 		IsActive: 1,
-		Data:     `{"apiKey":"slk_test_key"}`,
+		Data:     `{"accessToken":"slk_test_key"}`,
 	}); err != nil {
 		t.Fatalf("seed connection: %v", err)
 	}

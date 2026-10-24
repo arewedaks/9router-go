@@ -144,6 +144,11 @@ func SetupRoutes(r interface {
 	r.Get("/api/oauth/freebuff/authorize", oauthH.HandleFreebuffAuthorize)
 	r.Post("/api/oauth/freebuff/exchange", oauthH.HandleFreebuffExchange)
 
+	// Alysis Code device login (RFC 8628). Registered before the generic
+	// {provider} routes so its own handlers serve the wildcard's shape.
+	r.Get("/api/oauth/alysis/authorize", oauthH.HandleAlysisAuthorize)
+	r.Post("/api/oauth/alysis/exchange", oauthH.HandleAlysisExchange)
+
 	// Kilo Code device flow. Its poll carries the state in the HTTP status
 	// (202/403/410/200) and its initiate takes no body, neither of which the
 	// generic spec shape can express, so it has a dedicated handler.
