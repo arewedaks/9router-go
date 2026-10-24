@@ -40,6 +40,19 @@ type Request struct {
 // Executor forwards a request upstream and writes the response.
 type Executor func(w http.ResponseWriter, req *Request) error
 
+// GetForConfig returns the executor that speaks the config's transport, falling
+// back to the provider's own. A Responses-API upstream reuses the codex
+// executor: it converts the chat body to Responses format and translates the
+// event stream back to chat chunks. Without this a gateway that serves one key
+// on several endpoints got chat completions for every model and rejected the
+// ones that require /responses.
+func GetForConfig(provider string, cfg *providers.ProviderConfig) Executor {
+	if cfg != nil && cfg.Format == providers.FormatOpenAIResponses {
+		return Get("codex")
+	}
+	return Get(provider)
+}
+
 type executorFactory func() Executor
 
 var (

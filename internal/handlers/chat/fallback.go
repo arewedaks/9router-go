@@ -247,6 +247,10 @@ func (h *ChatHandler) tryForwardWithConnection(
 	if err != nil {
 		return fmt.Errorf("get config for %s/%s: %w", provider, model, err)
 	}
+	// A gateway may serve one key on several transports (Alysis: chat, Responses,
+	// Messages). Resolve the model's own endpoint and format before anything
+	// downstream decides how to shape the body or translate the response.
+	providerCfg = providerCfg.ForModel(model)
 	// anthropic-compatible nodes fronting a Claude model need Anthropic-Beta flags (parity #3797)
 	if (provider == "claude" || strings.HasPrefix(provider, "anthropic-compatible-") || strings.HasPrefix(provider, "anthropic")) && strings.HasPrefix(model, "claude-") {
 		if providerCfg.StaticHeaders == nil {
@@ -359,22 +363,22 @@ func (h *ChatHandler) tryForwardWithConnection(
 	httpClient := h.getClientForConnection(connData)
 	sessionID := handlerutil.GetSessionID(ctx)
 
-	if exec := executor.Get(provider); exec != nil {
+	if exec := executor.GetForConfig(provider, providerCfg); exec != nil {
 		fwdErr = exec(w, &executor.Request{
-			Ctx:            ctx,
-			Client:         httpClient,
-			Config:         providerCfg,
-			APIKey:         apiKey,
-			Body:           pipedBody,
-			IsStream:       isStream,
-			TranslateResp:  translateResponse,
-			ConnectionID:   connectionID,
-			Provider:       provider,
-			ModelName:      model,
-			SessionID:      sessionID,
-			ToolNameMap:    claudeToolMap,
-			UpstreamClaude: upstreamClaudeWanted(isAnthropic, providerCfg, claudeNative),
-			ResponseBuf:    &metrics.ResponseBuf,
+			Ctx:              ctx,
+			Client:           httpClient,
+			Config:           providerCfg,
+			APIKey:           apiKey,
+			Body:             pipedBody,
+			IsStream:         isStream,
+			TranslateResp:    translateResponse,
+			ConnectionID:     connectionID,
+			Provider:         provider,
+			ModelName:        model,
+			SessionID:        sessionID,
+			ToolNameMap:      claudeToolMap,
+			UpstreamClaude:   upstreamClaudeWanted(isAnthropic, providerCfg, claudeNative),
+			ResponseBuf:      &metrics.ResponseBuf,
 			StartTime:        start,
 			TTFT:             &metrics.TTFT,
 			PerchUserID:      connData.PerchUserID,
@@ -392,7 +396,7 @@ func (h *ChatHandler) tryForwardWithConnection(
 		if rErr == nil && refreshedKey != "" && refreshedKey != apiKey {
 			log.Info("fallback", "reactive 401 token refresh success, retrying request", "conn", connectionID)
 			apiKey = NormalizeProviderToken(provider, refreshedKey)
-			if exec := executor.Get(provider); exec != nil {
+			if exec := executor.GetForConfig(provider, providerCfg); exec != nil {
 				fwdErr = exec(w, &executor.Request{
 					Ctx:            ctx,
 					Client:         httpClient,

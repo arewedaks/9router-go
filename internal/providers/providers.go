@@ -35,6 +35,12 @@ type ProviderConfig struct {
 	// limit that does not exist. Empty means "tier is unknown, assume the
 	// conservative reading".
 	SubscriptionURL string
+
+	// ModelFormats maps a model id to the transport one gateway serves it on,
+	// when a single key spans several endpoints and the gateway rejects the
+	// wrong one (Alysis: chat for DeepSeek/GLM, /responses for GPT, /messages
+	// for Claude). Empty for every provider that speaks one protocol.
+	ModelFormats map[string]string
 }
 
 // FormatClaude marks a provider whose upstream speaks the Anthropic Messages
@@ -50,6 +56,43 @@ const FormatClaude = "claude"
 // IsClaudeFormat reports whether the provider's upstream speaks the Anthropic
 // Messages API.
 func (p *ProviderConfig) IsClaudeFormat() bool { return p.Format == FormatClaude }
+
+// FormatOpenAIResponses marks an upstream reached over the Responses API
+// (POST /responses) instead of chat completions.
+const FormatOpenAIResponses = "openai-responses"
+
+// ForModel returns the config the given model must be sent with. Providers with
+// no ModelFormats entry get themselves back untouched; a gateway that serves
+// one key on several endpoints gets a copy whose Format and BaseURL point at the
+// model's own transport.
+//
+// The BaseURL is rewritten from its /chat/completions suffix, which is how the
+// registry and connection rows store a chat gateway's endpoint, so a provider
+// only has to declare the mapping rather than three full URLs.
+func (p *ProviderConfig) ForModel(model string) *ProviderConfig {
+	format, ok := p.ModelFormats[model]
+	if !ok || format == "" || format == p.Format {
+		return p
+	}
+	cloned := *p
+	cloned.Format = format
+	base := strings.TrimSuffix(p.BaseURL, "/chat/completions")
+	switch format {
+	case FormatClaude:
+		cloned.BaseURL = base + "/messages"
+		headers := make(map[string]string, len(p.StaticHeaders)+1)
+		for k, v := range p.StaticHeaders {
+			headers[k] = v
+		}
+		if _, ok := headers["anthropic-version"]; !ok {
+			headers["anthropic-version"] = "2023-06-01"
+		}
+		cloned.StaticHeaders = headers
+	case FormatOpenAIResponses:
+		cloned.BaseURL = base + "/responses"
+	}
+	return &cloned
+}
 
 // IsGeminiNative returns true if provider uses Gemini-native format.
 func (p *ProviderConfig) IsGeminiNative() bool { return p.Format == "gemini-native" }
@@ -920,10 +963,20 @@ var KnownProviders = map[string]ProviderConfig{
 	// (`alysis login`) hands out a long-lived static key (`slk_…`) that the
 	// gateway meters server-side; there is nothing to refresh, so a connection
 	// only stores the key. Upstream: AlysisAi/AlysisCode, src/alysis_code/alysis_cloud.py.
+	//
+	// One key serves three transports and the gateway rejects a model sent to
+	// the wrong one ("Luna uses /v1/responses", "Sonnet uses /v1/messages").
+	// ModelFormats mirrors the CLI's resolve_model_protocol (llm/factory.py).
 	"alysis": {
 		BaseURL:    "https://vzigujbcjjmpntxhmyvr.supabase.co/functions/v1/llm/v1/chat/completions",
 		AuthHeader: "Authorization",
 		AuthScheme: "bearer",
+		ModelFormats: map[string]string{
+			"gpt-6-luna":        FormatOpenAIResponses,
+			"gpt-6.1-sol":       FormatOpenAIResponses,
+			"claude-haiku-5-5":  FormatClaude,
+			"claude-sonnet-5-5": FormatClaude,
+		},
 	},
 }
 
