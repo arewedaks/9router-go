@@ -147,6 +147,7 @@ func SetupRoutes(r interface {
 	// Alysis Code device login (RFC 8628). Registered before the generic
 	// {provider} routes so its own handlers serve the wildcard's shape.
 	r.Get("/api/oauth/alysis/authorize", oauthH.HandleAlysisAuthorize)
+	r.Get("/api/oauth/alysis/flow", oauthH.HandleAlysisFlowInfo)
 	r.Post("/api/oauth/alysis/exchange", oauthH.HandleAlysisExchange)
 
 	// Kilo Code device flow. Its poll carries the state in the HTTP status

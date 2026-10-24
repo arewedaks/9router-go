@@ -49,6 +49,31 @@ func TestSetupRoutes(t *testing.T) {
 	}
 }
 
+// Alysis's OAuth endpoints must be mounted ahead of the generic {provider}
+// wildcard. When /flow was missing, the request fell through to the wildcard
+// handler and the dashboard showed "no OAuth flow for provider: alysis" — the
+// dedicated handler existing was not enough, the route had to be registered.
+func TestAlysisOAuthRoutesMounted(t *testing.T) {
+	database, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	r := chi.NewRouter()
+	SetupRoutes(r, db.NewRepo(database), nil)
+
+	for _, path := range []string{"/api/oauth/alysis/flow"} {
+		req := httptest.NewRequest("GET", path, nil)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Errorf("%s returned %d, want 200: %s", path, w.Code, w.Body.String())
+			continue
+		}
+		if !strings.Contains(w.Body.String(), "device_code") {
+			t.Errorf("%s answered without a flow kind: %s", path, w.Body.String())
+		}
+	}
+}
+
 func TestSetupServerRouter_PprofMounted(t *testing.T) {
 	database, cleanup := setupTestDB(t)
 	defer cleanup()

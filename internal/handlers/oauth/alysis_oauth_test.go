@@ -65,6 +65,28 @@ func newAlysisTestHandler(t *testing.T, tokenStatus, tokenKey string) *OAuthHand
 	return NewOAuthHandler(db.NewRepo(database))
 }
 
+func TestAlysisFlowInfoReportsDeviceCode(t *testing.T) {
+	h := newAlysisTestHandler(t, "pending", "")
+
+	rec := httptest.NewRecorder()
+	h.HandleAlysisFlowInfo(rec, httptest.NewRequest("GET", "/api/oauth/alysis/flow", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
+	}
+	var got struct {
+		Provider string `json:"provider"`
+		Kind     string `json:"kind"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	// The panel calls /flow before it renders a Sign in button; a 404 here is
+	// "no OAuth flow for provider: alysis" in the operator's face.
+	if got.Kind != "device_code" || got.Provider != "alysis" {
+		t.Errorf("flow info = %+v, want alysis/device_code", got)
+	}
+}
+
 func TestAlysisAuthorizeReturnsDeviceGrant(t *testing.T) {
 	h := newAlysisTestHandler(t, "pending", "")
 

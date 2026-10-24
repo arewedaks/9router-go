@@ -109,6 +109,21 @@ func (h *OAuthHandler) HandleAlysisAuthorize(w http.ResponseWriter, r *http.Requ
 	})
 }
 
+// HandleAlysisFlowInfo tells the dashboard which shape the panel takes.
+// GET /api/oauth/alysis/flow
+//
+// The generic panel probes this before showing a Sign in button, so Alysis
+// needs its own answer: it is not in the server's spec table because its
+// handshake takes JSON ({"device_code":…}) and needs no client id, which the
+// spec-driven device flow cannot express.
+func (h *OAuthHandler) HandleAlysisFlowInfo(w http.ResponseWriter, r *http.Request) {
+	handlerutil.WriteJSON(w, http.StatusOK, map[string]any{
+		"provider": "alysis",
+		"kind":     "device_code",
+		"hint":     "Sign in with the account your Alysis Code subscription uses.",
+	})
+}
+
 // HandleAlysisExchange polls the device login once.
 // POST /api/oauth/alysis/exchange  Body: {"deviceCode":"…"}
 //
