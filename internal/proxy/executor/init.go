@@ -88,4 +88,5 @@ func RegisterAll() {
 	Register("zed", func() Executor { return ForwardOpenAI })
 	Register("twinmind", func() Executor { return ForwardTwinMind })
 	Register("perch", func() Executor { return ForwardPerch })
+	Register("alysis", func() Executor { return ForwardOpenAI })
 }

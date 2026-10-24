@@ -6,6 +6,7 @@ var ProviderAliasMap = map[string]string{
 	"ag":             "antigravity",
 	"ar":             "agentrouter",
 	"ali":            "alicode",
+	"alys":           "alysis",
 	"ali-tp":         "alitp-intl",
 	"alii":           "alicode-intl",
 	"alitp":          "alitp-intl",

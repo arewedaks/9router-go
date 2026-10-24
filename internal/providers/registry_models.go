@@ -9,6 +9,11 @@ var ProviderModels = map[string][]string{
 	"alicode-intl": {"qwen3.5-plus", "kimi-k2.5", "glm-5", "MiniMax-M2.5", "qwen3-coder-next", "qwen3-coder-plus", "glm-4.7"},
 	"alims-intl": {"qwen3.5-plus", "kimi-k2.5", "glm-5", "MiniMax-M2.5", "qwen3-coder-next", "qwen3-coder-plus", "glm-4.7"},
 	"alitp-intl": {"qwen3.8-max-preview", "qwen3.7-max", "qwen3.7-plus", "qwen3.6-flash", "glm-5.2", "deepseek-v4-pro"},
+	// The 4 ids the live gateway serves today (GET .../llm/v1/models, 2026-10-24).
+	// A paid platform key may additionally reach spec-only ids such as
+	// gpt-6.1-sol, but they 400 "Unknown hosted model" on free credits, so they
+	// are deliberately absent.
+	"alysis": {"deepseek-flash", "glm-5.3-flash", "gpt-6-luna", "claude-haiku-5-5"},
 	"anthropic": {"claude-sonnet-4-20250514", "claude-opus-4-20250514", "claude-3-5-sonnet-20241022"},
 	"antigravity": {"gemini-3.8-flash-high", "gemini-3.8-flash-medium", "gemini-3.8-flash-low", "gemini-3.8-flash", "gemini-3.7-flash-high", "gemini-3.7-flash-medium", "gemini-3.7-flash-low", "gemini-3.6-flash-high", "gemini-3.6-flash-medium", "gemini-3.6-flash-low", "gemini-3.5-flash-high", "gemini-3-flash-agent", "gemini-3.5-flash-low", "gemini-3.5-flash-extra-low", "gemini-pro-agent", "gemini-3.1-pro-low", "claude-sonnet-4-6", "claude-opus-4-6-thinking", "gpt-oss-120b-medium", "gemini-3-flash", "gemini-3.1-flash-image"},
 	"api-airforce": {"gpt-oss-120b", "gpt-oss-20b", "kimi-k2.7-code"},

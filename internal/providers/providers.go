@@ -916,6 +916,15 @@ var KnownProviders = map[string]ProviderConfig{
 		AuthHeader: "Authorization",
 		AuthScheme: "bearer",
 	},
+	// Alysis Code is an OpenAI-compatible LLM gateway. The CLI's device login
+	// (`alysis login`) hands out a long-lived static key (`slk_…`) that the
+	// gateway meters server-side; there is nothing to refresh, so a connection
+	// only stores the key. Upstream: AlysisAi/AlysisCode, src/alysis_code/alysis_cloud.py.
+	"alysis": {
+		BaseURL:    "https://vzigujbcjjmpntxhmyvr.supabase.co/functions/v1/llm/v1/chat/completions",
+		AuthHeader: "Authorization",
+		AuthScheme: "bearer",
+	},
 }
 
 // RetryableStatusCodes are HTTP status codes that trigger account fallback.
