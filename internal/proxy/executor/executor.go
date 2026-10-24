@@ -35,6 +35,10 @@ type Request struct {
 	// block on every model call. Empty for every other provider.
 	PerchUserID      string
 	PerchWorkspaceID string
+	// Qoder account identity. Qoder resolves the caller from the uid inside the
+	// COSY payload, not from the token: a per-request UUID is rejected with 403
+	// "Login expired". These come from the sign-in stored on the connection.
+	QoderIdentity QoderIdentity
 }
 
 // Executor forwards a request upstream and writes the response.

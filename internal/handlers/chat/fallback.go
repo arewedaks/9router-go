@@ -301,6 +301,12 @@ func (h *ChatHandler) tryForwardWithConnection(
 		}
 	}
 	apiKey = NormalizeProviderToken(provider, apiKey)
+	// Qoder identifies the caller by the uid inside the COSY payload, not by the
+	// token, so the sign-in identity has to reach the executor.
+	var qoderIdentity executor.QoderIdentity
+	if connData != nil {
+		qoderIdentity = executor.QoderIdentityFromConn(connData.ProviderSpecificData)
+	}
 
 	// Token savers + provider-format normalization:
 	// - claudeNative: the CLIENT body is already Claude Messages format, so it
@@ -383,6 +389,7 @@ func (h *ChatHandler) tryForwardWithConnection(
 			TTFT:             &metrics.TTFT,
 			PerchUserID:      connData.PerchUserID,
 			PerchWorkspaceID: connData.PerchWorkspaceID,
+			QoderIdentity:    qoderIdentity,
 		})
 	} else if providerCfg.IsGeminiNative() {
 		fwdErr = h.forwardGeminiNativeRequest(ctx, w, provider, providerCfg, apiKey, connectionID, pipedBody, isStream, translateResponse, metrics)
