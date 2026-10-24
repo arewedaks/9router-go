@@ -150,6 +150,13 @@ func SetupRoutes(r interface {
 	r.Get("/api/oauth/alysis/flow", oauthH.HandleAlysisFlowInfo)
 	r.Post("/api/oauth/alysis/exchange", oauthH.HandleAlysisExchange)
 
+	// Qoder device-token sign-in: the nonce and PKCE verifier are minted here
+	// and never leave the process, which the spec-driven device flow cannot
+	// express. Registered before the generic {provider} routes.
+	r.Get("/api/oauth/qoder/authorize", oauthH.HandleQoderAuthorize)
+	r.Get("/api/oauth/qoder/flow", oauthH.HandleQoderFlowInfo)
+	r.Post("/api/oauth/qoder/exchange", oauthH.HandleQoderExchange)
+
 	// Kilo Code device flow. Its poll carries the state in the HTTP status
 	// (202/403/410/200) and its initiate takes no body, neither of which the
 	// generic spec shape can express, so it has a dedicated handler.

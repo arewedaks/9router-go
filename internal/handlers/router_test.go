@@ -74,6 +74,26 @@ func TestAlysisOAuthRoutesMounted(t *testing.T) {
 	}
 }
 
+func TestQoderOAuthRoutesMounted(t *testing.T) {
+	database, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	r := chi.NewRouter()
+	SetupRoutes(r, db.NewRepo(database), nil)
+
+	req := httptest.NewRequest("GET", "/api/oauth/qoder/flow", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("/api/oauth/qoder/flow returned %d, want 200: %s", w.Code, w.Body.String())
+	}
+	// The dedicated handler must answer, not the generic spec table, which has
+	// no qoder entry and would 404.
+	if !strings.Contains(w.Body.String(), "device_code") {
+		t.Errorf("flow answered without a flow kind: %s", w.Body.String())
+	}
+}
+
 func TestSetupServerRouter_PprofMounted(t *testing.T) {
 	database, cleanup := setupTestDB(t)
 	defer cleanup()

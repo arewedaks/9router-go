@@ -6432,6 +6432,9 @@
       // Alysis signs in with an RFC 8628 device code at alysiscode.com/activate;
       // the generic panel's device branch drives it unmodified.
       { ids: ["alysis", "alys"], render: p => genericOAuthPanelHtml(p) },
+      // Qoder mints its own nonce/PKCE identity and approves on
+      // qoder.com/device/selectAccounts, which /api/oauth/qoder/* serves.
+      { ids: ["qoder", "qd"], render: p => genericOAuthPanelHtml(p) },
       // Providers whose flow is driven by the generic spec table on the server.
       { ids: ["kimi", "kimi-coding", "grok-cli", "gcli", "gb", "grok-build", "claude", "cc",
               "iflow", "if", "gitlab", "gl", "xai", "cursor", "cu", "codex", "cx",
@@ -7996,7 +7999,7 @@
         </div>
         <div id="g-oauth-device" style="display:none; margin-top:10px;">
           <div style="font-size:0.72rem; color:var(--muted);">
-            Enter this code if asked: <strong id="g-oauth-usercode" style="color:var(--text);"></strong>.
+            <span id="g-oauth-code-wrap">Enter this code if asked: <strong id="g-oauth-usercode" style="color:var(--text);"></strong>.</span>
             <a id="g-oauth-link" href="#" target="_blank" rel="noopener" style="color:var(--accent);">Open the sign-in page</a>
             — this keeps polling on its own.
           </div>
@@ -8054,6 +8057,10 @@
         genericOAuthCtx = { flowId, deviceCode: data.deviceCode };
         document.getElementById("g-oauth-device").style.display = "block";
         document.getElementById("g-oauth-usercode").textContent = data.userCode || "";
+        // Providers like Qoder carry the whole handshake in the URL and ask for
+        // no typed code; showing "Enter this code if asked: ." reads as a bug.
+        const codeWrap = document.getElementById("g-oauth-code-wrap");
+        if (codeWrap) codeWrap.style.display = data.userCode ? "" : "none";
         const link = document.getElementById("g-oauth-link");
         if (link && data.authUrl) link.href = data.authUrl;
         msg.textContent = "Waiting for you to approve the sign-in…";
