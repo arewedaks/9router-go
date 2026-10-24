@@ -324,10 +324,12 @@ func CleanParametersSchema(raw jsontext.Value) jsontext.Value {
 }
 
 // SanitizeOpenAITools rewrites every tool's parameters schema through
-// CleanParametersSchema in an OpenAI-format request body. Used for OpenAI-compat
-// Gemini endpoints whose tool schema validation is as strict as the native
-// generateContent path (one unsupported keyword rejects the whole request).
-// Returns the body unchanged when there are no tools or nothing to clean.
+// CleanParametersSchema in an OpenAI-format request body, and normalises tool
+// names to the charset upstreams accept. Used for OpenAI-compat endpoints whose
+// tool validation is as strict as Gemini's: one bad keyword or one illegal name
+// rejects the whole request.
+//
+// Returns the body unchanged when there is nothing to clean.
 func SanitizeOpenAITools(body []byte) ([]byte, error) {
 	var m map[string]any
 	if err := json.Unmarshal(body, &m); err != nil {
@@ -346,6 +348,12 @@ func SanitizeOpenAITools(body []byte) ([]byte, error) {
 		fn, ok := tm["function"].(map[string]any)
 		if !ok {
 			continue
+		}
+		if name, ok := fn["name"].(string); ok {
+			if fixed := SanitizeToolName(name); fixed != name {
+				fn["name"] = fixed
+				changed = true
+			}
 		}
 		params, ok := fn["parameters"]
 		if !ok {
@@ -367,4 +375,75 @@ func SanitizeOpenAITools(body []byte) ([]byte, error) {
 		return body, nil
 	}
 	return json.Marshal(m)
+}
+
+// toolNameAllowed mirrors the charset strict OpenAI-compatible backends enforce
+// on function names: ^[a-zA-Z0-9_.-]+$.
+func toolNameAllowed(name string) bool {
+	if name == "" {
+		return false
+	}
+	for _, r := range name {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+		case r == '_' || r == '.' || r == '-':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// SanitizeToolName replaces every character outside ^[a-zA-Z0-9_.-]+$ with "_".
+// The mapping is deterministic and local: the same incoming name always yields
+// the same outgoing name, so a tool call the model echoes back can be mapped to
+// the caller's original. Only some names are rewritten, so the caller should
+// prefer ToolNameAliases.
+//
+// A name made entirely of illegal characters collapses to "_"; that is still a
+// valid name, which is what matters — the alternative is the upstream rejecting
+// the whole request.
+func SanitizeToolName(name string) string {
+	if toolNameAllowed(name) {
+		return name
+	}
+	out := make([]rune, 0, len(name))
+	for _, r := range name {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+			out = append(out, r)
+		case r == '_' || r == '.' || r == '-':
+			out = append(out, r)
+		default:
+			out = append(out, '_')
+		}
+	}
+	return string(out)
+}
+
+// ToolNameAliases maps every tool name in an OpenAI body whose sanitised form
+// differs from the original, sanitised -> original. The handler stores it on the
+// request so reply-side tool calls can be restored to the names the caller sent
+// and will send again next turn.
+func ToolNameAliases(body []byte) map[string]string {
+	var m struct {
+		Tools []struct {
+			Function struct {
+				Name string `json:"name"`
+			} `json:"function"`
+		} `json:"tools"`
+	}
+	if json.Unmarshal(body, &m) != nil || len(m.Tools) == 0 {
+		return nil
+	}
+	var aliases map[string]string
+	for _, t := range m.Tools {
+		if fixed := SanitizeToolName(t.Function.Name); fixed != t.Function.Name {
+			if aliases == nil {
+				aliases = map[string]string{}
+			}
+			aliases[fixed] = t.Function.Name
+		}
+	}
+	return aliases
 }
