@@ -280,6 +280,30 @@ func KeylessModelIDs(providerID string) []string {
 	return out
 }
 
+// CatalogModelIDs returns every catalogued model id for a provider — the same
+// list `KeylessModelIDs` seeds from, but without requiring the keyless regime.
+// Qoder needs this: the account takes a credential and publishes no /models
+// route, so Import can only offer the shipped catalogue.
+func CatalogModelIDs(providerID string) []string {
+	if providerID == "" {
+		return nil
+	}
+	freeCatalogOnce.Do(buildFreeCatalog)
+	ids := freeModelIDsByProvider[providerID]
+	if ids == nil {
+		ids = freeModelIDsByProvider[ResolveAlias(providerID)]
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(ids))
+	for id := range ids {
+		out = append(out, id)
+	}
+	sort.Strings(out)
+	return out
+}
+
 // isCatalogFreeModel reports whether the model id is listed as free for the
 // provider (id or alias) in the shipped catalogue.
 func isCatalogFreeModel(providerID, modelID string) bool {

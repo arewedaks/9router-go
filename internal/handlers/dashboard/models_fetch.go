@@ -306,6 +306,12 @@ func (h *Handler) fetchUpstreamModels(providerID, data string, timeout time.Dura
 		return h.fetchKiroModels(canonical, data, timeout)
 	}
 
+	// Qoder has no /models route either: its agent surface is a COSY-signed SSE
+	// endpoint, so Import is served from the catalogue — see qoder_catalog.go.
+	if canonical == "qoder" || providerID == "qoder" {
+		return h.fetchQoderModels(canonical)
+	}
+
 	client := &http.Client{Timeout: timeout}
 
 	// Branch 1 & 2: user-defined compatible endpoints need a base URL.
