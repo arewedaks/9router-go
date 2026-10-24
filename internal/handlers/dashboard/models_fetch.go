@@ -60,6 +60,16 @@ type modelFetcher struct {
 // knownModelFetchers mirrors the upstream v map in
 // server/app/api/providers/[id]/models/route.js.
 var knownModelFetchers = map[string]modelFetcher{
+	// Alysis Code. Its registry BaseURL is the chat endpoint on a Supabase
+	// function, and the sibling /models path is the listing. Without this entry
+	// Import answers "does not support models listing" against a route that
+	// returns 200, so a connected account caches zero models and the router
+	// advertises none of them.
+	"alysis": {
+		url:    "https://vzigujbcjjmpntxhmyvr.supabase.co/functions/v1/llm/v1/models",
+		method: http.MethodGet,
+		bearer: true,
+	},
 	"anthropic": {
 		url:        "https://api.anthropic.com/v1/models",
 		method:     http.MethodGet,
