@@ -324,10 +324,15 @@ func CleanParametersSchema(raw jsontext.Value) jsontext.Value {
 }
 
 // SanitizeOpenAITools rewrites every tool's parameters schema through
-// CleanParametersSchema in an OpenAI-format request body, and normalises tool
-// names to the charset upstreams accept. Used for OpenAI-compat endpoints whose
-// tool validation is as strict as Gemini's: one bad keyword or one illegal name
-// rejects the whole request.
+// CleanParametersSchema in an OpenAI-format request body, and normalises every
+// function name to the charset upstreams accept — both in the tools list and in
+// the history's tool_calls. Used for OpenAI-compat endpoints whose tool
+// validation is as strict as Gemini's: one bad keyword, or one illegal name
+// anywhere in the payload, rejects the whole request.
+//
+// History matters as much as the tools list: the API is stateless, so every
+// turn re-sends the assistant messages that carry the earlier tool calls. A
+// name sanitised on turn 1 but not on turn 2 fails validation just as hard.
 //
 // Returns the body unchanged when there is nothing to clean.
 func SanitizeOpenAITools(body []byte) ([]byte, error) {
@@ -335,42 +340,74 @@ func SanitizeOpenAITools(body []byte) ([]byte, error) {
 	if err := json.Unmarshal(body, &m); err != nil {
 		return nil, err
 	}
-	tools, ok := m["tools"].([]any)
-	if !ok || len(tools) == 0 {
-		return body, nil
-	}
 	changed := false
-	for _, t := range tools {
-		tm, ok := t.(map[string]any)
-		if !ok {
-			continue
+
+	if tools, ok := m["tools"].([]any); ok {
+		for _, t := range tools {
+			tm, ok := t.(map[string]any)
+			if !ok {
+				continue
+			}
+			fn, ok := tm["function"].(map[string]any)
+			if !ok {
+				continue
+			}
+			if name, ok := fn["name"].(string); ok {
+				if fixed := SanitizeToolName(name); fixed != name {
+					fn["name"] = fixed
+					changed = true
+				}
+			}
+			params, ok := fn["parameters"]
+			if !ok {
+				continue
+			}
+			raw, err := json.Marshal(params)
+			if err != nil {
+				continue
+			}
+			cleaned := CleanParametersSchema(raw)
+			var cleanedOut any
+			if err := json.Unmarshal(cleaned, &cleanedOut); err != nil {
+				continue
+			}
+			fn["parameters"] = cleanedOut
+			changed = true
 		}
-		fn, ok := tm["function"].(map[string]any)
-		if !ok {
-			continue
-		}
-		if name, ok := fn["name"].(string); ok {
-			if fixed := SanitizeToolName(name); fixed != name {
-				fn["name"] = fixed
-				changed = true
+	}
+
+	// Replayed history: assistant messages carry the tool calls the model made
+	// on earlier turns, and those names are validated exactly like the tools
+	// list above.
+	if msgs, ok := m["messages"].([]any); ok {
+		for _, msg := range msgs {
+			mm, ok := msg.(map[string]any)
+			if !ok {
+				continue
+			}
+			calls, ok := mm["tool_calls"].([]any)
+			if !ok {
+				continue
+			}
+			for _, c := range calls {
+				cm, ok := c.(map[string]any)
+				if !ok {
+					continue
+				}
+				cfn, ok := cm["function"].(map[string]any)
+				if !ok {
+					continue
+				}
+				if name, ok := cfn["name"].(string); ok {
+					if fixed := SanitizeToolName(name); fixed != name {
+						cfn["name"] = fixed
+						changed = true
+					}
+				}
 			}
 		}
-		params, ok := fn["parameters"]
-		if !ok {
-			continue
-		}
-		raw, err := json.Marshal(params)
-		if err != nil {
-			continue
-		}
-		cleaned := CleanParametersSchema(raw)
-		var cleanedOut any
-		if err := json.Unmarshal(cleaned, &cleanedOut); err != nil {
-			continue
-		}
-		fn["parameters"] = cleanedOut
-		changed = true
 	}
+
 	if !changed {
 		return body, nil
 	}
