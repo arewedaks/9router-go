@@ -315,3 +315,64 @@ func TestForwardRequest_StreamSetsAcceptHeader(t *testing.T) {
 		t.Errorf("expected streamed body, got %q", rec.Body.String())
 	}
 }
+
+// TestHandleJSONResponsePromotes200ErrorBody guards the TokenHarbor shape:
+// HTTP 200 carrying {"error":{"code":"rate_limit_exceeded"}}. It must come back
+// as a retryable 429 so account fallback runs, not as assistant content.
+func TestHandleJSONResponsePromotes200ErrorBody(t *testing.T) {
+	h, cleanup := setupHandlerForForward(t)
+	defer cleanup()
+
+	rec := httptest.NewRecorder()
+	body := `{"error":{"message":"Per-minute rate limit reached — slow down a bit.","code":"rate_limit_exceeded"}}`
+	// Upstream mem-prefix body dengan spasi; jangan sampai itu meloloskan deteksi.
+	ue := h.handleJSONResponse(context.Background(), rec, strings.NewReader("       "+body), false, nil)
+	if ue == nil {
+		t.Fatalf("expected error, got nil (body relayed as success: %q)", rec.Body.String())
+	}
+	var upErr *upstreamError
+	if !errors.As(ue, &upErr) {
+		t.Fatalf("expected upstreamError, got %T", ue)
+	}
+	if upErr.StatusCode != http.StatusTooManyRequests {
+		t.Errorf("status = %d, want 429", upErr.StatusCode)
+	}
+}
+
+// TestHandleJSONResponsePromotesErrorWrappedInCompletion covers the shape
+// TokenHarbor actually returns: a real completion envelope whose assistant
+// content is the relay's own rate-limit JSON.
+func TestHandleJSONResponsePromotesErrorWrappedInCompletion(t *testing.T) {
+	h, cleanup := setupHandlerForForward(t)
+	defer cleanup()
+
+	rec := httptest.NewRecorder()
+	body := `{"id":"chatcmpl-1","choices":[{"index":0,"message":{"role":"assistant","content":"      {\"error\":{\"message\":\"Per-minute rate limit reached — slow down a bit.\",\"type\":\"rate_limit_exceeded\",\"code\":\"rate_limit_exceeded\"}}"},"finish_reason":"stop"}]}`
+	ue := h.handleJSONResponse(context.Background(), rec, strings.NewReader(body), false, nil)
+	if ue == nil {
+		t.Fatalf("expected error, got nil (relayed: %q)", rec.Body.String())
+	}
+	var upErr *upstreamError
+	if !errors.As(ue, &upErr) || upErr.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("want 429 upstreamError, got %#v", ue)
+	}
+}
+
+// TestHandleJSONResponseKeepsNormalBody makes sure the promotion does not eat
+// real completions, including ones whose content mentions an error.
+func TestHandleJSONResponseKeepsNormalBody(t *testing.T) {
+	h, cleanup := setupHandlerForForward(t)
+	defer cleanup()
+
+	rec := httptest.NewRecorder()
+	body := `{"choices":[{"message":{"role":"assistant","content":"{\"error\":{\"message\":\"x\"}}"}}]}`
+	if err := h.handleJSONResponse(context.Background(), rec, strings.NewReader(body), false, nil); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "assistant") {
+		t.Errorf("body not relayed: %q", rec.Body.String())
+	}
+}
