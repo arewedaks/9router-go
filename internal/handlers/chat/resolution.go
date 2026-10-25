@@ -4,6 +4,7 @@ import (
 	json "encoding/json/v2"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -16,6 +17,18 @@ import (
 	"9router/proxy/internal/proxy/oauth"
 	"9router/proxy/internal/proxy/paramfix"
 )
+
+// responseHeaderTimeout bounds how long one upstream attempt may stay silent
+// before we abandon it and rotate. NINEROUTER_RESPONSE_HEADER_TIMEOUT accepts a
+// Go duration ("40s", "90s"); unset or invalid keeps the 2 minute default.
+func responseHeaderTimeout() time.Duration {
+	if v := strings.TrimSpace(os.Getenv("NINEROUTER_RESPONSE_HEADER_TIMEOUT")); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			return d
+		}
+	}
+	return 2 * time.Minute
+}
 
 // NewChatHandler creates a ChatHandler with the given repository and a streaming-capable HTTP client.
 // Pass a TokenSaverConfig to enable token saver features, or nil for all-off defaults.
@@ -40,7 +53,10 @@ func NewChatHandler(repo *db.Repo, ts ...*shared.TokenSaverConfig) *ChatHandler 
 	// start responding — closing the "accept then go silent" gap without
 	// killing a stream that has already begun.
 	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.ResponseHeaderTimeout = 2 * time.Minute
+	// request non-stream (TokenHarbor) baru menjawab 429 setelah 1-2 menit, jadi
+	// tanpa plafon pendek satu akun yang di-throttle menghabiskan seluruh budget
+	// fallback sebelum router sempat pindah akun.
+	transport.ResponseHeaderTimeout = responseHeaderTimeout()
 	return &ChatHandler{
 		Repo: repo,
 		Client: &http.Client{

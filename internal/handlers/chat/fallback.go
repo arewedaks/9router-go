@@ -6,7 +6,10 @@ import (
 	json "encoding/json/v2"
 	"errors"
 	"fmt"
+	"io"
+	"net"
 	"net/http"
+	"os"
 	"regexp"
 	"slices"
 	"strconv"
@@ -99,7 +102,14 @@ func (h *ChatHandler) handleAccountFallback(
 
 	var excludeIDs []string
 	var lastErr error
+	// Setiap akun yang di-throttle bisa butuh 1-2 menit sebelum upstream menjawab,
+	// jadi loop tanpa batas membuat satu request menggantung lebih lama dari
+	// kesabaran klien. Berhenti setelah budget habis dan laporkan error terakhir.
+	deadline := time.Now().Add(fallbackBudget())
 	for _, c := range allConns {
+		if lastErr != nil && time.Now().After(deadline) {
+			break
+		}
 		if slices.Contains(excludeIDs, c.ID) {
 			continue
 		}
@@ -128,12 +138,69 @@ func (h *ChatHandler) handleAccountFallback(
 			excludeIDs = append(excludeIDs, c.ID)
 			continue
 		}
+		// Timeout/koneksi putus bukan berarti provider habis: akun lain mungkin
+		// masih sehat dan hanya akun ini yang menggantung. Tanpa cabang ini,
+		// satu akun lambat mengakhiri seluruh fallback (request 502 setelah
+		// 45-90s) padahal rotasi belum dicoba sama sekali.
+		if isTransportFailure(lastErr) {
+			h.lockConnectionOnTransportFailure(provider, model, connObj.ID)
+			excludeIDs = append(excludeIDs, c.ID)
+			continue
+		}
 		return lastErr
 	}
 	if lastErr != nil {
 		return lastErr
 	}
 	return fmt.Errorf("no available connections for provider %s (model %s): every connection is cooling down, disabled, or quota-exhausted", provider, model)
+}
+
+// fallbackBudget adalah total waktu maksimum yang boleh dihabiskan satu request
+// untuk mencoba banyak akun. Default 60 detik; bisa diubah lewat
+// NINEROUTER_FALLBACK_BUDGET_MS. Request pertama selalu dijalankan apa pun
+// isinya, jadi nilai kecil hanya memangkas percobaan akun berikutnya.
+func fallbackBudget() time.Duration {
+	if v := strings.TrimSpace(os.Getenv("NINEROUTER_FALLBACK_BUDGET_MS")); v != "" {
+		if ms, err := strconv.Atoi(v); err == nil && ms > 0 {
+			return time.Duration(ms) * time.Millisecond
+		}
+	}
+	return 60 * time.Second
+}
+
+// isTransportFailure reports whether err looks like the upstream never answered
+// (header timeout, dial failure, reset) rather than answering with an error.
+func isTransportFailure(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, io.ErrUnexpectedEOF) {
+		return true
+	}
+	var ne net.Error
+	if errors.As(err, &ne) && ne.Timeout() {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "timeout") ||
+		strings.Contains(msg, "no such host") ||
+		strings.Contains(msg, "connection reset") ||
+		strings.Contains(msg, "connection refused")
+}
+
+// lockConnectionOnTransportFailure parks an account that never answered so the
+// next request skips it instead of paying the same timeout again. Uses a short
+// fixed cooldown with an incrementing backoff level: silent accounts come back
+// into rotation, but only after the healthy ones had their turn.
+func (h *ChatHandler) lockConnectionOnTransportFailure(provider, model, connID string) {
+	cooldownSec := 60
+	level := h.Repo.GetConnectionBackoffLevel(connID) + 1
+	lockKey := canonicalLockModel(provider, model)
+	h.Repo.LockConnectionModel(connID, lockKey, cooldownSec, level)
+	if lockKey != model {
+		_ = h.Repo.LockConnectionModel(connID, model, cooldownSec, level)
+	}
+	log.Warn("fallback", "connection locked (no response)", "conn", connID, "provider", provider, "model", model, "lockKey", lockKey, "cooldown_s", cooldownSec)
 }
 
 // lockConnectionOnUpstreamError records a retryable upstream failure against a

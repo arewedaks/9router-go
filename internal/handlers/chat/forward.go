@@ -92,6 +92,75 @@ func (h *ChatHandler) forwardRequest(
 	return h.handleJSONResponse(ctx, w, resp.Body, translateResponse, metrics)
 }
 
+// upstreamErrorFromBody promotes a 200 response whose body is a bare error
+// object into a retryable upstream error. Some OpenAI-compatible relays
+// (TokenHarbor among them) return the throttle as {"error":{...}} with status
+// 200 instead of a 429; without this the caller sees "success" carrying the
+// error text and no fallback happens.
+//
+// Only a top-level "error" with no "choices" counts: a normal completion can
+// carry an "error" field inside a choice or tool payload and must pass through.
+func upstreamErrorFromBody(body []byte) *upstreamError {
+	var probe struct {
+		Error *struct {
+			Message string `json:"message"`
+			Type    string `json:"type"`
+			Code    any    `json:"code"`
+		} `json:"error"`
+		Choices []json.RawMessage `json:"choices"`
+	}
+	trimmed := bytes.TrimSpace(body)
+	if len(trimmed) == 0 || trimmed[0] != '{' {
+		return nil
+	}
+	if err := json.Unmarshal(trimmed, &probe); err != nil {
+		return nil
+	}
+	if probe.Error == nil || len(probe.Choices) > 0 {
+		return nil
+	}
+	text := strings.ToLower(probe.Error.Type + " " + probe.Error.Message + " " + fmt.Sprint(probe.Error.Code))
+	status := http.StatusBadGateway
+	switch {
+	case strings.Contains(text, "rate") && (strings.Contains(text, "limit") || strings.Contains(text, "exceed")):
+		status = http.StatusTooManyRequests
+	case strings.Contains(text, "quota"), strings.Contains(text, "credit"), strings.Contains(text, "balance"):
+		status = http.StatusTooManyRequests
+	case strings.Contains(text, "auth"), strings.Contains(text, "invalid api key"), strings.Contains(text, "unauthorized"):
+		status = http.StatusUnauthorized
+	}
+	return &upstreamError{StatusCode: status, Body: body}
+}
+
+// errorInsideContent catches an upstream that fabricates a successful
+// completion whose assistant message is really its own error text — seen on
+// TokenHarbor free models, which return the throttle as a normal completion
+// with content {"error":{"type":"rate_limit_exceeded",...}} after a 1-2 minute
+// queue. Only a single-choice response whose content is a bare error object
+// with a throttle/quota/auth signal is promoted; ordinary JSON answers pass.
+func errorInsideContent(body []byte) *upstreamError {
+	var probe struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.Unmarshal(bytes.TrimSpace(body), &probe); err != nil {
+		return nil
+	}
+	if len(probe.Choices) != 1 {
+		return nil
+	}
+	ue := upstreamErrorFromBody([]byte(probe.Choices[0].Message.Content))
+	// Content yang kebetulan berbentuk {"error":...} tanpa sinyal throttle/kuota/
+	// auth bisa jadi jawaban model sungguhan; hanya yang sinyalnya jelas dirotasi.
+	if ue == nil || ue.StatusCode == http.StatusBadGateway {
+		return nil
+	}
+	return ue
+}
+
 // handleStreamResponse pipes SSE chunks from upstream to the client.
 func (h *ChatHandler) handleStreamResponse(ctx context.Context, w http.ResponseWriter, upstream io.Reader, translate bool, startTime time.Time, metrics *streamMetrics) error {
 	hw := internalproxy.NewHeartbeatWriter(ctx, w, 0)
@@ -327,6 +396,21 @@ func (h *ChatHandler) handleJSONResponse(ctx context.Context, w http.ResponseWri
 	}
 
 	body = translator.UnwrapClineEnvelope(body)
+
+	// A 200 whose body is a bare error object is a failure wearing a success
+	// status. Relaying it wrote the upstream's error text out as assistant
+	// content and returned nil, which skipped account fallback: TokenHarbor
+	// answers a rate-limited account exactly this way (after a long queue), so
+	// every request "succeeded" with garbage and never rotated to a healthy key.
+	if ue := upstreamErrorFromBody(body); ue != nil {
+		return ue
+	}
+	// TokenHarbor juga membungkus throttle-nya jadi completion normal:
+	// choices[0].message.content berisi JSON error. Tanpa ini klien menerima
+	// "berhasil" yang isinya pesan rate limit, dan rotasi akun tidak jalan.
+	if ue := errorInsideContent(body); ue != nil {
+		return ue
+	}
 
 	if metrics != nil {
 		metrics.ResponseBuf.Write(body)
