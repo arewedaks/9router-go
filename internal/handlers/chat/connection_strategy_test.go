@@ -20,7 +20,8 @@ func TestApplyConnectionStrategy_RoundRobin(t *testing.T) {
 	c3 := &models.ProviderConnection{ID: "conn-3"}
 	conns := []*models.ProviderConnection{c1, c2, c3}
 
-	strat := db.ProviderStrategy{RotateStrategy: "round-robin"}
+	// Account round-robin rotates every request: sticky limit 1.
+	strat := db.ProviderStrategy{RotateStrategy: "round-robin", AccountStrategy: "round-robin", StickyRoundRobinLimit: 1}
 
 	// 1st request -> c1
 	r1 := h.ApplyConnectionStrategy("antigravity", conns, strat)
@@ -56,8 +57,9 @@ func TestApplyConnectionStrategy_Sticky(t *testing.T) {
 	conns := []*models.ProviderConnection{c1, c2}
 
 	strat := db.ProviderStrategy{
-		RotateStrategy: "sticky",
-		StickyLimit:    3,
+		RotateStrategy:  "sticky",
+		StickyLimit:     3,
+		AccountStrategy: "sticky",
 	}
 
 	// First 3 calls should stay on conn-1
@@ -104,7 +106,9 @@ func TestGetBestConnection_WithRoundRobinStrategy(t *testing.T) {
 
 	// Set round-robin strategy for antigravity
 	if err := repo.SetProviderStrategy("antigravity", db.ProviderStrategy{
-		RotateStrategy: "round-robin",
+		RotateStrategy:        "round-robin",
+		AccountStrategy:       "round-robin",
+		StickyRoundRobinLimit: 1,
 	}); err != nil {
 		t.Fatalf("SetProviderStrategy: %v", err)
 	}
@@ -164,7 +168,9 @@ func TestHandleAccountFallback_RotatesUpstreamRequests(t *testing.T) {
 
 	// Enable round-robin strategy on deepseek
 	if err := repo.SetProviderStrategy("deepseek", db.ProviderStrategy{
-		RotateStrategy: "round-robin",
+		RotateStrategy:        "round-robin",
+		AccountStrategy:       "round-robin",
+		StickyRoundRobinLimit: 1,
 	}); err != nil {
 		t.Fatalf("SetProviderStrategy: %v", err)
 	}

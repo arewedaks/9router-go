@@ -5946,25 +5946,25 @@
   // from the proxy pool rotation below, which balances egress IPs rather than
   // accounts — accountStrategy keeps the two from fighting each other.
   //
-  // Modes mirror ApplyConnectionStrategy: fill-first (priority order),
-  // round-robin (spread), sticky (one account for N requests), random.
-  // Legacy blobs only stored fallbackStrategy=round-robin, so that still reads
-  // as round-robin here.
+  // Modes mirror ApplyConnectionStrategy: fastest (lowest measured latency
+  // first), fill-first (priority order), round-robin (spread), sticky (one
+  // account for N requests), random. Unset resolves to fastest, matching the
+  // backend default in ProviderStrategy.AccountMode.
   function accountStrategyControls(d) {
     const strat = (providerStrategies[d.provider] || {});
     let mode = strat.accountStrategy || "";
-    if (!mode) mode = (strat.fallbackStrategy || "") === "round-robin" ? "round-robin" : "fill-first";
+    if (!mode) mode = "fastest";
     const sticky = strat.stickyRoundRobinLimit || 3;
     const count = (d.connections || []).length;
     const note = count < 2
       ? `<span style="font-size:0.72rem; color:var(--muted);">needs 2+ accounts</span>`
       : `<span style="font-size:0.72rem; color:var(--muted);">${count} accounts</span>`;
     const opts = [
+      ["fastest", "Fastest (lowest latency first)"],
       ["fill-first", "Fill First (priority order)"],
       ["round-robin", "Round Robin (spread across accounts)"],
       ["sticky", "Sticky (one account, N requests)"],
       ["random", "Random (random start)"],
-      ["fastest", "Fastest (lowest latency first)"],
     ].map(([v, label]) =>
       `<option value="${v}" ${v === mode ? "selected" : ""}>${label}</option>`).join("");
     const showSticky = mode === "round-robin" || mode === "sticky";

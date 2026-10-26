@@ -55,7 +55,7 @@ func TestAccountRoundRobinRotatesAcrossConnections(t *testing.T) {
 
 	seedConnections(t, repo, "rrprov", 3)
 	h := &ChatHandler{Repo: repo}
-	strat := db.ProviderStrategy{FallbackStrategy: "round-robin", StickyRoundRobinLimit: 1}
+	strat := db.ProviderStrategy{AccountStrategy: "round-robin", StickyRoundRobinLimit: 1}
 
 	seen := map[string]int{}
 	order := loadConns(t, repo, "rrprov")
@@ -113,7 +113,7 @@ func TestAccountRoundRobinHonoursStickyLimit(t *testing.T) {
 
 	seedConnections(t, repo, "stickprov", 2)
 	h := &ChatHandler{Repo: repo}
-	strat := db.ProviderStrategy{FallbackStrategy: "round-robin", StickyRoundRobinLimit: 3}
+	strat := db.ProviderStrategy{AccountStrategy: "round-robin", StickyRoundRobinLimit: 3}
 
 	var served []string
 	for i := 0; i < 6; i++ {
@@ -142,7 +142,7 @@ func TestAccountRoundRobinSurvivesRestart(t *testing.T) {
 	repo := db.NewRepo(database)
 
 	seedConnections(t, repo, "restartprov", 2)
-	strat := db.ProviderStrategy{FallbackStrategy: "round-robin", StickyRoundRobinLimit: 1}
+	strat := db.ProviderStrategy{AccountStrategy: "round-robin", StickyRoundRobinLimit: 1}
 
 	// Three requests, then a fresh handler with no in-memory state.
 	h1 := &ChatHandler{Repo: repo}
@@ -178,7 +178,7 @@ func TestAccountRoundRobinPrefersUnusedConnection(t *testing.T) {
 	}
 
 	h := &ChatHandler{Repo: repo}
-	strat := db.ProviderStrategy{FallbackStrategy: "round-robin", StickyRoundRobinLimit: 1}
+	strat := db.ProviderStrategy{AccountStrategy: "round-robin", StickyRoundRobinLimit: 1}
 	order := h.applyConnectionStrategy("unusedprov", loadConns(t, repo, "unusedprov"), strat)
 
 	if order[0].ID != "unusedprov-conn-b" {
@@ -195,7 +195,7 @@ func TestAccountRotationReturnsEachConnectionOnce(t *testing.T) {
 
 	seedConnections(t, repo, "countprov", 4)
 	h := &ChatHandler{Repo: repo}
-	strat := db.ProviderStrategy{FallbackStrategy: "round-robin", StickyRoundRobinLimit: 1}
+	strat := db.ProviderStrategy{AccountStrategy: "round-robin", StickyRoundRobinLimit: 1}
 
 	order := h.applyConnectionStrategy("countprov", loadConns(t, repo, "countprov"), strat)
 	if len(order) != 4 {
@@ -252,7 +252,7 @@ func TestRankedNewcomerJoinsTheQueueInOrder(t *testing.T) {
 	}
 
 	h := &ChatHandler{Repo: repo}
-	strat := db.ProviderStrategy{FallbackStrategy: "round-robin", StickyRoundRobinLimit: 1}
+	strat := db.ProviderStrategy{AccountStrategy: "round-robin", StickyRoundRobinLimit: 1}
 
 	// The listing must place it last among the ranked rows, and it is ranked —
 	// so it is reachable. A NULL would have made it indistinguishable from

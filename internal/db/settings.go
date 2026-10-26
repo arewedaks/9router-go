@@ -80,10 +80,12 @@ func (p ProviderStrategy) WantsAccountRoundRobin() bool {
 }
 
 // AccountMode resolves how this provider's accounts rotate, decoupled from the
-// proxy-pool setting: "fill-first", "round-robin", "sticky" or "random".
-// AccountStrategy wins when set; otherwise the legacy keys decide — the
-// round-robin toggle, then rotateStrategy — so blobs written before the field
-// existed keep behaving exactly as they did.
+// proxy-pool setting: "fill-first", "round-robin", "sticky", "random" or
+// "fastest". An explicit accountStrategy always wins. Anything unset — including
+// blobs written before the field existed, whose only hint is the legacy
+// round-robin toggle — resolves to "fastest": the default is lowest measured
+// latency first, because a healthy account answering in 300ms should not queue
+// behind a stale one just because it sits earlier in the list.
 func (p ProviderStrategy) AccountMode() string {
 	switch strings.ToLower(strings.TrimSpace(p.AccountStrategy)) {
 	case "round-robin", "roundrobin":
@@ -97,10 +99,7 @@ func (p ProviderStrategy) AccountMode() string {
 	case "fill-first", "fillfirst", "none", "off":
 		return "fill-first"
 	}
-	if p.WantsAccountRoundRobin() {
-		return "round-robin"
-	}
-	return ""
+	return "fastest"
 }
 
 // AccountStickyLimit returns how many consecutive requests one account serves
