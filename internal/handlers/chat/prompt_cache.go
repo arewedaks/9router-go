@@ -11,6 +11,17 @@ import (
 	"9router/proxy/internal/promptcache"
 )
 
+// NoCacheHeader lets a caller opt out of the prompt cache for one request. The
+// dashboard model test uses it: its probe body is byte-identical on every run,
+// so without this the second test would be answered from cache in a few ms and
+// report a latency that says nothing about the upstream.
+const NoCacheHeader = "X-9Router-No-Cache"
+
+// noCacheRequested reports whether the request opts out of the prompt cache.
+func noCacheRequested(h http.Header) bool {
+	return h.Get(NoCacheHeader) != ""
+}
+
 // tryServeFromCache checks if the exact request has a valid cached entry.
 // If found, it replays the response immediately with 0 ms latency and sets
 // the X-9Router-Cache: HIT header.

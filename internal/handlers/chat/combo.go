@@ -951,7 +951,7 @@ func (h *ChatHandler) handleFusion(ctx context.Context, w http.ResponseWriter, b
 		handlerutil.WriteJSONError(cw, http.StatusBadGateway, fmt.Sprintf("unresolved judge model: %s", judgeModel))
 		return
 	}
-	h.handleSingleModel(ctx, cw, judgeJSON, modelInfo, isStream, translateResponse)
+	h.handleSingleModel(ctx, cw, judgeJSON, modelInfo, isStream, translateResponse, false)
 }
 
 // ResetComboState clears the sticky state for combos

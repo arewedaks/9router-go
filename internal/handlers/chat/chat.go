@@ -121,11 +121,11 @@ func (h *ChatHandler) HandleChatCompletions(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	h.handleSingleModel(ctx, w, body, modelInfo, reqBody.Stream, false)
+	h.handleSingleModel(ctx, w, body, modelInfo, reqBody.Stream, false, noCacheRequested(r.Header))
 }
 
 // handleSingleModel resolves a single ModelInfo and forwards the request upstream.
-func (h *ChatHandler) handleSingleModel(ctx context.Context, w http.ResponseWriter, body []byte, modelInfo *ModelInfo, isStream bool, translateResponse bool) {
+func (h *ChatHandler) handleSingleModel(ctx context.Context, w http.ResponseWriter, body []byte, modelInfo *ModelInfo, isStream bool, translateResponse bool, noCache bool) {
 	var upstreamBody map[string]any
 	if err := json.Unmarshal(body, &upstreamBody); err != nil {
 		handlerutil.WriteJSONError(w, http.StatusBadRequest, "failed to parse request body")
@@ -143,17 +143,23 @@ func (h *ChatHandler) handleSingleModel(ctx context.Context, w http.ResponseWrit
 		return
 	}
 
-	// 1. Check prompt cache
-	if h.tryServeFromCache(w, modelInfo.Model, upstreamJSON, isStream) {
-		return
+	// 1. Check prompt cache. A caller that sent NoCacheHeader (the dashboard
+	// model test) skips both the read and the write: replaying a cached probe
+	// would report a few-ms latency that never touched the upstream.
+	var out http.ResponseWriter = w
+	if !noCache {
+		if h.tryServeFromCache(w, modelInfo.Model, upstreamJSON, isStream) {
+			return
+		}
+
+		// 2. Intercept response to populate cache on success
+		hash, _ := promptcache.HashRequest(modelInfo.Model, upstreamJSON)
+		cw := newCachingResponseWriter(w, modelInfo.Model, hash, h.PromptCache, isStream)
+		defer cw.Finalize()
+		out = cw
 	}
 
-	// 2. Intercept response to populate cache on success
-	hash, _ := promptcache.HashRequest(modelInfo.Model, upstreamJSON)
-	cw := newCachingResponseWriter(w, modelInfo.Model, hash, h.PromptCache, isStream)
-	defer cw.Finalize()
-
-	commWriter := newCommittedResponseWriter(cw)
+	commWriter := newCommittedResponseWriter(out)
 
 	result := h.handleAccountFallback(ctx, commWriter, modelInfo.Provider, modelInfo.Model, modelInfo.ConnectionID, upstreamJSON, isStream, translateResponse, "/v1/chat/completions")
 	if result != nil {
@@ -264,11 +270,11 @@ func (h *ChatHandler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.handleMessagesSingleModel(ctx, w, workingBody, modelInfo, reqBody.Stream, translateResponse)
+	h.handleMessagesSingleModel(ctx, w, workingBody, modelInfo, reqBody.Stream, translateResponse, noCacheRequested(r.Header))
 }
 
 // handleMessagesSingleModel forwards a translated Claude request for a single model.
-func (h *ChatHandler) handleMessagesSingleModel(ctx context.Context, w http.ResponseWriter, translatedReq map[string]any, modelInfo *ModelInfo, isStream bool, translateResponse bool) {
+func (h *ChatHandler) handleMessagesSingleModel(ctx context.Context, w http.ResponseWriter, translatedReq map[string]any, modelInfo *ModelInfo, isStream bool, translateResponse bool, noCache bool) {
 	requestedModel, _ := translatedReq["model"].(string)
 	translatedReq["model"] = modelInfo.Model
 	ctx = h.applyJailbreak(ctx, translatedReq, requestedModel)
@@ -278,17 +284,21 @@ func (h *ChatHandler) handleMessagesSingleModel(ctx context.Context, w http.Resp
 		return
 	}
 
-	// 1. Check prompt cache
-	if h.tryServeFromCache(w, modelInfo.Model, finalBody, isStream) {
-		return
+	// 1. Check prompt cache (skipped for no-cache callers, see handleSingleModel)
+	var out http.ResponseWriter = w
+	if !noCache {
+		if h.tryServeFromCache(w, modelInfo.Model, finalBody, isStream) {
+			return
+		}
+
+		// 2. Intercept response to populate cache on success
+		hash, _ := promptcache.HashRequest(modelInfo.Model, finalBody)
+		cw := newCachingResponseWriter(w, modelInfo.Model, hash, h.PromptCache, isStream)
+		defer cw.Finalize()
+		out = cw
 	}
 
-	// 2. Intercept response to populate cache on success
-	hash, _ := promptcache.HashRequest(modelInfo.Model, finalBody)
-	cw := newCachingResponseWriter(w, modelInfo.Model, hash, h.PromptCache, isStream)
-	defer cw.Finalize()
-
-	commWriter := newCommittedResponseWriter(cw)
+	commWriter := newCommittedResponseWriter(out)
 
 	result := h.handleAccountFallback(ctx, commWriter, modelInfo.Provider, modelInfo.Model, modelInfo.ConnectionID, finalBody, isStream, translateResponse, "/v1/v1/messages")
 	if result != nil {

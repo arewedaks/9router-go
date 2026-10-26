@@ -17,6 +17,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"9router/proxy/internal/handlerutil"
+	"9router/proxy/internal/handlers/chat"
 	"9router/proxy/internal/providers"
 )
 
@@ -151,6 +152,10 @@ func (h *Handler) doJSONTest(ctx context.Context, client *http.Client, url strin
 		return modelTestResult{}, err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	// The probe body is identical on every run, so the prompt cache would answer
+	// the second test in a few ms and the reported latency would be a cache hit,
+	// not the upstream. Opt out for tests.
+	req.Header.Set(chat.NoCacheHeader, "1")
 	if apiKey != "" {
 		req.Header.Set("Authorization", "Bearer "+apiKey)
 	}
