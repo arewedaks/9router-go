@@ -1041,27 +1041,66 @@ func systemdOwnsThisProcess() bool {
 // proxy stays down after every update that is not supervised. The path we were
 // launched with (os.Args[0]) survives that rename, so it is the fallback.
 func executableForRestart() string {
-	// Prefer the path we were launched with. After a swap it is the only name
-	// that still refers to the new binary, while os.Executable may resolve to the
-	// deleted <binary>.old inode.
-	if len(os.Args) > 0 && os.Args[0] != "" {
-		if abs, err := filepath.Abs(os.Args[0]); err == nil {
-			if _, statErr := os.Stat(abs); statErr == nil {
-				return abs
-			}
+	exePath, _ := os.Executable()
+	if p := restartPathFor(os.Args, exePath); p != "" {
+		return p
+	}
+	log.Error("updater", "cannot locate the updated binary to restart")
+	return ""
+}
+
+// restartPathFor picks the binary a restart should spawn.
+//
+// argv[0] wins because after a swap it is the only name that still refers to
+// the new binary. It is not always a path though: a binary started from PATH
+// (or by a shell that resolved the name) arrives as the bare "9router-go",
+// which filepath.Abs would anchor to the working directory and then fail to
+// find — that is how an update installs cleanly and still never restarts.
+func restartPathFor(args []string, exePath string) string {
+	if len(args) > 0 {
+		if p := launchedPath(args[0]); p != "" {
+			return p
 		}
 	}
-
-	if path, err := os.Executable(); err == nil {
-		if resolved, rErr := filepath.EvalSymlinks(path); rErr == nil {
-			if _, statErr := os.Stat(resolved); statErr == nil {
+	if exePath != "" {
+		if resolved, err := filepath.EvalSymlinks(exePath); err == nil {
+			if fileExists(resolved) {
 				return resolved
 			}
 		}
+		// /proc/self/exe keeps the inode the updater already renamed to
+		// <binary>.old, so it no longer exists; the installed binary is the
+		// same name without the suffix.
+		if trimmed := strings.TrimSuffix(exePath, ".old"); trimmed != exePath && fileExists(trimmed) {
+			return trimmed
+		}
 	}
-
-	log.Error("updater", "cannot locate the updated binary to restart")
 	return ""
+}
+
+// launchedPath resolves argv[0] to an absolute path that exists. A bare name is
+// looked up in PATH rather than resolved against the working directory.
+func launchedPath(arg0 string) string {
+	if arg0 == "" {
+		return ""
+	}
+	if !strings.ContainsRune(arg0, os.PathSeparator) {
+		p, err := exec.LookPath(arg0)
+		if err != nil {
+			return ""
+		}
+		arg0 = p
+	}
+	abs, err := filepath.Abs(arg0)
+	if err != nil || !fileExists(abs) {
+		return ""
+	}
+	return abs
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 func spawnAndExit() {
