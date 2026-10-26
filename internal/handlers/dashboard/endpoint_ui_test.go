@@ -66,7 +66,7 @@ func TestUIEndpointTabReplacesOverview(t *testing.T) {
 }
 
 // TestUIEndpointTabShowsUrlsAndCurl checks the page tells the operator which
-// base URL to call, for both a local and a containerised client.
+// base URL to call.
 //
 // The curl/sample block was removed from this tab, so nothing here asserts on a
 // copy-paste snippet any more.
@@ -75,7 +75,6 @@ func TestUIEndpointTabShowsUrlsAndCurl(t *testing.T) {
 
 	for _, need := range []string{
 		`id="endpoint-local"`,
-		`id="endpoint-docker"`,
 		"function copyEndpoint(",
 		// The signature takes the settings payload so the API-key switches can be
 		// repainted from the same response the rest of the endpoint block uses.
@@ -285,17 +284,18 @@ func TestModelNameWrapsInsteadOfTruncatingOnMobile(t *testing.T) {
 	}
 }
 
-// Once a public domain is set, the Local and Docker rows stop describing
-// anything a client can use. The Local row collapses into the domain address
-// under a label that says "local", and host.docker.internal resolves to the
-// container's own machine rather than to a remote gateway — so a Docker user
-// on a laptop was handed a host that does not run the proxy. Hiding both
-// leaves the domain as the single address to copy.
+// Once a public domain is set, the Local row stops describing anything a
+// client can use: it collapses into the domain address under a label that says
+// "local". Hiding it leaves the domain as the single address to copy.
+//
+// The Docker row is gone entirely — host.docker.internal resolves to the
+// container's own machine, so against any gateway other than the same host it
+// pointed at a host that does not run the proxy.
 func TestLoopbackEndpointRowsHideOnceDomainIsSet(t *testing.T) {
 	ui := readEmbeddedUI(t)
 
 	for _, need := range []string{
-		`document.querySelectorAll("#endpoint-local, #endpoint-docker")`,
+		`document.querySelectorAll("#endpoint-local")`,
 		`if (String((settings && settings.publicBaseURL) || "").trim()) {`,
 		`if (row) row.style.display = "none";`,
 		`tag.classList.toggle("active", !!set);`,
@@ -305,12 +305,16 @@ func TestLoopbackEndpointRowsHideOnceDomainIsSet(t *testing.T) {
 		}
 	}
 
-	// Hiding must not remove the rows: with no domain configured they are the
-	// only addresses on a bare host that differ from one another.
-	if strings.Contains(ui, `id="endpoint-docker"`) && strings.Contains(ui, `style="display:none`+`"`) &&
-		strings.Contains(ui, `endpoint-docker"`) {
-		if strings.Contains(ui, `<div class="endpoint-row"> <span class="endpoint-tag">Docker</span> <input class="endpoint-url" id="endpoint-docker" readonly style=`) {
-			t.Error("the Docker row is now hidden in markup instead of at render time")
+	// The row must be hidden at render time, not dropped from the markup: with
+	// no domain configured it is the only address on a bare host.
+	if !strings.Contains(ui, `id="endpoint-local"`) {
+		t.Error("the Local row was removed from the markup instead of hidden at render time")
+	}
+	// And the retired Docker row must not come back as dead markup or a
+	// dangling handler reference.
+	for _, gone := range []string{`id="endpoint-docker"`, "host.docker.internal", "listenPortValue"} {
+		if strings.Contains(ui, gone) {
+			t.Errorf("the removed Docker row still leaves behind: %q", gone)
 		}
 	}
 }

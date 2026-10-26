@@ -2298,13 +2298,6 @@
             <span class="msym" style="font-size:14px;vertical-align:-2px;">content_copy</span> Copy
           </button>
         </div>
-        <div class="endpoint-row">
-          <span class="endpoint-tag">Docker</span>
-          <input class="endpoint-url" id="endpoint-docker" readonly value="">
-          <button class="btn btn-sm" onclick="copyEndpoint('endpoint-docker', this)">
-            <span class="msym" style="font-size:14px;vertical-align:-2px;">content_copy</span> Copy
-          </button>
-        </div>
         <!-- The public address clients are told to use. Editable because a
              tunnel or split-horizon DNS means the origin the browser used is
              not always the origin other machines can reach. -->
@@ -9328,9 +9321,8 @@
     renderEndpointHost();
     loadKeys();
     loadEndpointStatus();
-    // The Docker hint needs the listen port, which arrives with the settings
-    // payload. Re-run once it lands so the hint is not left empty on a first
-    // visit, and re-run after every settings save for the same reason.
+    // The settings payload carries the saved domain and the API-key flags, so
+    // the endpoint block is repainted once it lands and after every save.
     try {
       const res = await api("/api/dashboard/settings");
       if (res.ok) {
@@ -9457,24 +9449,12 @@
       : `${location.protocol}//${host}:${location.port}`;
     const local = document.getElementById("endpoint-local");
     if (local) local.value = `${origin}/v1`;
-    const docker = document.getElementById("endpoint-docker");
-    if (docker) {
-      // host.docker.internal reaches the host from a container, so only the
-      // listen port is meaningful there — a proxy-fronted origin is not
-      // reachable that way.
-      docker.value = listenPortValue()
-        ? `http://host.docker.internal:${listenPortValue()}/v1`
-        : `${origin}/v1`;
-    }
-    // A configured domain is the one address every client has to use,
-    // containers included: host.docker.internal resolves to the container's
-    // own machine, so against a remote gateway it points at the wrong host
-    // entirely. Both loopback rows also collapse into the domain row here,
-    // so they are hidden rather than shown twice under two names. With no
-    // domain set they stay, because on a bare host they are the only two
-    // addresses that actually differ.
+    // A configured domain is the one address every client has to use, so the
+    // derived loopback row collapses into it rather than being shown twice
+    // under two names. With no domain set it stays, because on a bare host it
+    // is the only address there is.
     if (String((settings && settings.publicBaseURL) || "").trim()) {
-      for (const el of document.querySelectorAll("#endpoint-local, #endpoint-docker")) {
+      for (const el of document.querySelectorAll("#endpoint-local")) {
         const row = el.closest(".endpoint-row");
         if (row) row.style.display = "none";
       }
@@ -9525,7 +9505,7 @@
       // would show something the server never saved.
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setMsg("endpoint-public-msg", data.error || "Could not save.", false);
+        setMsg("endpoint-public-msg", errorMessage(data, res.status), false);
         return;
       }
       renderPublicBaseURL(data.publicBaseURL);
@@ -9535,14 +9515,6 @@
     } catch (e) {
       setMsg("endpoint-public-msg", "Could not save.", false);
     }
-  }
-
-  // The port the process listens on, as reported by the server. Used only for
-  // the Docker hint, where the internal port is the right thing to show.
-  function listenPortValue() {
-    const el = document.getElementById("set-listen-port");
-    const v = el && el.textContent ? el.textContent.trim() : "";
-    return /^[0-9]+$/.test(v) ? v : "";
   }
 
   // The status pill probes the public /health route from the browser, the same
