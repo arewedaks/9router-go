@@ -152,6 +152,7 @@ func (h *Handler) doJSONTest(ctx context.Context, client *http.Client, url strin
 		return modelTestResult{}, err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	setProbeUserAgent(req)
 	// The probe body is identical on every run, so the prompt cache would answer
 	// the second test in a few ms and the reported latency would be a cache hit,
 	// not the upstream. Opt out for tests.

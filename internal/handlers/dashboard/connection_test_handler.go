@@ -49,6 +49,20 @@ func connectionTestTimeout() time.Duration {
 // timeout is per-request; the caller may also impose a shorter context
 // deadline. Probes never reuse a pooled/idle connection across accounts, so a
 // slow account cannot make another account's probe appear slow.
+// probeUserAgent replaces Go's default "Go-http-client/1.1", which
+// Cloudflare-fronted inference hosts (Nous, and anything behind the same WAF)
+// answer with a 403 HTML challenge page. Mirrors proxy.doRequestOnce and the
+// models fetcher, which already override it for the same reason.
+const probeUserAgent = "9router/1.0"
+
+// setProbeUserAgent applies probeUserAgent unless the caller picked one (for
+// example the provider's StaticHeaders or the antigravity IDE fingerprint).
+func setProbeUserAgent(req *http.Request) {
+	if req.Header.Get("User-Agent") == "" {
+		req.Header.Set("User-Agent", probeUserAgent)
+	}
+}
+
 func (h *Handler) httpClientForTest() *http.Client {
 	return &http.Client{Timeout: connectionTestTimeout()}
 }
@@ -608,6 +622,7 @@ func (h *Handler) probeGenericConnection(ctx context.Context, raw map[string]any
 	for k, v := range cfg.StaticHeaders {
 		req.Header.Set(k, v)
 	}
+	setProbeUserAgent(req)
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -716,6 +731,7 @@ func (h *Handler) probeCustomNodeConnection(ctx context.Context, nodeData *db.Pr
 			req.Header.Set("x-api-key", apiKey)
 			req.Header.Set("anthropic-version", "2023-06-01")
 		}
+		setProbeUserAgent(req)
 		resp, err := client.Do(req)
 		if err == nil {
 			defer resp.Body.Close()
@@ -793,6 +809,7 @@ func (h *Handler) probeCustomNodeConnection(ctx context.Context, nodeData *db.Pr
 		chatReq.Header.Set("x-api-key", apiKey)
 		chatReq.Header.Set("anthropic-version", "2023-06-01")
 	}
+	setProbeUserAgent(chatReq)
 
 	chatResp, err := client.Do(chatReq)
 	if err != nil {
@@ -861,8 +878,10 @@ var genericProbeModels = map[string]string{
 	// healthy Wally key.
 	"wally": "glm-5.3-flash",
 	// Nous serves its free tier to any Portal-authenticated key; a paid-only
-	// default would report a healthy free account as broken.
-	"nous": "meituan/longcat-2.0:free",
+	// default would report a healthy free account as broken. longcat-2.0:free
+	// was withdrawn ("This model is no longer free" -> 404), so probe on the
+	// current free preview instead.
+	"nous": "meituan/longcat-2.5-preview:free",
 }
 
 // setProbeAuthHeader applies the provider's configured auth header/scheme.
