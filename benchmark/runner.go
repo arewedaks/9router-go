@@ -168,7 +168,8 @@ CREATE TABLE IF NOT EXISTS providerConnections (
 	isActive INTEGER DEFAULT 1,
 	data TEXT NOT NULL,
 	createdAt TEXT,
-	updatedAt TEXT
+	updatedAt TEXT,
+	latencyMs INTEGER DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS settings (
 	id INTEGER PRIMARY KEY,

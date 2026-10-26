@@ -5964,6 +5964,7 @@
       ["round-robin", "Round Robin (spread across accounts)"],
       ["sticky", "Sticky (one account, N requests)"],
       ["random", "Random (random start)"],
+      ["fastest", "Fastest (lowest latency first)"],
     ].map(([v, label]) =>
       `<option value="${v}" ${v === mode ? "selected" : ""}>${label}</option>`).join("");
     const showSticky = mode === "round-robin" || mode === "sticky";

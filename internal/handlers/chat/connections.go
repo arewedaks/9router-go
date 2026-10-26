@@ -606,6 +606,10 @@ func (h *ChatHandler) applyConnectionStrategy(provider string, conns []*models.P
 		return h.rotateConnectionsSticky(provider, conns, strat.AccountStickyLimit())
 	case "random":
 		return rotateConnectionsRandom(conns)
+	case "fastest":
+		// Lowest measured latency first. Accounts that have never answered go
+		// first so each one is sampled once and the ranking can self-correct.
+		return orderConnectionsByLatency(conns)
 	}
 
 	strategy := strings.ToLower(strings.TrimSpace(strat.RotateStrategy))
@@ -635,6 +639,32 @@ func (h *ChatHandler) applyConnectionStrategy(provider string, conns []*models.P
 		// "none", "fallback", or empty: keep DB priority order
 		return conns
 	}
+}
+
+// orderConnectionsByLatency puts the account that starts answering soonest
+// first. Connections that have never served a request (latency 0) are tried
+// before the measured ones, otherwise a brand new account could never win a
+// turn and stay unranked forever. Ties keep the DB priority order.
+//
+// Deliberate simplification: no cooldown or failure weighting here. An account
+// that starts failing is demoted by the fallback path (it errors and the next
+// connection is tried), not by this ranking; add health-aware scoring when
+// accounts start flapping rather than dying outright.
+func orderConnectionsByLatency(conns []*models.ProviderConnection) []*models.ProviderConnection {
+	ordered := make([]*models.ProviderConnection, len(conns))
+	copy(ordered, conns)
+	sort.SliceStable(ordered, func(i, j int) bool {
+		a, b := ordered[i], ordered[j]
+		aUnmeasured, bUnmeasured := a.LatencyMs <= 0, b.LatencyMs <= 0
+		if aUnmeasured != bUnmeasured {
+			return aUnmeasured
+		}
+		if !aUnmeasured && a.LatencyMs != b.LatencyMs {
+			return a.LatencyMs < b.LatencyMs
+		}
+		return priorityOf(a) < priorityOf(b)
+	})
+	return ordered
 }
 
 // rotateConnectionsRandom starts the list at a random account and keeps the

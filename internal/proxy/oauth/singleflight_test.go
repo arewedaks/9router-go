@@ -27,7 +27,8 @@ func newStoreTestDB(t *testing.T) *sql.DB {
 		isActive INTEGER,
 		data TEXT,
 		createdAt TEXT,
-		updatedAt TEXT
+		updatedAt TEXT,
+		latencyMs INTEGER DEFAULT 0
 	)`)
 	if err != nil {
 		t.Fatalf("create table: %v", err)

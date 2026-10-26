@@ -51,6 +51,7 @@ func setupTestDB(t *testing.T) (*sql.DB, func()) {
 			data TEXT NOT NULL,
 			lastUsedAt TEXT,
 			consecutiveUseCount INTEGER DEFAULT 0,
+			latencyMs INTEGER DEFAULT 0,
 			createdAt TEXT NOT NULL,
 			updatedAt TEXT NOT NULL
 		);`,

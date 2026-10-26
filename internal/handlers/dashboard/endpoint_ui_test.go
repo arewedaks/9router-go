@@ -236,6 +236,7 @@ func TestUIProviderPageHasAccountRotationModes(t *testing.T) {
 		`["round-robin", "Round Robin (spread across accounts)"]`,
 		`["sticky", "Sticky (one account, N requests)"]`,
 		`["random", "Random (random start)"]`,
+		`["fastest", "Fastest (lowest latency first)"]`,
 		"accountStrategy: mode",
 		"stickyRoundRobinLimit",
 	} {

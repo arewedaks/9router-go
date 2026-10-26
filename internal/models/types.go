@@ -32,6 +32,10 @@ type ProviderConnection struct {
 	// the rotation stays fair across restarts.
 	LastUsedAt          string `json:"lastUsedAt,omitempty"`
 	ConsecutiveUseCount int    `json:"consecutiveUseCount,omitempty"`
+	// LatencyMs is the exponentially weighted mean of the time it takes this
+	// account to start answering (TTFT when streaming), in milliseconds. It is
+	// what the "fastest" account strategy sorts by; 0 means never measured.
+	LatencyMs int64 `json:"latencyMs,omitempty"`
 }
 
 // ProviderNode represents a deployment node / executor config.

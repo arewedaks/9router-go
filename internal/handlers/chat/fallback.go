@@ -540,6 +540,19 @@ func (h *ChatHandler) tryForwardWithConnection(
 			Endpoint:     endpoint,
 		}
 		h.logUsage(logInfo, usage, latencyMs, body, metrics)
+		// Feed the "fastest" account strategy. For a stream, time to first
+		// token is what the user feels; lifetime of the request is not.
+		// Only the main chat path measures this — media/multimodal paths keep
+		// their accounts unmeasured, which just means they get sampled first.
+		sample := latencyMs
+		if metrics.TTFT > 0 {
+			sample = metrics.TTFT
+		}
+		if h.Repo != nil {
+			if err := h.Repo.RecordConnectionLatency(connectionID, sample); err != nil {
+				log.Warn("fallback", "latency not recorded", "connection", connectionID, "error", err)
+			}
+		}
 		fwdErr = nil
 		recordProviderOutcome(provider, 200, false)
 	} else {

@@ -92,6 +92,8 @@ func (p ProviderStrategy) AccountMode() string {
 		return "sticky"
 	case "random":
 		return "random"
+	case "fastest", "least-latency", "leastlatency", "latency", "lowest-latency":
+		return "fastest"
 	case "fill-first", "fillfirst", "none", "off":
 		return "fill-first"
 	}

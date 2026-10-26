@@ -108,6 +108,27 @@ func (r *Repo) InsertRequestDetail(id, provider, model, connectionID, status str
 	return nil
 }
 
+// RecordConnectionLatency folds one measured response time into the account's
+// running average (EWMA, 3:1 in favour of history so a single slow request
+// cannot demote a healthy account). The "fastest" account strategy sorts by
+// this value.
+func (r *Repo) RecordConnectionLatency(connectionID string, ms int64) error {
+	if connectionID == "" || ms <= 0 {
+		return nil
+	}
+	_, err := r.db.Exec(
+		`UPDATE providerConnections
+		 SET latencyMs = CASE WHEN COALESCE(latencyMs, 0) = 0 THEN ?
+		                      ELSE (COALESCE(latencyMs, 0) * 3 + ?) / 4 END
+		 WHERE id = ?`,
+		ms, ms, connectionID,
+	)
+	if err != nil {
+		return fmt.Errorf("record connection latency %s: %w", connectionID, err)
+	}
+	return nil
+}
+
 // UpdateConnectionLastUsed records that a connection served a request: it stamps
 // lastUsedAt and advances the run counter that account round-robin reads.
 //

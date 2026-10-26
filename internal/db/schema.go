@@ -47,6 +47,9 @@ var extraColumns = []string{
 	// which resets on every restart.
 	`ALTER TABLE providerConnections ADD COLUMN lastUsedAt TEXT`,
 	`ALTER TABLE providerConnections ADD COLUMN consecutiveUseCount INTEGER DEFAULT 0`,
+	// EWMA of time-to-first-byte per connection, in milliseconds, read by the
+	// "fastest" account strategy. 0 means never measured.
+	`ALTER TABLE providerConnections ADD COLUMN latencyMs INTEGER DEFAULT 0`,
 }
 
 // SchemaStatements returns the canonical CREATE TABLE statements. It is exported
@@ -77,7 +80,8 @@ func SchemaStatements() []string {
 			createdAt TEXT NOT NULL,
 			updatedAt TEXT NOT NULL,
 			lastUsedAt TEXT,
-			consecutiveUseCount INTEGER DEFAULT 0
+			consecutiveUseCount INTEGER DEFAULT 0,
+			latencyMs INTEGER DEFAULT 0
 		)`,
 		`CREATE TABLE IF NOT EXISTS kv (
 			scope TEXT NOT NULL,

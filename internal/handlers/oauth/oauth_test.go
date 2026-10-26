@@ -36,8 +36,8 @@ func setupOAuthTestDB(t *testing.T) (*sql.DB, func()) {
 		createdAt TEXT,
 		updatedAt TEXT,
 		lastUsedAt TEXT,
-		consecutiveUseCount INTEGER DEFAULT 0
-	);`
+		consecutiveUseCount INTEGER DEFAULT 0,
+	latencyMs INTEGER DEFAULT 0);`
 	if _, err := database.Exec(schema); err != nil {
 		database.Close()
 		os.Remove(tmpFile.Name())

@@ -19,7 +19,8 @@ func setupHealthConnTestDB(t *testing.T) (*Repo, func()) {
 		isActive INTEGER DEFAULT 1,
 		data TEXT NOT NULL DEFAULT '{}',
 		createdAt TEXT NOT NULL DEFAULT (datetime('now')),
-		updatedAt TEXT NOT NULL DEFAULT (datetime('now'))
+		updatedAt TEXT NOT NULL DEFAULT (datetime('now')),
+		latencyMs INTEGER DEFAULT 0
 	)`)
 	if err != nil {
 		cleanup()

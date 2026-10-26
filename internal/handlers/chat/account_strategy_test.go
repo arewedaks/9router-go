@@ -96,6 +96,52 @@ func TestAccountStrategyRandomKeepsOrdering(t *testing.T) {
 	}
 }
 
+func TestAccountStrategyFastestPicksLowestLatency(t *testing.T) {
+	h := NewChatHandler(nil)
+	h.ResetConnectionState("")
+
+	conns := threeConns()
+	conns[0].LatencyMs = 900
+	conns[1].LatencyMs = 120
+	conns[2].LatencyMs = 450
+	got := h.ApplyConnectionStrategy("antigravity", conns, db.ProviderStrategy{AccountStrategy: "fastest"})
+	if got[0].ID != "conn-2" {
+		t.Fatalf("fastest picked %s, want conn-2 (120ms)", got[0].ID)
+	}
+	if got[1].ID != "conn-3" || got[2].ID != "conn-1" {
+		t.Fatalf("fastest order %s,%s,%s want conn-2,conn-3,conn-1", got[0].ID, got[1].ID, got[2].ID)
+	}
+}
+
+// A never-measured account must be tried before the measured ones, otherwise it
+// can never collect a sample and stays unranked forever.
+func TestAccountStrategyFastestSamplesUnmeasuredFirst(t *testing.T) {
+	h := NewChatHandler(nil)
+	h.ResetConnectionState("")
+
+	conns := threeConns()
+	conns[0].LatencyMs = 100
+	conns[2].LatencyMs = 50
+	got := h.ApplyConnectionStrategy("antigravity", conns, db.ProviderStrategy{AccountStrategy: "fastest"})
+	if got[0].ID != "conn-2" {
+		t.Fatalf("unmeasured account not sampled first: got %s", got[0].ID)
+	}
+}
+
+func TestAccountStrategyFastestTiesKeepPriority(t *testing.T) {
+	h := NewChatHandler(nil)
+	h.ResetConnectionState("")
+
+	conns := threeConns()
+	conns[0].LatencyMs = 200
+	conns[1].LatencyMs = 200
+	conns[2].LatencyMs = 200
+	got := h.ApplyConnectionStrategy("antigravity", conns, db.ProviderStrategy{AccountStrategy: "fastest"})
+	if got[0].ID != "conn-1" || got[1].ID != "conn-2" || got[2].ID != "conn-3" {
+		t.Fatalf("tie-break lost priority order: %s,%s,%s", got[0].ID, got[1].ID, got[2].ID)
+	}
+}
+
 func TestAccountModeResolution(t *testing.T) {
 	cases := []struct {
 		strat db.ProviderStrategy
@@ -106,6 +152,8 @@ func TestAccountModeResolution(t *testing.T) {
 		{db.ProviderStrategy{AccountStrategy: " Round-Robin "}, "round-robin"},
 		{db.ProviderStrategy{AccountStrategy: "sticky"}, "sticky"},
 		{db.ProviderStrategy{AccountStrategy: "random"}, "random"},
+		{db.ProviderStrategy{AccountStrategy: " Fastest "}, "fastest"},
+		{db.ProviderStrategy{AccountStrategy: "least-latency"}, "fastest"},
 		{db.ProviderStrategy{AccountStrategy: "bogus"}, ""},
 		{db.ProviderStrategy{FallbackStrategy: "round-robin"}, "round-robin"},
 		{db.ProviderStrategy{AccountStrategy: "none", FallbackStrategy: "round-robin"}, "fill-first"},

@@ -58,7 +58,8 @@ func setupResponsesTestDB(t *testing.T) (*sql.DB, func()) {
 			createdAt TEXT NOT NULL,
 			updatedAt TEXT NOT NULL,
 			lastUsedAt TEXT,
-			consecutiveUseCount INTEGER DEFAULT 0
+			consecutiveUseCount INTEGER DEFAULT 0,
+			latencyMs INTEGER DEFAULT 0
 		)`,
 		`CREATE TABLE kv (
 			scope TEXT NOT NULL,
