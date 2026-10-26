@@ -115,6 +115,7 @@ func main() {
 					return nil
 				},
 			},
+			uninstallCommand(),
 			{
 				Name:  "service",
 				Usage: "Manage the systemd service so 9router-go auto-starts on boot",
