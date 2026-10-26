@@ -49,7 +49,7 @@ func TestProviderTabLoadsStrategies(t *testing.T) {
 
 	// The Round Robin control and the proxy pool picker must both read the map
 	// the loader fills, otherwise loading it has no effect on either.
-	for _, fn := range []string{"accountRoundRobinControls", "renderNoAuthProxyCard"} {
+	for _, fn := range []string{"accountStrategyControls", "renderNoAuthProxyCard"} {
 		idx := strings.Index(html, "function "+fn+"(d)")
 		if idx == -1 {
 			t.Fatalf("%s() not found", fn)

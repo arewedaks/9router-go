@@ -596,6 +596,18 @@ func (h *ChatHandler) applyConnectionStrategy(provider string, conns []*models.P
 	// operator turns on Round Robin for a provider but leaves rotateStrategy at
 	// its default, the pool setting must not decide how accounts rotate —
 	// "sticky" for pools would otherwise pin every request to the same account.
+	switch strat.AccountMode() {
+	case "fill-first":
+		// Priority order, no rotation: the historical default.
+		return conns
+	case "round-robin", "sticky":
+		// Same sticky walk: round-robin is sticky with limit 1 (see
+		// combo.go), sticky keeps one account for AccountStickyLimit requests.
+		return h.rotateConnectionsSticky(provider, conns, strat.AccountStickyLimit())
+	case "random":
+		return rotateConnectionsRandom(conns)
+	}
+
 	strategy := strings.ToLower(strings.TrimSpace(strat.RotateStrategy))
 	stickyLimit := strat.StickyLimit
 	if strat.WantsAccountRoundRobin() {
@@ -617,17 +629,23 @@ func (h *ChatHandler) applyConnectionStrategy(provider string, conns []*models.P
 		return h.rotateConnectionsSticky(provider, conns, stickyLimit)
 
 	case "random":
-		offset := rand.IntN(len(conns))
-		rotated := make([]*models.ProviderConnection, len(conns))
-		for i := range conns {
-			rotated[i] = conns[(offset+i)%len(conns)]
-		}
-		return rotated
+		return rotateConnectionsRandom(conns)
 
 	default:
 		// "none", "fallback", or empty: keep DB priority order
 		return conns
 	}
+}
+
+// rotateConnectionsRandom starts the list at a random account and keeps the
+// remaining priority order. Stateless: no per-account bookkeeping, no persistence.
+func rotateConnectionsRandom(conns []*models.ProviderConnection) []*models.ProviderConnection {
+	offset := rand.IntN(len(conns))
+	rotated := make([]*models.ProviderConnection, len(conns))
+	for i := range conns {
+		rotated[i] = conns[(offset+i)%len(conns)]
+	}
+	return rotated
 }
 
 // rotateConnectionsSticky orders conns so the account that should serve next is

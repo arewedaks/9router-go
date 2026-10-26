@@ -26,6 +26,13 @@ type ProviderStrategy struct {
 	// VansRouter stores this under the same name and reads it in
 	// src/sse/services/auth.js.
 	FallbackStrategy string `json:"fallbackStrategy,omitempty"`
+	// AccountStrategy is how a provider's own accounts rotate: "fill-first"
+	// (default, priority order), "round-robin", "sticky" or "random". It exists
+	// because rotateStrategy describes PROXY POOLS — driving account rotation
+	// with it meant picking "sticky" accounts also pinned the egress IP. Empty
+	// falls back to the legacy keys (fallbackStrategy, then rotateStrategy) that
+	// VansRouter-written blobs carry.
+	AccountStrategy string `json:"accountStrategy,omitempty"`
 	// StickyRoundRobinLimit is how many consecutive requests one account serves
 	// before rotation moves on. VansRouter defaults it to 3; 1 rotates every
 	// request. Only read when FallbackStrategy is "round-robin".
@@ -48,6 +55,7 @@ var knownStrategyKeys = map[string]bool{
 	"targetProxyPoolIds":    true,
 	"fallbackStrategy":      true,
 	"stickyRoundRobinLimit": true,
+	"accountStrategy":       true,
 }
 
 // IsEmpty reports whether the strategy carries no configuration at all, counting
@@ -59,6 +67,7 @@ func (p ProviderStrategy) IsEmpty() bool {
 		p.StickyLimit == 0 &&
 		len(p.TargetProxyPoolIds) == 0 &&
 		p.FallbackStrategy == "" &&
+		p.AccountStrategy == "" &&
 		p.StickyRoundRobinLimit == 0 &&
 		len(p.Extra) == 0
 }
@@ -68,6 +77,28 @@ func (p ProviderStrategy) IsEmpty() bool {
 // is the historical behaviour.
 func (p ProviderStrategy) WantsAccountRoundRobin() bool {
 	return strings.EqualFold(strings.TrimSpace(p.FallbackStrategy), "round-robin")
+}
+
+// AccountMode resolves how this provider's accounts rotate, decoupled from the
+// proxy-pool setting: "fill-first", "round-robin", "sticky" or "random".
+// AccountStrategy wins when set; otherwise the legacy keys decide — the
+// round-robin toggle, then rotateStrategy — so blobs written before the field
+// existed keep behaving exactly as they did.
+func (p ProviderStrategy) AccountMode() string {
+	switch strings.ToLower(strings.TrimSpace(p.AccountStrategy)) {
+	case "round-robin", "roundrobin":
+		return "round-robin"
+	case "sticky":
+		return "sticky"
+	case "random":
+		return "random"
+	case "fill-first", "fillfirst", "none", "off":
+		return "fill-first"
+	}
+	if p.WantsAccountRoundRobin() {
+		return "round-robin"
+	}
+	return ""
 }
 
 // AccountStickyLimit returns how many consecutive requests one account serves
@@ -98,6 +129,7 @@ func (p *ProviderStrategy) UnmarshalJSON(data []byte) error {
 		RotateStrategy:     handlerutil.GetString(raw, "rotateStrategy"),
 		TargetProxyPoolIds: parseStringSlice(raw["targetProxyPoolIds"]),
 		FallbackStrategy:   handlerutil.GetString(raw, "fallbackStrategy"),
+		AccountStrategy:    handlerutil.GetString(raw, "accountStrategy"),
 	}
 	if sl, ok := raw["stickyLimit"].(float64); ok && sl > 0 {
 		p.StickyLimit = int(sl)
@@ -143,6 +175,9 @@ func (p ProviderStrategy) MarshalJSON() ([]byte, error) {
 	}
 	if p.StickyRoundRobinLimit != 0 {
 		out["stickyRoundRobinLimit"] = p.StickyRoundRobinLimit
+	}
+	if p.AccountStrategy != "" {
+		out["accountStrategy"] = p.AccountStrategy
 	}
 	return json.Marshal(out)
 }
@@ -419,6 +454,7 @@ func (r *Repo) GetSettings() (*SettingsData, error) {
 					TargetProxyPoolIds: parseStringSlice(vm["targetProxyPoolIds"]),
 					RotateStrategy:     handlerutil.GetString(vm, "rotateStrategy"),
 					FallbackStrategy:   handlerutil.GetString(vm, "fallbackStrategy"),
+					AccountStrategy:    handlerutil.GetString(vm, "accountStrategy"),
 				}
 				if sl, ok := vm["stickyLimit"].(float64); ok && sl > 0 {
 					strat.StickyLimit = int(sl)

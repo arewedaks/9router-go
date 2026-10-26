@@ -5942,33 +5942,43 @@
     }
   }
 
-  // Account round-robin: spread a provider's requests across its own
-  // connections so no single account carries the load. Separate from the proxy
-  // pool rotation below, which balances egress IPs rather than accounts.
+  // Account rotation: how a provider's own connections are picked. Separate
+  // from the proxy pool rotation below, which balances egress IPs rather than
+  // accounts — accountStrategy keeps the two from fighting each other.
   //
-  // Mirrors VansRouter's provider page, which shows the toggle next to the
-  // Connections heading and seeds Sticky with 3 when it is switched on. Three
-  // is the default there because rotating on every request discards each
-  // account's prompt cache.
-  function accountRoundRobinControls(d) {
+  // Modes mirror ApplyConnectionStrategy: fill-first (priority order),
+  // round-robin (spread), sticky (one account for N requests), random.
+  // Legacy blobs only stored fallbackStrategy=round-robin, so that still reads
+  // as round-robin here.
+  function accountStrategyControls(d) {
     const strat = (providerStrategies[d.provider] || {});
-    const on = (strat.fallbackStrategy || "") === "round-robin";
+    let mode = strat.accountStrategy || "";
+    if (!mode) mode = (strat.fallbackStrategy || "") === "round-robin" ? "round-robin" : "fill-first";
     const sticky = strat.stickyRoundRobinLimit || 3;
     const count = (d.connections || []).length;
     const note = count < 2
       ? `<span style="font-size:0.72rem; color:var(--muted);">needs 2+ accounts</span>`
-      : `<span style="font-size:0.72rem; color:var(--muted);">spreads load across ${count} accounts</span>`;
+      : `<span style="font-size:0.72rem; color:var(--muted);">${count} accounts</span>`;
+    const opts = [
+      ["fill-first", "Fill First (priority order)"],
+      ["round-robin", "Round Robin (spread across accounts)"],
+      ["sticky", "Sticky (one account, N requests)"],
+      ["random", "Random (random start)"],
+    ].map(([v, label]) =>
+      `<option value="${v}" ${v === mode ? "selected" : ""}>${label}</option>`).join("");
+    const showSticky = mode === "round-robin" || mode === "sticky";
     return `
       <div style="display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin-top:12px; padding:10px 12px; background:var(--panel-2,#15181d); border:1px solid var(--border); border-radius:8px;">
-        <span style="font-size:0.82rem; color:#ededed;">Round Robin</span>
-        <label class="switch" style="margin:0;">
-          <input type="checkbox" ${on ? "checked" : ""} onchange="setAccountRoundRobin('${escapeHtml(d.provider)}', this.checked);">
-          <span class="slider"></span>
-        </label>
-        ${on ? `<span style="font-size:0.78rem; color:var(--muted);">Sticky:</span>
+        <span style="font-size:0.82rem; color:#ededed;">Account Rotation</span>
+        <select onchange="setAccountMode('${escapeHtml(d.provider)}', this.value);"
+          style="padding:4px 8px; font-size:0.78rem; background:var(--bg); color:#ededed; border:1px solid var(--border); border-radius:6px;">
+          ${opts}
+        </select>
+        ${showSticky ? `<span style="font-size:0.78rem; color:var(--muted);">Sticky:</span>
           <input type="number" min="1" value="${sticky}" onchange="setAccountStickyLimit('${escapeHtml(d.provider)}', this.value);"
             style="width:64px; padding:3px 6px; font-size:0.78rem; background:var(--bg); color:#ededed; border:1px solid var(--border); border-radius:6px;">
-          <span style="font-size:0.72rem; color:var(--muted);">requests per account before switching</span>` : note}
+          <span style="font-size:0.72rem; color:var(--muted);">requests per account before switching</span>` : ""}
+        ${note}
       </div>`;
   }
 
@@ -5991,14 +6001,16 @@
     }
   }
 
-  function setAccountRoundRobin(provider, enabled) {
-    // Seed the limit on first enable so the input renders with a value, exactly
-    // as VansRouter does. Turning it off clears the strategy rather than
-    // leaving "fill-first" written, so the stored blob stays tidy.
-    const patch = enabled
-      ? { fallbackStrategy: "round-robin", stickyRoundRobinLimit: (providerStrategies[provider] || {}).stickyRoundRobinLimit || 3 }
-      : { fallbackStrategy: "fill-first" };
-    saveAccountStrategy(provider, patch);
+  // Account rotation mode -> stored strategy. accountStrategy is the source of
+  // truth for accounts; fallbackStrategy is kept in step because older builds
+  // and VansRouter only understand that key.
+  function setAccountMode(provider, mode) {
+    const sticky = (providerStrategies[provider] || {}).stickyRoundRobinLimit || 3;
+    saveAccountStrategy(provider, {
+      accountStrategy: mode,
+      fallbackStrategy: mode === "round-robin" ? "round-robin" : "fill-first",
+      stickyRoundRobinLimit: sticky,
+    });
   }
 
   function setAccountStickyLimit(provider, value) {
@@ -6506,7 +6518,7 @@
           </button>
         </div>
       </div>
-      ${accountRoundRobinControls(d)}
+      ${accountStrategyControls(d)}
       ${(d.connections || []).length > 1 ? `<div style="display:flex;align-items:center;gap:8px;padding:6px 2px;font-size:0.76rem;color:var(--muted);">
         <label style="display:flex;align-items:center;gap:5px;cursor:pointer;user-select:none;">
           <input type="checkbox" id="conn-select-all" onchange="toggleSelectAllConns(this.checked)" style="cursor:pointer;accent-color:var(--primary);">

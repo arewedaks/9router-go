@@ -221,32 +221,36 @@ func TestUIEndpointOmitsPortForDefaultScheme(t *testing.T) {
 	}
 }
 
-// The provider page must expose the account round-robin toggle, the control
-// VansRouter shows next to its Connections heading. Without it an operator can
-// only set the strategy by hand, and the stored fallbackStrategy is invisible.
-func TestUIProviderPageHasAccountRoundRobinToggle(t *testing.T) {
+// The provider page must expose the account rotation mode selector, not just a
+// round-robin on/off switch: the backend has four modes (fill-first,
+// round-robin, sticky, random) and the old toggle reached only two of them.
+func TestUIProviderPageHasAccountRotationModes(t *testing.T) {
 	ui := readEmbeddedUI(t)
 
 	for _, need := range []string{
-		"function accountRoundRobinControls",
-		"function setAccountRoundRobin",
+		"function accountStrategyControls",
+		"function setAccountMode",
 		"function setAccountStickyLimit",
 		"function saveAccountStrategy",
-		"fallbackStrategy: \"round-robin\"",
+		`["fill-first", "Fill First (priority order)"]`,
+		`["round-robin", "Round Robin (spread across accounts)"]`,
+		`["sticky", "Sticky (one account, N requests)"]`,
+		`["random", "Random (random start)"]`,
+		"accountStrategy: mode",
 		"stickyRoundRobinLimit",
 	} {
 		if !strings.Contains(ui, need) {
-			t.Errorf("account round-robin control missing: %s", need)
+			t.Errorf("account rotation control missing: %s", need)
 		}
 	}
 }
 
-// The toggle must be rendered inside the Connections tab, not only defined.
-func TestUIAccountRoundRobinIsRenderedInConnections(t *testing.T) {
+// The selector must be rendered inside the Connections tab, not only defined.
+func TestUIAccountRotationIsRenderedInConnections(t *testing.T) {
 	ui := readEmbeddedUI(t)
 
-	if !strings.Contains(ui, "${accountRoundRobinControls(d)}") {
-		t.Error("accountRoundRobinControls is defined but never rendered in the Connections tab")
+	if !strings.Contains(ui, "${accountStrategyControls(d)}") {
+		t.Error("accountStrategyControls is defined but never rendered in the Connections tab")
 	}
 }
 

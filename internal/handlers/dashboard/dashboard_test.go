@@ -1169,7 +1169,7 @@ func TestSettingsProviderStrategiesPreserveForeignKeys(t *testing.T) {
 
 	// Shape taken from a real production settings row.
 	seed := `{"providerStrategies":{` +
-		`"antigravity":{"stickyRoundRobinLimit":1,"fallbackStrategy":"round-robin"},` +
+		`"antigravity":{"stickyRoundRobinLimit":1,"fallbackStrategy":"round-robin","accountStrategy":"random"},` +
 		`"clinepass":{"strictModelAssignment":false}}}`
 	req := httptest.NewRequest("POST", "/api/dashboard/settings", bytes.NewBufferString(seed))
 	w := httptest.NewRecorder()
@@ -1208,6 +1208,9 @@ func TestSettingsProviderStrategiesPreserveForeignKeys(t *testing.T) {
 	}
 	if ag["stickyRoundRobinLimit"] != float64(1) {
 		t.Errorf("stickyRoundRobinLimit lost: %v", ag)
+	}
+	if ag["accountStrategy"] != "random" {
+		t.Errorf("accountStrategy lost: %v", ag)
 	}
 	cp, ok := got.ProviderStrategies["clinepass"]
 	if !ok {
