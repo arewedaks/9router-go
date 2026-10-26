@@ -593,6 +593,36 @@ func TestExecutableForRestartSurvivesSwappedAwayInode(t *testing.T) {
 	}
 }
 
+// A binary started by name ("9router-go", resolved through PATH) arrives with a
+// bare argv[0]. Resolving that against the working directory is wrong — the
+// operator's shell was not in the install directory — and the restart was
+// skipped with "cannot locate the updated binary" even though the update had
+// installed cleanly.
+func TestRestartPathForResolvesBareArgv0ThroughPath(t *testing.T) {
+	dir := t.TempDir()
+	live := filepath.Join(dir, "9router-go")
+	if err := os.WriteFile(live, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(t.TempDir()) // cwd deliberately does not contain the binary
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	if got := restartPathFor([]string{"9router-go"}, ""); got != live {
+		t.Fatalf("restartPathFor(bare argv0) = %q, want %q", got, live)
+	}
+
+	// /proc/self/exe still points at the inode the swap renamed to .old, which
+	// no longer exists. The installed binary is the same name without it.
+	if got := restartPathFor([]string{"gone-name"}, live+".old"); got != live {
+		t.Fatalf("restartPathFor(.old fallback) = %q, want %q", got, live)
+	}
+
+	// Nothing resolvable at all: the caller logs and skips, it must not guess.
+	if got := restartPathFor([]string{"gone-name"}, filepath.Join(dir, "nope.old")); got != "" {
+		t.Fatalf("restartPathFor(unresolvable) = %q, want \"\"", got)
+	}
+}
+
 // The compiled-in fallback and the manifest the dashboard polls must name the
 // same version. The release workflow mirrors version.json into this constant so
 // tagging alone is sufficient; this test catches a tag that was cut without it,
