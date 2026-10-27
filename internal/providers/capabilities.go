@@ -422,16 +422,30 @@ func GetModelTokenLimitsFor(provider, model string) (contextWindow int, maxOutpu
 // pattern can express: a provider reselling a model with a smaller window than
 // the model's own family serves.
 //
-// oc/deepseek-v4.1-flash-free is the case that matters: OpenCode's free lane
-// accepts 330k while the paid id serves 1M, so the pattern table (which matches
-// the name alone) advertised four times what the free backend honours. A client
-// that trusted the published number compacted far too late and the request
-// died upstream after being sent — and every such failure burned a fallback
-// attempt. Values are keyed "provider/model" with the provider lowercased and
-// the model reduced to its bare id.
+// Two measured cases, both 2026-10-27:
+//
+//   - oc/deepseek-v4.1-flash-free: OpenCode's free lane accepts 330k while the
+//     paid id serves 1M, so the pattern table (which matches the name alone)
+//     advertised four times what the free backend honours.
+//   - alys/deepseek-flash: the Alysis gateway answers 400 context_length_exceeded
+//     ("the conservative input estimate exceeds the gateway limit") at a
+//     boundary bisected to ~130k characters of prose, which it reports as
+//     ~77.5k prompt_tokens. It is the CHAT lane that refuses; the same account
+//     served alys/gpt-6-luna on /responses at 297k input tokens without
+//     complaint, so the cap is per lane, not per account.
+//
+// A client that trusts a published number larger than the cap packs a
+// conversation the gateway refuses after it was already sent, and every such
+// failure burns a fallback attempt. Values are keyed "provider/model" with the
+// provider lowercased and the model reduced to its bare id.
 var catalogLimitOverrides = map[string][2]int{
 	"opencode/deepseek-v4.1-flash-free": {330000, 128000},
 	"opencode/glm-5.3-flash-free":       {200000, 65536},
+	// Alysis chat lane. 77519 prompt_tokens was the largest accepted request;
+	// publish a round number below it so a client that estimates slightly
+	// differently still lands inside the gateway's budget.
+	"alysis/deepseek-flash": {76000, 8192},
+	"alysis/glm-5.3-flash":  {76000, 8192},
 }
 
 // lookupCatalogLimitOverride returns an override for a provider/model pair, or
@@ -442,6 +456,13 @@ func lookupCatalogLimitOverride(provider, model string) (int, int) {
 	}
 	p := strings.ToLower(strings.TrimSpace(provider))
 	m := normalizeModelKey(model)
+	// Resolve the provider alias first: "alys" is the dashboard-facing id for
+	// "alysis", and a caller may hold either. Without this the override is
+	// silently skipped for one spelling and the cap it exists to publish is
+	// replaced by the family guess.
+	if canonical := ResolveAlias(p); canonical != "" {
+		p = strings.ToLower(canonical)
+	}
 	if p == "" {
 		// A bare model id still names a unique free-lane id, so match on it
 		// alone rather than advertising the paid family's window.

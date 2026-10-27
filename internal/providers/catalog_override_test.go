@@ -37,3 +37,36 @@ func TestOpencodeFreeContextCap(t *testing.T) {
 		t.Errorf("display window = %d, want 330000", cw)
 	}
 }
+
+// The Alysis gateway refuses the chat lane at ~77.5k of its own prompt_tokens
+// while /v1/models published the family's 131072. A harness that trusted that
+// number packed a conversation the gateway answered 400 context_length_exceeded
+// to, after the request was already sent.
+func TestAlysisChatLaneContextCap(t *testing.T) {
+	clearCatalog()
+
+	cw, mo := GetModelTokenLimitsFor("alysis", "deepseek-flash")
+	if cw != 76000 {
+		t.Errorf("alysis deepseek-flash window = %d, want 76000", cw)
+	}
+	if mo != 8192 {
+		t.Errorf("alysis deepseek-flash max output = %d, want 8192", mo)
+	}
+	cw, _ = GetModelTokenLimitsFor("alys", "deepseek-flash")
+	if cw != 76000 {
+		t.Errorf("alias window = %d, want 76000", cw)
+	}
+
+	// The /responses lane is genuinely larger: the same account served Luna at
+	// 297189 input tokens, so 272000 stays and the override must not leak.
+	cw, _ = GetModelTokenLimitsFor("alysis", "gpt-6-luna")
+	if cw != 272000 {
+		t.Errorf("luna window = %d, want 272000 (its /responses lane accepts more)", cw)
+	}
+
+	// Other providers serving the same model name keep their own window.
+	cw, _ = GetModelTokenLimitsFor("river", "deepseek-ai/DeepSeek-V4.1-Flash")
+	if cw != 1000000 {
+		t.Errorf("river window = %d, want 1000000", cw)
+	}
+}
