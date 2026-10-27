@@ -306,6 +306,14 @@ func (h *Handler) fetchUpstreamModels(providerID, data string, timeout time.Dura
 		return h.fetchKiroModels(canonical, data, timeout)
 	}
 
+	// Devin CLI is ACP/stdio only: no HTTP /models route exists at all, and the
+	// credential lives in the CLI's own login. Import shells out to
+	// `devin models list --format json` so the list reflects the account, with
+	// the registry catalogue as fallback — see devin_catalog.go.
+	if canonical == "devin-cli" || providerID == "devin-cli" {
+		return h.fetchDevinModels(providerID, timeout)
+	}
+
 	// Qoder has no /models route either: its agent surface is a COSY-signed SSE
 	// endpoint, so Import is served from the catalogue — see qoder_catalog.go.
 	if canonical == "qoder" || providerID == "qoder" {
