@@ -441,7 +441,10 @@ func ForwardOpencode(w http.ResponseWriter, req *Request) error {
 
 		// The free-tier gate fingerprints the lowercase tool quartet; capitalised
 		// variants from Claude Code CLI are renamed here and restored on the
-		// response (translator.ConcealFingerprintTools).
+		// response (translator.ConcealFingerprintTools). The `<env>` system
+		// marker must ride along with the declarations — see
+		// translator.ApplyEnvMarker.
+		transformedBody = translator.ApplyEnvMarker(transformedBody, true)
 		transformedBody, toolNameMap := translator.ConcealFingerprintTools(transformedBody, true)
 		req.Ctx = translator.WithToolNameMap(req.Ctx, toolNameMap)
 		w = NewToolNameRestoringWriter(w, toolNameMap)
@@ -513,7 +516,9 @@ func ForwardOpencode(w http.ResponseWriter, req *Request) error {
 	}
 
 	body := InjectReasoningContent(req.Body, "opencode")
-	// opencode Chat Completions path: same conceal + restore of tool names.
+	// opencode Chat Completions path: same conceal + restore of tool names, and
+	// the `<env>` marker the free gate pairs with the tool quartet.
+	body = translator.ApplyEnvMarker(body, false)
 	body, toolNameMap := translator.ConcealFingerprintTools(body, false)
 	req.Ctx = translator.WithToolNameMap(req.Ctx, toolNameMap)
 	w = NewToolNameRestoringWriter(w, toolNameMap)
