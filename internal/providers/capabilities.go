@@ -441,11 +441,20 @@ func GetModelTokenLimitsFor(provider, model string) (contextWindow int, maxOutpu
 var catalogLimitOverrides = map[string][2]int{
 	"opencode/deepseek-v4.1-flash-free": {330000, 128000},
 	"opencode/glm-5.3-flash-free":       {200000, 65536},
-	// Alysis chat lane. 77519 prompt_tokens was the largest accepted request;
-	// publish a round number below it so a client that estimates slightly
-	// differently still lands inside the gateway's budget.
-	"alysis/deepseek-flash": {76000, 8192},
-	"alysis/glm-5.3-flash":  {76000, 8192},
+	// Alysis chat lane. Two limits, both read off the gateway itself:
+	//
+	//	max_tokens   -> 400 "must be an integer between 1 and 393216" above
+	//	                393216, so that is the real output ceiling (our old 8192
+	//	                was the name-pattern guess for any "deepseek*").
+	//	context      -> 77519 prompt_tokens was the largest accepted request.
+	//
+	// Alysis's own model_registry.py names this id DeepSeek-V4.1-Flash GA and
+	// declares 1M context / 393216 output, but the hosted gateway refuses well
+	// below that: its input budget is 131072 measured in chars/4, which the real
+	// tokenizer fills at ~77.5k tokens.
+	"alysis/deepseek-flash": {76000, 393216},
+	// glm-5.3-flash shares the lane; its own max_tokens ceiling is 131072.
+	"alysis/glm-5.3-flash": {76000, 131072},
 }
 
 // lookupCatalogLimitOverride returns an override for a provider/model pair, or

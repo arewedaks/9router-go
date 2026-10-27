@@ -49,8 +49,8 @@ func TestAlysisChatLaneContextCap(t *testing.T) {
 	if cw != 76000 {
 		t.Errorf("alysis deepseek-flash window = %d, want 76000", cw)
 	}
-	if mo != 8192 {
-		t.Errorf("alysis deepseek-flash max output = %d, want 8192", mo)
+	if mo != 393216 {
+		t.Errorf("alysis deepseek-flash max output = %d, want 393216 (gateway ceiling)", mo)
 	}
 	cw, _ = GetModelTokenLimitsFor("alys", "deepseek-flash")
 	if cw != 76000 {
