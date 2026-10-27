@@ -29,7 +29,12 @@ const (
 	// GitHubCopilotCLIVersion is the captured CLI version. Overridable through
 	// GITHUB_COPILOT_CLI_VERSION so operators can follow a newer CLI without a
 	// rebuild (and tests can pin it).
-	GitHubCopilotCLIVersion = "1.0.81-6"
+	//
+	// The value is load-bearing: the inference host answers any older CLI with
+	// HTTP 466 {"code":"client_upgrade_required"} ("This version of the Copilot
+	// CLI is no longer supported"). 1.0.81-6 tripped that gate on 2026-10-27;
+	// npm @github/copilot dist-tag latest was 1.0.104 at the time.
+	GitHubCopilotCLIVersion = "1.0.104"
 
 	githubCopilotVersionEnv = "GITHUB_COPILOT_CLI_VERSION"
 	githubCopilotMachineEnv = "GITHUB_COPILOT_MACHINE_ID"

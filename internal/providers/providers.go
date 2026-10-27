@@ -246,6 +246,23 @@ var KnownProviders = map[string]ProviderConfig{
 		// model catalogue; the older vscode-chat identity returned a narrower
 		// list. See github_copilot_profile.go.
 		StaticHeaders: GitHubCopilotChatHeaders("application/json", "user"),
+		// The GPT-5.6/6.x and codex families are Responses-API only: /models
+		// advertises supported_endpoints ["/responses","ws:/responses"] for
+		// them, and chat/completions answers 400
+		// {"code":"model_not_supported"} (measured 2026-10-27).
+		ModelFormats: map[string]string{
+			"gpt-5.3-codex":        FormatOpenAIResponses,
+			"gpt-5.4-nano":         FormatOpenAIResponses,
+			"gpt-5.6-luna":         FormatOpenAIResponses,
+			"gpt-5.6-sol":          FormatOpenAIResponses,
+			"gpt-5.6-terra":        FormatOpenAIResponses,
+			"gpt-5.6-luna-utility": FormatOpenAIResponses,
+			"gpt-6.1-sol":          FormatOpenAIResponses,
+			"gpt-6-astra":          FormatOpenAIResponses,
+			"gpt-6-luna":           FormatOpenAIResponses,
+			"gpt-6-sol":            FormatOpenAIResponses,
+			"mai-code-1.1-flash":   FormatOpenAIResponses,
+		},
 	},
 	"mistral": {
 		BaseURL:    "https://api.mistral.ai/v1/chat/completions",
