@@ -409,10 +409,58 @@ func GetModelTokenLimits(model string) (contextWindow int, maxOutput int) {
 // any unrecognised name to a single default, so a small model could otherwise
 // advertise a 128K window it cannot serve.
 func GetModelTokenLimitsFor(provider, model string) (contextWindow int, maxOutput int) {
+	if cw, mo := lookupCatalogLimitOverride(provider, model); cw > 0 || mo > 0 {
+		return cw, mo
+	}
 	if cw, mo := GetCatalogLimits(provider, model); cw > 0 || mo > 0 {
 		return cw, mo
 	}
 	return getModelTokenLimitsByPattern(model)
+}
+
+// catalogLimitOverrides holds caps that neither the synced catalog nor the name
+// pattern can express: a provider reselling a model with a smaller window than
+// the model's own family serves.
+//
+// oc/deepseek-v4.1-flash-free is the case that matters: OpenCode's free lane
+// accepts 330k while the paid id serves 1M, so the pattern table (which matches
+// the name alone) advertised four times what the free backend honours. A client
+// that trusted the published number compacted far too late and the request
+// died upstream after being sent — and every such failure burned a fallback
+// attempt. Values are keyed "provider/model" with the provider lowercased and
+// the model reduced to its bare id.
+var catalogLimitOverrides = map[string][2]int{
+	"opencode/deepseek-v4.1-flash-free": {330000, 128000},
+	"opencode/glm-5.3-flash-free":       {200000, 65536},
+}
+
+// lookupCatalogLimitOverride returns an override for a provider/model pair, or
+// zeros when the pair is not listed.
+func lookupCatalogLimitOverride(provider, model string) (int, int) {
+	if model == "" {
+		return 0, 0
+	}
+	p := strings.ToLower(strings.TrimSpace(provider))
+	m := normalizeModelKey(model)
+	if p == "" {
+		// A bare model id still names a unique free-lane id, so match on it
+		// alone rather than advertising the paid family's window.
+		for key, lim := range catalogLimitOverrides {
+			if strings.HasSuffix(key, "/"+m) {
+				return lim[0], lim[1]
+			}
+		}
+		return 0, 0
+	}
+	if lim, ok := catalogLimitOverrides[p+"/"+m]; ok {
+		return lim[0], lim[1]
+	}
+	if alias, ok := ProviderAliases[p]; ok {
+		if lim, ok := catalogLimitOverrides[alias+"/"+m]; ok {
+			return lim[0], lim[1]
+		}
+	}
+	return 0, 0
 }
 
 // GetDisplayTokenLimits is GetModelTokenLimitsFor for the dashboard's model
@@ -428,6 +476,9 @@ func GetModelTokenLimitsFor(provider, model string) (contextWindow int, maxOutpu
 // absent from models.dev, so their models would otherwise carry no label at
 // all despite the family window being well known.
 func GetDisplayTokenLimits(provider, model string) (contextWindow int, maxOutput int) {
+	if cw, mo := lookupCatalogLimitOverride(provider, model); cw > 0 || mo > 0 {
+		return cw, mo
+	}
 	if cw, mo := GetCatalogLimits(provider, model); cw > 0 || mo > 0 {
 		return cw, mo
 	}

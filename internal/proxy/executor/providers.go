@@ -999,14 +999,13 @@ func convertOpenAIMessagesToClaude(messages []any) (systemText string, claudeMes
 		if role == "tool" {
 			toolCallID, _ := msgMap["tool_call_id"].(string)
 			toolCallID = sanitizeToolUseID(toolCallID, toolIDMap)
-			contentVal := msgMap["content"]
 			intermediate = append(intermediate, map[string]any{
 				"role": "user",
 				"content": []any{
 					map[string]any{
 						"type":        "tool_result",
 						"tool_use_id": toolCallID,
-						"content":     contentVal,
+						"content":     convertToolResultContent(msgMap["content"]),
 					},
 				},
 			})

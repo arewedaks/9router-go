@@ -92,6 +92,24 @@ func clampCallID(id string) string {
 	return id
 }
 
+// responsesEffort maps a requested reasoning effort onto what the target model
+// accepts on the Responses wire.
+//
+// "max" is a real level on the GPT-5.6 / GPT-6 families and clamping it to
+// "xhigh" silently downgrades every such request one step; other models reject
+// "max" outright, so they keep the old mapping. Measured against the upstream
+// catalogue, which lists "max" for gpt-5.6-* and gpt-6-* only.
+func responsesEffort(effort, model string) string {
+	if effort != "max" {
+		return effort
+	}
+	m := strings.ToLower(model)
+	if strings.Contains(m, "gpt-5.6") || strings.HasPrefix(m, "gpt-6") {
+		return "max"
+	}
+	return "xhigh"
+}
+
 // buildResponsesBody transforms OpenAI Chat Completions body → Responses API body.
 // Returns (responsesBody, modelName, error).
 func buildResponsesBody(body []byte) ([]byte, string, error) {
@@ -370,12 +388,8 @@ func buildResponsesBody(body []byte) ([]byte, string, error) {
 	}
 
 	if oreq.ReasoningEffort != "" {
-		rEffort := oreq.ReasoningEffort
-		if rEffort == "max" {
-			rEffort = "xhigh"
-		}
 		respReq["reasoning"] = map[string]interface{}{
-			"effort":  rEffort,
+			"effort":  responsesEffort(oreq.ReasoningEffort, cleanModel),
 			"summary": "auto",
 		}
 	} else if oreq.Reasoning != nil {
