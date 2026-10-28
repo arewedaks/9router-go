@@ -1,5 +1,5 @@
 {
-  "latestVersion": "1.10.1",
+  "latestVersion": "1.10.2",
   "downloadUrl": "https://github.com/arewedaks/9router-go/releases/latest",
   "releaseNotes": "- chore: bump version to 1.10.1 (19c950b)\n- test(chat): kunci presedensi override untuk node openai-compatible ber-id opaque (bd5241c)\n- fix(providers): override limit tetap kena saat provider berupa id node openai-compatible (d248667)\n- test(chat): jalankan uji live OpenCode hanya dengan OPENCODE_LIVE=1 (ca23aa1)\n- chore(release): version.json -> v1.10.0 (458e4cf)\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
 }
