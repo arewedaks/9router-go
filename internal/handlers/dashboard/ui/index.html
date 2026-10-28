@@ -11573,7 +11573,8 @@
       label = "warn"; cls = "warn"; tip = res.warning + refreshNote;
     } else if (res.valid) {
       label = "ok"; cls = "ok";
-      tip = "Probe passed" + (res.latencyMs != null ? ` in ${res.latencyMs}ms` : "") + "." + refreshNote;
+      tip = "Probe passed" + (res.latencyMs != null ? ` in ${res.latencyMs}ms` : "") + "."
+          + (res.note ? " " + res.note : "") + refreshNote;
     } else {
       label = "fail"; cls = "err"; tip = (res.error || "Test failed") + refreshNote;
     }
@@ -11583,6 +11584,15 @@
     chip.classList.add(cls);
     chip.title = tip;
     chip.style.display = "";
+    // The row's dot is painted from the fetched connection, so a passing probe
+    // left it amber/red while the chip beside it said ok — the same row showed
+    // two verdicts. Move the dot with the verdict it belongs to.
+    const row = document.getElementById(`conn-row-${id}`);
+    const dot = row ? row.querySelector(".acct-dot") : null;
+    if (dot) {
+      dot.classList.remove("on", "warn", "err", "off");
+      dot.classList.add(cls === "ok" ? "on" : cls === "err" ? "err" : "warn");
+    }
   }
 
   async function testConnection(id) {

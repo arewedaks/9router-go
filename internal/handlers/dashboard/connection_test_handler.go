@@ -93,11 +93,15 @@ type connectionTestResult struct {
 	Valid        bool   `json:"valid"`
 	Error        string `json:"error,omitempty"`
 	Warning      string `json:"warning,omitempty"`
-	GeoBlocked   bool   `json:"geoBlocked,omitempty"`
-	Status       int    `json:"status,omitempty"`
-	LatencyMs    int64  `json:"latencyMs"`
-	Refreshed    bool   `json:"refreshed"`
-	TestedAt     string `json:"testedAt,omitempty"`
+	// Note carries information that is worth showing but does NOT downgrade the
+	// verdict: a valid key with a drained wallet is still a valid key, and the
+	// chip must stay green while the tooltip explains what will fail.
+	Note       string `json:"note,omitempty"`
+	GeoBlocked bool   `json:"geoBlocked,omitempty"`
+	Status     int    `json:"status,omitempty"`
+	LatencyMs  int64  `json:"latencyMs"`
+	Refreshed  bool   `json:"refreshed"`
+	TestedAt   string `json:"testedAt,omitempty"`
 }
 
 // geoBlockSignals are Google's regional-availability refusals. Ported verbatim
@@ -251,7 +255,113 @@ func (h *Handler) testConnection(ctx context.Context, connID string) (result con
 	if isCodebuddyProvider(conn.Provider) {
 		return h.probeCodebuddyConnection(ctx, conn.ID, raw, conn.Provider, out)
 	}
+	if providers.ResolveAlias(strings.TrimSpace(conn.Provider)) == "openrouter" {
+		return h.probeOpenrouterConnection(ctx, raw, out)
+	}
 	return h.probeGenericConnection(ctx, raw, out)
+}
+
+// probeOpenrouterConnection judges an OpenRouter key against /api/v1/key, not a
+// chat call.
+//
+// A chat probe cannot answer the only question the operator has — "is this key
+// alive?" — because OpenRouter prices its catalogue per account: an account that
+// never bought credits answers 402 "Insufficient credits" for every paid model,
+// which is a payment state, not a credential state. The old path probed
+// openai/gpt-4o-mini, so a perfectly good free-tier account showed a red chip
+// and the row looked broken while the same key served :free models with 200.
+//
+// /api/v1/key is free, unlimited and deterministic: 200 with the key's own
+// metadata (tier, limits, usage, expiry) for a live key, 401 "User not found"
+// for a dead one. That is exactly the Cline treatment, for the same reason.
+//
+// The 402 case is still reported — as a warning, not a failure — because a
+// drained account is valid but cannot serve paid models, and the operator needs
+// to see that distinction without the row turning red.
+func (h *Handler) probeOpenrouterConnection(ctx context.Context, raw map[string]any, out connectionTestResult) connectionTestResult {
+	token := connString(raw, "apiKey", "api_key", "accessToken", "access_token", "token", "key")
+	if token == "" {
+		out.Error = "No credential found on this connection (looked for apiKey / accessToken / token)."
+		return out
+	}
+
+	client := h.httpClientForTest()
+	ctx, cancel := context.WithTimeout(ctx, connectionTestTimeout())
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://openrouter.ai/api/v1/key", nil)
+	if err != nil {
+		out.Error = "Could not build probe request: " + err.Error()
+		return out
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	setProbeUserAgent(req)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		if ctx.Err() != nil {
+			out.Error = fmt.Sprintf("Test timed out after %ds.", int(connectionTestTimeout().Seconds()))
+			return out
+		}
+		out.Error = "Probe request failed: " + err.Error()
+		return out
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, connectionTestMaxBody))
+	text := string(bodyBytes)
+	out.Status = resp.StatusCode
+
+	switch {
+	case resp.StatusCode >= 200 && resp.StatusCode < 300:
+		out.Valid = true
+		out.TestedAt = time.Now().UTC().Format(time.RFC3339)
+		// A live key with no credits is still valid; say so in the tooltip
+		// without downgrading the chip. A drained wallet is a payment state,
+		// not a credential state, and turning the row amber trains the operator
+		// to ignore amber on accounts that work.
+		if note := openrouterBalanceNote(text); note != "" {
+			out.Note = note
+		}
+	case resp.StatusCode == 401 || resp.StatusCode == 403:
+		out.Error = fmt.Sprintf("Credential rejected (HTTP %d): %s",
+			resp.StatusCode, truncate(sanitizeUpstreamText(text), 240))
+	case resp.StatusCode == 429:
+		out.Valid = true
+		out.Warning = "OpenRouter rate-limited the probe (HTTP 429). The credential was not judged."
+	default:
+		out.Error = fmt.Sprintf("HTTP %d: %s", resp.StatusCode, truncate(sanitizeUpstreamText(text), 240))
+	}
+	return out
+}
+
+// openrouterBalanceNote turns the /api/v1/key payload into one sentence about
+// the account's spending state, or "" when there is nothing to say.
+//
+// The fields are the ones OpenRouter documents: is_free_tier, limit_remaining
+// (nil means unlimited) and usage. A free-tier key that has never purchased
+// credits reports is_free_tier true and a zero balance; that key serves :free
+// models but no paid one, which is worth a warning and not a failure.
+func openrouterBalanceNote(body string) string {
+	var doc struct {
+		Data struct {
+			IsFreeTier     bool     `json:"is_free_tier"`
+			Limit          *float64 `json:"limit"`
+			LimitRemaining *float64 `json:"limit_remaining"`
+			Usage          float64  `json:"usage"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(body), &doc); err != nil {
+		return ""
+	}
+	d := doc.Data
+	if d.LimitRemaining != nil && *d.LimitRemaining <= 0 {
+		return fmt.Sprintf("Key is valid but its credit limit is spent (usage $%.2f). Paid models will answer 402; :free models still work.", d.Usage)
+	}
+	if d.IsFreeTier && d.Limit == nil {
+		return fmt.Sprintf("Key is valid on the free tier (usage $%.2f). Paid models will answer 402 until credits are purchased; :free models still work.", d.Usage)
+	}
+	return ""
 }
 
 // testRefresh carries the token a pre-probe refresh resolved for a connection.
