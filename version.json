@@ -1,5 +1,5 @@
 {
-  "latestVersion": "1.9.44",
+  "latestVersion": "1.10.0",
   "downloadUrl": "https://github.com/arewedaks/9router-go/releases/latest",
   "releaseNotes": "- chore: bump version to 1.9.44 (4b73810)\n- chore(deploy): skrip deploy remote satu perintah (85662ba)\n- fix(dashboard): tampilkan pesan error settings, hapus baris Docker di tab Endpoint (6c3bc87)\n- feat(cli): add uninstall command (ff82d7b)\n- fix(updater): resolve the restart target when argv[0] is a bare name (8835a73)\n- fix(chat): treat silent and 200-with-error upstreams as retryable (bbd3ea7)\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
 }
