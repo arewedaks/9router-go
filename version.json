@@ -1,5 +1,5 @@
 {
-  "latestVersion": "1.10.0",
+  "latestVersion": "1.10.1",
   "downloadUrl": "https://github.com/arewedaks/9router-go/releases/latest",
   "releaseNotes": "- chore: bump version to 1.10.0 (995dad9)\n- feat(providers): serap context window dari /v1/models upstream, jangan tebak dari nama (327d910)\n- fix(providers): context length LunaRoute diukur dari upstream, bukan pola nama (335a075)\n- fix(dashboard): clear stored failure markers after a passing probe (474d622)\n- fix(dashboard): keep the account row green for a valid key with a drained wallet (266add3)\n- fix(freebuff): send the client-version header the update gate reads (fa06a50)\n- fix(freebuff): match the released CLI instead of guessing at the protocol (1b59aaf)\n- fix(alysis): correct the model's real name, output ceiling and context cap (16d370a)\n- fix(alysis): publish the chat lane's real context cap, not the family's (dc10746)\n- fix: three silent losses \u2014 reasoning max, tool-result images, free context cap (1d5dc39)\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
 }
