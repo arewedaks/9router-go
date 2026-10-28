@@ -7459,6 +7459,9 @@
               "iflow", "if", "gitlab", "gl", "xai", "cursor", "cu", "codex", "cx",
               "nous", "ns"],
         render: p => genericOAuthPanelHtml(p) },
+      // ADCode signs in inside its own desktop app and leaves a Firebase refresh
+      // token; the generic panel's import branch asks for exactly that.
+      { ids: ["adcode", "adc"], render: p => genericOAuthPanelHtml(p) },
     ];
     const panelEntry = OAUTH_PANELS.find(e => e.ids.includes(d.provider));
     const oauthPanel = panelEntry ? panelEntry.render(d.provider) : '';
@@ -9228,8 +9231,8 @@
           <input type="password" id="g-oauth-client-secret" placeholder="leave blank for PKCE-only apps">
         </div>
         <div id="g-oauth-import" style="display:none; margin-top:10px;">
-          <label class="field-label">Access token</label>
-          <input type="password" id="g-oauth-token" placeholder="paste the CLI's access token">
+          <label class="field-label" id="g-oauth-import-label">Access token</label>
+          <input type="password" id="g-oauth-token" placeholder="paste the credential">
           <label class="field-label" style="margin-top:8px;">Machine ID (Cursor only)</label>
           <input type="text" id="g-oauth-machine" placeholder="leave blank unless the provider asks for it">
           <div style="margin-top:8px;">
@@ -9441,6 +9444,11 @@
       }
       if (data.kind === "import_token") {
         intro.textContent = data.hint || "Paste the credential your CLI stored.";
+        // Some providers hand out a refresh token rather than a ready-to-use
+        // access token; the server names the field so the operator pastes the
+        // right value instead of guessing.
+        const label = document.getElementById("g-oauth-import-label");
+        if (label && data.label) label.textContent = data.label;
         document.getElementById("g-oauth-import").style.display = "block";
         return;
       }

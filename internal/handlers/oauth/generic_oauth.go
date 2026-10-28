@@ -29,6 +29,7 @@ import (
 
 	"9router/proxy/internal/handlerutil"
 	"9router/proxy/internal/log"
+	"9router/proxy/internal/providers"
 )
 
 // flowKind selects which handler drives a provider.
@@ -85,6 +86,9 @@ type oauthSpec struct {
 
 	// Import describes what the operator pastes for flowImport.
 	ImportHint string
+	// ImportLabel names the field: "Access token" fits a CLI, "Refresh token" a
+	// desktop app that mints short-lived tokens. Empty keeps the generic label.
+	ImportLabel string
 }
 
 // ClientID is the OAuth client id. Kept separate from the spec so it can come
@@ -263,6 +267,17 @@ var oauthSpecs = map[string]oauthSpec{
 		ImportHint: "Paste the access token and machine id from your Cursor IDE (Help → About shows neither; they live in the IDE's local storage).",
 	},
 
+	// ADCode signs in through Firebase (Google / GitHub / email) inside its own
+	// desktop app, so the token exchange happens there. What the app leaves behind
+	// is a refresh token, which this router turns into the one-hour session token
+	// the gateway actually wants — see providers.AdCodeIDToken.
+	"adcode": {
+		Provider:    "adcode",
+		Kind:        flowImport,
+		ImportLabel: "Refresh token",
+		ImportHint:  "Sign in inside the ADCode app, then paste the refreshToken from ~/.config/@adcode/desktop/ads/ads/identity.json. The router exchanges it for the one-hour token its AI gateway requires.",
+	},
+
 	// Codex: the CLI's OAuth lands on a fixed loopback port this server cannot
 	// serve, so the practical path is pasting the CLI's access token.
 	"codex": {
@@ -303,6 +318,9 @@ func (h *OAuthHandler) HandleGenericFlowInfo(w http.ResponseWriter, r *http.Requ
 	}
 	if spec.ImportHint != "" {
 		resp["hint"] = spec.ImportHint
+	}
+	if spec.ImportLabel != "" {
+		resp["label"] = spec.ImportLabel
 	}
 	// A provider whose flow needs an operator-registered OAuth application has
 	// no usable built-in client id, so the panel must ask for one before the
@@ -836,7 +854,24 @@ func (h *OAuthHandler) importToken(w http.ResponseWriter, r *http.Request, spec 
 		return
 	}
 
+	// ADCode's gateway wants a short-lived Firebase ID token; the paste is the
+	// account's refresh token. Prove it exchanges before storing, otherwise the
+	// operator gets a green "connection added" and every call then fails with
+	// 401 missing-token.
+	if spec.Provider == "adcode" {
+		if _, err := providers.AdCodeIDToken(r.Context(), nil, token); err != nil {
+			handlerutil.WriteJSONError(w, http.StatusBadRequest,
+				"ADCode rejected that refresh token: "+err.Error())
+			return
+		}
+	}
+
 	data := map[string]any{"accessToken": token}
+	// ADCode stores the same value under both keys: the executor reads
+	// accessToken, and the account probe prefers refreshToken.
+	if spec.Provider == "adcode" {
+		data["refreshToken"] = token
+	}
 	if req.RefreshToken != "" {
 		data["refreshToken"] = req.RefreshToken
 	}
