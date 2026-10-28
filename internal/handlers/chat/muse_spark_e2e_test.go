@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -11,7 +12,18 @@ import (
 	"9router/proxy/internal/proxy/executor"
 )
 
+// These tests drive the real OpenCode upstream with a placeholder key, so they
+// only pass while that upstream keeps answering anonymous requests. CI has no
+// such guarantee; run them deliberately with OPENCODE_LIVE=1.
+func skipWithoutOpenCodeLive(t *testing.T) {
+	t.Helper()
+	if os.Getenv("OPENCODE_LIVE") != "1" {
+		t.Skip("live OpenCode upstream only with OPENCODE_LIVE=1")
+	}
+}
+
 func TestIntegration_OpenCode_MuseSpark_Messages(t *testing.T) {
+	skipWithoutOpenCodeLive(t)
 	executor.RegisterAll()
 	database, cleanup := setupChatTestDB(t)
 	defer cleanup()
@@ -66,6 +78,7 @@ func TestIntegration_OpenCode_MuseSpark_Messages(t *testing.T) {
 }
 
 func TestIntegration_OpenCode_MuseSpark_Messages_NonStreaming(t *testing.T) {
+	skipWithoutOpenCodeLive(t)
 	executor.RegisterAll()
 	database, cleanup := setupChatTestDB(t)
 	defer cleanup()
@@ -111,6 +124,7 @@ func TestIntegration_OpenCode_MuseSpark_Messages_NonStreaming(t *testing.T) {
 }
 
 func TestIntegration_OpenCode_MuseSpark_ChatCompletions(t *testing.T) {
+	skipWithoutOpenCodeLive(t)
 	executor.RegisterAll()
 	database, cleanup := setupChatTestDB(t)
 	defer cleanup()
@@ -164,6 +178,7 @@ func TestIntegration_OpenCode_MuseSpark_ChatCompletions(t *testing.T) {
 }
 
 func TestIntegration_OpenCode_MuseSpark_MultiTurnWithTools(t *testing.T) {
+	skipWithoutOpenCodeLive(t)
 	executor.RegisterAll()
 	database, cleanup := setupChatTestDB(t)
 	defer cleanup()
@@ -236,6 +251,7 @@ func TestIntegration_OpenCode_MuseSpark_MultiTurnWithTools(t *testing.T) {
 }
 
 func TestIntegration_OpenCode_MuseSpark13_ChatCompletions(t *testing.T) {
+	skipWithoutOpenCodeLive(t)
 	executor.RegisterAll()
 	database, cleanup := setupChatTestDB(t)
 	defer cleanup()
