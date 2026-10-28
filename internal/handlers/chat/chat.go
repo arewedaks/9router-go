@@ -536,13 +536,15 @@ func (h *ChatHandler) buildModelsList() []ModelInfoObject {
 				}
 				seen[fullID] = true
 
-				ctxLen, maxOut := providers.GetModelTokenLimitsFor(provID, mID)
+				// The prefixed id goes first: an override is keyed by the prefix
+				// the model id carries, which an opaque node id cannot match.
+				ctxLen, maxOut := providers.GetModelTokenLimitsFor(provID, fullID)
 				if ctxLen == 0 && maxOut == 0 {
-					ctxLen, maxOut = providers.GetModelTokenLimitsFor(provID, fullID)
+					ctxLen, maxOut = providers.GetModelTokenLimitsFor(provID, mID)
 				}
 				// A number the upstream published beats the name-pattern guess,
 				// but never an explicit override the operator pinned by hand.
-				if lim, ok := cachedLimits[mID]; ok && !providers.HasCatalogLimitOverride(provID, mID) {
+				if lim, ok := cachedLimits[mID]; ok && !providers.HasCatalogLimitOverride(provID, fullID) {
 					if lim[0] > 0 {
 						ctxLen = lim[0]
 					}
@@ -620,11 +622,13 @@ func (h *ChatHandler) buildModelsList() []ModelInfoObject {
 				}
 				seen[fullID] = true
 
-				ctxLen, maxOut := providers.GetModelTokenLimitsFor(provID, mID)
+				// The prefixed id goes first: an override is keyed by the prefix
+				// the model id carries, which an opaque node id cannot match.
+				ctxLen, maxOut := providers.GetModelTokenLimitsFor(provID, fullID)
 				if ctxLen == 0 && maxOut == 0 {
-					ctxLen, maxOut = providers.GetModelTokenLimitsFor(provID, fullID)
+					ctxLen, maxOut = providers.GetModelTokenLimitsFor(provID, mID)
 				}
-				if lim, ok := cachedLimits[mID]; ok && !providers.HasCatalogLimitOverride(provID, mID) {
+				if lim, ok := cachedLimits[mID]; ok && !providers.HasCatalogLimitOverride(provID, fullID) {
 					if lim[0] > 0 {
 						ctxLen = lim[0]
 					}
@@ -750,9 +754,9 @@ func (h *ChatHandler) buildModelsList() []ModelInfoObject {
 				}
 				seen[fullModel] = true
 
-				ctxLen, maxOut := providers.GetModelTokenLimitsFor(prefix, cm.ID)
+				ctxLen, maxOut := providers.GetModelTokenLimitsFor(prefix, fullModel)
 				if ctxLen == 0 && maxOut == 0 {
-					ctxLen, maxOut = providers.GetModelTokenLimitsFor(prefix, fullModel)
+					ctxLen, maxOut = providers.GetModelTokenLimitsFor(prefix, cm.ID)
 				}
 				limKey := cm.ProviderAlias
 				cachedLimits, cached := limitsByKey[limKey]
@@ -762,7 +766,7 @@ func (h *ChatHandler) buildModelsList() []ModelInfoObject {
 				}
 				// Same precedence as the connection branches: an upstream-published
 				// number beats the family guess, an explicit override beats both.
-				if lim, ok := cachedLimits[cm.ID]; ok && !providers.HasCatalogLimitOverride(prefix, cm.ID) {
+				if lim, ok := cachedLimits[cm.ID]; ok && !providers.HasCatalogLimitOverride(prefix, fullModel) {
 					if lim[0] > 0 {
 						ctxLen = lim[0]
 					}

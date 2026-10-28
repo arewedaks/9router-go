@@ -44,3 +44,32 @@ func TestLunarouteMuseSparkLimits(t *testing.T) {
 		}
 	}
 }
+
+// /v1/models calls the resolver with the node's opaque generated id and the
+// prefixed model id — the shape the live gateway actually serves. The override
+// keys are written with the short prefix, so this is the case that used to fall
+// through to the family guess and advertise 1000000/128000 for a 1M/393K model.
+func TestLunarouteOverrideMatchesOpaqueNodeID(t *testing.T) {
+	clearCatalog()
+	const node = "openai-compatible-chat-d76ef300-b269-4a63-973f-e54dd52d985f"
+	cases := map[string][2]int{
+		"lr/deepseek-4.1-flash":            {1048576, 393216},
+		"lr/deepseek-4.1-flash-background": {1048576, 393216},
+		"lr/muse-spark-open":               {524288, 524288},
+		"lr/muse-spark-open-background":    {524288, 524288},
+	}
+	for model, want := range cases {
+		cw, mo := GetModelTokenLimitsFor(node, model)
+		if cw != want[0] || mo != want[1] {
+			t.Errorf("%s via node id = (%d, %d), want (%d, %d)", model, cw, mo, want[0], want[1])
+		}
+		if !HasCatalogLimitOverride(node, model) {
+			t.Errorf("override not detected for %s via node id", model)
+		}
+	}
+	// A provider that is not pinned keeps its catalogue/family number: the
+	// prefix fallback must not hand LunaRoute's measured window to a reseller.
+	if cw, _ := GetModelTokenLimitsFor("reseller-x", "deepseek-4.1-flash"); cw != 1000000 {
+		t.Errorf("reseller window = %d, want 1000000", cw)
+	}
+}

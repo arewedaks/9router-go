@@ -1037,6 +1037,15 @@ func (h *Handler) HandleProviderDetail(w http.ResponseWriter, r *http.Request) {
 		// computed here rather than in the Repo: see providers.IsModelFreeBadge.
 		// Context window is the same story — it resolves through the synced
 		// catalog, which the Repo has no access to.
+		// Overrides and catalogue rows are keyed by the provider prefix, while a
+		// generated node is addressed by its opaque id; resolve the prefix once
+		// so the pinned numbers below are actually found.
+		limitProvider := canonical
+		if p := h.nodePrefixKey(canonical); p != "" {
+			limitProvider = p
+		} else if p := h.nodePrefixKey(raw); p != "" {
+			limitProvider = p
+		}
 		for i := range models {
 			models[i].IsFree = providers.IsModelFreeBadge(canonical, providers.FreeModelCandidate{
 				ID:          models[i].ModelID,
@@ -1047,8 +1056,8 @@ func (h *Handler) HandleProviderDetail(w http.ResponseWriter, r *http.Request) {
 			// A number the upstream published at import time (already in the
 			// struct) beats both, but never an explicit pinned override.
 			measuredCtx, measuredOut := models[i].ContextWindow, models[i].MaxOutput
-			models[i].ContextWindow, models[i].MaxOutput = providers.GetDisplayTokenLimits(canonical, models[i].ModelID)
-			if !providers.HasCatalogLimitOverride(canonical, models[i].ModelID) {
+			models[i].ContextWindow, models[i].MaxOutput = providers.GetDisplayTokenLimits(limitProvider, models[i].ModelID)
+			if !providers.HasCatalogLimitOverride(limitProvider, models[i].ModelID) {
 				if measuredCtx > 0 {
 					models[i].ContextWindow = measuredCtx
 				}

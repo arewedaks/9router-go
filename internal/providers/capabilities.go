@@ -509,6 +509,15 @@ func lookupCatalogLimitOverride(provider, model string) (int, int) {
 			return lim[0], lim[1]
 		}
 	}
+	// An openai-compatible node is stored under an opaque generated id, so the
+	// provider argument never reaches the prefix these keys are written with.
+	// The model id as published already names that prefix ("lr/deepseek-…").
+	if head := strings.ToLower(strings.TrimSpace(model)); strings.Contains(head, "/") {
+		head = head[:strings.Index(head, "/")]
+		if lim, ok := catalogLimitOverrides[head+"/"+m]; ok {
+			return lim[0], lim[1]
+		}
+	}
 	return 0, 0
 }
 
