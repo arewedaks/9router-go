@@ -455,6 +455,25 @@ var catalogLimitOverrides = map[string][2]int{
 	"alysis/deepseek-flash": {76000, 393216},
 	// glm-5.3-flash shares the lane; its own max_tokens ceiling is 131072.
 	"alysis/glm-5.3-flash": {76000, 131072},
+	// LunaRoute (custom openai-compatible node, prefix "lr"). Both numbers come
+	// from the gateway's own 400 bodies, read 2026-10-28 through the chat lane:
+	//
+	//	deepseek-4.1-flash -> "max_tokens cannot be greater than
+	//	  max_model_len=1048576" above 1048576, and a 870468-token prompt was
+	//	  accepted, so the window is the family's 1M. The bare id has no "v"
+	//	  after "deepseek", so the family row missed it entirely and the name
+	//	  pattern advertised 131072 — eight times too small.
+	//	muse-spark-open    -> "This model supports at most 524288 completion
+	//	  tokens" and "input is longer than the model's context length
+	//	  (524288 tokens)". Window and output ceiling are both 524288; the
+	//	  pattern default said 128000/4096.
+	//
+	// The node publishes both ids with a "-background" twin that shares the
+	// same backend limits.
+	"lr/deepseek-4.1-flash":            {1048576, 393216},
+	"lr/deepseek-4.1-flash-background": {1048576, 393216},
+	"lr/muse-spark-open":               {524288, 524288},
+	"lr/muse-spark-open-background":    {524288, 524288},
 }
 
 // lookupCatalogLimitOverride returns an override for a provider/model pair, or
@@ -537,7 +556,10 @@ type tokenFamily struct {
 // both read it, which is what keeps the routing fallback and the dashboard
 // label from drifting apart.
 var tokenFamilies = []tokenFamily{
-	{[]string{"deepseek-v4.1-flash", "deepseek-v4-flash"}, 1000000, 128000},
+	// "deepseek-4.1-flash" (no "v") is the id LunaRoute and several resellers
+	// publish; without it the generic "deepseek" row below matched and
+	// advertised an eighth of the real window.
+	{[]string{"deepseek-v4.1-flash", "deepseek-v4-flash", "deepseek-4.1-flash"}, 1000000, 128000},
 	{[]string{"gemini-1.5", "gemini-2.0", "gemini-2.5", "gemini-3", "glm-5.3-flash"}, 1048576, 65536},
 	{[]string{"deepseek-flash-starter"}, 1048576, 32768},
 	{[]string{"minimax-m3.1-flash"}, 1000000, 524288},
