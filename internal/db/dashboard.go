@@ -156,10 +156,11 @@ type CachedModel struct {
 	// provider free-tier membership, which the Repo does not know). It is not
 	// stored.
 	IsFree bool `json:"isFree"`
-	// ContextWindow and MaxOutput are computed per request by the provider
-	// handler from the synced catalog, which the Repo cannot reach. Zero means
-	// unknown (a custom or brand-new model the catalog has never listed), and
-	// the UI renders no label rather than a misleading number.
+	// ContextWindow and MaxOutput carry the limits the upstream published for
+	// this model when it was imported. Zero means the listing had no numbers,
+	// and the resolver falls back to the static catalogue/token-family tables
+	// (the dashboard handler overwrites these two fields with those numbers
+	// when they are zero).
 	ContextWindow int `json:"contextWindow,omitempty"`
 	MaxOutput     int `json:"maxOutput,omitempty"`
 }
@@ -169,19 +170,31 @@ type CachedModel struct {
 // schema identical to the Next.js build (which is why no migration is needed).
 type modelCachePayload struct {
 	Name string `json:"name,omitempty"`
+	// ContextWindow/MaxOutput carry the limits the upstream published on its
+	// own /models listing at import time. Absent for providers that publish
+	// nothing, in which case the static tables stay in charge.
+	ContextWindow int `json:"contextWindow,omitempty"`
+	MaxOutput     int `json:"maxOutput,omitempty"`
+}
+
+// decodeModelCachePayload parses the capabilities column, tolerating
+// legacy/plain values (which report !ok).
+func decodeModelCachePayload(capabilities string) (modelCachePayload, bool) {
+	capabilities = strings.TrimSpace(capabilities)
+	if capabilities == "" || !strings.HasPrefix(capabilities, "{") {
+		return modelCachePayload{}, false
+	}
+	var payload modelCachePayload
+	if err := json.Unmarshal([]byte(capabilities), &payload); err != nil {
+		return modelCachePayload{}, false
+	}
+	return payload, true
 }
 
 // decodeModelCacheName extracts the stored display name from the capabilities
 // column, tolerating legacy/plain values (which simply yield "").
 func decodeModelCacheName(capabilities string) string {
-	capabilities = strings.TrimSpace(capabilities)
-	if capabilities == "" || !strings.HasPrefix(capabilities, "{") {
-		return ""
-	}
-	var payload modelCachePayload
-	if err := json.Unmarshal([]byte(capabilities), &payload); err != nil {
-		return ""
-	}
+	payload, _ := decodeModelCachePayload(capabilities)
 	return strings.TrimSpace(payload.Name)
 }
 
@@ -217,6 +230,9 @@ func (r *Repo) ListCachedModels(keys ...string) ([]CachedModel, error) {
 			return nil, fmt.Errorf("scan cached model: %w", err)
 		}
 		m.DisplayName = decodeModelCacheName(m.Capabilities)
+		if payload, ok := decodeModelCachePayload(m.Capabilities); ok {
+			m.ContextWindow, m.MaxOutput = payload.ContextWindow, payload.MaxOutput
+		}
 		out = append(out, m)
 	}
 	return out, rows.Err()
@@ -361,6 +377,14 @@ func (r *Repo) AddCachedModel(providerKey, modelID, kind, ownedBy string) error 
 // and an empty name deliberately does NOT clobber a previously stored one, so
 // a re-import that drops the label never erases it.
 func (r *Repo) AddCachedModelWithName(providerKey, modelID, kind, ownedBy, displayName string) error {
+	return r.AddCachedModelWithLimits(providerKey, modelID, kind, ownedBy, displayName, 0, 0)
+}
+
+// AddCachedModelWithLimits is AddCachedModelWithName plus the context window
+// and max output the upstream advertised. Zero values keep whatever was
+// already stored, so a re-import from a listing without limits never erases a
+// previously recorded measurement.
+func (r *Repo) AddCachedModelWithLimits(providerKey, modelID, kind, ownedBy, displayName string, contextWindow, maxOutput int) error {
 	if modelID == "" {
 		return fmt.Errorf("model ID is required")
 	}
@@ -370,10 +394,29 @@ func (r *Repo) AddCachedModelWithName(providerKey, modelID, kind, ownedBy, displ
 	if ownedBy == "" {
 		ownedBy = "custom"
 	}
-	payload := ""
-	if name := strings.TrimSpace(displayName); name != "" {
-		if encoded, err := json.Marshal(modelCachePayload{Name: name}); err == nil {
-			payload = string(encoded)
+	payload := modelCachePayload{Name: strings.TrimSpace(displayName)}
+	var stored string
+	if err := r.db.QueryRow(
+		"SELECT COALESCE(capabilities,'') FROM cachedProviderModels WHERE providerId = ? AND modelId = ?",
+		providerKey, modelID,
+	).Scan(&stored); err == nil {
+		if old, ok := decodeModelCachePayload(stored); ok {
+			if payload.Name == "" {
+				payload.Name = old.Name
+			}
+			if contextWindow <= 0 {
+				contextWindow = old.ContextWindow
+			}
+			if maxOutput <= 0 {
+				maxOutput = old.MaxOutput
+			}
+		}
+	}
+	payload.ContextWindow, payload.MaxOutput = contextWindow, maxOutput
+	encoded := ""
+	if payload != (modelCachePayload{}) {
+		if b, err := json.Marshal(payload); err == nil {
+			encoded = string(b)
 		}
 	}
 	_, err := r.db.Exec(
@@ -384,7 +427,7 @@ func (r *Repo) AddCachedModelWithName(providerKey, modelID, kind, ownedBy, displ
 			ownedBy = excluded.ownedBy,
 			capabilities = CASE WHEN excluded.capabilities IN ('', '{}') THEN capabilities ELSE excluded.capabilities END,
 			updatedAt = excluded.updatedAt`,
-		providerKey, modelID, kind, ownedBy, payload, time.Now().UnixMilli(),
+		providerKey, modelID, kind, ownedBy, encoded, time.Now().UnixMilli(),
 	)
 	if err != nil {
 		return fmt.Errorf("add cached model: %w", err)

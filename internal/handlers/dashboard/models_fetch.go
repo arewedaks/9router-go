@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -34,6 +35,11 @@ type UpstreamModel struct {
 	// so the Import modal can show the same signal the detail page does. It is
 	// filled by the handler, which knows the canonical provider id.
 	IsFree bool `json:"isFree,omitempty"`
+	// ContextLength/MaxOutput are the limits the upstream advertises on its own
+	// listing (OpenRouter-style context_length/top_provider, Ollama-style
+	// *_token_limit). Zero means "not published", and the static tables decide.
+	ContextLength int `json:"contextLength,omitempty"`
+	MaxOutput     int `json:"maxOutput,omitempty"`
 }
 
 // upstreamResponse covers the common list envelopes returned by providers:
@@ -516,10 +522,24 @@ func (h *Handler) doModelRequest(client *http.Client, provider, url, method stri
 			continue
 		}
 		out = append(out, UpstreamModel{
-			ID:   id,
-			Name: label,
-			Kind: inferModelKind(id),
+			ID:            id,
+			Name:          label,
+			Kind:          inferModelKind(id),
+			ContextLength: firstInt(entry, "context_length", "context_window", "max_context_length", "input_token_limit"),
+			MaxOutput:     firstInt(entry, "max_completion_tokens", "max_output_tokens", "output_token_limit"),
 		})
+		// OpenRouter nests the output cap under top_provider; Ollama reports
+		// context under model_info but never a usable number per listing, so
+		// only the two shapes we have seen are read.
+		if tp, ok := entry["top_provider"].(map[string]any); ok {
+			last := &out[len(out)-1]
+			if last.MaxOutput == 0 {
+				last.MaxOutput = firstInt(tp, "max_completion_tokens", "max_output_tokens")
+			}
+			if last.ContextLength == 0 {
+				last.ContextLength = firstInt(tp, "context_length", "context_window")
+			}
+		}
 	}
 	return &ModelFetchResult{Provider: provider, Models: out, Supported: true}, nil
 }
@@ -532,6 +552,28 @@ func firstString(m map[string]any, keys ...string) string {
 		}
 	}
 	return ""
+}
+
+// firstInt returns the first positive numeric value among keys, accepting the
+// float64/string spellings providers actually send.
+func firstInt(m map[string]any, keys ...string) int {
+	for _, k := range keys {
+		switch v := m[k].(type) {
+		case float64:
+			if v > 0 {
+				return int(v)
+			}
+		case int:
+			if v > 0 {
+				return v
+			}
+		case string:
+			if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil && n > 0 {
+				return n
+			}
+		}
+	}
+	return 0
 }
 
 // inferModelKind guesses a model's service kind from its identifier, matching

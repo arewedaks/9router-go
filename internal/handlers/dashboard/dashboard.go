@@ -1044,7 +1044,18 @@ func (h *Handler) HandleProviderDetail(w http.ResponseWriter, r *http.Request) {
 			})
 			// Catalogue first, then a known model family; never the pattern
 			// matcher's 128K default. See providers.GetDisplayTokenLimits.
+			// A number the upstream published at import time (already in the
+			// struct) beats both, but never an explicit pinned override.
+			measuredCtx, measuredOut := models[i].ContextWindow, models[i].MaxOutput
 			models[i].ContextWindow, models[i].MaxOutput = providers.GetDisplayTokenLimits(canonical, models[i].ModelID)
+			if !providers.HasCatalogLimitOverride(canonical, models[i].ModelID) {
+				if measuredCtx > 0 {
+					models[i].ContextWindow = measuredCtx
+				}
+				if measuredOut > 0 {
+					models[i].MaxOutput = measuredOut
+				}
+			}
 		}
 		detail.Models = models
 
@@ -1200,8 +1211,9 @@ func (h *Handler) HandleImportModels(w http.ResponseWriter, r *http.Request) {
 		added := 0
 		for _, m := range result.Models {
 			// Always re-upsert so an already-cached model picks up a display name
-			// it did not have before (the DB upsert never blanks a stored name).
-			if err := h.repo.AddCachedModelWithName(key, m.ID, m.Kind, "imported", m.Name); err != nil {
+			// or upstream limits it did not have before (the DB upsert never
+			// blanks a stored name or a stored number).
+			if err := h.repo.AddCachedModelWithLimits(key, m.ID, m.Kind, "imported", m.Name, m.ContextLength, m.MaxOutput); err != nil {
 				continue
 			}
 			if !have[m.ID] {

@@ -524,6 +524,7 @@ func (h *ChatHandler) buildModelsList() []ModelInfoObject {
 			if len(modelList) == 0 {
 				modelList = h.cachedModelIDs(provID, outputAlias)
 			}
+			cachedLimits := h.cachedModelLimits(provID, outputAlias)
 			for _, mID := range modelList {
 				// Honour an explicit operator removal before doing any work.
 				if isHidden([]string{provID, outputAlias}, mID) {
@@ -538,6 +539,16 @@ func (h *ChatHandler) buildModelsList() []ModelInfoObject {
 				ctxLen, maxOut := providers.GetModelTokenLimitsFor(provID, mID)
 				if ctxLen == 0 && maxOut == 0 {
 					ctxLen, maxOut = providers.GetModelTokenLimitsFor(provID, fullID)
+				}
+				// A number the upstream published beats the name-pattern guess,
+				// but never an explicit override the operator pinned by hand.
+				if lim, ok := cachedLimits[mID]; ok && !providers.HasCatalogLimitOverride(provID, mID) {
+					if lim[0] > 0 {
+						ctxLen = lim[0]
+					}
+					if lim[1] > 0 {
+						maxOut = lim[1]
+					}
 				}
 				caps := providers.GetCapabilitiesDetailForModel(provID, mID)
 				if caps.ContextWindows > 0 && ctxLen == 0 {
@@ -596,6 +607,7 @@ func (h *ChatHandler) buildModelsList() []ModelInfoObject {
 			}
 
 			modelList := h.cachedModelIDs(provID, outputAlias)
+			cachedLimits := h.cachedModelLimits(provID, outputAlias)
 			// Same rule as the connected-provider branch: no registry fallback, so
 			// a keyless provider advertises only what was actually imported.
 			for _, mID := range modelList {
@@ -611,6 +623,14 @@ func (h *ChatHandler) buildModelsList() []ModelInfoObject {
 				ctxLen, maxOut := providers.GetModelTokenLimitsFor(provID, mID)
 				if ctxLen == 0 && maxOut == 0 {
 					ctxLen, maxOut = providers.GetModelTokenLimitsFor(provID, fullID)
+				}
+				if lim, ok := cachedLimits[mID]; ok && !providers.HasCatalogLimitOverride(provID, mID) {
+					if lim[0] > 0 {
+						ctxLen = lim[0]
+					}
+					if lim[1] > 0 {
+						maxOut = lim[1]
+					}
 				}
 				caps := providers.GetCapabilitiesDetailForModel(provID, mID)
 				if caps.ContextWindows > 0 && ctxLen == 0 {
@@ -707,6 +727,7 @@ func (h *ChatHandler) buildModelsList() []ModelInfoObject {
 		// are skipped the same way upstream only exports routes that exist.
 		aliveAliases := h.aliveAliases()
 		if customs, err := h.Repo.GetCustomModels(); err == nil {
+			limitsByKey := make(map[string]map[string][2]int)
 			for _, cm := range customs {
 				if !aliveAliases[cm.ProviderAlias] {
 					continue
@@ -732,6 +753,22 @@ func (h *ChatHandler) buildModelsList() []ModelInfoObject {
 				ctxLen, maxOut := providers.GetModelTokenLimitsFor(prefix, cm.ID)
 				if ctxLen == 0 && maxOut == 0 {
 					ctxLen, maxOut = providers.GetModelTokenLimitsFor(prefix, fullModel)
+				}
+				limKey := cm.ProviderAlias
+				cachedLimits, cached := limitsByKey[limKey]
+				if !cached {
+					cachedLimits = h.cachedModelLimits(limKey, prefix)
+					limitsByKey[limKey] = cachedLimits
+				}
+				// Same precedence as the connection branches: an upstream-published
+				// number beats the family guess, an explicit override beats both.
+				if lim, ok := cachedLimits[cm.ID]; ok && !providers.HasCatalogLimitOverride(prefix, cm.ID) {
+					if lim[0] > 0 {
+						ctxLen = lim[0]
+					}
+					if lim[1] > 0 {
+						maxOut = lim[1]
+					}
 				}
 				if len(cm.Caps) > 0 {
 					var caps providers.Capabilities
@@ -855,6 +892,53 @@ func (h *ChatHandler) nodePrefixByID() map[string]string {
 //
 // Including ProviderAliasMap is load-bearing: `gh`, `oc`, `cl` and `cbai` are
 // aliases, not connections, and their models must keep being listed.
+//
+// tokenLimits resolves one model's token limits. Precedence: a curated
+// override the operator pinned by hand, then the numbers the upstream
+// published when the model was imported, then the static token-family tables.
+func (h *ChatHandler) tokenLimits(provider, model string) (int, int) {
+	ctxLen, maxOut := providers.GetModelTokenLimitsFor(provider, model)
+	if h == nil || h.Repo == nil || providers.HasCatalogLimitOverride(provider, model) {
+		return ctxLen, maxOut
+	}
+	bare := model
+	if i := strings.LastIndex(bare, "/"); i >= 0 {
+		bare = bare[i+1:]
+	}
+	for _, key := range []string{provider, providers.ResolveAlias(provider)} {
+		if lim, ok := h.cachedModelLimits(key)[bare]; ok {
+			if lim[0] > 0 {
+				ctxLen = lim[0]
+			}
+			if lim[1] > 0 {
+				maxOut = lim[1]
+			}
+			break
+		}
+	}
+	return ctxLen, maxOut
+}
+
+// cachedModelLimits returns the context window / max output recorded in the
+// model cache at import time, keyed by model id. Providers whose listing
+// publishes no limits yield an empty map, and the static tables stay in charge.
+func (h *ChatHandler) cachedModelLimits(keys ...string) map[string][2]int {
+	if h.Repo == nil {
+		return nil
+	}
+	rows, err := h.Repo.ListCachedModels(keys...)
+	if err != nil {
+		return nil
+	}
+	out := make(map[string][2]int, len(rows))
+	for _, m := range rows {
+		if m.ContextWindow > 0 || m.MaxOutput > 0 {
+			out[m.ModelID] = [2]int{m.ContextWindow, m.MaxOutput}
+		}
+	}
+	return out
+}
+
 // cachedModelIDs returns the model ids imported for a provider, looked up under
 // both the canonical id and its alias because the dashboard keys the cache by
 // whichever spelling the import used (Cloudflare's live list is stored as "cf"
@@ -954,7 +1038,7 @@ func (h *ChatHandler) HandleModelsInfo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctxLen, maxOut := providers.GetModelTokenLimitsFor(modelInfo.Provider, modelID)
+	ctxLen, maxOut := h.tokenLimits(modelInfo.Provider, modelID)
 
 	// owned_by must be the short alias clients already receive from
 	// /v1/models, never a generated node key. handleModels exports

@@ -512,6 +512,14 @@ func lookupCatalogLimitOverride(provider, model string) (int, int) {
 	return 0, 0
 }
 
+// HasCatalogLimitOverride reports whether provider/model is pinned in the
+// curated override table. A caller holding a number measured from the upstream
+// listing uses this to decide whether the operator's explicit entry wins.
+func HasCatalogLimitOverride(provider, model string) bool {
+	cw, mo := lookupCatalogLimitOverride(provider, model)
+	return cw > 0 || mo > 0
+}
+
 // GetDisplayTokenLimits is GetModelTokenLimitsFor for the dashboard's model
 // list, where a number the operator reads as fact is worse than a blank.
 //
