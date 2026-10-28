@@ -11302,7 +11302,7 @@
       const dot = acctDotClass(p);
       const chip = statusPillFor(p);
       return `
-        <div class="prov-acct-line">
+        <div class="prov-acct-line" id="acct-row-${p.id}">
           <span class="acct-dot ${dot}"></span>
           <span class="em" title="${escapeHtml(label)}">${escapeHtml(label)}</span>
           ${chip}
@@ -11592,6 +11592,26 @@
     if (dot) {
       dot.classList.remove("on", "warn", "err", "off");
       dot.classList.add(cls === "ok" ? "on" : cls === "err" ? "err" : "warn");
+    }
+    // Same class of bug one step further out: the collapsed account line paints
+    // its own dot AND its own status pill from the fetched connection, so a
+    // passing probe left "credit exhausted" sitting next to a green chip. The
+    // server now clears the stored failure on a pass, so a refresh agrees — but
+    // only after a round trip. Move both now so the row cannot contradict itself
+    // for the rest of the session.
+    const acctRow = document.getElementById(`acct-row-${id}`);
+    if (acctRow) {
+      const acctDot = acctRow.querySelector(".acct-dot");
+      if (acctDot) {
+        acctDot.classList.remove("on", "warn", "err", "off");
+        acctDot.classList.add(cls === "ok" ? "on" : cls === "err" ? "err" : "warn");
+      }
+      const pill = acctRow.querySelector(".acct-pill");
+      if (pill && cls === "ok") {
+        pill.className = "acct-pill ok";
+        pill.textContent = "active";
+        pill.title = tip;
+      }
     }
   }
 

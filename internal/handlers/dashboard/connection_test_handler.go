@@ -156,16 +156,19 @@ func isAntigravityProviderID(provider string) bool {
 
 // testConnection probes one account and returns a normalised verdict. It is
 // READ-ONLY with respect to the connection's ROUTING state: no activation flag,
-// testStatus, cooldown or backoff is written. Upstream persists
+// cooldown or backoff is written. Upstream persists
 // testStatus/lastError/rateLimitedUntil/backoffLevel from this endpoint. That is
 // deliberately NOT ported. Upstream gates the route behind requireManagementAuth
 // and pairs the writes with a credential-health scheduler that re-probes every
-// 300s and clears them. Here the dashboard routes are unauthenticated
-// (pre-existing fork behaviour) and there is no recovery scheduler, so a write
-// would be both a remote DoS primitive (loop the endpoint to flip working
-// accounts out of rotation) and sticky until manual intervention. Reporting the
-// verdict to the operator is the whole feature; persisting it is unnecessary and
-// unsafe.
+// 300s and clears them. Here there is no recovery scheduler, so persisting a
+// FAILURE would be both a DoS primitive (loop the endpoint to flip working
+// accounts out of rotation) and sticky until manual intervention.
+//
+// The one write that is allowed is the inverse: clearStaleOnPass drops failure
+// markers after a probe proves the credential answers. It can only turn a row
+// green, and it exists because otherwise the dashboard shows the same account
+// two different ways at once — the row painted from a months-old stored error
+// (refresh) and the chip from a live probe (Test).
 //
 // It DOES refresh an expired OAuth token before probing, because a red "token
 // expired" verdict for an account that is one refresh away from healthy is
@@ -259,6 +262,35 @@ func (h *Handler) testConnection(ctx context.Context, connID string) (result con
 		return h.probeOpenrouterConnection(ctx, raw, out)
 	}
 	return h.probeGenericConnection(ctx, raw, out)
+}
+
+// clearStaleOnPass drops the stored failure markers after a probe proves the
+// credential answers.
+//
+// Without it the row and the chip disagree: the row is painted from
+// providerConnections.data, where a chat error from months ago still sits
+// (errorCode 402, lastError "Insufficient credits", lastErrorAt 2026-09-10), so
+// every page refresh redraws the account as quota_exhausted while clicking Test
+// reports OK — and since nothing ever rewrites that blob, it stays wrong
+// forever. Observed exactly that on the OpenRouter account on 2026-10-28.
+//
+// The write is deliberately one-way. Persisting a FAILURE from this endpoint is
+// the DoS primitive the read-only design avoids (the route is reachable from the
+// dashboard, so anything that can park an account can be looped). Clearing on
+// success has no such shape: it can only turn a row green, and the chat path
+// re-records a real failure the moment one happens. Routing state
+// (rateLimitedUntil, backoffLevel, modelLock_*) is never touched — see
+// Repo.ClearConnectionStaleError.
+//
+// Only a conclusive pass counts. A 429 "not judged" or a geo-block says nothing
+// about the credential either way and must leave the stored verdict alone.
+func (h *Handler) clearStaleOnPass(connID string, res connectionTestResult) {
+	if !res.Valid || res.GeoBlocked || res.Error != "" || res.Warning != "" {
+		return
+	}
+	if err := h.repo.ClearConnectionStaleError(connID); err != nil {
+		log.Warn("dashboard", "clear stale connection error failed", "conn", connID, "error", err)
+	}
 }
 
 // probeOpenrouterConnection judges an OpenRouter key against /api/v1/key, not a

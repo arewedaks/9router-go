@@ -52,6 +52,7 @@ func (h *Handler) HandleTestConnection(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	result := h.testConnection(ctx, id)
+	h.clearStaleOnPass(id, result)
 	handlerutil.WriteJSON(w, http.StatusOK, result)
 }
 
@@ -158,6 +159,7 @@ func (h *Handler) HandleTestProviderConnections(w http.ResponseWriter, r *http.R
 
 	okCount := 0
 	for _, res := range results {
+		h.clearStaleOnPass(res.ConnectionID, res)
 		if res.Valid && !res.GeoBlocked && res.Warning == "" {
 			okCount++
 		}

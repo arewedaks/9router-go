@@ -114,6 +114,31 @@ func (r *Repo) UnlockConnectionModel(connID, model string) error {
 	return nil
 }
 
+// ClearConnectionStaleError wipes the stored failure markers left by an earlier
+// chat error (errorCode / lastError / lastErrorAt) and marks the connection
+// healthy, WITHOUT touching routing state: rateLimitedUntil, backoffLevel and
+// modelLock_* are left exactly as they are.
+//
+// The split matters. This is called only after a probe proved the credential
+// answers, so the stored error is provably stale; clearing a live cooldown or
+// backoff at the same time would be a routing write, which the test endpoint is
+// forbidden to make.
+func (r *Repo) ClearConnectionStaleError(connID string) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+	_, err := r.db.Exec(
+		`UPDATE providerConnections SET data = json_set(data,
+			'$.errorCode', json('null'),
+			'$.lastError', json('null'),
+			'$.lastErrorAt', json('null'),
+			'$.testStatus', 'active'), updatedAt = ? WHERE id = ?`,
+		now, connID,
+	)
+	if err != nil {
+		return fmt.Errorf("clear stale error on connection %s: %w", connID, err)
+	}
+	return nil
+}
+
 // ResetConnectionHealthState clears model locks, error codes, rate limits, and resets backoff
 // on a connection when activated or re-validated (parity with #3830 / #7fee56ba).
 func (r *Repo) ResetConnectionHealthState(connID string) error {
