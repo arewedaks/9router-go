@@ -187,8 +187,24 @@ func adCodeErrorCode(body []byte) string {
 // desktop app calls with the token its browser sign-in produced.
 var AdCodeIDPURL = "https://identitytoolkit.googleapis.com/v1/accounts:signInWithIdp"
 
-// AdCodeGitHubProviderID is the Firebase provider id for a GitHub credential.
-const AdCodeGitHubProviderID = "github.com"
+// Firebase provider ids for the two credentials the editor's browser sign-in
+// can produce.
+const (
+	AdCodeGitHubProviderID = "github.com"
+	AdCodeGoogleProviderID = "google.com"
+)
+
+// AdCodeGoogle* mirror the desktop client's Google OAuth application. They are
+// NOT defaults in this source: the repo is public and GitHub's push protection
+// rejects the pair, so an install supplies them through the environment (see
+// references/adcode-gateway.md). Without them the Google method answers a clear
+// "not configured" error while the GitHub method keeps working.
+var (
+	AdCodeGoogleAuthorizeURL = "https://accounts.google.com/o/oauth2/v2/auth"
+	AdCodeGoogleTokenURL     = "https://oauth2.googleapis.com/token"
+	AdCodeGoogleClientID     = envOr("ADCODE_GOOGLE_CLIENT_ID", "")
+	AdCodeGoogleClientSecret = envOr("ADCODE_GOOGLE_CLIENT_SECRET", "")
+)
 
 // AdCodeSession is the durable half of a Firebase sign-in: the AI gateway wants
 // short-lived ID tokens, and the refresh token is what mints them.
@@ -199,19 +215,30 @@ type AdCodeSession struct {
 }
 
 // AdCodeSignInWithGitHub trades a GitHub access token for a Firebase session,
-// exactly like the desktop app after its browser sign-in. The response also
-// carries an ID token, but the refresh token is what gets stored: the executor
-// mints fresh ID tokens from it, so a connection outlives the one-hour session.
+// exactly like the desktop app after its browser sign-in.
 func AdCodeSignInWithGitHub(ctx context.Context, client *http.Client, githubToken string) (AdCodeSession, error) {
-	githubToken = strings.TrimSpace(githubToken)
-	if githubToken == "" {
-		return AdCodeSession{}, fmt.Errorf("adcode: empty GitHub token")
+	return AdCodeSignInWithIDP(ctx, client, AdCodeGitHubProviderID, "access_token", githubToken)
+}
+
+// AdCodeSignInWithGoogle trades a Google ID token for a Firebase session. The
+// editor does the same after its loopback OAuth: Firebase is the account system,
+// Google only proves who is signing in.
+func AdCodeSignInWithGoogle(ctx context.Context, client *http.Client, googleIDToken string) (AdCodeSession, error) {
+	return AdCodeSignInWithIDP(ctx, client, AdCodeGoogleProviderID, "id_token", googleIDToken)
+}
+
+// AdCodeSignInWithIDP is the shared hand-off: Firebase's signInWithIdp accepts
+// the provider's credential and answers with its own session.
+func AdCodeSignInWithIDP(ctx context.Context, client *http.Client, providerID, fieldName, credential string) (AdCodeSession, error) {
+	credential = strings.TrimSpace(credential)
+	if credential == "" {
+		return AdCodeSession{}, fmt.Errorf("adcode: empty %s credential", providerID)
 	}
 	if client == nil {
 		client = &http.Client{Timeout: 30 * time.Second}
 	}
 	payload, err := json.Marshal(map[string]any{
-		"postBody":            "access_token=" + url.QueryEscape(githubToken) + "&providerId=" + AdCodeGitHubProviderID,
+		"postBody":            fieldName + "=" + url.QueryEscape(credential) + "&providerId=" + providerID,
 		"requestUri":          "http://localhost",
 		"returnIdpCredential": true,
 		"returnSecureToken":   true,

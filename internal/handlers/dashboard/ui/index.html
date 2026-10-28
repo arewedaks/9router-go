@@ -9194,6 +9194,20 @@
   // deviceCode, a code flow with an authUrl, and an import flow rejects the call
   // (there is nothing to authorize) — which is what selects the paste form.
   // ----------------------------------------------------------------
+  // ADCode signs in through two different providers — Google or GitHub — and the
+  // server picks the flow from ?method=. Everything else keeps one Sign in button.
+  function adcodeMethodButtons(providerId) {
+    if (providerId !== "adcode" && providerId !== "adc") {
+      return `<button class="btn btn-primary" id="g-oauth-start" onclick="startGenericOAuth('${providerId}')">Sign in</button>`;
+    }
+    return `<button class="btn btn-primary" id="g-oauth-start-google" onclick="startGenericOAuth('${providerId}','google')">
+        <span class="msym">account_circle</span><span class="btn-text"> Sign in with Google</span>
+      </button>
+      <button class="btn" id="g-oauth-start-github" onclick="startGenericOAuth('${providerId}','github')">
+        <span class="msym">code</span><span class="btn-text"> Sign in with GitHub</span>
+      </button>`;
+  }
+
   function genericOAuthPanelHtml(providerId) {
     return `
       <div class="add-form oauth-form" id="g-oauth-root">
@@ -9206,8 +9220,8 @@
             <label class="field-label">Account name (optional)</label>
             <input type="text" id="g-oauth-name" placeholder="auto-filled from the provider">
           </div>
-          <div style="display:flex; align-items:flex-end;">
-            <button class="btn btn-primary" id="g-oauth-start" onclick="startGenericOAuth('${providerId}')">Sign in</button>
+          <div style="display:flex; align-items:flex-end; gap:6px;">
+            ${adcodeMethodButtons(providerId)}
           </div>
         </div>
         <div id="g-oauth-device" style="display:none; margin-top:10px;">
@@ -9247,7 +9261,7 @@
   // panel that has since been re-rendered.
   let genericOAuthCtx = null;
 
-  async function startGenericOAuth(providerId) {
+  async function startGenericOAuth(providerId, method) {
     const msg = document.getElementById("g-oauth-msg");
     msg.style.color = "var(--muted)";
     msg.textContent = "Requesting a sign-in link…";
@@ -9255,8 +9269,11 @@
       // A provider with no built-in OAuth application takes the operator's
       // client id here; the others ignore the empty value.
       const clientId = (document.getElementById("g-oauth-client-id") || {}).value || "";
-      const qs = clientId ? "?clientId=" + encodeURIComponent(clientId) : "";
-      const res = await api(`/api/oauth/${encodeURIComponent(providerId)}/authorize${qs}`);
+      const qs = new URLSearchParams();
+      if (clientId) qs.set("clientId", clientId);
+      if (method) qs.set("method", method);
+      const suffix = qs.toString() ? "?" + qs.toString() : "";
+      const res = await api(`/api/oauth/${encodeURIComponent(providerId)}/authorize${suffix}`);
       const data = await res.json();
       if (!res.ok) {
         msg.style.color = "var(--danger)";
@@ -9267,7 +9284,7 @@
 
       if (data.deviceCode) {
         // Device flow: show the code, open the page, poll.
-        genericOAuthCtx = { flowId, deviceCode: data.deviceCode };
+        genericOAuthCtx = { flowId, deviceCode: data.deviceCode, method: method || "" };
         document.getElementById("g-oauth-device").style.display = "block";
         document.getElementById("g-oauth-usercode").textContent = data.userCode || "";
         // Providers like Qoder carry the whole handshake in the URL and ask for
@@ -9288,6 +9305,7 @@
         // serve (a loopback port on the operator's machine, or a custom scheme).
         genericOAuthCtx = {
           flowId,
+          method: method || "",
           state: data.state,
           codeVerifier: data.codeVerifier,
           redirectUri: data.redirectUri,
@@ -9317,7 +9335,7 @@
       try {
         const res = await api(`/api/oauth/${encodeURIComponent(providerId)}/exchange`, {
           method: "POST",
-          body: JSON.stringify({ deviceCode: genericOAuthCtx.deviceCode }),
+          body: JSON.stringify({ deviceCode: genericOAuthCtx.deviceCode, method: genericOAuthCtx.method || "" }),
         });
         const data = await res.json();
         if (res.ok && data.pending) {
@@ -9360,6 +9378,7 @@
     }
 
     const body = {
+      method: genericOAuthCtx.method || "",
       state: genericOAuthCtx.state,
       codeVerifier: genericOAuthCtx.codeVerifier,
       redirectUri: genericOAuthCtx.redirectUri,

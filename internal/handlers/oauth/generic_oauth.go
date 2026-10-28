@@ -18,6 +18,7 @@ package oauth
 // `oauth:` blocks.
 
 import (
+	"bytes"
 	"encoding/base64"
 	json "encoding/json/v2"
 	"fmt"
@@ -99,6 +100,9 @@ type oauthSpec struct {
 // ClientID is the OAuth client id. Kept separate from the spec so it can come
 // from KnownOAuthConfigs (which already supports an env override per provider).
 func (s oauthSpec) clientID() string {
+	if s.Provider == "adcode" && s.Kind == flowAuthCode {
+		return providers.AdCodeGoogleClientID
+	}
 	if cfg, ok := knownOAuthConfigs[s.Provider]; ok {
 		return cfg.ClientID
 	}
@@ -295,7 +299,33 @@ var (
 // credential to Firebase for a session. The GitHub device grant is the shape a
 // server can drive: no redirect URI to register, no local port to own, and the
 // operator approves on github.com/login/device in their own browser.
-func adcodeOAuthSpec() oauthSpec {
+// adcodeMethodGoogle selects the browser flow the operator picked. Both end in
+// a Firebase session; only the credential in front of it differs.
+const adcodeMethodGoogle = "google"
+
+func adcodeOAuthSpec(method string) oauthSpec {
+	if method == adcodeMethodGoogle {
+		// Google: installed-app OAuth with PKCE. The redirect must be a loopback
+		// address — Google rejects any other host at consent time with
+		// redirect_uri_mismatch — so the browser ends on a dead localhost page and
+		// the operator pastes that URL back. The exchange then happens here.
+		return oauthSpec{
+			Provider:      "adcode",
+			Kind:          flowAuthCode,
+			AuthorizeURL:  providers.AdCodeGoogleAuthorizeURL,
+			TokenURL:      providers.AdCodeGoogleTokenURL,
+			ClientSecret:  providers.AdCodeGoogleClientSecret,
+			Scopes:        []string{"openid", "email", "profile"},
+			PKCE:          true,
+			FixedRedirect: "http://127.0.0.1:53682/",
+			ExtraAuthParams: map[string]string{
+				"access_type":            "offline",
+				"prompt":                 "consent",
+				"include_granted_scopes": "true",
+			},
+			StartHint: "ADCode signs in with Google. Press Sign in, approve in the browser, then paste the 127.0.0.1 address the browser lands on (it will not load) — the code is in it.",
+		}
+	}
 	return oauthSpec{
 		Provider:      "adcode",
 		Kind:          flowDeviceCode,
@@ -310,10 +340,15 @@ func adcodeOAuthSpec() oauthSpec {
 	}
 }
 
-// specFor resolves a provider id or alias to its spec.
+// specFor resolves a provider id or alias to its spec. method only matters for
+// providers that offer more than one browser flow (ADCode: Google or GitHub).
 func specFor(provider string) (oauthSpec, bool) {
+	return specForMethod(provider, "")
+}
+
+func specForMethod(provider, method string) (oauthSpec, bool) {
 	if provider == "adcode" || provider == "adc" {
-		return adcodeOAuthSpec(), true
+		return adcodeOAuthSpec(strings.ToLower(strings.TrimSpace(method))), true
 	}
 	s, ok := oauthSpecs[provider]
 	return s, ok
@@ -333,7 +368,7 @@ var knownOAuthConfigs = providersOAuthConfigs()
 // just to learn the kind, and a device code is a one-shot resource.
 func (h *OAuthHandler) HandleGenericFlowInfo(w http.ResponseWriter, r *http.Request) {
 	provider := r.PathValue("provider")
-	spec, ok := specFor(provider)
+	spec, ok := specForMethod(provider, r.URL.Query().Get("method"))
 	if !ok {
 		handlerutil.WriteJSONError(w, http.StatusNotFound, "no OAuth flow for provider: "+provider)
 		return
@@ -368,7 +403,7 @@ func (h *OAuthHandler) HandleGenericFlowInfo(w http.ResponseWriter, r *http.Requ
 // consent URL. Import providers have no authorize step and are rejected.
 func (h *OAuthHandler) HandleGenericAuthorize(w http.ResponseWriter, r *http.Request) {
 	provider := r.PathValue("provider")
-	spec, ok := specFor(provider)
+	spec, ok := specForMethod(provider, r.URL.Query().Get("method"))
 	if !ok {
 		handlerutil.WriteJSONError(w, http.StatusNotFound, "no OAuth flow for provider: "+provider)
 		return
@@ -394,7 +429,15 @@ func (h *OAuthHandler) HandleGenericAuthorize(w http.ResponseWriter, r *http.Req
 // send {"accessToken","machineId"}.
 func (h *OAuthHandler) HandleGenericExchange(w http.ResponseWriter, r *http.Request) {
 	provider := r.PathValue("provider")
-	spec, ok := specFor(provider)
+	// The method rides in the body because exchange is a POST. It only selects a
+	// spec for providers with two browser flows; everyone else ignores it.
+	body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	r.Body = io.NopCloser(bytes.NewReader(body))
+	var probe struct {
+		Method string `json:"method"`
+	}
+	_ = json.Unmarshal(body, &probe)
+	spec, ok := specForMethod(provider, probe.Method)
 	if !ok {
 		handlerutil.WriteJSONError(w, http.StatusNotFound, "no OAuth flow for provider: "+provider)
 		return
@@ -479,12 +522,12 @@ func (h *OAuthHandler) startDeviceCode(w http.ResponseWriter, r *http.Request, s
 	}
 
 	handlerutil.WriteJSON(w, http.StatusOK, map[string]any{
-		"provider":    spec.Provider,
-		"deviceCode":  parsed.DeviceCode,
-		"userCode":    parsed.UserCode,
-		"authUrl":     authURL,
-		"interval":    interval,
-		"expiresIn":   expiresIn,
+		"provider":       spec.Provider,
+		"deviceCode":     parsed.DeviceCode,
+		"userCode":       parsed.UserCode,
+		"authUrl":        authURL,
+		"interval":       interval,
+		"expiresIn":      expiresIn,
 		"pollIntervalMs": interval * 1000,
 	})
 }
@@ -595,30 +638,7 @@ func (h *OAuthHandler) pollDeviceCode(w http.ResponseWriter, r *http.Request, sp
 				"GitHub signed in, but ADCode refused the hand-off: "+err.Error())
 			return
 		}
-		data, err := json.Marshal(map[string]any{
-			"accessToken":  session.RefreshToken,
-			"refreshToken": session.RefreshToken,
-		})
-		if err != nil {
-			handlerutil.WriteJSONError(w, http.StatusInternalServerError, "failed to encode connection data")
-			return
-		}
-		name := strings.TrimSpace(req.Name)
-		if name == "" && session.Email != "" {
-			name = session.Email
-		}
-		if name == "" {
-			name = "GitHub sign-in"
-		}
-		connID, err := h.insertOAuthConnection(spec.Provider, name, session.Email, string(data))
-		if err != nil {
-			handlerutil.WriteJSONError(w, http.StatusInternalServerError, "failed to save connection")
-			return
-		}
-		handlerutil.WriteJSON(w, http.StatusOK, map[string]any{
-			"success":    true,
-			"connection": map[string]any{"id": connID, "provider": spec.Provider},
-		})
+		h.saveAdCodeSession(w, spec, session, req.Name)
 		return
 	}
 
@@ -874,9 +894,29 @@ func (h *OAuthHandler) exchangeAuthCode(w http.ResponseWriter, r *http.Request, 
 
 	var tokens struct {
 		AccessToken string `json:"access_token"`
+		IDToken     string `json:"id_token"`
 	}
 	if err := json.Unmarshal(raw, &tokens); err != nil || tokens.AccessToken == "" {
 		handlerutil.WriteJSONError(w, http.StatusBadGateway, "token exchange returned no access token")
+		return
+	}
+
+	// ADCode is signed in through Google here; its gateway only accepts a
+	// Firebase session, so hand the Google ID token over and store the refresh
+	// token that comes back.
+	if spec.Provider == "adcode" {
+		if tokens.IDToken == "" {
+			handlerutil.WriteJSONError(w, http.StatusBadGateway,
+				"Google did not return an id_token for ADCode (openid scope missing)")
+			return
+		}
+		session, err := providers.AdCodeSignInWithGoogle(r.Context(), nil, tokens.IDToken)
+		if err != nil {
+			handlerutil.WriteJSONError(w, http.StatusBadGateway,
+				"Google signed in, but ADCode refused the hand-off: "+err.Error())
+			return
+		}
+		h.saveAdCodeSession(w, spec, session, req.Name)
 		return
 	}
 
@@ -884,6 +924,36 @@ func (h *OAuthHandler) exchangeAuthCode(w http.ResponseWriter, r *http.Request, 
 }
 
 // ---- import ----
+
+// saveAdCodeSession stores the Firebase refresh token under both keys the router
+// reads: the executor forwards accessToken, the account probe prefers
+// refreshToken. Saving only one leaves half the feature broken.
+func (h *OAuthHandler) saveAdCodeSession(w http.ResponseWriter, spec oauthSpec, session providers.AdCodeSession, requestedName string) {
+	data, err := json.Marshal(map[string]any{
+		"accessToken":  session.RefreshToken,
+		"refreshToken": session.RefreshToken,
+	})
+	if err != nil {
+		handlerutil.WriteJSONError(w, http.StatusInternalServerError, "failed to encode connection data")
+		return
+	}
+	name := strings.TrimSpace(requestedName)
+	if name == "" {
+		name = session.Email
+	}
+	if name == "" {
+		name = "GitHub sign-in"
+	}
+	connID, err := h.insertOAuthConnection(spec.Provider, name, session.Email, string(data))
+	if err != nil {
+		handlerutil.WriteJSONError(w, http.StatusInternalServerError, "failed to save connection")
+		return
+	}
+	handlerutil.WriteJSON(w, http.StatusOK, map[string]any{
+		"success":    true,
+		"connection": map[string]any{"id": connID, "provider": spec.Provider},
+	})
+}
 
 // importToken saves a credential the operator pasted from a CLI.
 func (h *OAuthHandler) importToken(w http.ResponseWriter, r *http.Request, spec oauthSpec) {
