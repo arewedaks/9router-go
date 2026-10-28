@@ -84,6 +84,11 @@ type oauthSpec struct {
 	// ClientSecret, when set, is sent on the token exchange.
 	ClientSecret string
 
+	// StartHint tells the operator what the Sign in button is about to open, for
+	// flows whose provider is not obvious from the provider name (ADCode signs in
+	// through GitHub). Empty keeps the generic sentence.
+	StartHint string
+
 	// Import describes what the operator pastes for flowImport.
 	ImportHint string
 	// ImportLabel names the field: "Access token" fits a CLI, "Refresh token" a
@@ -267,17 +272,6 @@ var oauthSpecs = map[string]oauthSpec{
 		ImportHint: "Paste the access token and machine id from your Cursor IDE (Help → About shows neither; they live in the IDE's local storage).",
 	},
 
-	// ADCode signs in through Firebase (Google / GitHub / email) inside its own
-	// desktop app, so the token exchange happens there. What the app leaves behind
-	// is a refresh token, which this router turns into the one-hour session token
-	// the gateway actually wants — see providers.AdCodeIDToken.
-	"adcode": {
-		Provider:    "adcode",
-		Kind:        flowImport,
-		ImportLabel: "Refresh token",
-		ImportHint:  "Sign in inside the ADCode app, then paste the refreshToken from ~/.config/@adcode/desktop/ads/ads/identity.json. The router exchanges it for the one-hour token its AI gateway requires.",
-	},
-
 	// Codex: the CLI's OAuth lands on a fixed loopback port this server cannot
 	// serve, so the practical path is pasting the CLI's access token.
 	"codex": {
@@ -287,8 +281,40 @@ var oauthSpecs = map[string]oauthSpec{
 	},
 }
 
+// Endpoints for the ADCode sign-in. Variables rather than literals so a test can
+// point them at httptest without a network round trip.
+var (
+	adcodeDeviceCodeURL = "https://github.com/login/device/code"
+	adcodeTokenURL      = "https://github.com/login/oauth/access_token"
+)
+
+// adcodeOAuthSpec is built per call because its endpoints are variables.
+//
+// ADCode's editor signs in through the browser — Google with a loopback
+// redirect, GitHub with the device grant — and then hands the resulting
+// credential to Firebase for a session. The GitHub device grant is the shape a
+// server can drive: no redirect URI to register, no local port to own, and the
+// operator approves on github.com/login/device in their own browser.
+func adcodeOAuthSpec() oauthSpec {
+	return oauthSpec{
+		Provider:      "adcode",
+		Kind:          flowDeviceCode,
+		DeviceCodeURL: adcodeDeviceCodeURL,
+		TokenURL:      adcodeTokenURL,
+		DeviceCodeBody: map[string]string{
+			"scope": "read:user user:email",
+		},
+		PollIsForm: true,
+		Headers:    map[string]string{"Accept": "application/json"},
+		StartHint:  "ADCode signs in through GitHub. Press Sign in, then enter the code below at github.com/login/device with the account your ADCode subscription uses.",
+	}
+}
+
 // specFor resolves a provider id or alias to its spec.
 func specFor(provider string) (oauthSpec, bool) {
+	if provider == "adcode" || provider == "adc" {
+		return adcodeOAuthSpec(), true
+	}
 	s, ok := oauthSpecs[provider]
 	return s, ok
 }
@@ -318,6 +344,9 @@ func (h *OAuthHandler) HandleGenericFlowInfo(w http.ResponseWriter, r *http.Requ
 	}
 	if spec.ImportHint != "" {
 		resp["hint"] = spec.ImportHint
+	}
+	if spec.StartHint != "" {
+		resp["startHint"] = spec.StartHint
 	}
 	if spec.ImportLabel != "" {
 		resp["label"] = spec.ImportLabel
@@ -552,6 +581,44 @@ func (h *OAuthHandler) pollDeviceCode(w http.ResponseWriter, r *http.Request, sp
 			msg = fmt.Sprintf("HTTP %d: %s", status, truncateForOAuth(string(raw), 200))
 		}
 		handlerutil.WriteJSONError(w, http.StatusBadGateway, "authorization failed: "+msg)
+		return
+	}
+
+	// ADCode's AI gateway accepts only a Firebase ID token, while the device flow
+	// above produced a GitHub token. Trade it for a Firebase session and store the
+	// refresh token — the executor mints ID tokens from it on every request, so the
+	// connection outlives the one-hour session.
+	if spec.Provider == "adcode" {
+		session, err := providers.AdCodeSignInWithGitHub(r.Context(), nil, token)
+		if err != nil {
+			handlerutil.WriteJSONError(w, http.StatusBadGateway,
+				"GitHub signed in, but ADCode refused the hand-off: "+err.Error())
+			return
+		}
+		data, err := json.Marshal(map[string]any{
+			"accessToken":  session.RefreshToken,
+			"refreshToken": session.RefreshToken,
+		})
+		if err != nil {
+			handlerutil.WriteJSONError(w, http.StatusInternalServerError, "failed to encode connection data")
+			return
+		}
+		name := strings.TrimSpace(req.Name)
+		if name == "" && session.Email != "" {
+			name = session.Email
+		}
+		if name == "" {
+			name = "GitHub sign-in"
+		}
+		connID, err := h.insertOAuthConnection(spec.Provider, name, session.Email, string(data))
+		if err != nil {
+			handlerutil.WriteJSONError(w, http.StatusInternalServerError, "failed to save connection")
+			return
+		}
+		handlerutil.WriteJSON(w, http.StatusOK, map[string]any{
+			"success":    true,
+			"connection": map[string]any{"id": connID, "provider": spec.Provider},
+		})
 		return
 	}
 
@@ -854,24 +921,7 @@ func (h *OAuthHandler) importToken(w http.ResponseWriter, r *http.Request, spec 
 		return
 	}
 
-	// ADCode's gateway wants a short-lived Firebase ID token; the paste is the
-	// account's refresh token. Prove it exchanges before storing, otherwise the
-	// operator gets a green "connection added" and every call then fails with
-	// 401 missing-token.
-	if spec.Provider == "adcode" {
-		if _, err := providers.AdCodeIDToken(r.Context(), nil, token); err != nil {
-			handlerutil.WriteJSONError(w, http.StatusBadRequest,
-				"ADCode rejected that refresh token: "+err.Error())
-			return
-		}
-	}
-
 	data := map[string]any{"accessToken": token}
-	// ADCode stores the same value under both keys: the executor reads
-	// accessToken, and the account probe prefers refreshToken.
-	if spec.Provider == "adcode" {
-		data["refreshToken"] = token
-	}
 	if req.RefreshToken != "" {
 		data["refreshToken"] = req.RefreshToken
 	}

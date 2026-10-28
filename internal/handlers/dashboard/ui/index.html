@@ -9459,7 +9459,8 @@
         intro.textContent = "Register an OAuth application with " + providerId +
           ", set its redirect URI to http://localhost:8080/callback, then enter its client id below.";
       } else {
-        intro.textContent = "Sign in with the account your " + providerId + " subscription uses.";
+        intro.textContent = data.startHint ||
+          ("Sign in with the account your " + providerId + " subscription uses.");
       }
       document.getElementById("g-oauth-start-row").style.display = "grid";
     } catch (e) {

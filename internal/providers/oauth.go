@@ -53,6 +53,13 @@ var KnownOAuthConfigs = map[string]OAuthClientConfig{
 		ClientSecret: envOr("CODEX_OAUTH_CLIENT_SECRET", ""),
 		TokenURL:     "https://auth.openai.com/oauth/token",
 	},
+	// ADCode signs in with the GitHub device grant using the desktop client's own
+	// OAuth app, then trades that GitHub token for a Firebase session. ClientID is
+	// the vendor app's public id (device flows carry no secret).
+	"adcode": {
+		ClientID: envOr("ADCODE_GITHUB_CLIENT_ID", "Ov23lienZUTAiNKAM0UV"),
+		TokenURL: "https://github.com/login/oauth/access_token",
+	},
 	"github": {
 		ClientID:     envOr("GITHUB_OAUTH_CLIENT_ID", "Iv1.b507a08c87ecfe98"),
 		ClientSecret: envOr("GITHUB_OAUTH_CLIENT_SECRET", ""),

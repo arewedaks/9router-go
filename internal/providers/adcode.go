@@ -182,3 +182,70 @@ func adCodeErrorCode(body []byte) string {
 	}
 	return "unrecognised error body"
 }
+
+// AdCodeIDPURL is Firebase Identity Toolkit's idp sign-in, the endpoint the
+// desktop app calls with the token its browser sign-in produced.
+var AdCodeIDPURL = "https://identitytoolkit.googleapis.com/v1/accounts:signInWithIdp"
+
+// AdCodeGitHubProviderID is the Firebase provider id for a GitHub credential.
+const AdCodeGitHubProviderID = "github.com"
+
+// AdCodeSession is the durable half of a Firebase sign-in: the AI gateway wants
+// short-lived ID tokens, and the refresh token is what mints them.
+type AdCodeSession struct {
+	RefreshToken string
+	IDToken      string
+	Email        string
+}
+
+// AdCodeSignInWithGitHub trades a GitHub access token for a Firebase session,
+// exactly like the desktop app after its browser sign-in. The response also
+// carries an ID token, but the refresh token is what gets stored: the executor
+// mints fresh ID tokens from it, so a connection outlives the one-hour session.
+func AdCodeSignInWithGitHub(ctx context.Context, client *http.Client, githubToken string) (AdCodeSession, error) {
+	githubToken = strings.TrimSpace(githubToken)
+	if githubToken == "" {
+		return AdCodeSession{}, fmt.Errorf("adcode: empty GitHub token")
+	}
+	if client == nil {
+		client = &http.Client{Timeout: 30 * time.Second}
+	}
+	payload, err := json.Marshal(map[string]any{
+		"postBody":            "access_token=" + url.QueryEscape(githubToken) + "&providerId=" + AdCodeGitHubProviderID,
+		"requestUri":          "http://localhost",
+		"returnIdpCredential": true,
+		"returnSecureToken":   true,
+	})
+	if err != nil {
+		return AdCodeSession{}, err
+	}
+	endpoint := AdCodeIDPURL + "?key=" + url.QueryEscape(AdCodeFirebaseAPIKey)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(string(payload)))
+	if err != nil {
+		return AdCodeSession{}, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", AdCodeUserAgent)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return AdCodeSession{}, err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 256*1024))
+	if resp.StatusCode != http.StatusOK {
+		return AdCodeSession{}, fmt.Errorf("adcode: signInWithIdp HTTP %d", resp.StatusCode)
+	}
+	var parsed struct {
+		RefreshToken string `json:"refreshToken"`
+		IDToken      string `json:"idToken"`
+		Email        string `json:"email"`
+	}
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return AdCodeSession{}, fmt.Errorf("adcode: decode signInWithIdp: %w", err)
+	}
+	if parsed.RefreshToken == "" {
+		return AdCodeSession{}, fmt.Errorf("adcode: signInWithIdp returned no refreshToken")
+	}
+	return AdCodeSession{RefreshToken: parsed.RefreshToken, IDToken: parsed.IDToken, Email: parsed.Email}, nil
+}
