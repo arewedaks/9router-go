@@ -38,6 +38,13 @@ type ProviderStrategy struct {
 	// request. Only read when FallbackStrategy is "round-robin".
 	StickyRoundRobinLimit int `json:"stickyRoundRobinLimit,omitempty"`
 
+	// TestModel overrides the model the per-account probe asks for. Providers
+	// whose cheap models rotate (OpenRouter's :free list changes weekly) would
+	// otherwise report a healthy account as broken the day the built-in probe
+	// model disappears, so the operator pins one per provider here. Empty means
+	// "use the built-in default for this provider".
+	TestModel string `json:"testModel,omitempty"`
+
 	// Extra holds every key of this provider's strategy object that this struct
 	// does not model, exactly as it was stored. The settings blob is shared with
 	// VansRouter, which also writes strictModelAssignment here. Dropping those on
@@ -56,6 +63,7 @@ var knownStrategyKeys = map[string]bool{
 	"fallbackStrategy":      true,
 	"stickyRoundRobinLimit": true,
 	"accountStrategy":       true,
+	"testModel":             true,
 }
 
 // IsEmpty reports whether the strategy carries no configuration at all, counting
@@ -69,6 +77,7 @@ func (p ProviderStrategy) IsEmpty() bool {
 		p.FallbackStrategy == "" &&
 		p.AccountStrategy == "" &&
 		p.StickyRoundRobinLimit == 0 &&
+		p.TestModel == "" &&
 		len(p.Extra) == 0
 }
 
@@ -131,6 +140,7 @@ func (p *ProviderStrategy) UnmarshalJSON(data []byte) error {
 		TargetProxyPoolIds: parseStringSlice(raw["targetProxyPoolIds"]),
 		FallbackStrategy:   handlerutil.GetString(raw, "fallbackStrategy"),
 		AccountStrategy:    handlerutil.GetString(raw, "accountStrategy"),
+		TestModel:          handlerutil.GetString(raw, "testModel"),
 	}
 	if sl, ok := raw["stickyLimit"].(float64); ok && sl > 0 {
 		p.StickyLimit = int(sl)
@@ -179,6 +189,9 @@ func (p ProviderStrategy) MarshalJSON() ([]byte, error) {
 	}
 	if p.AccountStrategy != "" {
 		out["accountStrategy"] = p.AccountStrategy
+	}
+	if p.TestModel != "" {
+		out["testModel"] = p.TestModel
 	}
 	return json.Marshal(out)
 }
@@ -456,6 +469,7 @@ func (r *Repo) GetSettings() (*SettingsData, error) {
 					RotateStrategy:     handlerutil.GetString(vm, "rotateStrategy"),
 					FallbackStrategy:   handlerutil.GetString(vm, "fallbackStrategy"),
 					AccountStrategy:    handlerutil.GetString(vm, "accountStrategy"),
+					TestModel:          handlerutil.GetString(vm, "testModel"),
 				}
 				if sl, ok := vm["stickyLimit"].(float64); ok && sl > 0 {
 					strat.StickyLimit = int(sl)

@@ -749,7 +749,7 @@ func (h *Handler) probeGenericConnection(ctx context.Context, raw map[string]any
 	defer cancel()
 
 	body, _ := json.Marshal(map[string]any{
-		"model":      genericProbeModel(out.Provider),
+		"model":      h.probeModel(out.Provider),
 		"max_tokens": 1,
 		"messages":   []map[string]any{{"role": "user", "content": "ping"}},
 	})
@@ -918,6 +918,12 @@ func (h *Handler) probeCustomNodeConnection(ctx context.Context, nodeData *db.Pr
 			}
 		}
 	}
+	// An operator-pinned model outranks the cache: whatever was imported first
+	// may be a paid model the account cannot use, which is exactly the false
+	// red this field exists to avoid.
+	if pinned := h.pinnedProbeModel(out.Provider); pinned != "" {
+		probeModel = pinned
+	}
 	if probeModel == "" {
 		probeModel = "gpt-4o-mini"
 	}
@@ -1001,6 +1007,40 @@ func genericProbeModel(provider string) string {
 		return m
 	}
 	return "gpt-4o-mini"
+}
+
+// pinnedProbeModel returns the model the operator pinned for this provider, or
+// "" when they pinned none. An empty result is not "no model": it means the
+// caller keeps whatever default it already had.
+func (h *Handler) pinnedProbeModel(provider string) string {
+	if h == nil || h.repo == nil || provider == "" {
+		return ""
+	}
+	s, err := h.repo.GetSettings()
+	if err != nil || s == nil || s.ProviderStrategies == nil {
+		return ""
+	}
+	for _, key := range []string{provider, providers.ResolveAlias(provider)} {
+		if key == "" {
+			continue
+		}
+		if strat, ok := s.ProviderStrategies[key]; ok && strat.TestModel != "" {
+			return strat.TestModel
+		}
+	}
+	return ""
+}
+
+// probeModel returns the model the per-account probe should ask for: the model
+// the operator pinned for this provider, else the built-in default. A pinned
+// model is the escape hatch for providers whose cheap models rotate — the
+// default would start reporting healthy accounts as broken the day its probe
+// model is retired.
+func (h *Handler) probeModel(provider string) string {
+	if m := h.pinnedProbeModel(provider); m != "" {
+		return m
+	}
+	return genericProbeModel(provider)
 }
 
 // genericProbeModels maps a provider to a low-cost model suitable for a probe.

@@ -793,6 +793,16 @@ type ProviderDetail struct {
 	// "0/0 active", which reads as a broken provider rather than one that needs
 	// no credential at all.
 	NoConnection bool `json:"noConnection,omitempty"`
+	// ProbeModel is the model the per-account "test" button will ask for,
+	// resolved from the operator's per-provider override or the built-in
+	// default. The UI shows it so a stale default is visible instead of
+	// silently failing every account test.
+	ProbeModel string `json:"probeModel,omitempty"`
+
+	// ProbeModelDefault is what the probe falls back to when the operator
+	// clears the field. The UI shows it as the input's placeholder so "empty"
+	// reads as a concrete model rather than as "unknown".
+	ProbeModelDefault string `json:"probeModelDefault,omitempty"`
 
 	// Node carries the endpoint details of a compatible provider (the upstream
 	// "CompatibleNodeCard"). It is nil for a built-in provider. The UI shows
@@ -865,9 +875,11 @@ func (h *Handler) HandleProviderDetail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	detail := ProviderDetail{
-		Provider:    canonical,
-		Connections: []ProviderSummary{},
-		Models:      []db.CachedModel{},
+		Provider:          canonical,
+		Connections:       []ProviderSummary{},
+		Models:            []db.CachedModel{},
+		ProbeModel:        h.probeModel(canonical),
+		ProbeModelDefault: genericProbeModel(canonical),
 	}
 
 	if hasMeta {

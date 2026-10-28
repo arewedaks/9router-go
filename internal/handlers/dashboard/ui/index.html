@@ -723,6 +723,18 @@
       border-color: var(--primary) !important;
       outline: none;
     }
+    .acct-test-model {
+      width: 200px;
+      max-width: 52vw;
+      height: 24px;
+      padding: 2px 6px;
+      font-size: 0.75rem;
+      background: var(--bg);
+      color: #ededed;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+    }
+    .acct-test-model::placeholder { color: var(--muted); font-style: italic; }
     .acct-sticky-wrap {
       display: inline-flex;
       align-items: center;
@@ -1648,6 +1660,11 @@
       .detail-tab .dtab-text {
         display: none;
       }
+      /* Active detail tab displays its full text label on mobile */
+      .detail-tab.active .dtab-text {
+        display: inline !important;
+        margin-left: 5px;
+      }
       .conn-test-bar .btn,
       .model-test-bar .btn,
       .model-filter-actions .btn,
@@ -1659,12 +1676,16 @@
       .detail-tabs {
         gap: 6px;
         overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        padding-bottom: 2px;
       }
       .detail-tab {
         padding: 7px 11px;
         font-size: 0.75rem;
         justify-content: center;
-        min-width: 40px;
+        min-width: 38px;
+        white-space: nowrap;
+        flex-shrink: 0;
       }
       .detail-tab .msym {
         font-size: 18px;
@@ -4007,25 +4028,40 @@
 </div>
 
 <div class="modal-overlay" id="restore-modal">
-  <div class="modal-box" style="max-width: 440px;">
-    <h2 style="font-size: 1.05rem; margin-bottom: 6px; display: flex; align-items: center; gap: 8px;"><span class="msym" style="font-size:20px; color:var(--danger);">settings_backup_restore</span> Restore From Backup</h2>
-    <p style="font-size: 0.82rem; color: var(--muted); margin-bottom: 12px;">
-      A full replace, not a merge. Connections, API keys, combos and settings
-      missing from the file will be deleted. Usage history is kept.
-    </p>
-    <div class="form-group">
-      <label>Backup file (.json)</label>
-      <input type="file" id="restore-file" accept="application/json,.json" onchange="onRestoreFileChosen()">
+  <div class="modal-box" style="max-width: 460px;">
+    <div class="section-header" style="margin-bottom: 12px;">
+      <h3 style="font-size: 1.08rem; color: #fff; font-weight: 600; display: flex; align-items: center; gap: 8px; margin: 0;">
+        <span class="msym" style="font-size:20px; color:var(--danger);">settings_backup_restore</span>
+        Restore From Backup
+      </h3>
+      <button class="btn btn-sm" onclick="closeModal('restore-modal')">✕</button>
     </div>
+
+    <div class="warn-banner" style="margin-bottom: 14px; background: rgba(218, 54, 51, 0.12); border-color: rgba(218, 54, 51, 0.35); color: #ff7b72;">
+      <span class="msym" style="font-size:18px; color:var(--danger); flex-shrink:0;">warning</span>
+      <p style="margin:0; font-size:0.78rem; line-height:1.4;">
+        A full replace, not a merge. Connections, API keys, combos and settings missing from the file will be deleted. Usage history is kept.
+      </p>
+    </div>
+
+    <!-- Backup file input triggered directly on click Restore -->
+    <input type="file" id="restore-file" accept="application/json,.json" onchange="onRestoreFileChosen()" style="display:none;">
+
+    <!-- Selected file preview -->
     <div id="restore-preview"></div>
-    <div class="form-group">
-      <label>Confirm your password</label>
-      <input type="password" id="restore-pw" autocomplete="current-password" placeholder="Dashboard password">
+
+    <div class="form-group" style="margin-top: 10px;">
+      <label style="font-weight: 600; color: #fff;">Confirm your password</label>
+      <input type="password" id="restore-pw" autocomplete="current-password" placeholder="Dashboard password" onkeydown="if(event.key==='Enter')restoreBackup()">
     </div>
+
     <div id="restore-modal-msg" class="settings-msg"></div>
-    <div style="display:flex; gap:10px; justify-content:flex-end;">
+
+    <div style="display:flex; gap:10px; justify-content:flex-end; margin-top: 16px;">
       <button class="btn" onclick="closeModal('restore-modal')">Cancel</button>
-      <button class="btn" id="restore-btn" onclick="restoreBackup()" style="border-color:var(--danger); color:var(--danger);"><span class="msym" style="font-size:15px;vertical-align:-2px;">warning</span> Restore &amp; Replace</button>
+      <button class="btn btn-danger" id="restore-btn" onclick="restoreBackup()">
+        <span class="msym" style="font-size:15px;vertical-align:-2px;">warning</span> Restore &amp; Replace
+      </button>
     </div>
   </div>
 </div>
@@ -5551,8 +5587,8 @@
   async function onRestoreFileChosen() {
     const input = document.getElementById("restore-file");
     const preview = document.getElementById("restore-preview");
-    preview.textContent = "";
-    const file = input.files && input.files[0];
+    if (preview) preview.textContent = "";
+    const file = input && input.files && input.files[0];
     if (!file) return;
 
     try {
@@ -5563,9 +5599,12 @@
       // replace a working configuration with a dead one.
       const pwHash = data.settings && data.settings.password;
       if (pwHash && !/^\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}$/.test(pwHash)) {
-        preview.innerHTML = '<div style="font-size:0.8rem; color:var(--danger); margin-bottom:10px; padding:10px; background:rgba(255,0,0,0.06); border-radius:8px;">' +
-          "This file's stored password is not a valid hash. Restoring it would lock you out of the dashboard, so the server will refuse it." +
-          "</div>";
+        if (preview) {
+          preview.innerHTML = '<div style="font-size:0.8rem; color:var(--danger); margin-bottom:10px; padding:10px; background:rgba(255,0,0,0.06); border-radius:8px;">' +
+            "This file's stored password is not a valid hash. Restoring it would lock you out of the dashboard, so the server will refuse it." +
+            "</div>";
+        }
+        openSettingsModal("restore-modal", "restore-modal-msg", ["restore-pw"]);
         return;
       }
       // Count locally: the file has already been read, so this needs no round
@@ -5580,15 +5619,30 @@
       // VansRouter backups carry no exportedAt; say nothing rather than print a
       // placeholder date the file never contained.
       const when = data.exportedAt ? new Date(data.exportedAt).toLocaleString() : "";
-      preview.innerHTML =
-        '<div style="font-size:0.8rem; color:var(--muted); margin-bottom:10px; padding:10px; background:rgba(255,255,255,0.03); border-radius:8px;">' +
-        "<div style=\"color:#fff; margin-bottom:6px;\">" + escapeHtml(file.name) + "</div>" +
-        (when ? "Taken " + escapeHtml(when) + "<br>" : "") +
-        counts.connections + " connections · " + counts.keys + " keys · " + counts.combos + " combos · " +
-        counts.nodes + " nodes · " + counts.pools + " proxy pools" +
-        "</div>";
+      if (preview) {
+        preview.innerHTML =
+          '<div style="font-size:0.8rem; color:var(--muted); margin-bottom:12px; padding:11px 13px; background:rgba(255,255,255,0.03); border:1px solid var(--border); border-radius:8px;">' +
+          '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:5px;">' +
+          '<strong style="color:#fff; font-size:0.84rem; display:inline-flex; align-items:center; gap:5px;"><span class="msym" style="font-size:16px; color:var(--primary);">description</span>' + escapeHtml(file.name) + '</strong>' +
+          '<button type="button" class="btn btn-sm" onclick="document.getElementById(\'restore-file\').click()" style="padding:2px 7px; font-size:0.72rem;">Change</button>' +
+          '</div>' +
+          (when ? '<span style="font-size:0.72rem; color:var(--muted);">Backup date: ' + escapeHtml(when) + '</span><br>' : "") +
+          '<div style="margin-top:4px; font-size:0.75rem; color:#ededed;">' +
+          counts.connections + " connections · " + counts.keys + " keys · " + counts.combos + " combos · " +
+          counts.nodes + " nodes · " + counts.pools + " proxy pools" +
+          '</div></div>';
+      }
+      openSettingsModal("restore-modal", "restore-modal-msg", ["restore-pw"]);
+      const pwField = document.getElementById("restore-pw");
+      if (pwField) {
+        pwField.value = "";
+        setTimeout(() => pwField.focus(), 80);
+      }
     } catch (e) {
-      preview.innerHTML = '<div style="font-size:0.8rem; color:var(--danger); margin-bottom:10px;">Not a valid backup file: ' + escapeHtml(e.message) + "</div>";
+      if (preview) {
+        preview.innerHTML = '<div style="font-size:0.8rem; color:var(--danger); margin-bottom:10px;">Not a valid backup file: ' + escapeHtml(e.message) + "</div>";
+      }
+      openSettingsModal("restore-modal", "restore-modal-msg", ["restore-pw"]);
     }
   }
 
@@ -5805,11 +5859,15 @@
 
   function openRestoreModal() {
     setMsg("restore-modal-msg", "", true);
-    const f = document.getElementById("restore-file");
-    if (f) f.value = "";
     const p = document.getElementById("restore-preview");
     if (p) p.innerHTML = "";
-    openSettingsModal("restore-modal", "restore-modal-msg", ["restore-pw"]);
+    const pw = document.getElementById("restore-pw");
+    if (pw) pw.value = "";
+    const f = document.getElementById("restore-file");
+    if (f) {
+      f.value = "";
+      f.click();
+    }
   }
 
   // ----------------------------------------------------------------
@@ -6908,8 +6966,34 @@
                  title="Number of requests sent to the current account before rotating to the next">
           <span>reqs/acct</span>
         </div>` : ""}
+        ${testModelControl(d, strat)}
         ${note}
       </div>`;
+  }
+
+  // The per-account test sends one request to the upstream. Providers whose
+  // cheap models rotate (OpenRouter's :free list changes without notice) would
+  // otherwise report every healthy account as broken once the built-in probe
+  // model is retired, so the model is editable per provider. Empty means "use
+  // the built-in default", which the placeholder shows.
+  function testModelControl(d, strat) {
+    const pinned = strat.testModel || "";
+    const fallback = d.probeModelDefault || d.probeModel || "";
+    return `
+      <div class="acct-sticky-wrap">
+        <span class="msym" style="font-size:16px;" title="Model asked for when testing this provider's accounts">science</span>
+        <input type="text" class="acct-test-model" value="${escapeHtml(pinned)}"
+               placeholder="${escapeHtml(fallback)}"
+               onchange="setTestModel('${escapeHtml(d.provider)}', this.value);"
+               title="Model used to test this provider's accounts. Leave empty to use the built-in default (${escapeHtml(fallback)}).">
+      </div>`;
+  }
+
+  function setTestModel(provider, value) {
+    const model = (value || "").trim();
+    const current = (providerStrategies[provider] || {}).testModel || "";
+    if (model === current) return;
+    saveAccountStrategy(provider, { testModel: model });
   }
 
   // Persist one account-rotation setting for a provider, leaving every other
@@ -14635,6 +14719,7 @@
     let activeEl = null;
     let popup = null;
     let holdFired = false;
+    let startX = 0, startY = 0;
 
     function getPopup() {
       if (!popup) {
@@ -14681,56 +14766,69 @@
       }
     }
 
-    function dismissTooltip() {
+    function cancelTimer() {
       if (holdTimer) {
         clearTimeout(holdTimer);
         holdTimer = null;
       }
+    }
+
+    function dismissTooltip() {
+      cancelTimer();
       if (popup) popup.style.display = "none";
       if (activeEl && activeEl.dataset.tipStashed) {
         activeEl.title = activeEl.dataset.tipStashed;
         delete activeEl.dataset.tipStashed;
       }
       activeEl = null;
+      holdFired = false;
     }
 
     document.addEventListener("pointerdown", e => {
+      if (e.button !== undefined && e.button !== 0) return;
       const target = e.target.closest("button, .btn, [title], [data-tooltip], .detail-tab, .test-opt-pill, .mfilter-chip, .sfilter-btn");
       if (!target) return;
       const text = resolveTipText(target);
       if (!text) return;
 
+      cancelTimer();
       activeEl = target;
       holdFired = false;
-      if (target.title) {
-        target.dataset.tipStashed = target.title;
-        target.title = "";
-      }
+      startX = e.clientX;
+      startY = e.clientY;
 
       holdTimer = setTimeout(() => {
         holdFired = true;
+        if (target.title) {
+          target.dataset.tipStashed = target.title;
+          target.title = "";
+        }
         showTooltip(target, text);
-      }, 250);
+      }, 500);
     }, { passive: true });
 
     document.addEventListener("pointerup", e => {
+      cancelTimer();
       if (holdFired) {
         e.preventDefault();
         e.stopPropagation();
+        setTimeout(dismissTooltip, 1200);
+      } else {
+        dismissTooltip();
       }
-      setTimeout(dismissTooltip, 900);
     });
 
     document.addEventListener("pointercancel", dismissTooltip);
+
     document.addEventListener("pointermove", e => {
-      if (holdTimer && !holdFired && activeEl) {
-        const r = activeEl.getBoundingClientRect();
-        if (e.clientX < r.left - 12 || e.clientX > r.right + 12 ||
-            e.clientY < r.top - 12 || e.clientY > r.bottom + 12) {
-          dismissTooltip();
+      if (holdTimer && !holdFired) {
+        if (Math.hypot(e.clientX - startX, e.clientY - startY) > 8) {
+          cancelTimer();
         }
       }
-    });
+    }, { passive: true });
+
+    window.addEventListener("scroll", dismissTooltip, { passive: true });
 
     document.addEventListener("contextmenu", e => {
       if (holdFired) e.preventDefault();
