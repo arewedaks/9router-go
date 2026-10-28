@@ -631,8 +631,150 @@
     /* Trailing account controls (status, Test, toggle, Delete) sit as one rigid
        group pinned to the right edge, so they never drift next to the label. */
     .conn-actions { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; margin-left: auto; }
-    .conn-test-bar { display: flex; align-items: center; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
+    .conn-header-card {
+      background: var(--glass);
+      border: 1px solid var(--glass-border);
+      border-radius: var(--radius);
+      padding: 10px 14px;
+      margin: 10px 0 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .conn-test-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0; }
     .conn-test-progress { font-size: 0.72rem; color: var(--muted); }
+    #conn-bulk-enable-btn .msym { color: #3fb950; }
+    #conn-bulk-disable-btn .msym { color: #eab308; }
+    .conn-header-divider {
+      height: 1px;
+      background: var(--border);
+      opacity: 0.6;
+    }
+    .conn-select-bar {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .conn-select-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 0.75rem;
+      color: var(--muted);
+      cursor: pointer;
+      user-select: none;
+      transition: color 0.15s;
+    }
+    .conn-select-label:hover {
+      color: #ededed;
+    }
+    .conn-select-label input[type="checkbox"] {
+      cursor: pointer;
+      accent-color: var(--primary);
+      width: 14px;
+      height: 14px;
+      margin: 0;
+    }
+
+    /* Account Rotation Strategy Row inside Connections Header Card */
+    .acct-strat-card {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+      background: transparent;
+      border: none;
+      padding: 0;
+      margin: 0;
+    }
+    .acct-strat-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .acct-strat-title {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: #ededed;
+    }
+    .acct-strat-icon {
+      font-size: 16px;
+      color: var(--primary);
+    }
+    .acct-strat-select {
+      height: 31px;
+      padding: 0 10px !important;
+      font-size: 0.78rem !important;
+      background: var(--panel) !important;
+      color: #ededed !important;
+      border: 1px solid var(--border) !important;
+      border-radius: 6px !important;
+      cursor: pointer;
+      width: auto !important;
+      max-width: 270px;
+      transition: border-color 0.15s;
+    }
+    .acct-strat-select:focus {
+      border-color: var(--primary) !important;
+      outline: none;
+    }
+    .acct-sticky-wrap {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 2px 8px;
+      font-size: 0.74rem;
+      color: var(--muted);
+    }
+    .acct-sticky-input {
+      width: 48px !important;
+      height: 24px !important;
+      padding: 2px 4px !important;
+      font-size: 0.75rem !important;
+      background: var(--bg) !important;
+      color: #ededed !important;
+      border: 1px solid var(--border) !important;
+      border-radius: 4px !important;
+      text-align: center;
+    }
+    .acct-strat-right {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-left: auto;
+    }
+    .acct-count-chip {
+      font-size: 0.7rem;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-weight: 500;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .acct-count-chip.active {
+      color: #3fb950;
+      background: rgba(63, 185, 80, 0.12);
+      border: 1px solid rgba(63, 185, 80, 0.3);
+    }
+    .acct-count-chip.warn {
+      color: var(--muted);
+      background: var(--panel-hover);
+      border: 1px solid var(--border);
+    }
+    @media (max-width: 640px) {
+      .acct-strat-card { flex-direction: column; align-items: stretch; gap: 8px; }
+      .acct-strat-right { margin-left: 0; justify-content: flex-start; }
+      .acct-strat-select { max-width: 100%; width: 100% !important; }
+    }
     .acct-email { color: #ededed; font-weight: 500; }
     .acct-meta { color: var(--muted); font-size: 0.75rem; }
     .acct-pill { border-radius: 4px; padding: 1px 6px; font-size: 0.68rem; font-weight: 600; white-space: nowrap; }
@@ -900,8 +1042,20 @@
     }
     #require-apikey-msg { margin-top: 10px; font-size: 0.8rem; }
     #allow-remote-toggle:checked + .slider { background-color: #f85149; }
-    .key-secret { display: flex; align-items: center; gap: 6px; }
-    .key-secret code { background: rgba(0, 0, 0, 0.3); border: 1px solid var(--border); padding: 3px 8px; border-radius: 4px; color: #f4b59c; font-size: 0.78rem; font-family: ui-monospace, SFMono-Regular, monospace; }
+    .key-secret { display: inline-flex; align-items: center; gap: 8px; }
+    .key-secret code {
+      background: transparent;
+      border: none;
+      padding: 0;
+      color: var(--muted);
+      font-size: 0.82rem;
+      font-family: ui-monospace, SFMono-Regular, monospace;
+      letter-spacing: 0.12em;
+    }
+    .key-secret code.revealed {
+      color: #f4b59c;
+      letter-spacing: normal;
+    }
     .icon-btn { background: rgba(255,255,255,0.04); border: 1px solid var(--border); cursor: pointer; padding: 3px 6px; border-radius: 4px; color: var(--muted); transition: all 0.15s ease; }
     .icon-btn:hover { color: #fff; background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.2); }
     .row-paused { opacity: 0.55; }
@@ -1329,7 +1483,318 @@
     /* The fixed-width controls (profile select, toggle, delete) never shrink, so
        the account label always keeps a readable slice instead of collapsing. */
     .model-row .profile-select, .model-row .switch, .model-row .btn { flex: 0 0 auto; }
-    .model-test-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 8px 0; margin-bottom: 6px; border-bottom: 1px dashed var(--border); }
+    .model-row:hover { border-color: rgba(229, 106, 74, 0.45); background: var(--panel-hover); }
+    .model-row .mkind.model-status-badge {
+      max-width: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      padding: 1px 7px;
+      border-radius: 999px;
+      font-size: 0.68rem;
+      font-weight: 600;
+      line-height: 1.2;
+    }
+    .model-row .mkind.model-status-badge.status-ok {
+      background: rgba(34, 197, 94, 0.14);
+      border: 1px solid rgba(34, 197, 94, 0.35);
+      color: #3fb950 !important;
+    }
+    .model-row .mkind.model-status-badge.status-warn {
+      background: rgba(234, 179, 8, 0.14);
+      border: 1px solid rgba(234, 179, 8, 0.35);
+      color: #eab308 !important;
+    }
+    .model-row .mkind.model-status-badge.status-err {
+      background: rgba(239, 68, 68, 0.14);
+      border: 1px solid rgba(239, 68, 68, 0.35);
+      color: #ef4444 !important;
+    }
+    .model-row .mkind.model-status-badge.status-testing {
+      background: rgba(229, 106, 74, 0.14);
+      border: 1px solid rgba(229, 106, 74, 0.35);
+      color: var(--primary) !important;
+    }
+    .token-pill {
+      display: inline-flex;
+      align-items: center;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 1px 5px;
+      font-size: 0.65rem;
+      color: var(--muted);
+      font-family: monospace;
+      letter-spacing: 0.02em;
+    }
+    /* Clean, integrated model search & filter toolbar */
+    .model-filter-bar {
+      margin: 14px 0 10px;
+    }
+    .model-filter-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 10px;
+    }
+    .model-filter-search-wrap {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      width: 260px;
+      max-width: 100%;
+    }
+    .model-filter-search-icon {
+      position: absolute;
+      left: 10px;
+      font-size: 16px;
+      color: var(--muted);
+      pointer-events: none;
+      line-height: 1;
+      user-select: none;
+    }
+    .model-search-box {
+      width: 100%;
+      height: 32px;
+      padding: 0 28px 0 32px !important;
+      background: var(--glass) !important;
+      border: 1px solid var(--glass-border) !important;
+      border-radius: var(--radius-field) !important;
+      font-size: 0.8rem !important;
+      color: var(--text) !important;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    .model-search-box:focus {
+      border-color: var(--primary) !important;
+      box-shadow: 0 0 0 2px rgba(229, 106, 74, 0.18);
+    }
+    .model-search-clear-btn {
+      position: absolute;
+      right: 6px;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: var(--panel-hover);
+      border: none;
+      color: var(--muted);
+      font-size: 11px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+      line-height: 1;
+      transition: background 0.15s, color 0.15s;
+    }
+    .model-search-clear-btn:hover {
+      background: var(--border);
+      color: #fff;
+    }
+    .model-filter-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 0.74rem;
+      color: var(--muted);
+      margin-left: auto;
+    }
+    .model-visible-count {
+      white-space: nowrap;
+    }
+    .model-filter-chips {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .mfilter-chip {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 3px 11px;
+      font-size: 0.73rem;
+      color: var(--muted);
+      cursor: pointer;
+      transition: all 0.15s;
+      user-select: none;
+      line-height: 1.3;
+    }
+    .mfilter-chip:hover {
+      border-color: var(--muted);
+      color: #ededed;
+    }
+    .mfilter-chip.active {
+      background: rgba(229, 106, 74, 0.18);
+      border-color: var(--primary);
+      color: #fff;
+      font-weight: 600;
+    }
+    .mfilter-chip.chip-err.active {
+      background: rgba(239, 68, 68, 0.18);
+      border-color: #ef4444;
+      color: #ff7b72;
+    }
+    @media (max-width: 640px) {
+      .model-filter-top { flex-direction: column; align-items: stretch; gap: 8px; }
+      .model-filter-search-wrap { width: 100%; }
+      .model-filter-actions { justify-content: space-between; margin-left: 0; width: 100%; }
+      /* Mobile simplification: hide text in buttons with icons for clean, compact mobile layout */
+      .conn-test-bar .btn .btn-text,
+      .model-test-bar .btn .btn-text,
+      .model-filter-actions .btn .btn-text,
+      .conn-actions .btn .btn-text,
+      .detail-tab .dtab-text {
+        display: none;
+      }
+      .conn-test-bar .btn,
+      .model-test-bar .btn,
+      .model-filter-actions .btn,
+      .conn-actions .btn {
+        padding: 5px 8px;
+        min-width: 32px;
+        justify-content: center;
+      }
+      .detail-tabs {
+        gap: 6px;
+        overflow-x: auto;
+      }
+      .detail-tab {
+        padding: 7px 11px;
+        font-size: 0.75rem;
+        justify-content: center;
+        min-width: 40px;
+      }
+      .detail-tab .msym {
+        font-size: 18px;
+        margin: 0;
+      }
+    }
+    /* Floating Hold/Press Tooltip Popup */
+    .app-tooltip-popup {
+      position: absolute;
+      z-index: 9999;
+      background: rgba(26, 26, 26, 0.96);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      color: #ededed;
+      border: 1px solid rgba(229, 106, 74, 0.5);
+      box-shadow: 0 4px 18px rgba(0, 0, 0, 0.7);
+      border-radius: 6px;
+      padding: 6px 11px;
+      font-size: 0.75rem;
+      font-weight: 500;
+      line-height: 1.35;
+      max-width: 260px;
+      pointer-events: none;
+      text-align: center;
+      animation: tipPopIn 0.15s ease-out;
+    }
+    @keyframes tipPopIn {
+      from { opacity: 0; transform: scale(0.9); }
+      to   { opacity: 1; transform: scale(1); }
+    }
+    .prov-status-indicator {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      font-size: 0.65rem;
+      font-weight: 600;
+      padding: 1px 6px;
+      border-radius: 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+    .prov-status-indicator.warn { color: #eab308; background: rgba(234, 179, 8, 0.12); border: 1px solid rgba(234, 179, 8, 0.3); }
+    .prov-status-indicator.err { color: #ef4444; background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.3); }
+    .prov-status-filter-bar { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+    .sfilter-btn {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 4px 10px;
+      font-size: 0.74rem;
+      color: var(--muted);
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .sfilter-btn:hover { border-color: var(--muted); color: #fff; }
+    .sfilter-btn.active { background: var(--panel-hover); border-color: var(--primary); color: #fff; font-weight: 600; }
+    .model-test-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+      background: var(--glass);
+      border: 1px solid var(--glass-border);
+      border-radius: var(--radius);
+      padding: 8px 12px;
+      margin: 10px 0 12px;
+    }
+    .model-test-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .model-test-options {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-left: auto;
+    }
+    .test-opt-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 4px 9px;
+      font-size: 0.74rem;
+      color: var(--muted);
+      cursor: pointer;
+      user-select: none;
+      transition: border-color 0.15s, color 0.15s;
+    }
+    .test-opt-pill:hover {
+      border-color: var(--muted);
+      color: #ededed;
+    }
+    .test-opt-pill input[type="checkbox"] {
+      width: 14px;
+      height: 14px;
+      margin: 0;
+      accent-color: var(--primary);
+      cursor: pointer;
+    }
+    .test-opt-group {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .test-mode-select {
+      height: 27px;
+      font-size: 0.72rem !important;
+      padding: 2px 8px !important;
+      background: var(--panel) !important;
+      color: #ededed !important;
+      border: 1px solid var(--border) !important;
+      border-radius: 6px !important;
+      cursor: pointer;
+      width: auto !important;
+      max-width: 150px;
+    }
+    .test-mode-select:focus {
+      border-color: var(--primary) !important;
+    }
+    @media (max-width: 640px) {
+      .model-test-bar { flex-direction: column; align-items: stretch; gap: 8px; }
+      .model-test-options { margin-left: 0; justify-content: flex-start; }
+    }
     @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 
     /* Inline add-forms on the provider detail page */
@@ -1465,6 +1930,375 @@
     /* Add Provider picker: a scrollable list of providers grouped by category.
        Replaces a native <select size=12>, whose option text could not carry a
        second line (name + alias) or the category colour. */
+    /* Add Provider Modal: Special Compatible Cards */
+    /* Add Provider Modal: Compact Special Compatible Cards & Responsive Layout */
+    #provider-modal .modal-box {
+      max-height: 90vh;
+      max-height: 90dvh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      padding: 16px 18px 12px;
+    }
+    #provider-modal .picker-compat-box,
+    #provider-modal .picker-divider,
+    #provider-modal .picker-toolbar,
+    #provider-modal .section-header,
+    #provider-modal .modal-foot {
+      flex: 0 0 auto;
+    }
+    #provider-modal .provider-picker-list {
+      flex: 1 1 auto;
+      min-height: 140px;
+      max-height: none;
+      overflow-y: auto;
+    }
+    .picker-compat-box {
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 7px 9px;
+      margin-bottom: 8px;
+    }
+    .picker-compat-header {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 0.67rem;
+      font-weight: 600;
+      color: var(--muted);
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .picker-compat-cards {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 8px;
+      width: 100%;
+      box-sizing: border-box;
+    }
+    .compat-hero-btn {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 5px 9px;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      cursor: pointer;
+      text-align: left;
+      color: inherit;
+      transition: all 0.15s ease;
+      min-height: 34px;
+      min-width: 0;
+      width: 100%;
+      box-sizing: border-box;
+      overflow: hidden;
+    }
+    .compat-hero-btn:hover {
+      transform: translateY(-1px);
+    }
+    .compat-hero-btn.compat-openai:hover {
+      border-color: #14b8a6;
+      background: rgba(20, 184, 166, 0.08);
+    }
+    .compat-hero-btn.compat-anthropic:hover {
+      border-color: var(--primary);
+      background: rgba(229, 106, 74, 0.08);
+    }
+    .compat-btn-icon {
+      width: 22px;
+      height: 22px;
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .compat-btn-icon .msym {
+      font-size: 14px;
+    }
+    .compat-btn-body {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+    .compat-btn-title {
+      font-size: 0.77rem;
+      font-weight: 600;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      line-height: 1.2;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .compat-btn-sub {
+      font-size: 0.65rem;
+      color: var(--muted);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      margin-top: 1px;
+    }
+    .compat-btn-arrow {
+      font-size: 13px;
+      color: var(--muted);
+      flex-shrink: 0;
+    }
+    .picker-divider {
+      display: flex;
+      align-items: center;
+      text-align: center;
+      margin: 6px 0 7px;
+      color: var(--muted);
+      font-size: 0.68rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .picker-divider::before, .picker-divider::after {
+      content: '';
+      flex: 1;
+      border-bottom: 1px solid var(--border);
+    }
+    .picker-divider span {
+      padding: 0 8px;
+    }
+    .picker-toolbar {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-bottom: 8px;
+    }
+    .picker-search-wrap {
+      position: relative;
+      display: flex;
+      align-items: center;
+      width: 100%;
+    }
+    .picker-search-icon {
+      position: absolute;
+      left: 10px;
+      font-size: 15px;
+      color: var(--muted);
+      pointer-events: none;
+      line-height: 1;
+    }
+    .picker-search-input {
+      width: 100%;
+      height: 31px;
+      padding: 0 28px 0 30px !important;
+      background: var(--glass) !important;
+      border: 1px solid var(--glass-border) !important;
+      border-radius: var(--radius-field) !important;
+      font-size: 0.8rem !important;
+      color: var(--text) !important;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    .picker-search-input:focus {
+      border-color: var(--primary) !important;
+    }
+    .picker-clear-btn {
+      position: absolute;
+      right: 7px;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: var(--panel-hover);
+      border: none;
+      color: var(--muted);
+      font-size: 10px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+      line-height: 1;
+    }
+    .picker-clear-btn:hover {
+      background: var(--border);
+      color: #fff;
+    }
+    .picker-filter-chips {
+      display: flex;
+      gap: 4px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .pfilter-chip {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 2px 8px;
+      font-size: 0.69rem;
+      color: var(--muted);
+      cursor: pointer;
+      transition: all 0.15s;
+      user-select: none;
+    }
+    .pfilter-chip:hover {
+      border-color: var(--muted);
+      color: #ededed;
+    }
+    .pfilter-chip.active {
+      background: var(--primary-dim);
+      border-color: var(--primary);
+      color: #fff;
+      font-weight: 600;
+    }
+    @media (max-width: 640px) {
+      #provider-modal .modal-box {
+        padding: 10px 10px 8px;
+        max-height: 95dvh;
+        max-height: 95vh;
+        box-sizing: border-box;
+      }
+      .picker-compat-box {
+        padding: 6px 8px;
+        margin-bottom: 6px;
+        box-sizing: border-box;
+      }
+      .picker-compat-cards {
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        gap: 6px;
+      }
+      .compat-hero-btn {
+        padding: 5px 6px;
+        gap: 6px;
+        min-height: 32px;
+      }
+      .compat-label {
+        display: none !important;
+      }
+      .compat-btn-title {
+        font-size: 0.74rem;
+      }
+      .compat-btn-sub {
+        display: none;
+      }
+      .compat-btn-arrow {
+        display: none;
+      }
+      .compat-btn-icon {
+        width: 20px;
+        height: 20px;
+      }
+      .compat-btn-icon .msym {
+        font-size: 14px;
+      }
+      #provider-modal .provider-picker-list {
+        min-height: 140px;
+      }
+      .picker-divider {
+        margin: 5px 0;
+        font-size: 0.64rem;
+      }
+      .picker-toolbar {
+        margin-bottom: 5px;
+        gap: 4px;
+      }
+    }
+    /* Compatible Provider Modal Layout */
+    #compatible-modal .modal-box {
+      max-width: 620px;
+      max-height: 90dvh;
+      max-height: 90vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      padding: 0;
+      border-radius: 12px;
+    }
+    .compat-modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 13px 18px;
+      border-bottom: 1px solid var(--border);
+      flex: 0 0 auto;
+      margin: 0;
+    }
+    .compat-modal-body {
+      flex: 1 1 auto;
+      overflow-y: auto;
+      padding: 14px 16px 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .compat-form-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    @media (max-width: 580px) {
+      .compat-form-grid {
+        grid-template-columns: 1fr;
+        gap: 10px;
+      }
+    }
+    .hint-inline {
+      font-size: 0.7rem;
+      color: var(--muted);
+      font-weight: normal;
+      margin-left: 4px;
+    }
+    .compat-verify-box {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 11px 13px;
+      display: flex;
+      flex-direction: column;
+      gap: 9px;
+      margin: 4px 0 8px;
+    }
+    .compat-verify-header {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.8rem;
+      color: #ededed;
+    }
+    .key-reveal-btn {
+      position: absolute;
+      right: 8px;
+      top: 50%;
+      transform: translateY(-50%);
+      background: none;
+      border: none;
+      color: var(--muted);
+      cursor: pointer;
+      padding: 2px;
+      display: flex;
+      align-items: center;
+    }
+    .key-reveal-btn:hover { color: #fff; }
+    .compat-test-model-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .compat-model-input {
+      flex: 1;
+      height: 30px !important;
+      padding: 4px 8px !important;
+      font-size: 0.78rem !important;
+    }
+    #compatible-modal .modal-foot {
+      flex: 0 0 auto;
+      padding: 12px 18px;
+      border-top: 1px solid var(--border);
+      background: var(--glass-strong);
+      display: flex;
+      gap: 8px;
+    }
     .provider-picker-list {
       border: 1px solid var(--glass-border); border-radius: var(--radius);
       background: var(--glass); max-height: 46vh; overflow-y: auto;
@@ -1499,7 +2333,8 @@
     }
     .picker-row .picker-deprecated {
       font-size: 0.62rem; color: #f59e0b; border: 1px solid rgba(245,158,11,.35);
-      border-radius: 4px; padding: 0 5px; flex-shrink: 0;
+      border-radius: 4px; padding: 1px 6px; flex-shrink: 0;
+      background: rgba(245,158,11,.08); letter-spacing: 0.02em;
     }
     /* On a narrow screen the toolbar cannot hold the field and three controls
        on one line, so the search takes the full width above them. */
@@ -2590,6 +3425,16 @@
       <button class="filter-btn" id="f-custom" onclick="setCategoryFilter('custom')">🟢 Compatible (<span id="cnt-custom">0</span>)</button>
     </div>
 
+    <!-- STATUS QUICK FILTER -->
+    <div class="prov-status-filter-bar" id="prov-status-filters">
+      <span style="font-size:0.73rem; color:var(--muted); margin-right:4px;">Status:</span>
+      <button class="sfilter-btn active" id="f-status-all" onclick="setProviderStatusFilter('all')">All</button>
+      <button class="sfilter-btn" id="f-status-connected" onclick="setProviderStatusFilter('connected')">Connected (<span id="cnt-status-connected">0</span>)</button>
+      <button class="sfilter-btn" id="f-status-active" onclick="setProviderStatusFilter('active')">Active (<span id="cnt-status-active">0</span>)</button>
+      <button class="sfilter-btn" id="f-status-unconfigured" onclick="setProviderStatusFilter('unconfigured')">Needs Setup (<span id="cnt-status-unconfigured">0</span>)</button>
+      <span id="prov-match-count" style="font-size:0.75rem; color:var(--muted); margin-left:auto;"></span>
+    </div>
+
     <!-- Provider cards grouped into category sections (OAuth, Free Tier, API
          Key, …), mirroring the upstream Next.js dashboard providers page. -->
     <div class="prov-sections" id="providers-table-body">
@@ -3401,20 +4246,78 @@
 
 <!-- ADD PROVIDER PICKER — select a provider, then go to its detail page to add accounts -->
 <div class="modal-overlay" id="provider-modal">
-  <div class="modal-box" style="max-width:560px;">
-    <div class="section-header" style="margin-bottom: 16px;">
-      <h3 style="font-size: 1.1rem; color: #fff;" id="provider-modal-title">Add Provider</h3>
+  <div class="modal-box" style="max-width:620px;">
+    <div class="section-header" style="margin-bottom: 14px;">
+      <div style="display:flex; align-items:center; gap:8px;">
+        <span class="msym" style="font-size:22px; color:var(--primary);">domain_add</span>
+        <h3 style="font-size: 1.12rem; color: #fff; font-weight: 600;" id="provider-modal-title">Add Provider</h3>
+      </div>
       <button class="btn btn-sm" onclick="closeModal('provider-modal')">✕</button>
     </div>
-    <div style="font-size:0.78rem; color:var(--muted); margin-bottom:12px;">
-      Select a provider to add. You'll configure accounts and credentials on the next page.
+
+    <!-- SPECIAL COMPATIBLE HERO BUTTONS -->
+    <div class="picker-compat-box">
+      <div class="picker-compat-header">
+        <span class="msym" style="font-size:15px; color:#14b8a6;">tune</span>
+        <span>Custom Endpoints (Self-Hosted / Proxy / LLM Frameworks)</span>
+      </div>
+      <div class="picker-compat-cards">
+        <button type="button" class="compat-hero-btn compat-openai"
+                onclick="closeModal('provider-modal');openCompatModal('openai');"
+                data-id="_compat_openai"
+                title="Connect any OpenAI-compatible endpoint (vLLM, Ollama, LM Studio, Groq, LiteLLM, DeepSeek...)">
+          <div class="compat-btn-icon" style="background:rgba(20, 184, 166, 0.15); color:#14b8a6; border:1px solid rgba(20, 184, 166, 0.35);">
+            <span class="msym">smart_toy</span>
+          </div>
+          <div class="compat-btn-body">
+            <div class="compat-btn-title"><span class="compat-name">OpenAI</span><span class="compat-label"> Compatible</span></div>
+            <div class="compat-btn-sub">vLLM, Ollama, LM Studio, Groq, LiteLLM, DeepSeek...</div>
+          </div>
+          <span class="msym compat-btn-arrow">arrow_forward</span>
+        </button>
+
+        <button type="button" class="compat-hero-btn compat-anthropic"
+                onclick="closeModal('provider-modal');openCompatModal('anthropic');"
+                data-id="_compat_anthropic"
+                title="Connect Claude Code & native Anthropic v1 endpoints">
+          <div class="compat-btn-icon" style="background:rgba(229, 106, 74, 0.15); color:var(--primary); border:1px solid rgba(229, 106, 74, 0.35);">
+            <span class="msym">terminal</span>
+          </div>
+          <div class="compat-btn-body">
+            <div class="compat-btn-title"><span class="compat-name">Anthropic</span><span class="compat-label"> Compatible</span></div>
+            <div class="compat-btn-sub">Claude Code &amp; native Anthropic v1 endpoints</div>
+          </div>
+          <span class="msym compat-btn-arrow">arrow_forward</span>
+        </button>
+      </div>
     </div>
-    <input type="text" id="p-provider-search" class="import-search" style="width:100%; margin-bottom:10px;"
-           placeholder="Search provider, alias, or id..." autocomplete="off"
-           oninput="filterProviderPicker(this.value)">
+
+    <!-- PRESET PROVIDERS SECTION -->
+    <div class="picker-divider">
+      <span>Or select from 128 preset AI providers</span>
+    </div>
+
+    <!-- FILTER CHIPS & SEARCH -->
+    <div class="picker-toolbar">
+      <div class="picker-search-wrap">
+        <span class="msym picker-search-icon">search</span>
+        <input type="text" id="p-provider-search" class="picker-search-input"
+               placeholder="Search 128 providers by name, alias, or id..." autocomplete="off"
+               oninput="filterProviderPicker(this.value)">
+        <button type="button" id="p-provider-clear-btn" class="picker-clear-btn" style="display:none;" onclick="clearProviderPickerSearch()">✕</button>
+      </div>
+      <div class="picker-filter-chips">
+        <button type="button" class="pfilter-chip active" data-pcat="all" onclick="setPickerCategoryFilter('all')">All</button>
+        <button type="button" class="pfilter-chip" data-pcat="oauth" onclick="setPickerCategoryFilter('oauth')">🟣 OAuth / CLI</button>
+        <button type="button" class="pfilter-chip" data-pcat="freeTier" onclick="setPickerCategoryFilter('freeTier')">🔵 Free Tier</button>
+        <button type="button" class="pfilter-chip" data-pcat="apikey" onclick="setPickerCategoryFilter('apikey')">🟡 API Key</button>
+        <button type="button" class="pfilter-chip" data-pcat="webCookie" onclick="setPickerCategoryFilter('webCookie')">🍪 Web Cookie</button>
+      </div>
+    </div>
+
     <div id="p-provider-list" class="provider-picker-list" role="listbox" aria-label="Provider type"></div>
     <div id="provider-picker-msg" style="font-size:0.75rem; margin-top:4px; color:var(--muted); display:none;"></div>
-    <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px;">
+    <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px;">
       <button class="btn" onclick="closeModal('provider-modal')">Cancel</button>
       <button class="btn btn-primary" onclick="pickProvider()">Add &amp; Configure →</button>
     </div>
@@ -3425,92 +4328,110 @@
 <!-- Mirrors OmniRoute AddCompatibleProviderModal: one form, three modes. -->
 <div class="modal-overlay" id="compatible-modal">
   <div class="modal-box">
-    <div class="section-header" style="margin-bottom: 16px;">
-      <h3 style="font-size: 1.1rem; color: #fff;" id="compat-modal-title">Add Compatible Provider</h3>
+    <div class="compat-modal-header">
+      <div style="display:flex; align-items:center; gap:8px; min-width:0;">
+        <span class="msym" style="font-size:20px; color:#14b8a6;">hub</span>
+        <h3 style="font-size:1.02rem; color:#fff; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin:0;" id="compat-modal-title">Add Compatible Provider</h3>
+      </div>
       <button class="btn btn-sm" onclick="closeModal('compatible-modal')">✕</button>
     </div>
 
-    <div class="warn-banner" id="compat-warning" style="display:none; margin-bottom: 12px;">
-      <span class="msym" style="font-size:17px; color:#f59e0b;">warning</span>
-      <p style="margin:0;">Claude Code compatible endpoints reply in a variant format. Validate with a real API key before relying on them.</p>
-    </div>
-
-    <div class="form-group">
-      <label>Name</label>
-      <input type="text" id="compat-name" placeholder="e.g. Production Gateway">
-      <p class="hint-text" id="compat-name-hint">A label for this provider. Shown on its card.</p>
-    </div>
-
-    <div class="form-group">
-      <label>Prefix (routing key)</label>
-      <input type="text" id="compat-prefix" placeholder="e.g. mygw">
-      <p class="hint-text" id="compat-prefix-hint">Models are addressed as <code>&lt;prefix&gt;/&lt;model&gt;</code>. Must be unique.</p>
-    </div>
-
-    <div class="form-group" id="compat-apitype-group">
-      <label>API Type</label>
-      <select id="compat-apitype">
-        <option value="chat" selected>Chat Completions</option>
-        <option value="responses">Responses API</option>
-        <option value="embeddings">Embeddings</option>
-        <option value="audio-transcriptions">Audio Transcriptions</option>
-        <option value="audio-speech">Audio Speech</option>
-        <option value="images-generations">Images Generations</option>
-      </select>
-    </div>
-
-    <div class="form-group">
-      <label>Base URL</label>
-      <input type="text" id="compat-baseurl" placeholder="https://api.openai.com/v1">
-      <p class="hint-text" id="compat-baseurl-hint">Root of the API. A pasted <code>/chat/completions</code> or <code>/messages</code> suffix is stripped automatically.</p>
-    </div>
-
-    <div class="form-group">
-      <label>Icon URL <span style="color:var(--muted); font-weight:400;">(optional)</span></label>
-      <input type="text" id="compat-iconurl" placeholder="https://example.com/logo.png">
-      <p class="hint-text" id="compat-iconurl-hint">Shown on the provider card.</p>
-    </div>
-
-    <button type="button" class="advanced-toggle" id="compat-advanced-toggle" onclick="toggleCompatAdvanced()" aria-expanded="false" aria-controls="compat-advanced">
-      <span class="msym" id="compat-advanced-caret" style="font-size:16px;">chevron_right</span>Advanced Settings
-    </button>
-    <div class="advanced-body" id="compat-advanced" style="display:none;">
-      <div class="form-group" style="margin:0;">
-        <label>Chat Path <span style="color:var(--muted); font-weight:400;">(optional)</span></label>
-        <input type="text" id="compat-chatpath" placeholder="/v1/chat/completions">
-        <p class="hint-text">Override the chat endpoint path if this provider differs from the default.</p>
+    <div class="compat-modal-body">
+      <div class="warn-banner" id="compat-warning" style="display:none; margin-bottom:4px;">
+        <span class="msym" style="font-size:17px; color:#f59e0b;">warning</span>
+        <p style="margin:0;">Claude Code compatible endpoints reply in a variant format. Validate with a real API key before relying on them.</p>
       </div>
-      <div class="form-group" id="compat-modelspath-group" style="margin:0;">
-        <label>Models Path <span style="color:var(--muted); font-weight:400;">(optional)</span></label>
-        <input type="text" id="compat-modelspath" placeholder="/models">
-        <p class="hint-text">Path used to list models and to validate the key.</p>
-      </div>
-    </div>
 
-    <div class="form-group" style="margin-top:12px; border-top:1px solid var(--border); padding-top:12px;">
-      <label>Verify before saving</label>
-      <div class="validate-row">
-        <div style="flex:1;">
-          <input type="password" id="compat-checkkey" placeholder="API key for check" autocomplete="off">
+      <div class="compat-form-grid">
+        <div class="form-group" style="margin:0;">
+          <label>Name</label>
+          <input type="text" id="compat-name" placeholder="e.g. Production Gateway" oninput="onCompatNameInput(this.value)">
+          <p class="hint-text" id="compat-name-hint" style="display:none;">A label for this provider. Shown on its card.</p>
         </div>
-        <button class="btn" id="compat-checkbtn" onclick="validateCompatNode()">Check</button>
+
+        <div class="form-group" style="margin:0;">
+          <label>Prefix <span class="hint-inline">(&lt;prefix&gt;/&lt;model&gt;)</span></label>
+          <input type="text" id="compat-prefix" placeholder="e.g. mygw" oninput="this.dataset.userEdited='1'">
+          <p class="hint-text" id="compat-prefix-hint" style="display:none;">Models are addressed as <code>&lt;prefix&gt;/&lt;model&gt;</code>. Must be unique.</p>
+        </div>
+
+        <div class="form-group" id="compat-apitype-group" style="margin:0;">
+          <label>API Type</label>
+          <select id="compat-apitype">
+            <option value="chat" selected>Chat Completions</option>
+            <option value="responses">Responses API</option>
+            <option value="embeddings">Embeddings</option>
+            <option value="audio-transcriptions">Audio Transcriptions</option>
+            <option value="audio-speech">Audio Speech</option>
+            <option value="images-generations">Images Generations</option>
+          </select>
+        </div>
+
+        <div class="form-group" style="margin:0;">
+          <label>Icon URL <span class="hint-inline">(optional)</span></label>
+          <input type="text" id="compat-iconurl" placeholder="https://example.com/logo.png">
+          <p class="hint-text" id="compat-iconurl-hint" style="display:none;">Shown on the provider card.</p>
+        </div>
+
+        <div class="form-group" style="margin:0; grid-column:1 / -1;">
+          <label>Base URL <span class="hint-inline">(endpoint root)</span></label>
+          <input type="text" id="compat-baseurl" placeholder="https://api.openai.com/v1">
+          <p class="hint-text" id="compat-baseurl-hint" style="margin-top:2px;">Root of the API. Suffix <code>/chat/completions</code> or <code>/messages</code> is stripped automatically.</p>
+        </div>
       </div>
-    </div>
-    <div class="form-group">
-      <label>Test Model ID <span style="color:var(--muted); font-weight:400;">(optional)</span></label>
-      <input type="text" id="compat-checkmodel" placeholder="e.g. gpt-4o-mini">
-      <p class="hint-text">If <code>/models</code> is unavailable, a tiny chat request is sent with this model instead.</p>
-    </div>
-    <div class="validate-result" id="compat-validate-result" style="display:none;">
-      <span class="acct-pill idle" id="compat-validate-badge"></span>
-      <span class="hint-text" id="compat-validate-msg"></span>
+
+      <button type="button" class="advanced-toggle" id="compat-advanced-toggle" onclick="toggleCompatAdvanced()" aria-expanded="false" aria-controls="compat-advanced">
+        <span class="msym" id="compat-advanced-caret" style="font-size:16px;">chevron_right</span>Advanced Settings (Custom Paths)
+      </button>
+      <div class="advanced-body" id="compat-advanced" style="display:none;">
+        <div class="compat-form-grid">
+          <div class="form-group" style="margin:0;">
+            <label>Chat Path <span class="hint-inline">(optional)</span></label>
+            <input type="text" id="compat-chatpath" placeholder="/v1/chat/completions">
+            <p class="hint-text">Override the chat endpoint path if this provider differs from the default.</p>
+          </div>
+          <div class="form-group" id="compat-modelspath-group" style="margin:0;">
+            <label>Models Path <span class="hint-inline">(optional)</span></label>
+            <input type="text" id="compat-modelspath" placeholder="/models">
+            <p class="hint-text">Path used to list models and to validate the key.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- VERIFY & API KEY CARD -->
+      <div class="compat-verify-box">
+        <div class="compat-verify-header">
+          <span class="msym" style="font-size:16px; color:var(--primary);">vpn_key</span>
+          <strong>API Key &amp; Verification</strong>
+          <span style="font-size:0.7rem; color:var(--muted); margin-left:auto;">Optional &bull; Saved automatically</span>
+        </div>
+        <div class="validate-row">
+          <div style="flex:1; position:relative;">
+            <input type="password" id="compat-checkkey" placeholder="Paste API key here (sk-...)" autocomplete="off" style="padding-right:32px;">
+            <button type="button" class="key-reveal-btn" onclick="const f=document.getElementById('compat-checkkey'); f.type=f.type==='password'?'text':'password';" title="Show/Hide Key">
+              <span class="msym" style="font-size:16px;">visibility</span>
+            </button>
+          </div>
+          <button class="btn btn-primary" id="compat-checkbtn" onclick="validateCompatNode()" style="height:35px; white-space:nowrap;">
+            <span class="msym" style="font-size:14px; vertical-align:-2px;">wifi_find</span> Check
+          </button>
+        </div>
+        <div class="compat-test-model-row">
+          <span style="font-size:0.72rem; color:var(--muted); white-space:nowrap;">Test Model ID:</span>
+          <input type="text" id="compat-checkmodel" class="compat-model-input" placeholder="e.g. gpt-4o-mini or llama3 (optional)">
+        </div>
+        <div class="validate-result" id="compat-validate-result" style="display:none;">
+          <span class="acct-pill idle" id="compat-validate-badge"></span>
+          <span class="hint-text" id="compat-validate-msg"></span>
+        </div>
+      </div>
+
+      <div class="field-error" id="compat-error" style="display:none;"></div>
     </div>
 
-    <div class="field-error" id="compat-error" style="display:none;"></div>
-
-    <div class="modal-foot" style="padding:14px 0 0; border:none; gap:8px;">
-      <button class="btn btn-primary" id="compat-submit" onclick="submitCompatibleNode()" style="flex:1;">Add</button>
-      <button class="btn" onclick="closeModal('compatible-modal')" style="flex:1;">Cancel</button>
+    <div class="modal-foot">
+      <button class="btn btn-primary" id="compat-submit" onclick="submitCompatibleNode()" style="flex:1; height:36px;">Add Provider</button>
+      <button class="btn" onclick="closeModal('compatible-modal')" style="flex:1; height:36px;">Cancel</button>
     </div>
   </div>
 </div>
@@ -4915,7 +5836,11 @@
   // existing activeDetailTab is respected unless keepTab is false.
   async function openProviderDetail(providerId, keepTab, subTab) {
     currentProviderId = providerId;
-    if (!keepTab) activeDetailTab = "conn";
+    if (!keepTab) {
+      activeDetailTab = "conn";
+      modelSearchQuery = "";
+      modelFilterCategory = "all";
+    }
     if (subTab) activeDetailTab = subTab;
     writeHash("#provider/" + encodeURIComponent(providerId) + "/" + activeDetailTab);
     resetModelTestState();
@@ -5957,8 +6882,8 @@
     const sticky = strat.stickyRoundRobinLimit || 3;
     const count = (d.connections || []).length;
     const note = count < 2
-      ? `<span style="font-size:0.72rem; color:var(--muted);">needs 2+ accounts</span>`
-      : `<span style="font-size:0.72rem; color:var(--muted);">${count} accounts</span>`;
+      ? `<span class="acct-count-chip warn" title="Rotation takes effect when 2 or more accounts exist">1 account (needs 2+)</span>`
+      : `<span class="acct-count-chip active" title="${count} accounts active in rotation">${count} accounts</span>`;
     const opts = [
       ["fastest", "Fastest (lowest latency first)"],
       ["fill-first", "Fill First (priority order)"],
@@ -5969,16 +6894,20 @@
       `<option value="${v}" ${v === mode ? "selected" : ""}>${label}</option>`).join("");
     const showSticky = mode === "round-robin" || mode === "sticky";
     return `
-      <div style="display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin-top:12px; padding:10px 12px; background:var(--panel-2,#15181d); border:1px solid var(--border); border-radius:8px;">
-        <span style="font-size:0.82rem; color:#ededed;">Account Rotation</span>
-        <select onchange="setAccountMode('${escapeHtml(d.provider)}', this.value);"
-          style="padding:4px 8px; font-size:0.78rem; background:var(--bg); color:#ededed; border:1px solid var(--border); border-radius:6px;">
+      <div class="acct-strat-left">
+        <span class="acct-strat-title"><span class="msym acct-strat-icon">sync_alt</span>Account Rotation</span>
+        <select class="acct-strat-select" onchange="setAccountMode('${escapeHtml(d.provider)}', this.value);"
+                title="Strategy for routing requests across multiple connected accounts">
           ${opts}
         </select>
-        ${showSticky ? `<span style="font-size:0.78rem; color:var(--muted);">Sticky:</span>
-          <input type="number" min="1" value="${sticky}" onchange="setAccountStickyLimit('${escapeHtml(d.provider)}', this.value);"
-            style="width:64px; padding:3px 6px; font-size:0.78rem; background:var(--bg); color:#ededed; border:1px solid var(--border); border-radius:6px;">
-          <span style="font-size:0.72rem; color:var(--muted);">requests per account before switching</span>` : ""}
+        ${showSticky ? `
+        <div class="acct-sticky-wrap">
+          <span>Sticky:</span>
+          <input type="number" min="1" class="acct-sticky-input" value="${sticky}"
+                 onchange="setAccountStickyLimit('${escapeHtml(d.provider)}', this.value);"
+                 title="Number of requests sent to the current account before rotating to the next">
+          <span>reqs/acct</span>
+        </div>` : ""}
         ${note}
       </div>`;
   }
@@ -6484,12 +7413,12 @@
               </span>
               <span class="conn-actions">
                 <span class="mkind conn-status ${statusInfo.cls}" id="conn-status-${p.id}" title="status: ${escapeHtml(connStatus || 'unknown')}">${escapeHtml(statusInfo.text)}</span>
-                <button class="btn btn-sm conn-test-btn" id="conn-test-${p.id}" onclick="testConnection('${p.id}');" title="Test this account against the upstream provider">Test</button>
+                <button class="btn btn-sm conn-test-btn" id="conn-test-${p.id}" onclick="testConnection('${p.id}');" title="Test this account against the upstream provider"><span class="msym" style="font-size:13px;vertical-align:-2px;">science</span><span class="btn-text"> Test</span></button>
                 <label class="switch" style="transform:scale(0.8);">
                   <input type="checkbox" ${p.isActive === 1 ? 'checked' : ''} onchange="toggleProvider('${p.id}');">
                   <span class="slider"></span>
                 </label>
-                <button class="btn btn-sm btn-danger" onclick="deleteProvider('${p.id}')">Delete</button>
+                <button class="btn btn-sm btn-danger" onclick="deleteProvider('${p.id}')" title="Delete this account"><span class="msym" style="font-size:13px;vertical-align:-2px;">delete</span><span class="btn-text"> Delete</span></button>
               </span>
           </div>`;
         }).join("")
@@ -6501,39 +7430,65 @@
     // the provider's auth type, so a webCookie provider still asks for a cookie.
     const connsHtml = `
       ${oauthPanel}
-      <div class="conn-test-bar">
-        ${showKeyForm ? `<button class="btn btn-sm btn-primary" onclick="openAddConnModal('${d.provider}')">
-          <span class="msym" style="font-size:14px;">add</span>${addConnLabel}
-        </button>` : ''}
-        <button class="btn btn-sm" onclick="testAllConnections('${d.provider}');">Test All Accounts</button>
-        <span id="conn-test-progress" class="conn-test-progress"></span>
-        <div style="margin-left:auto; display:flex; gap:7px; align-items:center; flex-wrap:wrap;">
-          <button class="btn btn-sm" id="conn-bulk-enable-btn" style="display:none;" onclick="toggleSelectedConns(1)">
-            <span class="msym" style="font-size:14px;vertical-align:-2px;">toggle_on</span> Enable Selected (<span class="conn-selected-count">0</span>)
+      <div class="conn-header-card">
+        <div class="conn-test-bar">
+          ${showKeyForm ? `<button class="btn btn-sm btn-primary" onclick="openAddConnModal('${d.provider}')">
+            <span class="msym">add</span><span class="btn-text"> ${addConnLabel}</span>
+          </button>` : ''}
+          <button class="btn btn-sm" onclick="testAllConnections('${d.provider}');">
+            <span class="msym">science</span><span class="btn-text"> Test All Accounts</span>
           </button>
-          <button class="btn btn-sm" id="conn-bulk-disable-btn" style="display:none;" onclick="toggleSelectedConns(0)">
-            <span class="msym" style="font-size:14px;vertical-align:-2px;">toggle_off</span> Disable Selected (<span class="conn-selected-count">0</span>)
-          </button>
-          <button class="btn btn-sm btn-danger" id="conn-bulk-delete-btn" style="display:none;" onclick="deleteSelectedConns()">
-            <span class="msym" style="font-size:14px;vertical-align:-2px;">delete</span> Delete Selected (<span class="conn-selected-count" id="conn-selected-count">0</span>)
-          </button>
+          <span id="conn-test-progress" class="conn-test-progress"></span>
+          <div style="margin-left:auto; display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+            <button type="button" class="btn btn-sm" id="conn-invert-btn" style="display:none;" onclick="invertConnSelection()"><span class="msym">swap_horiz</span><span class="btn-text"> Invert</span></button>
+            <button class="btn btn-sm" id="conn-bulk-enable-btn" style="display:none;" onclick="toggleSelectedConns(1)"><span class="msym">check_circle</span><span class="btn-text"> Enable (<span class="conn-selected-count">0</span>)</span></button>
+            <button class="btn btn-sm" id="conn-bulk-disable-btn" style="display:none;" onclick="toggleSelectedConns(0)"><span class="msym">block</span><span class="btn-text"> Disable (<span class="conn-selected-count">0</span>)</span></button>
+            <button class="btn btn-sm btn-danger" id="conn-bulk-delete-btn" style="display:none;" onclick="deleteSelectedConns()"><span class="msym">delete</span><span class="btn-text"> Delete (<span class="conn-selected-count" id="conn-selected-count">0</span>)</span></button>
+          </div>
+        </div>
+        <div class="conn-header-divider"></div>
+        <div class="acct-strat-card">
+          ${accountStrategyControls(d)}
+          <div class="acct-strat-right">
+            ${(d.connections || []).length > 1 ? `
+            <div class="conn-select-bar">
+              <label class="conn-select-label" title="Select all accounts for bulk operations">
+                <input type="checkbox" id="conn-select-all" onchange="toggleSelectAllConns(this.checked)" style="cursor:pointer;accent-color:var(--primary);">
+                <span>Select All</span>
+              </label>
+            </div>` : ''}
+          </div>
         </div>
       </div>
-      ${accountStrategyControls(d)}
-      ${(d.connections || []).length > 1 ? `<div style="display:flex;align-items:center;gap:8px;padding:6px 2px;font-size:0.76rem;color:var(--muted);">
-        <label style="display:flex;align-items:center;gap:5px;cursor:pointer;user-select:none;">
-          <input type="checkbox" id="conn-select-all" onchange="toggleSelectAllConns(this.checked)" style="cursor:pointer;accent-color:var(--primary);">
-          Select All
-        </label>
-        <button type="button" class="btn btn-sm" id="conn-invert-btn" onclick="invertConnSelection()" style="display:none;padding:2px 8px;font-size:0.75rem;">Invert</button>
-      </div>` : ''}
       <div style="margin-top:4px;">${connsInner}</div>`;
 
     // Models tab — includes the "Add Custom Model" form plus per-model and
     // batch "Test" controls (upstream "Test All Models" + Test button on
     // each model chip).
-    const modelsInner = (d.models || []).length
-      ? d.models.map(m => {
+    const allModels = d.models || [];
+    const countTotal = allModels.length;
+    let countLLM = 0;
+    let countVision = 0;
+    let countReasoning = 0;
+    let countEmbedding = 0;
+    let countFree = 0;
+    let countFailed = 0;
+
+    for (const m of allModels) {
+      const isReasoning = /(?:^|[-_/])(r1|o1|o3|reasoning|thinking|qwq)(?:$|[-_/])/i.test(m.modelId) ||
+                          /(?:reasoning|thinking|r1|o1|o3)/i.test(m.displayName || '');
+      const isVision = m.kind === 'image' || /(?:vision|vl|flash-v|omni)/i.test(m.modelId);
+      const isEmbed = m.kind === 'embedding' || /embed/i.test(m.modelId);
+      if (m.isFree) countFree++;
+      if (isReasoning) countReasoning++;
+      if (isVision) countVision++;
+      if (isEmbed) countEmbedding++;
+      if (m.kind === 'llm' || (!m.kind && !isVision && !isEmbed)) countLLM++;
+      if (modelTestResults[m.modelId] === 'error') countFailed++;
+    }
+
+    const modelsInner = allModels.length
+      ? allModels.map(m => {
           const st = modelTestResults[m.modelId];
           const rowBorder = st === 'ok' ? 'border-color:#22c55e66;'
             : st === 'error' ? 'border-color:#ef444466;' : '';
@@ -6542,11 +7497,11 @@
           const testing = testingModelIds.has(m.modelId);
           const latency = modelTestLatency[m.modelId];
           const statusBadge = testing
-            ? `<span class="mkind" style="color:var(--primary);"><span class="msym" style="font-size:13px;animation:spin 1s linear infinite;">progress_activity</span> testing…</span>`
+            ? `<span class="mkind model-status-badge status-testing" style="color:var(--primary);"><span class="msym" style="font-size:12px;animation:spin 1s linear infinite;">progress_activity</span> testing…</span>`
             : st === 'ok'
-              ? `<span class="mkind" style="color:#22c55e;">${latency != null ? latency + 'ms' : 'ok'}</span>`
+              ? `<span class="mkind model-status-badge status-ok" style="color:#22c55e;"><span class="msym" style="font-size:12px;">check_circle</span> ${latency != null ? latency + 'ms' : 'ok'}</span>`
               : st === 'error'
-                ? `<span class="mkind" style="color:${modelTestRetryable[m.modelId] ? '#eab308' : '#ef4444'};">${modelTestRetryable[m.modelId] ? 'rate limited' : 'failed'}</span>`
+                ? `<span class="mkind model-status-badge ${modelTestRetryable[m.modelId] ? 'status-warn' : 'status-err'}" style="color:${modelTestRetryable[m.modelId] ? '#eab308' : '#ef4444'};"><span class="msym" style="font-size:12px;">${modelTestRetryable[m.modelId] ? 'schedule' : 'error'}</span> ${modelTestRetryable[m.modelId] ? 'rate limited' : 'failed'}</span>`
                 : '';
           // The full error is one click away rather than buried in a title
           // attribute: a truncated tooltip made a rate limit look identical to
@@ -6568,12 +7523,25 @@
           // them: a custom model has neither, and printing "0" would read as a
           // real limit. Values arrive pre-formatted ("128K") from fmtTokensShort.
           const ctxBits = [];
-          if (m.contextWindow) ctxBits.push(fmtTokensShort(m.contextWindow) + ' context');
-          if (m.maxOutput) ctxBits.push(fmtTokensShort(m.maxOutput) + ' out');
+          if (m.contextWindow) ctxBits.push(`<span class="token-pill" title="Context window">${fmtTokensShort(m.contextWindow)} ctx</span>`);
+          if (m.maxOutput) ctxBits.push(`<span class="token-pill" title="Maximum output tokens">${fmtTokensShort(m.maxOutput)} out</span>`);
           const ctxLabel = ctxBits.length
-            ? `<span class="msub" title="Context window / maximum output tokens">${escapeHtml(ctxBits.join(' \u00b7 '))}</span>` : '';
+            ? `<span class="msub" title="Context window / maximum output tokens">${ctxBits.join(' ')}</span>` : '';
           const freeBadge = m.isFree ? `<span class="mfree" title="Free tier model">Free</span>` : '';
-          return `<div class="model-row" style="${rowBorder}" title="${escapeHtml(modelTestError[m.modelId] || fullModel)}">
+          const isReasoning = /(?:^|[-_/])(r1|o1|o3|reasoning|thinking|qwq)(?:$|[-_/])/i.test(m.modelId) ||
+                              /(?:reasoning|thinking|r1|o1|o3)/i.test(m.displayName || '');
+          const isVision = m.kind === 'image' || /(?:vision|vl|flash-v|omni)/i.test(m.modelId);
+          const isEmbed = m.kind === 'embedding' || /embed/i.test(m.modelId);
+          return `<div class="model-row" id="model-row-${escapeHtml(m.modelId)}"
+               data-mid="${escapeHtml(m.modelId.toLowerCase())}"
+               data-alias-mid="${escapeHtml(fullModel.toLowerCase())}"
+               data-dname="${escapeHtml((upstreamName || '').toLowerCase())}"
+               data-kind="${escapeHtml(m.kind || 'llm')}"
+               data-free="${m.isFree ? '1' : '0'}"
+               data-reasoning="${isReasoning ? '1' : '0'}"
+               data-vision="${isVision ? '1' : '0'}"
+               data-embed="${isEmbed ? '1' : '0'}"
+               style="${rowBorder}" title="${escapeHtml(modelTestError[m.modelId] || fullModel)}">
             <span class="mrow-main">
               <span class="msym mrow-icon" style="font-size:16px; color:${iconColor};">${icon}</span>
               <span class="mnames">
@@ -6625,26 +7593,69 @@
         </div>
         <div id="add-model-msg" style="font-size:0.75rem; margin-top:8px; color:var(--muted);"></div>
       </div>
-      ${(d.models || []).length ? `
+      ${allModels.length ? `
       <div class="model-test-bar">
-        <button class="btn btn-sm" id="test-all-models-btn" onclick="testAllModels('${d.provider}')">
-          <span class="msym" style="font-size:15px;">science</span>Test All Models
-        </button>
-        <span id="model-test-progress" style="font-size:0.75rem; color:var(--muted);"></span>
-        <label style="display:inline-flex; align-items:center; gap:5px; font-size:0.75rem; color:var(--muted); cursor:pointer;">
-          <input type="checkbox" id="test-parallel" ${parallelTestMode ? 'checked' : ''} onchange="setParallelMode(this.checked);" style="accent-color:var(--primary);"> Parallel
-        </label>
-        <label style="display:inline-flex; align-items:center; gap:5px; font-size:0.75rem; color:var(--muted); cursor:pointer;">
-          <input type="checkbox" id="test-auto-disable" ${autoDisableFailed ? 'checked' : ''} onchange="setAutoDisable(this.checked);" style="accent-color:var(--primary);"> Auto-disable failed
-        </label>
-        <select id="test-auto-disable-mode" onchange="setAutoDisableMode(this.value);"
-                style="width:auto; max-width:160px; font-size:0.72rem; padding:1px 5px; height:24px; background:var(--bg-input, #0d1117); color:#e6edf3; border:1px solid var(--border); border-radius:4px; vertical-align:middle; cursor:pointer; ${autoDisableFailed ? 'display:inline-block;' : 'display:none;'}">
-          <option value="safe" ${autoDisableMode === 'safe' ? 'selected' : ''}>Safe (skip 429)</option>
-          <option value="full" ${autoDisableMode === 'full' ? 'selected' : ''}>Full (all no ping)</option>
-        </select>
-        <button class="btn btn-sm btn-danger" id="test-stop-btn" style="display:none;" onclick="stopModelTest()">Stop</button>
-      </div>` : ""}
-      <div style="margin-top:6px;">${modelsInner}</div>`;
+        <div class="model-test-actions">
+          <button class="btn btn-sm" id="test-all-models-btn" onclick="testAllModels('${d.provider}')" title="Test All Models">
+            <span class="msym" style="font-size:15px; vertical-align:-2px;">science</span><span class="btn-text"> Test All Models</span>
+          </button>
+          <button class="btn btn-sm btn-danger" id="test-stop-btn" style="display:none;" onclick="stopModelTest()" title="Stop">
+            <span class="msym" style="font-size:14px; vertical-align:-2px;">stop</span><span class="btn-text"> Stop</span>
+          </button>
+          <span id="model-test-progress" style="font-size:0.75rem; color:var(--muted); font-weight:500;"></span>
+        </div>
+        <div class="model-test-options">
+          <label class="test-opt-pill" title="Run tests in parallel rather than sequentially">
+            <input type="checkbox" id="test-parallel" ${parallelTestMode ? 'checked' : ''} onchange="setParallelMode(this.checked);">
+            <span>Parallel</span>
+          </label>
+          <div class="test-opt-group">
+            <label class="test-opt-pill" title="Automatically remove models that fail probe tests">
+              <input type="checkbox" id="test-auto-disable" ${autoDisableFailed ? 'checked' : ''} onchange="setAutoDisable(this.checked);">
+              <span>Auto-disable failed</span>
+            </label>
+            <select id="test-auto-disable-mode" class="test-mode-select" onchange="setAutoDisableMode(this.value);"
+                    style="${autoDisableFailed ? 'display:inline-block;' : 'display:none;'}">
+              <option value="safe" ${autoDisableMode === 'safe' ? 'selected' : ''}>Safe (skip 429)</option>
+              <option value="full" ${autoDisableMode === 'full' ? 'selected' : ''}>Full (all no ping)</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <div class="model-filter-bar">
+        <div class="model-filter-top">
+          <div class="model-filter-search-wrap">
+            <span class="msym model-filter-search-icon">search</span>
+            <input type="text" id="model-search-box" class="model-search-box"
+                   placeholder="Search models..."
+                   value="${escapeHtml(modelSearchQuery)}"
+                   autocomplete="off"
+                   oninput="handleModelSearch(this.value)">
+            <button type="button" id="model-search-clear-btn" class="model-search-clear-btn"
+                    style="display:${modelSearchQuery ? 'flex' : 'none'};"
+                    onclick="clearModelSearch()" title="Clear search">✕</button>
+          </div>
+          <div class="model-filter-actions">
+            <span class="model-visible-count" id="model-visible-count">Showing ${countTotal} models</span>
+            <button type="button" class="btn btn-sm" onclick="copyFilteredModelIDs(this)" title="Copy all visible model IDs (one per line)">
+              <span class="msym" style="font-size:14px; vertical-align:-2px;">content_copy</span><span class="btn-text"> Copy Visible</span>
+            </button>
+          </div>
+        </div>
+        <div class="model-filter-chips">
+          <button type="button" class="mfilter-chip ${modelFilterCategory === 'all' ? 'active' : ''}" onclick="setModelFilterCategory('all')">All (${countTotal})</button>
+          ${countLLM > 0 ? `<button type="button" class="mfilter-chip ${modelFilterCategory === 'llm' ? 'active' : ''}" onclick="setModelFilterCategory('llm')">Chat (${countLLM})</button>` : ''}
+          ${countReasoning > 0 ? `<button type="button" class="mfilter-chip ${modelFilterCategory === 'reasoning' ? 'active' : ''}" onclick="setModelFilterCategory('reasoning')">🧠 Reasoning (${countReasoning})</button>` : ''}
+          ${countVision > 0 ? `<button type="button" class="mfilter-chip ${modelFilterCategory === 'vision' ? 'active' : ''}" onclick="setModelFilterCategory('vision')">👁️ Vision (${countVision})</button>` : ''}
+          ${countFree > 0 ? `<button type="button" class="mfilter-chip ${modelFilterCategory === 'free' ? 'active' : ''}" onclick="setModelFilterCategory('free')">Free (${countFree})</button>` : ''}
+          ${countEmbedding > 0 ? `<button type="button" class="mfilter-chip ${modelFilterCategory === 'embed' ? 'active' : ''}" onclick="setModelFilterCategory('embed')">Embedding (${countEmbedding})</button>` : ''}
+          ${countFailed > 0 ? `<button type="button" class="mfilter-chip chip-err ${modelFilterCategory === 'failed' ? 'active' : ''}" onclick="setModelFilterCategory('failed')">⚠️ Failed (${countFailed})</button>` : ''}
+        </div>
+      </div>
+      <div id="models-list-container" style="margin-top:6px;">${modelsInner}</div>
+      <div id="models-none-matched" style="display:none; text-align:center; color:var(--muted); padding:30px; border:1px dashed var(--border); border-radius:10px; margin-top:8px;">
+        No models match the filter. <button class="btn btn-sm" style="margin-left:8px;" onclick="resetModelFilters()">Reset filter</button>
+      </div>` : `<div style="margin-top:6px;">${modelsInner}</div>`}`;
 
     const riskHtml = d.deprecationNotice
       ? `<div class="risk-banner" style="margin-bottom:18px;"><span class="msym">warning</span><span>${escapeHtml(d.deprecationNotice)}</span></div>`
@@ -6659,11 +7670,23 @@
     // and account providers apply it to each account that has no pool of its own.
     const showProxyTab = true;
     const proxyTabBtn = showProxyTab
-      ? `<button class="detail-tab ${activeDetailTab === 'proxy' ? 'active' : ''}" onclick="showDetailTab(this,'proxy')"><span class="msym">lan</span>Proxy Routing</button>`
+      ? `<button class="detail-tab ${activeDetailTab === 'proxy' ? 'active' : ''}" onclick="showDetailTab(this,'proxy')" title="Proxy Routing"><span class="msym">lan</span><span class="dtab-text">Proxy Routing</span></button>`
       : "";
     const proxyPanel = showProxyTab
       ? `<div id="dt-proxy" style="display:${activeDetailTab === 'proxy' ? 'block' : 'none'};">${renderNoAuthProxyCard(d)}</div>`
       : "";
+
+    // Quota panel is relevant only for OAuth & CLI session providers that report
+    // live account allowances/credits. For API key, free, and compatible nodes,
+    // the tab is omitted.
+    const showQuotaTab = d.category === "oauth" || d.authType === "oauth";
+    if (!showQuotaTab && activeDetailTab === "quota") {
+      activeDetailTab = "conn";
+    }
+    const quotaTabBtn = showQuotaTab
+      ? `<button class="detail-tab ${activeDetailTab === 'quota' ? 'active' : ''}" onclick="showDetailTab(this,'quota')" title="Quota"><span class="msym">data_usage</span><span class="dtab-text">Quota</span></button>`
+      : "";
+    const quotaPanel = `<div id="dt-quota" style="display:${showQuotaTab && activeDetailTab === 'quota' ? 'block' : 'none'};">${showQuotaTab ? quotaPanelHtml(d) : ''}</div>`;
 
     document.getElementById("provider-detail-content").innerHTML = `
       <div class="detail-hero">
@@ -6690,16 +7713,14 @@
       ${riskHtml}
       ${nodeHtml}
       <div class="detail-tabs">
-        <button class="detail-tab ${activeDetailTab === 'conn' ? 'active' : ''}" onclick="showDetailTab(this,'conn')"><span class="msym">cable</span>Connections (${(d.connections||[]).length})</button>
-        <button class="detail-tab ${activeDetailTab === 'quota' ? 'active' : ''}" onclick="showDetailTab(this,'quota')"><span class="msym">data_usage</span>Quota</button>
-        <button class="detail-tab ${activeDetailTab === 'caps' ? 'active' : ''}" onclick="showDetailTab(this,'caps')"><span class="msym">tune</span>Capabilities</button>
-        <button class="detail-tab ${activeDetailTab === 'models' ? 'active' : ''}" onclick="showDetailTab(this,'models')"><span class="msym">neurology</span>Available Models (${(d.models||[]).length})</button>
+        <button class="detail-tab ${activeDetailTab === 'conn' ? 'active' : ''}" onclick="showDetailTab(this,'conn')" title="Connections (${(d.connections||[]).length})"><span class="msym">cable</span><span class="dtab-text">Connections (${(d.connections||[]).length})</span></button>
+        ${quotaTabBtn}
+        <button class="detail-tab ${activeDetailTab === 'caps' ? 'active' : ''}" onclick="showDetailTab(this,'caps')" title="Capabilities"><span class="msym">tune</span><span class="dtab-text">Capabilities</span></button>
+        <button class="detail-tab ${activeDetailTab === 'models' ? 'active' : ''}" onclick="showDetailTab(this,'models')" title="Available Models (${(d.models||[]).length})"><span class="msym">neurology</span><span class="dtab-text">Available Models (${(d.models||[]).length})</span></button>
         ${proxyTabBtn}
       </div>
       <div id="dt-conn" style="display:${activeDetailTab === 'conn' ? 'block' : 'none'};">${connsHtml}</div>
-      <div id="dt-quota" style="display:${activeDetailTab === 'quota' ? 'block' : 'none'};">
-        ${quotaPanelHtml(d)}
-      </div>
+      ${quotaPanel}
       <div id="dt-caps" style="display:${activeDetailTab === 'caps' ? 'block' : 'none'};">
         <div class="cap-grid">${capsHtml}</div>
         <div style="margin-top:16px; font-size:0.8rem; color:var(--muted);">
@@ -6709,6 +7730,7 @@
       <div id="dt-models" style="display:${activeDetailTab === 'models' ? 'block' : 'none'};">${modelsHtml}</div>
       ${proxyPanel}`;
     loadConnectionLogs(d.connections);
+    applyModelFilters();
   }
 
   // Per-account activity log. The request history already stores connectionId
@@ -6895,6 +7917,104 @@
   let parallelTestMode = false;
   let autoDisableFailed = false;
   let autoDisableMode = "safe";
+  let modelSearchQuery = "";
+  let modelFilterCategory = "all";
+
+  function applyModelFilters() {
+    const q = (modelSearchQuery || "").toLowerCase().trim();
+    const cat = modelFilterCategory || "all";
+    const container = document.getElementById("models-list-container");
+    if (!container) return;
+    const rows = container.querySelectorAll(".model-row");
+    let visible = 0;
+    rows.forEach(r => {
+      const mid = r.getAttribute("data-mid") || "";
+      const aliasMid = r.getAttribute("data-alias-mid") || "";
+      const dname = r.getAttribute("data-dname") || "";
+      const kind = r.getAttribute("data-kind") || "";
+      const isFree = r.getAttribute("data-free") === "1";
+      const isReasoning = r.getAttribute("data-reasoning") === "1";
+      const isVision = r.getAttribute("data-vision") === "1";
+      const isEmbed = r.getAttribute("data-embed") === "1";
+      const rawModelId = r.id.replace("model-row-", "");
+      const isFailed = modelTestResults[rawModelId] === "error";
+
+      let matchCat = true;
+      if (cat === "llm") matchCat = (kind === "llm" || (!kind && !isVision && !isEmbed));
+      else if (cat === "reasoning") matchCat = isReasoning;
+      else if (cat === "vision") matchCat = isVision;
+      else if (cat === "free") matchCat = isFree;
+      else if (cat === "embed") matchCat = isEmbed;
+      else if (cat === "failed") matchCat = isFailed;
+
+      let matchQuery = true;
+      if (q) {
+        matchQuery = mid.includes(q) || aliasMid.includes(q) || dname.includes(q) || kind.includes(q);
+      }
+
+      if (matchCat && matchQuery) {
+        r.style.display = "";
+        visible++;
+      } else {
+        r.style.display = "none";
+      }
+    });
+
+    const cntEl = document.getElementById("model-visible-count");
+    if (cntEl) cntEl.textContent = `Showing ${visible} of ${rows.length} models`;
+    const noneEl = document.getElementById("models-none-matched");
+    if (noneEl) noneEl.style.display = (visible === 0 && rows.length > 0) ? "block" : "none";
+    const clearBtn = document.getElementById("model-search-clear-btn");
+    if (clearBtn) clearBtn.style.display = q ? "flex" : "none";
+  }
+
+  function handleModelSearch(val) {
+    modelSearchQuery = val;
+    applyModelFilters();
+  }
+
+  function clearModelSearch() {
+    modelSearchQuery = "";
+    const box = document.getElementById("model-search-box");
+    if (box) box.value = "";
+    applyModelFilters();
+  }
+
+  function setModelFilterCategory(cat) {
+    modelFilterCategory = cat;
+    renderProviderDetailRefresh();
+  }
+
+  function resetModelFilters() {
+    modelSearchQuery = "";
+    modelFilterCategory = "all";
+    const box = document.getElementById("model-search-box");
+    if (box) box.value = "";
+    renderProviderDetailRefresh();
+  }
+
+  async function copyFilteredModelIDs(btn) {
+    const container = document.getElementById("models-list-container");
+    if (!container) return;
+    const ids = [];
+    container.querySelectorAll(".model-row").forEach(r => {
+      if (r.style.display !== "none") {
+        const full = r.getAttribute("data-alias-mid") || r.getAttribute("data-mid");
+        if (full) ids.push(full);
+      }
+    });
+    if (!ids.length) return;
+    try {
+      await navigator.clipboard.writeText(ids.join("\n"));
+      if (btn) {
+        const orig = btn.innerHTML;
+        btn.innerHTML = `<span class="msym" style="font-size:14px; vertical-align:-2px; color:#3fb950;">check</span> Copied (${ids.length})!`;
+        setTimeout(() => { btn.innerHTML = orig; }, 1400);
+      }
+    } catch (_) {
+      appPrompt("Copy visible model IDs:", { title: "Copy manually", input: ids.join("\n"), okText: "Done" });
+    }
+  }
 
   // Persist the toolbar checkbox state across re-renders (renderProviderDetail
   // replaces the DOM, so plain inline assignment would be lost).
@@ -9605,6 +10725,23 @@
     document.getElementById("cnt-webCookie").innerText = counts.webCookie;
     document.getElementById("cnt-custom").innerText = counts.custom;
 
+    let cntConnected = 0;
+    let cntActive = 0;
+    let cntUnconfigured = 0;
+    list.forEach(p => {
+      const hasConn = !p.noConnection && (p.connections ? p.connections.length > 0 : (p.id && p.id !== p.provider));
+      const isActive = p.isActive === 1 || p.isEffectivelyActive;
+      if (hasConn || p.noConnection) cntConnected++;
+      else cntUnconfigured++;
+      if (isActive) cntActive++;
+    });
+    const elConn = document.getElementById("cnt-status-connected");
+    if (elConn) elConn.innerText = cntConnected;
+    const elAct = document.getElementById("cnt-status-active");
+    if (elAct) elAct.innerText = cntActive;
+    const elUnc = document.getElementById("cnt-status-unconfigured");
+    if (elUnc) elUnc.innerText = cntUnconfigured;
+
     // Hide filter pills for categories that own no provider. An empty pill is a
     // dead end: clicking it filters the grid down to nothing, which reads as a
     // broken page rather than a category that simply has no members yet. The
@@ -9708,6 +10845,13 @@
   };
   let compatMode = "openai";
 
+  function onCompatNameInput(val) {
+    const prefixEl = document.getElementById("compat-prefix");
+    if (!prefixEl || prefixEl.dataset.userEdited) return;
+    const slug = (val || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").substring(0, 16);
+    prefixEl.value = slug;
+  }
+
   function openCompatModal(mode) {
     compatMode = COMPAT_MODES[mode] ? mode : "openai";
     const cfg = COMPAT_MODES[compatMode];
@@ -9715,8 +10859,10 @@
     document.getElementById("compat-modal-title").innerText = cfg.title;
     document.getElementById("compat-name").value = "";
     document.getElementById("compat-name").placeholder = cfg.namePh;
-    document.getElementById("compat-prefix").value = "";
-    document.getElementById("compat-prefix").placeholder = cfg.prefixPh;
+    const prefixEl = document.getElementById("compat-prefix");
+    prefixEl.value = "";
+    prefixEl.placeholder = cfg.prefixPh;
+    delete prefixEl.dataset.userEdited;
     document.getElementById("compat-baseurl").value = cfg.baseUrl;
     document.getElementById("compat-baseurl").placeholder = cfg.baseUrlPh;
     document.getElementById("compat-iconurl").value = "";
@@ -9839,6 +10985,20 @@
         return;
       }
       const node = data.node;
+      const checkKey = document.getElementById("compat-checkkey")?.value?.trim();
+      if (checkKey && node && node.id) {
+        try {
+          await api("/api/dashboard/providers", {
+            method: "POST",
+            body: JSON.stringify({
+              provider: node.id,
+              name: (body.name || "Main") + " Key",
+              apiKey: checkKey,
+              priority: 1
+            })
+          });
+        } catch (_) {}
+      }
       closeModal("compatible-modal");
       await loadProviders();
       // Land on the new node's page, mirroring upstream router.push(...).
@@ -10267,6 +11427,15 @@
       const activeCount = accounts.filter(a => !isSwitchOff(a)).length;
       const allOff = activeCount === 0 && !head.noConnection;
       const partial = activeCount > 0 && activeCount < accounts.length;
+
+      const hasError = accounts.some(a => a.effectiveStatus === 'unavailable' || a.effectiveStatus === 'quota_exhausted');
+      const hasRateLimit = accounts.some(a => a.effectiveStatus === 'rate_limited' || a.hasActiveCooldown);
+      const statusBadge = hasError
+        ? `<span class="prov-status-indicator err" title="Account quota exhausted or unavailable">error</span>`
+        : hasRateLimit
+          ? `<span class="prov-status-indicator warn" title="Account rate limited or in cooldown">cooldown</span>`
+          : "";
+
       const toggle = head.noConnection ? "" : `
         <label class="switch prov-card-switch" title="${allOff ? "Disabled — click to enable all accounts" : partial ? `Partially enabled (${activeCount}/${accounts.length} accounts)` : "Enabled — click to disable all accounts"}" onclick="event.stopPropagation()">
           <input type="checkbox" ${allOff ? "" : "checked"} onchange="toggleProviderAll('${prov}', this.checked);">
@@ -10276,7 +11445,10 @@
         <div class="prov-card${allOff ? " prov-card-off" : ""}" onclick="openProviderDetail('${prov}')">
           ${providerIconHtml(prov, icon, { size: 24, color: color, label: head.displayName || prov })}
           <div class="prov-card-main">
-            <div class="prov-card-title">${escapeHtml(head.displayName || prov)}</div>
+            <div style="display:flex; align-items:center; gap:6px;">
+              <div class="prov-card-title">${escapeHtml(head.displayName || prov)}</div>
+              ${statusBadge}
+            </div>
             ${countLine}${partial ? ` <span class="prov-card-partial">${activeCount}/${accounts.length} active</span>` : ""}
           </div>
           ${toggle}
@@ -10313,11 +11485,28 @@
     }).join("");
   }
 
+  let currentStatusFilter = "all";
+
+  function setProviderStatusFilter(st) {
+    currentStatusFilter = st;
+    document.querySelectorAll(".sfilter-btn").forEach(b => b.classList.remove("active"));
+    const activeBtn = document.getElementById("f-status-" + st);
+    if (activeBtn) activeBtn.classList.add("active");
+    filterProviders();
+  }
+
   function filterProviders() {
     const q = document.getElementById("provider-search").value.toLowerCase().trim();
     const filtered = allProviders.filter(p => {
       const matchCat = (currentCategory === "all") || (sectionKeyFor(p.category) === currentCategory);
       if (!matchCat) return false;
+      if (currentStatusFilter !== "all") {
+        const hasConn = !p.noConnection && (p.connections ? p.connections.length > 0 : (p.id && p.id !== p.provider));
+        const isActive = p.isActive === 1 || p.isEffectivelyActive;
+        if (currentStatusFilter === "connected" && !hasConn && !p.noConnection) return false;
+        if (currentStatusFilter === "active" && !isActive) return false;
+        if (currentStatusFilter === "unconfigured" && (hasConn || p.noConnection)) return false;
+      }
       if (!q) return true;
       return (
         (p.displayName && p.displayName.toLowerCase().includes(q)) ||
@@ -10330,6 +11519,10 @@
       );
     });
     renderProviders(filtered);
+    const matchEl = document.getElementById("prov-match-count");
+    if (matchEl) {
+      matchEl.textContent = `${filtered.length} of ${allProviders.length} providers`;
+    }
   }
 
   // ---- Enable / disable every account of a provider ---------------------
@@ -10637,6 +11830,24 @@
   let pickerCatalog = null;
   let pickerSelection = "";
   let pickerQuery = "";
+  let pickerCategoryFilter = "all";
+
+  function setPickerCategoryFilter(cat) {
+    pickerCategoryFilter = cat;
+    document.querySelectorAll(".pfilter-chip").forEach(c => {
+      c.classList.toggle("active", c.getAttribute("data-pcat") === cat);
+    });
+    renderProviderPicker();
+  }
+
+  function clearProviderPickerSearch() {
+    const input = document.getElementById("p-provider-search");
+    if (input) input.value = "";
+    pickerQuery = "";
+    const clearBtn = document.getElementById("p-provider-clear-btn");
+    if (clearBtn) clearBtn.style.display = "none";
+    renderProviderPicker();
+  }
 
   // Order matches the provider page sections so the two views agree.
   // Categories shown in the Add Provider picker.
@@ -10659,8 +11870,14 @@
     msg.textContent = "";
     pickerSelection = "";
     pickerQuery = "";
+    pickerCategoryFilter = "all";
     const search = document.getElementById("p-provider-search");
     if (search) search.value = "";
+    const clearBtn = document.getElementById("p-provider-clear-btn");
+    if (clearBtn) clearBtn.style.display = "none";
+    document.querySelectorAll(".pfilter-chip").forEach(c => {
+      c.classList.toggle("active", c.getAttribute("data-pcat") === "all");
+    });
     document.getElementById("provider-modal").classList.add("active");
 
     if (!pickerCatalog) {
@@ -10681,8 +11898,16 @@
     const list = document.getElementById("p-provider-list");
     if (!list || !pickerCatalog) return;
     const q = pickerQuery.toLowerCase().trim();
+    const clearBtn = document.getElementById("p-provider-clear-btn");
+    if (clearBtn) clearBtn.style.display = q ? "flex" : "none";
 
     const matches = p => {
+      if (pickerCategoryFilter !== "all") {
+        const cat = p.category || "";
+        const expected = pickerCategoryFilter;
+        if (expected === "freeTier" && cat !== "free" && cat !== "freeTier") return false;
+        if (expected !== "freeTier" && cat !== expected) return false;
+      }
       if (!q) return true;
       return (p.id || "").toLowerCase().includes(q) ||
              (p.name || "").toLowerCase().includes(q) ||
@@ -10692,21 +11917,9 @@
     let html = "";
     let shown = 0;
 
-    // --- Compatible Endpoints group (always shown, even when filtered) ---
-    if (!q || q.includes("compat") || q.includes("openai") || q.includes("anthropic")) {
-      html += `<div class="picker-group-head"><span class="picker-dot" style="background:#14b8a6"></span>Compatible Endpoints <span style="opacity:.7">2</span></div>`;
-      html += `<div class="picker-row" role="option" data-id="_compat_openai" onclick="closeModal('provider-modal');openCompatModal('openai');">
-        <span class="picker-name">OpenAI Compatible</span>
-        <span class="picker-kind">any OpenAI-protocol endpoint</span>
-      </div>`;
-      html += `<div class="picker-row" role="option" data-id="_compat_anthropic" onclick="closeModal('provider-modal');openCompatModal('anthropic');">
-        <span class="picker-name">Anthropic / Claude Code Compatible</span>
-        <span class="picker-kind">CC-format endpoint</span>
-      </div>`;
-      shown += 2;
-    }
 
     for (const g of PICKER_GROUPS) {
+      if (pickerCategoryFilter !== "all" && g.key !== pickerCategoryFilter) continue;
       // "free" is a separate backend category that the provider page folds into
       // Free Tier; do the same here so a free provider is not invisible.
       const group = (pickerCatalog[g.key] || []).concat(g.key === "freeTier" ? (pickerCatalog.free || []) : []);
@@ -10722,7 +11935,7 @@
                      ondblclick="pickProvider()">
           <span class="picker-name">${escapeHtml(p.name || p.id)}</span>
           ${kinds ? `<span class="picker-kind">${escapeHtml(kinds)}</span>` : ""}
-          ${p.deprecated ? `<span class="picker-deprecated" title="Kept for existing accounts; a risk notice is shown on its page">deprecated</span>` : ""}
+          ${p.deprecated ? `<span class="picker-deprecated" title="Sesi CLI/OAuth tidak resmi — ada risiko limit akun dari upstream">risk notice</span>` : ""}
           ${p.alias && p.alias !== p.id ? `<span class="picker-alias">${escapeHtml(p.alias)}</span>` : ""}
         </div>`;
       }).join("");
@@ -11174,8 +12387,8 @@
   }
 
   function maskKey(k) {
-    if (!k || k.length <= 12) return k || "";
-    return k.slice(0, 8) + "\u2026" + k.slice(-6);
+    if (!k) return "";
+    return "••••••••••••••••••••••••";
   }
 
   function copyKeySecret(id) {
@@ -11216,7 +12429,7 @@
           </td>
           <td>
             <div class="key-secret">
-              <code>${escapeHtml(shown ? k.key : maskKey(k.key))}</code>
+              <code class="${shown ? "revealed" : ""}">${escapeHtml(shown ? k.key : maskKey(k.key))}</code>
               <button class="icon-btn" onclick="toggleKeySecret('${k.id}')" title="${shown ? "Hide key" : "Show key"}">
                 <span class="msym" style="font-size:15px;vertical-align:-2px;">${shown ? "visibility_off" : "visibility"}</span>
               </button>
@@ -13385,6 +14598,114 @@
       td.textContent = timeAgo(td.dataset.ts);
     });
   }, 1000);
+
+  // Long-press / Hold tooltip: surfaces info when a button or icon is held
+  (function initHoldTooltips() {
+    let holdTimer = null;
+    let activeEl = null;
+    let popup = null;
+    let holdFired = false;
+
+    function getPopup() {
+      if (!popup) {
+        popup = document.createElement("div");
+        popup.className = "app-tooltip-popup";
+        popup.style.display = "none";
+        document.body.appendChild(popup);
+      }
+      return popup;
+    }
+
+    function resolveTipText(el) {
+      if (!el) return "";
+      let text = el.getAttribute("data-tooltip") || el.getAttribute("title");
+      if (text && text.trim()) return text.trim();
+      const textEl = el.querySelector(".btn-text, .dtab-text");
+      if (textEl && textEl.textContent.trim()) {
+        return textEl.textContent.trim();
+      }
+      const aria = el.getAttribute("aria-label");
+      if (aria && aria.trim()) return aria.trim();
+      return "";
+    }
+
+    function showTooltip(el, text) {
+      if (!text) return;
+      const pop = getPopup();
+      pop.textContent = text;
+      pop.style.display = "block";
+
+      const r = el.getBoundingClientRect();
+      const pr = pop.getBoundingClientRect();
+
+      let top = r.top - pr.height - 8;
+      if (top < 10) top = r.bottom + 8;
+      let left = r.left + (r.width / 2) - (pr.width / 2);
+      left = Math.max(10, Math.min(left, window.innerWidth - pr.width - 10));
+
+      pop.style.top = (top + window.scrollY) + "px";
+      pop.style.left = (left + window.scrollX) + "px";
+
+      if (navigator.vibrate) {
+        try { navigator.vibrate(25); } catch (_) {}
+      }
+    }
+
+    function dismissTooltip() {
+      if (holdTimer) {
+        clearTimeout(holdTimer);
+        holdTimer = null;
+      }
+      if (popup) popup.style.display = "none";
+      if (activeEl && activeEl.dataset.tipStashed) {
+        activeEl.title = activeEl.dataset.tipStashed;
+        delete activeEl.dataset.tipStashed;
+      }
+      activeEl = null;
+    }
+
+    document.addEventListener("pointerdown", e => {
+      const target = e.target.closest("button, .btn, [title], [data-tooltip], .detail-tab, .test-opt-pill, .mfilter-chip, .sfilter-btn");
+      if (!target) return;
+      const text = resolveTipText(target);
+      if (!text) return;
+
+      activeEl = target;
+      holdFired = false;
+      if (target.title) {
+        target.dataset.tipStashed = target.title;
+        target.title = "";
+      }
+
+      holdTimer = setTimeout(() => {
+        holdFired = true;
+        showTooltip(target, text);
+      }, 250);
+    }, { passive: true });
+
+    document.addEventListener("pointerup", e => {
+      if (holdFired) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+      setTimeout(dismissTooltip, 900);
+    });
+
+    document.addEventListener("pointercancel", dismissTooltip);
+    document.addEventListener("pointermove", e => {
+      if (holdTimer && !holdFired && activeEl) {
+        const r = activeEl.getBoundingClientRect();
+        if (e.clientX < r.left - 12 || e.clientX > r.right + 12 ||
+            e.clientY < r.top - 12 || e.clientY > r.bottom + 12) {
+          dismissTooltip();
+        }
+      }
+    });
+
+    document.addEventListener("contextmenu", e => {
+      if (holdFired) e.preventDefault();
+    });
+  })();
 
   checkAuth();
 </script>

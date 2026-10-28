@@ -86,37 +86,6 @@ func freebuffOrigin(baseURL string) string {
 	return "https://www.codebuff.com"
 }
 
-func ensureFreebuffMarker(body map[string]any) {
-	rawMsgs, ok := body["messages"].([]any)
-	if !ok || len(rawMsgs) == 0 {
-		body["messages"] = []any{
-			map[string]any{"role": "system", "content": freebuffSystemMarker},
-		}
-		return
-	}
-
-	first, ok := rawMsgs[0].(map[string]any)
-	if ok && first["role"] == "system" {
-		content, _ := first["content"].(string)
-		trimmed := strings.TrimSpace(content)
-		for _, opening := range freebuffRootOpenings {
-			if strings.HasPrefix(trimmed, opening) {
-				return // already marked
-			}
-		}
-		first["content"] = freebuffSystemMarker + "\n\n" + content
-		rawMsgs[0] = first
-		body["messages"] = rawMsgs
-		return
-	}
-
-	// No leading system message — prepend one
-	newMsgs := make([]any, 0, len(rawMsgs)+1)
-	newMsgs = append(newMsgs, map[string]any{"role": "system", "content": freebuffSystemMarker})
-	newMsgs = append(newMsgs, rawMsgs...)
-	body["messages"] = newMsgs
-}
-
 func ensureFreebuffEndTurnTool(body map[string]any) {
 	rawTools, ok := body["tools"].([]any)
 	if !ok || len(rawTools) == 0 {
@@ -329,9 +298,31 @@ func ForwardFreebuff(w http.ResponseWriter, req *Request) error {
 		model = "deepseek/deepseek-v4-flash"
 	}
 
-	// 1. Session acquisition (cached or requested)
+	// 1. Session: ask the gateway before creating one. A create is billed
+	// (Freebucks, per session per hour); a GET on an existing active session is
+	// not. The CLI does exactly this — see freebuff_cli.go.
 	sess, ok := getFreebuffSession(token, model)
 	if !ok {
+		state, status, serr := freebuffFetchSessionState(ctx, client, req.Config.BaseURL, token)
+		if serr != nil && status != http.StatusNotFound {
+			log.Warn("freebuff", "session GET failed", "model", model, "status", status, "error", serr)
+			return serr
+		}
+		if live := freebuffSessionFromState(state); live != nil {
+			// An active session for a different model holds the single-session
+			// lock; reuse only when the model matches, otherwise the POST below
+			// answers 409 model_locked.
+			if state.Model == "" || state.Model == model {
+				setFreebuffSession(token, model, live)
+				sess = live
+				ok = true
+			}
+		}
+	}
+	if !ok {
+		// The free tier is ad-supported; the CLI pulls a proposal and reports an
+		// impression before creating a session. Best-effort, never blocking.
+		freebuffRequestAds(ctx, client, req.Config.BaseURL, token, "")
 		var err error
 		sess, err = requestFreebuffSession(ctx, client, req.Config.BaseURL, token, model)
 		if err != nil {
@@ -351,10 +342,17 @@ func ForwardFreebuff(w http.ResponseWriter, req *Request) error {
 		finishFreebuffRun(context.Background(), client, req.Config.BaseURL, token, runID, runStatus)
 	}()
 	// 3. Transform body
-	delete(parsedBody, "reasoning_effort")
+	// The CLI sends reasoning_effort top-level AND echoes it inside
+	// codebuff_metadata as freebuff_reasoning_effort (the server re-clamps from
+	// that key). Dropping it silently removed the caller's choice; keeping it in
+	// both places is what the released binary does.
 	delete(parsedBody, "reasoning")
+	reasoningEffort, _ := parsedBody["reasoning_effort"].(string)
 
-	ensureFreebuffMarker(parsedBody)
+	// Match the CLI's outbound shape: Buffy marker at position 0, no foreign
+	// harness identity, always streaming with usage.
+	freebuffNormalizeSystemPrompt(parsedBody)
+	freebuffEnsureStreaming(parsedBody)
 	ensureFreebuffEndTurnTool(parsedBody)
 
 	parsedBody["provider"] = map[string]any{
@@ -369,6 +367,11 @@ func ForwardFreebuff(w http.ResponseWriter, req *Request) error {
 	}
 	if sess != nil && sess.InstanceID != "" {
 		codebuffMeta["freebuff_instance_id"] = sess.InstanceID
+	}
+	// The server re-clamps from this key, so an effort the caller chose is only
+	// honoured when it is echoed here as well as sent top-level.
+	if reasoningEffort != "" {
+		codebuffMeta["freebuff_reasoning_effort"] = reasoningEffort
 	}
 	parsedBody["codebuff_metadata"] = codebuffMeta
 
@@ -397,16 +400,28 @@ func ForwardFreebuff(w http.ResponseWriter, req *Request) error {
 		return fmt.Errorf("freebuff upstream: %w", err)
 	}
 
-	// Stale session check (428 waiting_room_required, 409 session_superseded, 410 session_expired)
+	// Stale session check. The CLI distinguishes these by the `status` field, not
+	// the code alone: 409 model_locked / model_unavailable, 410 model_unavailable,
+	// 428 waiting_room_required. A model the gateway has retired is a global
+	// failure — recreating a session cannot revive it, and retrying only burns
+	// another attempt against the same dead id.
 	if resp.StatusCode == 428 || resp.StatusCode == 409 || resp.StatusCode == 410 {
 		respBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 1024*1024))
 		resp.Body.Close()
 
 		var errData struct {
+			Status  string `json:"status"`
 			Error   string `json:"error"`
 			Message string `json:"message"`
 		}
 		_ = json.Unmarshal(respBytes, &errData)
+
+		modelGone := resp.StatusCode == 410 ||
+			errData.Status == "model_unavailable" ||
+			errData.Error == "model_unavailable"
+		if modelGone {
+			return &proxy.UpstreamError{StatusCode: resp.StatusCode, Body: respBytes}
+		}
 
 		// If model is locked or limited IP, fail immediately
 		if errData.Error == "model_locked" || strings.Contains(strings.ToLower(errData.Message), "limited") {
@@ -446,6 +461,19 @@ func ForwardFreebuff(w http.ResponseWriter, req *Request) error {
 		return execSSEStream(w, stallReader, req)
 	}
 
+	// Upstream always streams (the CLI sends stream:true unconditionally), so a
+	// non-streaming caller gets the SSE collapsed into one JSON body.
 	defer resp.Body.Close()
-	return jsonResponse(ctx, w, resp.Body, req.TranslateResp, req.ResponseBuf)
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
+	if err != nil {
+		return fmt.Errorf("freebuff: read streamed response: %w", err)
+	}
+	if !freebuffLooksLikeSSE(raw) {
+		return jsonResponse(ctx, w, bytes.NewReader(raw), req.TranslateResp, req.ResponseBuf)
+	}
+	collapsed, err := freebuffAggregateSSE(bytes.NewReader(raw))
+	if err != nil {
+		return fmt.Errorf("freebuff: aggregate streamed response: %w", err)
+	}
+	return jsonResponse(ctx, w, bytes.NewReader(collapsed), req.TranslateResp, req.ResponseBuf)
 }

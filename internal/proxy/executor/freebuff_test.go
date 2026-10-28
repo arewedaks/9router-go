@@ -14,9 +14,12 @@ import (
 )
 
 func TestFreebuff_EnsureMarker(t *testing.T) {
+	// The marker logic moved to freebuffNormalizeSystemPrompt (freebuff_cli.go),
+	// which also scrubs foreign-harness identity. These cases pin the behaviour
+	// the old ensureFreebuffMarker had, so a regression still fails here.
 	// 1. Empty messages
 	b1 := map[string]any{"messages": []any{}}
-	ensureFreebuffMarker(b1)
+	freebuffNormalizeSystemPrompt(b1)
 	msgs1 := b1["messages"].([]any)
 	if len(msgs1) != 1 {
 		t.Fatalf("expected 1 message, got %d", len(msgs1))
@@ -33,7 +36,7 @@ func TestFreebuff_EnsureMarker(t *testing.T) {
 			map[string]any{"role": "user", "content": "Hello"},
 		},
 	}
-	ensureFreebuffMarker(b2)
+	freebuffNormalizeSystemPrompt(b2)
 	msgs2 := b2["messages"].([]any)
 	m2 := msgs2[0].(map[string]any)
 	expected2 := freebuffSystemMarker + "\n\nCustom system prompt"
@@ -47,7 +50,7 @@ func TestFreebuff_EnsureMarker(t *testing.T) {
 			map[string]any{"role": "system", "content": "You are Buffy, the strategic coding assistant.\n\nCustom prompt"},
 		},
 	}
-	ensureFreebuffMarker(b3)
+	freebuffNormalizeSystemPrompt(b3)
 	msgs3 := b3["messages"].([]any)
 	m3 := msgs3[0].(map[string]any)
 	if m3["content"] != "You are Buffy, the strategic coding assistant.\n\nCustom prompt" {
@@ -60,7 +63,7 @@ func TestFreebuff_EnsureMarker(t *testing.T) {
 			map[string]any{"role": "user", "content": "Write code"},
 		},
 	}
-	ensureFreebuffMarker(b4)
+	freebuffNormalizeSystemPrompt(b4)
 	msgs4 := b4["messages"].([]any)
 	if len(msgs4) != 2 {
 		t.Fatalf("expected 2 messages, got %d", len(msgs4))
