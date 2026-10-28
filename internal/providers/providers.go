@@ -269,6 +269,22 @@ var KnownProviders = map[string]ProviderConfig{
 		AuthHeader: "Authorization",
 		AuthScheme: "bearer",
 	},
+	// ADCode's included AI (Tagflow). OpenAI-shaped on the vendor's own gateway,
+	// but the bearer is a short-lived Firebase ID token: the connection stores the
+	// refresh token and the executor mints the ID token per request (see
+	// executor/adcode.go). The URL and headers are pinned in adcode.go.
+	"adcode": {
+		BaseURL:    AdCodeTagflowBase + "/chat/completions",
+		AuthHeader: "Authorization",
+		AuthScheme: "bearer",
+		StaticHeaders: map[string]string{
+			"User-Agent":          AdCodeUserAgent,
+			"x-adcode-ai-source":  "chat",
+			"x-adcode-ai-persona": "coding-assistant",
+			"x-adcode-platform":   "linux",
+		},
+		UsageURL: AdCodeUsageURL,
+	},
 	// Wally is RunAnywhere's inference gateway. It speaks the OpenAI chat shape
 	// on /v1, so it needs the same transport as any other compatible endpoint;
 	// only the host and the key differ.

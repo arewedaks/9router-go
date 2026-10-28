@@ -261,6 +261,9 @@ func (h *Handler) testConnection(ctx context.Context, connID string) (result con
 	if providers.ResolveAlias(strings.TrimSpace(conn.Provider)) == "openrouter" {
 		return h.probeOpenrouterConnection(ctx, raw, out)
 	}
+	if providers.ResolveAlias(strings.TrimSpace(conn.Provider)) == "adcode" {
+		return h.probeAdCodeConnection(ctx, raw, out)
+	}
 	return h.probeGenericConnection(ctx, raw, out)
 }
 
@@ -1064,6 +1067,9 @@ var genericProbeModels = map[string]string{
 	// was withdrawn ("This model is no longer free" -> 404), so probe on the
 	// current free preview instead.
 	"nous": "meituan/longcat-2.5-preview:free",
+	// ADCode's included AI rejects ids outside its catalogue; the free lane id is
+	// the one every signed-in account can call.
+	"adcode": "tagflow-code-27b",
 }
 
 // setProbeAuthHeader applies the provider's configured auth header/scheme.

@@ -3,6 +3,7 @@ package executor
 // RegisterAll registers all known executor factories.
 // Called once at init or server startup.
 func RegisterAll() {
+	Register("adcode", func() Executor { return ForwardAdCode })
 	Register("openai", func() Executor { return ForwardOpenAI })
 	Register("anthropic", func() Executor { return ForwardOpenAI })
 	Register("deepseek", func() Executor { return ForwardOpenAI })

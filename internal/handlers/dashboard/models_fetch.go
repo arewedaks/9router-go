@@ -226,6 +226,13 @@ func (h *Handler) fetchUpstreamModels(providerID, data string, timeout time.Dura
 		return h.fetchAntigravityModels(canonical, data, timeout)
 	}
 
+	// ADCode's included AI has no /models route: the vendor client reads
+	// GET /v1/ai/tagflow/config instead, which also carries each model's context
+	// window and output cap. Without this branch Import caches nothing.
+	if canonical == "adcode" || providerID == "adcode" {
+		return h.fetchAdCodeModels(providerID, timeout), nil
+	}
+
 	// Grok CLI's session endpoint cli-chat-proxy.grok.com does publish an
 	// OpenAI-style /models route, but it needs the CLI identity headers and a
 	// per-effort expansion the generic registry branch cannot express (the
