@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -21,12 +22,41 @@ import (
 
 const (
 	freebuffSessionPath   = "/api/v1/freebuff/session"
+	freebuffAdmissionPath = "/api/v1/freebuff/session/admission"
 	freebuffRunPath       = "/api/v1/agent-runs"
 	freebuffSystemMarker  = "You are Buffy, the strategic coding assistant."
 	freebuffCLIUserAgent  = "codebuff-cli/0.0.138"
 	freebuffChatUserAgent = "ai-sdk/openai-compatible/1.0/codebuff"
 	freebuffSessionTTL    = 60 * time.Minute
+
+	// FreebuffCLIVersion is the client version the gateway's update gate reads
+	// from `x-freebuff-client-version`. It is load-bearing: a version below the
+	// running release is answered HTTP 410 "This version of Freebuff is out of
+	// date", which is what every request from this proxy used to get once the
+	// header was missing entirely. Pinned to npm `freebuff` dist-tag latest
+	// (0.2.34, measured 2026-10-28); overridable so a bump needs no rebuild.
+	//
+	// Note the package name: the free client ships as `freebuff`, not `codebuff`.
+	// codebuff@1.0.688 is the paid Codebuff CLI and does not carry this gate.
+	freebuffClientName = "cli"
+
+	// freebuffAdmissionUnsupported is the 404/405 errorCode the CLI treats as
+	// "this gateway predates the admission endpoint" and falls back from.
+	freebuffAdmissionUnsupported = "session_admission_unsupported"
 )
+
+// FreebuffCLIVersion is a var, not a const, so GITHUB_COPILOT_CLI_VERSION-style
+// overrides and tests can pin it.
+var FreebuffCLIVersion = "0.2.34"
+
+// freebuffClientVersion returns the version string to send, honouring the
+// FREEBUFF_CLI_VERSION override the same way the Copilot profile does.
+func freebuffClientVersion() string {
+	if v := strings.TrimSpace(os.Getenv("FREEBUFF_CLI_VERSION")); v != "" {
+		return v
+	}
+	return FreebuffCLIVersion
+}
 
 var freebuffRootAgentByModel = map[string]string{
 	"deepseek/deepseek-v4-flash":      "base3-free-deepseek-flash",
@@ -141,9 +171,39 @@ func clearFreebuffSession(token, model string) {
 	delete(freebuffSessionCache, key)
 }
 
+// freebuffClientHeaders are the identity headers the released freebuff CLI sends
+// on every freebuff call. The version header is the one the gateway's update gate
+// reads: absent or stale it answers HTTP 410 "This version of Freebuff is out of
+// date", which is a hard stop for the whole account.
+//
+// Values read from freebuff@0.2.34 (binary): `x-freebuff-client: "cli"`,
+// `x-freebuff-client-version: <CODEBUFF_CLI_VERSION>`, and
+// `x-freebuff-sse-gzip-recovery: "1"`.
+func freebuffClientHeaders() map[string]string {
+	h := map[string]string{
+		"x-freebuff-client":            freebuffClientName,
+		"x-freebuff-client-version":    freebuffClientVersion(),
+		"x-freebuff-sse-gzip-recovery": "1",
+	}
+	return h
+}
+
+// freebuffSetClientHeaders copies the CLI identity headers onto a request.
+func freebuffSetClientHeaders(req *http.Request) {
+	for k, v := range freebuffClientHeaders() {
+		if v != "" {
+			req.Header.Set(k, v)
+		}
+	}
+}
+
 func requestFreebuffSession(ctx context.Context, client *http.Client, baseURL, token, model string) (*freebuffSession, error) {
 	origin := freebuffOrigin(baseURL)
-	reqURL := origin + freebuffSessionPath
+	// The free CLI creates sessions on /session/admission, not /session; POST to
+	// the old path is what a pre-admission build did. A gateway that answers
+	// 404/405 with errorCode session_admission_unsupported means it predates the
+	// endpoint, so fall back rather than failing the request.
+	reqURL := origin + freebuffAdmissionPath
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, bytes.NewReader([]byte("{}")))
 	if err != nil {
@@ -153,6 +213,10 @@ func requestFreebuffSession(ctx context.Context, client *http.Client, baseURL, t
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("User-Agent", freebuffCLIUserAgent)
 	req.Header.Set("x-freebuff-model", model)
+	// The CLI marks the create as a wallet-spend attempt; without it the gateway
+	// cannot attribute the Freebucks charge.
+	req.Header.Set("x-freebuff-wallet-spend-limit", "session")
+	freebuffSetClientHeaders(req)
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -165,12 +229,41 @@ func requestFreebuffSession(ctx context.Context, client *http.Client, baseURL, t
 		return nil, fmt.Errorf("read freebuff session response: %w", err)
 	}
 
+	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusMethodNotAllowed {
+		var probe struct {
+			Error     string `json:"error"`
+			ErrorCode string `json:"errorCode"`
+		}
+		_ = json.Unmarshal(respBytes, &probe)
+		if probe.ErrorCode == freebuffAdmissionUnsupported || probe.Error == freebuffAdmissionUnsupported || len(respBytes) == 0 {
+			// Retry once against the pre-admission path.
+			retryReq, rerr := http.NewRequestWithContext(ctx, http.MethodPost,
+				origin+freebuffSessionPath, bytes.NewReader([]byte("{}")))
+			if rerr != nil {
+				return nil, rerr
+			}
+			retryReq.Header.Set("Content-Type", "application/json")
+			retryReq.Header.Set("Authorization", "Bearer "+token)
+			retryReq.Header.Set("User-Agent", freebuffCLIUserAgent)
+			retryReq.Header.Set("x-freebuff-model", model)
+			freebuffSetClientHeaders(retryReq)
+			if retryResp, rerr2 := client.Do(retryReq); rerr2 == nil {
+				defer retryResp.Body.Close()
+				respBytes, _ = io.ReadAll(io.LimitReader(retryResp.Body, 1024*1024))
+				resp = retryResp
+			} else {
+				return nil, fmt.Errorf("freebuff session fallback: %w", rerr2)
+			}
+		}
+	}
+
 	var data struct {
 		Status     string `json:"status"`
 		InstanceID string `json:"instanceId"`
 		ExpiresAt  string `json:"expiresAt"`
 		Message    string `json:"message"`
 		Error      string `json:"error"`
+		ErrorCode  string `json:"errorCode"`
 	}
 	_ = json.Unmarshal(respBytes, &data)
 
@@ -217,6 +310,7 @@ func startFreebuffRun(ctx context.Context, client *http.Client, baseURL, token, 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("User-Agent", freebuffCLIUserAgent)
+	freebuffSetClientHeaders(req)
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -391,6 +485,14 @@ func ForwardFreebuff(w http.ResponseWriter, req *Request) error {
 		}
 		for k, v := range req.Config.StaticHeaders {
 			headers[k] = v
+		}
+		// The chat call carries the same client identity as the session call:
+		// the update gate applies to every freebuff request, not just session
+		// creation.
+		for k, v := range freebuffClientHeaders() {
+			if v != "" {
+				headers[k] = v
+			}
 		}
 		return proxy.DoRequest(ctx, client, http.MethodPost, req.Config.BaseURL, headers, body)
 	}

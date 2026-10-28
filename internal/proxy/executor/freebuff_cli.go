@@ -81,6 +81,7 @@ func freebuffFetchSessionState(ctx context.Context, client *http.Client, baseURL
 	// The CLI sends no body and no Content-Type on GET; only Authorization.
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("User-Agent", freebuffCLIUserAgent)
+	freebuffSetClientHeaders(req)
 
 	resp, err := client.Do(req)
 	if err != nil {
