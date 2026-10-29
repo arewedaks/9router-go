@@ -380,6 +380,15 @@ func (h *OAuthHandler) HandleGenericFlowInfo(w http.ResponseWriter, r *http.Requ
 	if spec.ImportHint != "" {
 		resp["hint"] = spec.ImportHint
 	}
+	// ADCode's Google half needs the vendor's OAuth application, which only
+	// exists on hosts where its environment is set. Without it, tell the panel to
+	// ask for the operator's own client instead of failing at authorize time with
+	// "needs an OAuth application" — that error is what a stock release build
+	// produced on any host that never received the pair.
+	if spec.Provider == "adcode" && spec.Kind == flowAuthCode && !providers.AdCodeGoogleConfigured() {
+		resp["needsApp"] = true
+		resp["appHint"] = "This install has no built-in Google app for ADCode. Register an OAuth client (type: Desktop) in Google Cloud, add http://127.0.0.1:53682/ as an allowed redirect, then enter its client id and secret below."
+	}
 	if spec.StartHint != "" {
 		resp["startHint"] = spec.StartHint
 	}

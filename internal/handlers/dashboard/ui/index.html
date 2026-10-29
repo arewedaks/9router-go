@@ -9525,8 +9525,8 @@
         // The provider has no built-in OAuth application, so the operator must
         // supply the one they registered before signing in.
         document.getElementById("g-oauth-app").style.display = "block";
-        intro.textContent = "Register an OAuth application with " + providerId +
-          ", set its redirect URI to http://localhost:8080/callback, then enter its client id below.";
+        intro.textContent = data.appHint || ("Register an OAuth application with " + providerId +
+          ", set its redirect URI to http://localhost:8080/callback, then enter its client id below.");
       } else {
         intro.textContent = data.startHint ||
           ("Sign in with the account your " + providerId + " subscription uses.");

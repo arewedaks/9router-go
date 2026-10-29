@@ -276,3 +276,11 @@ func AdCodeSignInWithIDP(ctx context.Context, client *http.Client, providerID, f
 	}
 	return AdCodeSession{RefreshToken: parsed.RefreshToken, IDToken: parsed.IDToken, Email: parsed.Email}, nil
 }
+
+// AdCodeGoogleConfigured reports whether the vendor's Google OAuth application
+// is available on this install. The repo cannot carry the pair (it is public and
+// GitHub push protection rejects it), so a host without the environment falls
+// back to asking the operator for their own OAuth client.
+func AdCodeGoogleConfigured() bool {
+	return AdCodeGoogleClientID != "" && AdCodeGoogleClientSecret != ""
+}
