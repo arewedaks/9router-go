@@ -1,5 +1,5 @@
 {
   "latestVersion": "1.10.5",
   "downloadUrl": "https://github.com/arewedaks/9router-go/releases/latest",
-  "releaseNotes": "- chore: bump version to 1.10.4 (6fc07a3)\n- fix(adcode): sign-in Google minta client OAuth sendiri, bukan gagal 400 (38205a7)\n- chore(release): version.json -> v1.10.3 (5aa3509)\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
+  "releaseNotes": "- chore: bump version to 1.10.5 (54acd12)\n- feat(build): tanam pasangan Google ADCode ke biner, bukan lewat env host (e63f35d)\n- chore(release): version.json -> v1.10.4 (cecc05a)\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
 }
