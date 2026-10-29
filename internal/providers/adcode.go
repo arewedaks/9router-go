@@ -15,7 +15,7 @@ import (
 	"time"
 )
 
-// ADCode (Tagflow AI) is the desktop editor's own "included AI" gateway. It is
+// ADCode is the desktop editor's own "included AI" gateway. It is
 // not a plain API-key service: the bearer is a Firebase ID token that lives for
 // an hour, minted from the refresh token the editor stores after sign-in. The
 // token exchange lives in the executor (internal/proxy/executor/adcode.go);
