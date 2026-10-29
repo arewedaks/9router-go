@@ -1,5 +1,5 @@
 {
-  "latestVersion": "1.10.2",
+  "latestVersion": "1.11.0",
   "downloadUrl": "https://github.com/arewedaks/9router-go/releases/latest",
   "releaseNotes": "- chore: bump version to 1.10.2 (25adcbc)\n- feat(dashboard): model uji per provider agar akun dites dengan model free pilihan sendiri (ad2c096)\n- chore(release): version.json -> v1.10.1 (63e4a8d)\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
 }
