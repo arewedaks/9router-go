@@ -19,10 +19,10 @@
          is VansRouter terracotta #E56A4A; each surface level is a visibly
          lighter step so elevation reads from fill alone, without relying
          on borders or shadows. */
-      --bg: #1a1a1a;
-      --panel: #262626;
-      --panel-hover: #303030;
-      --border: #333333;
+      --bg: #181818;
+      --panel: #242424;
+      --panel-hover: #2c2c2c;
+      --border: rgba(255, 255, 255, 0.10);
       --text: #ededed;
       --muted: #9ca3af;
       --primary: #E56A4A;
@@ -55,12 +55,12 @@
          single edit here still retunes the whole look. To go back to glass,
          restore translucent values here and give --glass-blur a non-zero
          length; every rule reads these tokens. */
-      --glass: #2b2b2b;
-      --glass-strong: #303030;
-      --glass-border: #333333;
-      --glass-border-strong: #3a3a3a;
+      --glass: #242424;
+      --glass-strong: #2c2c2c;
+      --glass-border: rgba(255, 255, 255, 0.12);
+      --glass-border-strong: rgba(255, 255, 255, 0.18);
       --glass-blur: 0px;
-      --glass-shadow: none;
+      --glass-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 3px 12px rgba(0, 0, 0, 0.28);
       /* Translucent top bar. Upstream's dashboard is translucent here and only
          here — `bg-surface/60` on the header (src/shared/components/Header.js),
          with the panels left opaque. The header is the one surface that scrolls
@@ -903,16 +903,16 @@
     
     /* min-height keeps an icon button the same height as a text-only one, and
        justify-content centres the label when min-width applies. */
-    .btn { background: var(--panel-hover); border: 1px solid var(--border); color: var(--text); padding: 8px 14px; border-radius: var(--radius); cursor: pointer; font-size: 0.85rem; font-weight: 500; display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 36px; transition: 0.15s; }
-    .btn:hover { border-color: var(--muted); }
-    .btn-primary { background: #238636; border-color: #2ea043; color: #fff; }
-    .btn-primary:hover { background: #2ea043; }
+    .btn { background: var(--panel-hover); border: 1px solid rgba(255, 255, 255, 0.12); color: var(--text); padding: 8px 14px; border-radius: var(--radius); cursor: pointer; font-size: 0.85rem; font-weight: 500; display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 36px; transition: 0.15s; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 1px 3px rgba(0, 0, 0, 0.25); }
+    .btn:hover { border-color: rgba(255, 255, 255, 0.24); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 2px 6px rgba(0, 0, 0, 0.35); }
+    .btn-primary { background: #238636; border-color: #3fb950; color: #fff; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22), 0 2px 8px rgba(35, 134, 54, 0.35); }
+    .btn-primary:hover { background: #2ea043; border-color: #56d364; }
     /* A disabled control must look disabled: the Headroom lifecycle buttons are
        disabled by state (not installed, not running), and a button that looks
        pressable but does nothing reads as a bug. */
-    .btn:disabled, .btn[disabled] { opacity: 0.4; cursor: not-allowed; }
-    .btn:disabled:hover, .btn[disabled]:hover { filter: none; }
-    .btn-danger { background: var(--danger); border-color: #f85149; color: #fff; }
+    .btn:disabled, .btn[disabled] { opacity: 0.4; cursor: not-allowed; box-shadow: none; }
+    .btn:disabled:hover, .btn[disabled]:hover { filter: none; border-color: rgba(255, 255, 255, 0.12); }
+    .btn-danger { background: var(--danger); border-color: #f85149; color: #fff; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), 0 2px 8px rgba(218, 54, 51, 0.35); }
     /* In-app replacements for window.confirm/alert/prompt: same contract, but
        styled like the rest of the dashboard and not blocked by browser dialog
        suppression. */
@@ -964,13 +964,18 @@
       font-size: 0.88rem;
       width: 100%;
       outline: none;
+      box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.25);
+      transition: border-color 0.15s, box-shadow 0.15s;
     }
     /* The dropdown list is rendered by the OS and does not inherit the flat
      * surface colour; without an explicit option background the items are
      * unreadable on some platforms. */
     select option { background: var(--panel); color: var(--text); }
     input::placeholder, textarea::placeholder { color: var(--muted); }
-    input:focus, select:focus, textarea:focus { border-color: var(--primary); }
+    input:focus, select:focus, textarea:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(229, 106, 74, 0.2), inset 0 1px 2px rgba(0, 0, 0, 0.2);
+    }
     /* Number spinners are near-invisible on a dark field. */
     input[type="number"] { -moz-appearance: textfield; }
     input[type="number"]::-webkit-outer-spin-button,
@@ -1326,7 +1331,24 @@
     .combo-model-row .btn { flex: 0 0 auto; padding: 1px 7px; line-height: 1.4; }
     .combo-model-row .btn[disabled] { opacity: 0.3; cursor: default; }
     /* Drag-to-reorder: grip affordance + live drop indicator. */
-    .combo-model-drag { flex: 0 0 12px; color: var(--muted); cursor: grab; user-select: none; font-size: 0.8rem; }
+    .combo-model-drag {
+      flex: 0 0 22px;
+      height: 26px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--muted);
+      cursor: grab;
+      user-select: none;
+      font-size: 0.95rem;
+      touch-action: none;
+      -webkit-touch-callout: none;
+      border-radius: 4px;
+    }
+    .combo-model-drag:hover, .combo-model-drag:active {
+      color: #ededed;
+      background: rgba(255, 255, 255, 0.06);
+    }
     .combo-model-row[draggable="true"] { cursor: grab; }
     .combo-model-row.dragging { opacity: 0.45; }
     .combo-model-row.drop-above { box-shadow: 0 -2px 0 0 var(--primary); }
@@ -1384,8 +1406,8 @@
     .prov-section-count { font-size: 0.72rem; font-weight: 600; color: var(--muted); background: var(--panel-hover); border: 1px solid var(--border); border-radius: 999px; padding: 1px 9px; }
     .prov-section-blurb { font-size: 0.78rem; color: var(--muted); margin: 3px 0 0; }
 
-    .prov-card { background: var(--glass); border: 1px solid var(--glass-border); border-radius: 12px; padding: 14px; cursor: pointer; transition: border-color .15s, transform .15s; position: relative; overflow: hidden; display: flex; align-items: center; gap: 12px; }
-    .prov-card:hover { border-color: var(--muted); transform: translateY(-1px); }
+    .prov-card { background: var(--glass); border: 1px solid var(--glass-border); border-radius: 12px; padding: 14px; cursor: pointer; transition: border-color .18s, transform .18s, box-shadow .18s; position: relative; overflow: hidden; display: flex; align-items: center; gap: 12px; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 2px 8px rgba(0, 0, 0, 0.22); }
+    .prov-card:hover { border-color: rgba(229, 106, 74, 0.5); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 4px 16px rgba(0, 0, 0, 0.35); transform: translateY(-2px); }
     /* A disabled provider is still reachable (its detail page has the accounts
        and the Delete buttons), so it is dimmed rather than hidden or greyed
        out of existence. */
@@ -12387,6 +12409,52 @@
       comboModels.splice(overIdx > dragIdx ? overIdx - 1 : overIdx, 0, moved);
       renderComboModels();
     });
+
+    // Touch drag-to-reorder for mobile screens
+    let touchRow = null;
+    let touchDragIdx = -1;
+    let touchOverIdx = -1;
+
+    box.addEventListener("touchstart", (e) => {
+      const grip = e.target.closest(".combo-model-drag");
+      if (!grip) return;
+      touchRow = grip.closest(".combo-model-row");
+      if (!touchRow) return;
+      touchDragIdx = Number(touchRow.dataset.idx);
+      touchOverIdx = touchDragIdx;
+      touchRow.classList.add("dragging");
+    }, { passive: true });
+
+    box.addEventListener("touchmove", (e) => {
+      if (!touchRow || touchDragIdx < 0) return;
+      const touch = e.touches[0];
+      const elem = document.elementFromPoint(touch.clientX, touch.clientY);
+      const overRow = elem && elem.closest(".combo-model-row");
+      box.querySelectorAll(".combo-model-row").forEach(r => r.classList.remove("drop-above", "drop-below"));
+      if (overRow) {
+        touchOverIdx = Number(overRow.dataset.idx);
+        if (touchOverIdx !== touchDragIdx) {
+          overRow.classList.add(touchOverIdx > touchDragIdx ? "drop-below" : "drop-above");
+        }
+      }
+      e.preventDefault();
+    }, { passive: false });
+
+    const finishTouchDrag = () => {
+      if (!touchRow) return;
+      box.querySelectorAll(".combo-model-row").forEach(r => r.classList.remove("dragging", "drop-above", "drop-below"));
+      if (touchDragIdx >= 0 && touchOverIdx >= 0 && touchDragIdx !== touchOverIdx) {
+        const [moved] = comboModels.splice(touchDragIdx, 1);
+        comboModels.splice(touchOverIdx > touchDragIdx ? touchOverIdx - 1 : touchOverIdx, 0, moved);
+        renderComboModels();
+      }
+      touchRow = null;
+      touchDragIdx = -1;
+      touchOverIdx = -1;
+    };
+
+    box.addEventListener("touchend", finishTouchDrag);
+    box.addEventListener("touchcancel", finishTouchDrag);
   }
 
   function moveComboModel(i, delta) {

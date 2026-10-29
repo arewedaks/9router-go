@@ -31,4 +31,16 @@ func TestUIComboDragReorder(t *testing.T) {
 	if !strings.Contains(ui, "combo-model-drag") {
 		t.Error("no drag grip element on the rows")
 	}
+
+	// Touch drag reordering for mobile
+	for _, want := range []string{
+		`touchstart`,
+		`touchmove`,
+		`touchend`,
+		`touch-action: none`,
+	} {
+		if !strings.Contains(ui, want) {
+			t.Errorf("missing touch drag support: %q", want)
+		}
+	}
 }
