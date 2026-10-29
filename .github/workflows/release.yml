@@ -52,6 +52,12 @@ jobs:
       - name: Build all platforms
         # VERSION= also feeds -ldflags, so `9router-go --version` reports the
         # released number instead of the stale default baked into the source.
+        # The ADCode Google pair is baked the same way from repository secrets:
+        # the source cannot carry it (public repo, push protection), and a
+        # managed host has no environment to set it in.
+        env:
+          ADCODE_GOOGLE_CLIENT_ID: ${{ secrets.ADCODE_GOOGLE_CLIENT_ID }}
+          ADCODE_GOOGLE_CLIENT_SECRET: ${{ secrets.ADCODE_GOOGLE_CLIENT_SECRET }}
         run: make cross VERSION=${{ steps.ver.outputs.version }}
 
       - name: Generate changelog

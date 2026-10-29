@@ -31,3 +31,5 @@ node_modules/
 web/node_modules/
 stitch-screens/
 stitch-screenshots/
+# Local build input: baked into the binary, never committed.
+adcode.build.env

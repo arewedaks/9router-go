@@ -21,7 +21,17 @@ CAVEMAN ?=
 PONYTAIL ?=
 AUTO_UPDATE ?= false
 
-LDFLAGS := -s -w -X '9router/proxy/internal/updater.CurrentVersion=$(VERSION)'
+# Local builds can keep the pair in adcode.build.env (gitignored) instead of the
+# environment: it is read here so `make build|cross` bakes it automatically.
+-include adcode.build.env
+
+# ADCODE_GOOGLE_CLIENT_ID / ADCODE_GOOGLE_CLIENT_SECRET are optional build inputs:
+# when set they are baked into the binary with -X, so a released build works on a
+# host that cannot carry environment (a managed instance). Source stays clean —
+# the pair cannot be committed to a public repository.
+ADCODE_GOOGLE_LDFLAGS := $(if $(ADCODE_GOOGLE_CLIENT_ID),-X '9router/proxy/internal/providers.adCodeGoogleClientIDDefault=$(ADCODE_GOOGLE_CLIENT_ID)') $(if $(ADCODE_GOOGLE_CLIENT_SECRET),-X '9router/proxy/internal/providers.adCodeGoogleClientSecretDefault=$(ADCODE_GOOGLE_CLIENT_SECRET)')
+
+LDFLAGS := -s -w -X '9router/proxy/internal/updater.CurrentVersion=$(VERSION)' $(ADCODE_GOOGLE_LDFLAGS)
 
 .PHONY: build run dev version update test test-short vet bench bench-go cross mitm-enable mitm-disable mitm-status docker docker-build clean help
 

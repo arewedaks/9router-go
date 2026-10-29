@@ -202,8 +202,17 @@ const (
 var (
 	AdCodeGoogleAuthorizeURL = "https://accounts.google.com/o/oauth2/v2/auth"
 	AdCodeGoogleTokenURL     = "https://oauth2.googleapis.com/token"
-	AdCodeGoogleClientID     = envOr("ADCODE_GOOGLE_CLIENT_ID", "")
-	AdCodeGoogleClientSecret = envOr("ADCODE_GOOGLE_CLIENT_SECRET", "")
+
+	// The vendor's Google OAuth application. It cannot live in this source: the
+	// repository is public and GitHub's push protection rejects the pair. A build
+	// bakes it in with -ldflags -X (see the Makefile), so every released binary
+	// carries it and no host needs an environment; ADCODE_GOOGLE_CLIENT_ID /
+	// _SECRET still override it at runtime.
+	adCodeGoogleClientIDDefault     string
+	adCodeGoogleClientSecretDefault string
+
+	AdCodeGoogleClientID     = envOr("ADCODE_GOOGLE_CLIENT_ID", adCodeGoogleClientIDDefault)
+	AdCodeGoogleClientSecret = envOr("ADCODE_GOOGLE_CLIENT_SECRET", adCodeGoogleClientSecretDefault)
 )
 
 // AdCodeSession is the durable half of a Firebase sign-in: the AI gateway wants
