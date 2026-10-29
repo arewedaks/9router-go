@@ -97,6 +97,11 @@ func SetupRoutes(r interface {
 	r.HandleFunc("/headroom/proxy/*", headroomH.HandleHeadroomProxy)
 
 	// OAuth & Import Tokens Domain
+	// OmniRush's device flow has its own JSON shapes (authorize body, 428 while
+	// pending), so it is mounted ahead of the generic {provider} routes.
+	r.Get("/api/oauth/omnirush/flow", oauthH.HandleOmniRushFlow)
+	r.Get("/api/oauth/omnirush/authorize", oauthH.HandleOmniRushAuthorize)
+	r.Post("/api/oauth/omnirush/exchange", oauthH.HandleOmniRushExchange)
 	r.Post("/api/oauth/{provider}/import", oauthH.HandleOAuthImport)
 	r.Get("/api/oauth/kiro/social-authorize", oauthH.HandleOAuthKiroSocialAuthorize)
 	r.Post("/api/oauth/kiro/social-exchange", oauthH.HandleOAuthKiroSocialExchange)

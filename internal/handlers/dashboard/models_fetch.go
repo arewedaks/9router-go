@@ -233,6 +233,12 @@ func (h *Handler) fetchUpstreamModels(providerID, data string, timeout time.Dura
 		return h.fetchAdCodeModels(providerID, timeout), nil
 	}
 
+	// OmniRush publishes its catalogue at /v1/models, but only for requests that
+	// carry its two identity headers; the generic fetcher sends neither.
+	if canonical == "omnirush" || providerID == "omnirush" {
+		return h.fetchOmniRushModels(providerID, data, timeout), nil
+	}
+
 	// Grok CLI's session endpoint cli-chat-proxy.grok.com does publish an
 	// OpenAI-style /models route, but it needs the CLI identity headers and a
 	// per-effort expansion the generic registry branch cannot express (the

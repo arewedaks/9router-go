@@ -723,18 +723,43 @@
       border-color: var(--primary) !important;
       outline: none;
     }
-    .acct-test-model {
-      width: 200px;
-      max-width: 52vw;
-      height: 24px;
-      padding: 2px 6px;
-      font-size: 0.75rem;
-      background: var(--bg);
-      color: #ededed;
+    .acct-test-model-wrap {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--panel);
       border: 1px solid var(--border);
-      border-radius: 4px;
+      border-radius: 6px;
+      padding: 0 8px;
+      height: 31px;
+      box-sizing: border-box;
+      transition: border-color 0.15s;
     }
-    .acct-test-model::placeholder { color: var(--muted); font-style: italic; }
+    .acct-test-model-wrap:focus-within {
+      border-color: var(--primary);
+    }
+    .acct-test-model-wrap .msym {
+      font-size: 15px;
+      color: var(--muted);
+      flex-shrink: 0;
+    }
+    .acct-test-model {
+      width: 190px;
+      max-width: 48vw;
+      height: 100% !important;
+      padding: 0 4px !important;
+      font-size: 0.76rem !important;
+      background: transparent !important;
+      color: #ededed !important;
+      border: none !important;
+      border-radius: 0 !important;
+      outline: none !important;
+      font-family: ui-monospace, SFMono-Regular, monospace;
+    }
+    .acct-test-model::placeholder {
+      color: var(--muted);
+      font-style: italic;
+    }
     .acct-sticky-wrap {
       display: inline-flex;
       align-items: center;
@@ -6980,7 +7005,7 @@
     const pinned = strat.testModel || "";
     const fallback = d.probeModelDefault || d.probeModel || "";
     return `
-      <div class="acct-sticky-wrap">
+      <div class="acct-test-model-wrap">
         <span class="msym" style="font-size:16px;" title="Model asked for when testing this provider's accounts">science</span>
         <input type="text" class="acct-test-model" value="${escapeHtml(pinned)}"
                placeholder="${escapeHtml(fallback)}"
@@ -7462,6 +7487,9 @@
       // ADCode signs in inside its own desktop app and leaves a Firebase refresh
       // token; the generic panel's import branch asks for exactly that.
       { ids: ["adcode", "adc"], render: p => genericOAuthPanelHtml(p) },
+      // OmniRush's device flow is served by its own routes (JSON authorize body,
+      // 428 while pending); the panel's device branch renders it unchanged.
+      { ids: ["omnirush", "omr", "orush"], render: p => genericOAuthPanelHtml(p) },
     ];
     const panelEntry = OAUTH_PANELS.find(e => e.ids.includes(d.provider));
     const oauthPanel = panelEntry ? panelEntry.render(d.provider) : '';

@@ -285,6 +285,21 @@ var KnownProviders = map[string]ProviderConfig{
 		},
 		UsageURL: AdCodeUsageURL,
 	},
+	// OmniRush serves only the Responses API (streaming); chat completions answer
+	// 404 unsupported_model_endpoint. FormatOpenAIResponses routes it through the
+	// codex executor, which builds exactly the body the gateway demands
+	// (input list, store:false, stream:true). The identity headers are not
+	// optional: a versioned User-Agent is refused as a lookalike.
+	"omnirush": {
+		BaseURL:    OmniRushOrigin + "/v1/responses",
+		AuthHeader: "Authorization",
+		AuthScheme: "bearer",
+		Format:     FormatOpenAIResponses,
+		StaticHeaders: map[string]string{
+			"User-Agent":        OmniRushUserAgent,
+			"X-OmniRush-Client": "cli/" + OmniRushDefaultClientVersion,
+		},
+	},
 	// Wally is RunAnywhere's inference gateway. It speaks the OpenAI chat shape
 	// on /v1, so it needs the same transport as any other compatible endpoint;
 	// only the host and the key differ.

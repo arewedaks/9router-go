@@ -4,6 +4,8 @@ package providers
 var ProviderAliasMap = map[string]string{
 	"aai":            "assemblyai",
 	"ag":             "antigravity",
+	"omr":            "omnirush",
+	"orush":          "omnirush",
 	"adc":            "adcode",
 	"ar":             "agentrouter",
 	"ali":            "alicode",
