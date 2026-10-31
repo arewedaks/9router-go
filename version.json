@@ -1,5 +1,5 @@
 {
-  "latestVersion": "1.10.7",
+  "latestVersion": "1.10.8",
   "downloadUrl": "https://github.com/arewedaks/9router-go/releases/latest",
   "releaseNotes": "- chore: bump version to 1.10.7 (91fadc6)\n- feat(zed): logo brand asli + import model dari cloud.zed.dev/models (629dc09)\n- chore(release): version.json -> v1.10.6 (bdff719)\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
 }
