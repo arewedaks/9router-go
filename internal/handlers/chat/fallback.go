@@ -456,6 +456,7 @@ func (h *ChatHandler) tryForwardWithConnection(
 			TTFT:             &metrics.TTFT,
 			PerchUserID:      connData.PerchUserID,
 			PerchWorkspaceID: connData.PerchWorkspaceID,
+			ZedUserID:        connData.ZedUserID,
 			QoderIdentity:    qoderIdentity,
 		})
 	} else if providerCfg.IsGeminiNative() {

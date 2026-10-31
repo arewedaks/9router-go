@@ -7509,6 +7509,10 @@
       // ADCode signs in inside its own desktop app and leaves a Firebase refresh
       // token; the generic panel's import branch asks for exactly that.
       { ids: ["adcode", "adc"], render: p => genericOAuthPanelHtml(p) },
+      // Zed's native app sign-in returns the token to a loopback address
+      // encrypted to a keypair this server just made; the panel shows the
+      // zed.dev link, polls, and accepts a pasted address for remote hosts.
+      { ids: ["zed", "zd"], render: p => zedOAuthPanelHtml(p) },
       // OmniRush's device flow is served by its own routes (JSON authorize body,
       // 428 while pending); the panel's device branch renders it unchanged.
       { ids: ["omnirush", "omr", "orush"], render: p => genericOAuthPanelHtml(p) },
@@ -9258,6 +9262,137 @@
       </button>`;
   }
 
+  // Zed: browser sign-in with a keypair-encrypted callback (no OAuth app, no
+  // paste of a raw token). Local installs are captured by a loopback listener;
+  // on a remote host the operator pastes the address the browser landed on and
+  // the server decrypts it with the private key it generated for this sign-in.
+  function zedOAuthPanelHtml(providerId) {
+    return `
+      <div class="add-form oauth-form" id="z-oauth-root">
+        <div class="add-form-title"><span class="msym">passkey</span>Add via ${escapeHtml(providerId)} sign-in</div>
+        <div id="z-oauth-intro" style="font-size:0.72rem; color:var(--muted); margin-bottom:8px;">
+          Sign in with the account your Zed subscription uses.
+        </div>
+        <div class="add-form-grid oauth-grid">
+          <div>
+            <label class="field-label">Account name (optional)</label>
+            <input type="text" id="z-oauth-name" placeholder="auto-filled from the account">
+          </div>
+          <div style="display:flex; align-items:flex-end; gap:6px;">
+            <button class="btn btn-primary" onclick="startZedOAuth('${providerId}')">Sign in with Zed</button>
+          </div>
+        </div>
+        <div id="z-oauth-link-row" style="display:none; margin-top:10px; font-size:0.72rem; color:var(--muted);">
+          <a id="z-oauth-link" href="#" target="_blank" rel="noopener" style="color:var(--accent);">Open the Zed sign-in page</a>
+          — this keeps polling on its own.
+        </div>
+        <div id="z-oauth-paste" style="display:none; margin-top:10px;">
+          <label class="field-label">Address the browser landed on (http://127.0.0.1:…?user_id=…&access_token=…)</label>
+          <div class="auth-add">
+            <input type="text" id="z-oauth-paste-input" placeholder="http://127.0.0.1:53682/?user_id=…">
+            <button class="btn btn-primary" onclick="finishZedOAuth('${providerId}')">Finish</button>
+          </div>
+        </div>
+        <div id="z-oauth-msg" style="margin-top:8px; font-size:0.72rem; color:var(--muted);"></div>
+      </div>`;
+  }
+
+  async function startZedOAuth(providerId) {
+    const msg = document.getElementById("z-oauth-msg");
+    msg.style.color = "var(--muted)";
+    msg.textContent = "Requesting a sign-in link…";
+    try {
+      const res = await api(`/api/oauth/${encodeURIComponent(providerId)}/authorize`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: (document.getElementById("z-oauth-name") || {}).value || "" }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        msg.style.color = "var(--danger)";
+        msg.textContent = errorMessage(data, res.status);
+        return;
+      }
+      zedOAuthCtx = { session: data.session, flowId: (zedOAuthCtx && zedOAuthCtx.flowId || 0) + 1 };
+      const link = document.getElementById("z-oauth-link");
+      link.href = data.signInUrl;
+      document.getElementById("z-oauth-link-row").style.display = "block";
+      // Always offer the paste box: the loopback listener only helps when the
+      // browser runs on this machine, and a managed host cannot tell from here
+      // whether it does.
+      document.getElementById("z-oauth-paste").style.display = "block";
+      msg.style.color = "var(--accent)";
+      msg.textContent = data.autoCapture
+        ? "Open the link and approve. On this machine the panel finishes by itself; if the browser lands on a 127.0.0.1 page that does not load, paste that address below."
+        : "Open the link, approve, then paste the 127.0.0.1 address the browser lands on.";
+      if (typeof window.open === "function") window.open(data.signInUrl, "_blank", "noopener");
+      pollZedOAuth(providerId, zedOAuthCtx.flowId);
+    } catch (e) {
+      msg.style.color = "var(--danger)";
+      msg.textContent = String(e);
+    }
+  }
+
+  async function pollZedOAuth(providerId, flowId) {
+    const msg = document.getElementById("z-oauth-msg");
+    for (let i = 0; i < 120; i++) {
+      await new Promise(r => setTimeout(r, 2500));
+      if (!zedOAuthCtx || zedOAuthCtx.flowId !== flowId) return;
+      let data;
+      try {
+        const res = await api(`/api/oauth/zed/status?session=${encodeURIComponent(zedOAuthCtx.session)}`);
+        data = await res.json();
+        if (res.status === 410) {
+          msg.style.color = "var(--danger)";
+          msg.textContent = errorMessage(data, res.status);
+          return;
+        }
+      } catch (e) { continue; }
+      if (data && data.success) {
+        msg.style.color = "var(--accent)";
+        msg.textContent = "Account added.";
+        zedOAuthCtx = null;
+        openProviderDetail(providerId);
+        return;
+      }
+    }
+  }
+
+  async function finishZedOAuth(providerId) {
+    const msg = document.getElementById("z-oauth-msg");
+    const callback = (document.getElementById("z-oauth-paste-input").value || "").trim();
+    if (!callback) {
+      msg.style.color = "var(--danger)";
+      msg.textContent = "Paste the address the browser landed on.";
+      return;
+    }
+    if (!zedOAuthCtx) {
+      msg.style.color = "var(--danger)";
+      msg.textContent = "Press Sign in with Zed first.";
+      return;
+    }
+    try {
+      const res = await api(`/api/oauth/${encodeURIComponent(providerId)}/exchange`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ session: zedOAuthCtx.session, callback }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        msg.style.color = "var(--danger)";
+        msg.textContent = errorMessage(data, res.status);
+        return;
+      }
+      msg.style.color = "var(--accent)";
+      msg.textContent = "Account added.";
+      zedOAuthCtx = null;
+      openProviderDetail(providerId);
+    } catch (e) {
+      msg.style.color = "var(--danger)";
+      msg.textContent = String(e);
+    }
+  }
+
   function genericOAuthPanelHtml(providerId) {
     return `
       <div class="add-form oauth-form" id="g-oauth-root">
@@ -9310,6 +9445,8 @@
   // Pending generic flow. flowId guards against a stale poll loop writing into a
   // panel that has since been re-rendered.
   let genericOAuthCtx = null;
+  // Zed sign-in state: the pending session id plus the poll generation.
+  let zedOAuthCtx = null;
 
   async function startGenericOAuth(providerId, method) {
     const msg = document.getElementById("g-oauth-msg");

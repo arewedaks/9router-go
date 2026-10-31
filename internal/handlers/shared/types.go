@@ -37,6 +37,9 @@ type ConnectionData struct {
 	// the Perch lane uses these.
 	PerchUserID      string `json:"perchUserId,omitempty"`
 	PerchWorkspaceID string `json:"perchWorkspaceId,omitempty"`
+	// Zed authenticates as "<user_id> <access_token>", so the sign-in has to keep
+	// the numeric user id next to the token.
+	ZedUserID string `json:"zedUserId,omitempty"`
 }
 
 // UsageLogInfo holds request context needed to log a usage record.
@@ -83,6 +86,7 @@ func (b *ResponseBuf) Write(p []byte) (int, error) {
 func (b *ResponseBuf) String() string {
 	return string(b.buf)
 }
+
 // Len returns the number of captured bytes.
 func (b *ResponseBuf) Len() int {
 	return len(b.buf)
@@ -92,7 +96,6 @@ func (b *ResponseBuf) Len() int {
 func (b *ResponseBuf) Bytes() []byte {
 	return b.buf
 }
-
 
 // StreamMetrics captures timing and content during a proxied stream.
 type StreamMetrics struct {

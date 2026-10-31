@@ -97,6 +97,12 @@ func SetupRoutes(r interface {
 	r.HandleFunc("/headroom/proxy/*", headroomH.HandleHeadroomProxy)
 
 	// OAuth & Import Tokens Domain
+	// Zed's native app sign-in: browser gets a zed.dev URL carrying this server's
+	// RSA public key, and the token comes back to a loopback port encrypted.
+	r.Get("/api/oauth/zed/flow", oauthH.HandleZedFlow)
+	r.Post("/api/oauth/zed/authorize", oauthH.HandleZedAuthorize)
+	r.Get("/api/oauth/zed/status", oauthH.HandleZedStatus)
+	r.Post("/api/oauth/zed/exchange", oauthH.HandleZedExchange)
 	// OmniRush's device flow has its own JSON shapes (authorize body, 428 while
 	// pending), so it is mounted ahead of the generic {provider} routes.
 	r.Get("/api/oauth/omnirush/flow", oauthH.HandleOmniRushFlow)

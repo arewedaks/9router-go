@@ -979,10 +979,13 @@ var KnownProviders = map[string]ProviderConfig{
 			"X-Grpc-Web":   "1",
 		},
 	},
+	// Zed's RPC authenticates as "Authorization: <user_id> <access_token>" — no
+	// bearer prefix. The executor joins both halves into the raw value, so the
+	// scheme here must be raw; a bearer header is rejected as an invalid token.
 	"zed": {
 		BaseURL:    "https://cloud.zed.dev/completions",
 		AuthHeader: "Authorization",
-		AuthScheme: "bearer",
+		AuthScheme: "raw",
 		StaticHeaders: map[string]string{
 			"content-type": "application/json",
 		},

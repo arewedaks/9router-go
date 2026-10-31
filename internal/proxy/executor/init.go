@@ -86,7 +86,7 @@ func RegisterAll() {
 	Register("tokenrouter", func() Executor { return ForwardOpenAI })
 	Register("trae", func() Executor { return ForwardTrae })
 	Register("windsurf", func() Executor { return ForwardWindsurf })
-	Register("zed", func() Executor { return ForwardOpenAI })
+	Register("zed", func() Executor { return ForwardZed })
 	Register("twinmind", func() Executor { return ForwardTwinMind })
 	Register("perch", func() Executor { return ForwardPerch })
 	Register("alysis", func() Executor { return ForwardOpenAI })
