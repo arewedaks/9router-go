@@ -233,6 +233,12 @@ func (h *Handler) fetchUpstreamModels(providerID, data string, timeout time.Dura
 		return h.fetchAdCodeModels(providerID, timeout), nil
 	}
 
+	// Zed publishes its hosted models at cloud.zed.dev/models, authenticated as
+	// "<user_id> <token>" — the generic fetcher sends a bearer and no user id.
+	if canonical == "zed" || providerID == "zed" {
+		return h.fetchZedModels(canonical, data, timeout), nil
+	}
+
 	// OmniRush publishes its catalogue at /v1/models, but only for requests that
 	// carry its two identity headers; the generic fetcher sends neither.
 	if canonical == "omnirush" || providerID == "omnirush" {
