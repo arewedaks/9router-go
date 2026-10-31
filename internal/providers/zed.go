@@ -345,3 +345,84 @@ func zedSnippet(raw []byte) string {
 	}
 	return s
 }
+
+// zedModelProviders caches model id → upstream provider ("anthropic", "open_ai",
+// "google"). Zed's /completions takes the native request of that provider, so the
+// router cannot build the body without this mapping.
+var (
+	zedCatalogMu sync.Mutex
+	zedCatalog   = map[string]zedCatalogEntry{}
+)
+
+type zedCatalogEntry struct {
+	providers map[string]string
+	expiresAt time.Time
+}
+
+// ResetZedCatalog drops the cached model→provider map (tests).
+func ResetZedCatalog() {
+	zedCatalogMu.Lock()
+	zedCatalog = map[string]zedCatalogEntry{}
+	zedCatalogMu.Unlock()
+}
+
+// ZedModelProvider resolves which upstream provider serves a model id.
+func ZedModelProvider(ctx context.Context, client *http.Client, userID, accessToken, model string) (string, error) {
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return "", fmt.Errorf("zed: empty model")
+	}
+	key := zedLLMTokenKey(userID, accessToken)
+	zedCatalogMu.Lock()
+	if e, ok := zedCatalog[key]; ok && time.Now().Before(e.expiresAt) {
+		if prov, ok := e.providers[model]; ok {
+			zedCatalogMu.Unlock()
+			return prov, nil
+		}
+	}
+	zedCatalogMu.Unlock()
+
+	token, err := ZedLLMToken(ctx, client, userID, accessToken)
+	if err != nil {
+		return "", err
+	}
+	raw, status, err := zedCall(ctx, client, http.MethodGet, ZedCloudBase+"/models", "Bearer "+token, nil)
+	if err != nil {
+		return "", err
+	}
+	if status != http.StatusOK {
+		return "", fmt.Errorf("zed: /models HTTP %d: %s", status, zedSnippet(raw))
+	}
+	var parsed struct {
+		Models []struct {
+			ID       string `json:"id"`
+			Provider string `json:"provider"`
+		} `json:"models"`
+	}
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		return "", fmt.Errorf("zed: decode models: %w", err)
+	}
+	mapping := make(map[string]string, len(parsed.Models))
+	for _, m := range parsed.Models {
+		if m.ID != "" && m.Provider != "" {
+			mapping[m.ID] = m.Provider
+		}
+	}
+	zedCatalogMu.Lock()
+	zedCatalog[key] = zedCatalogEntry{providers: mapping, expiresAt: time.Now().Add(10 * time.Minute)}
+	zedCatalogMu.Unlock()
+
+	if prov, ok := mapping[model]; ok {
+		return prov, nil
+	}
+	// A model the account cannot use still gets a guess, so the error comes from
+	// the provider instead of from the router.
+	switch {
+	case strings.HasPrefix(model, "claude"):
+		return "anthropic", nil
+	case strings.HasPrefix(model, "gemini"):
+		return "google", nil
+	default:
+		return "open_ai", nil
+	}
+}
