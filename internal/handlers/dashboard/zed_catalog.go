@@ -7,20 +7,19 @@ import (
 	"time"
 
 	json "encoding/json/v2"
+
+	"9router/proxy/internal/providers"
 )
 
-// zedModelsURL is a seam for tests. The endpoint answers 401 without a
-// signed-in account, and is the only place Zed publishes its hosted models.
-var zedModelsURL = "https://cloud.zed.dev/models"
+// zedModelsURL is a seam for tests: the LLM API's model list.
+var zedModelsURL = providers.ZedCloudURL + "/models"
 
-// fetchZedModels imports the models a Zed account can use. Two details differ
-// from a normal catalogue:
+// fetchZedModels imports the models a Zed account can use.
 //
-//   - the credential is `<user_id> <access_token>` with no bearer prefix, so both
-//     halves must come from the connection the sign-in stored;
-//   - the payload nests what the router needs under different names
-//     (max_token_count / max_output_tokens) and carries a display name, which is
-//     what the panel should show.
+// The sign-in credential alone is not enough: cloud.zed.dev/models wants a bearer
+// LLM token, minted from the account's organization (providers.ZedLLMToken).
+// Sending the sign-in token there answers 401 — which a naive implementation
+// reports as "the account may not have hosted models included".
 func (h *Handler) fetchZedModels(providerID, data string, timeout time.Duration) *ModelFetchResult {
 	out := &ModelFetchResult{Provider: providerID, Supported: true}
 
@@ -39,38 +38,53 @@ func (h *Handler) fetchZedModels(providerID, data string, timeout time.Duration)
 		return out
 	}
 
-	req, err := http.NewRequest(http.MethodGet, zedModelsURL, nil)
-	if err != nil {
-		out.Error = err.Error()
-		return out
-	}
-	req.Header.Set("Authorization", conn.UserID+" "+conn.AccessToken)
-	req.Header.Set("Accept", "application/json")
-
 	client := &http.Client{Timeout: timeout}
-	resp, err := client.Do(req)
+	list := func() ([]byte, int, error) {
+		token, err := providers.ZedLLMToken(nil, client, conn.UserID, conn.AccessToken)
+		if err != nil {
+			return nil, 0, err
+		}
+		req, err := http.NewRequest(http.MethodGet, zedModelsURL, nil)
+		if err != nil {
+			return nil, 0, err
+		}
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Accept", "application/json")
+		resp, err := client.Do(req)
+		if err != nil {
+			return nil, 0, err
+		}
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		return body, resp.StatusCode, nil
+	}
+
+	body, status, err := list()
 	if err != nil {
 		out.Error = err.Error()
 		return out
 	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	out.Status = resp.StatusCode
-	if resp.StatusCode != http.StatusOK {
-		out.Error = "Zed's model list answered HTTP " + http.StatusText(resp.StatusCode) +
-			" — the account may not have hosted models included"
+	if status == http.StatusUnauthorized {
+		// The minted token aged out after the cache write: mint a fresh one once.
+		providers.ZedInvalidateLLMToken(conn.UserID, conn.AccessToken)
+		body, status, err = list()
+		if err != nil {
+			out.Error = err.Error()
+			return out
+		}
+	}
+	out.Status = status
+	if status != http.StatusOK {
+		out.Error = "Zed's model list answered HTTP " + http.StatusText(status)
 		return out
 	}
 
 	var parsed struct {
 		Models []struct {
-			ID               string `json:"id"`
-			DisplayName      string `json:"display_name"`
-			MaxTokenCount    int    `json:"max_token_count"`
-			MaxOutputTokens  int    `json:"max_output_tokens"`
-			SupportsTools    bool   `json:"supports_tools"`
-			SupportsImages   bool   `json:"supports_images"`
-			SupportsThinking bool   `json:"supports_thinking"`
+			ID              string `json:"id"`
+			DisplayName     string `json:"display_name"`
+			MaxTokenCount   int    `json:"max_token_count"`
+			MaxOutputTokens int    `json:"max_output_tokens"`
 		} `json:"models"`
 	}
 	if err := json.Unmarshal(body, &parsed); err != nil {
