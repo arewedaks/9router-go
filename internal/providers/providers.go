@@ -1043,6 +1043,7 @@ var RetryableStatusCodes = map[int]bool{
 	http.StatusBadGateway:         true, // 502
 	http.StatusServiceUnavailable: true, // 503
 	http.StatusGatewayTimeout:     true, // 504
+	529:                           true, // 529 (Anthropic/Nace overloaded capacity)
 }
 
 // accountScopedProviders are providers whose upstream URL contains a value that
