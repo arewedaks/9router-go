@@ -9,6 +9,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	json "encoding/json/v2"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -250,25 +251,128 @@ func ForwardAzure(w http.ResponseWriter, req *Request) error {
 	return jsonResponse(req.Ctx, w, resp.Body, req.TranslateResp, req.ResponseBuf)
 }
 
+func parseDataURIMime(uri string) string {
+	if strings.HasPrefix(uri, "data:") {
+		if idx := strings.Index(uri, ";"); idx > 5 {
+			return uri[5:idx]
+		}
+	}
+	return "image/png"
+}
+
+func toCommandcodeImageBlock(part map[string]any) map[string]any {
+	pType, _ := part["type"].(string)
+	if pType == "image_url" {
+		var urlStr string
+		switch u := part["image_url"].(type) {
+		case string:
+			urlStr = u
+		case map[string]any:
+			urlStr, _ = u["url"].(string)
+		}
+		if urlStr != "" && strings.HasPrefix(urlStr, "data:") {
+			mime := parseDataURIMime(urlStr)
+			return map[string]any{
+				"type":      "image",
+				"image":     urlStr,
+				"mimeType":  mime,
+				"mediaType": mime,
+			}
+		}
+	}
+	if pType == "image" {
+		if imgStr, ok := part["image"].(string); ok && strings.HasPrefix(imgStr, "data:") {
+			mime, _ := part["mimeType"].(string)
+			if mime == "" {
+				mime = parseDataURIMime(imgStr)
+			}
+			return map[string]any{
+				"type":      "image",
+				"image":     imgStr,
+				"mimeType":  mime,
+				"mediaType": mime,
+			}
+		}
+		if src, ok := part["source"].(map[string]any); ok {
+			mediaType, _ := src["media_type"].(string)
+			if mediaType == "" {
+				mediaType = "image/png"
+			}
+			data, _ := src["data"].(string)
+			if data != "" {
+				dataURI := fmt.Sprintf("data:%s;base64,%s", mediaType, data)
+				return map[string]any{
+					"type":      "image",
+					"image":     dataURI,
+					"mimeType":  mediaType,
+					"mediaType": mediaType,
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func jsonErrorBody(message, errType string, code int) []byte {
+	body, err := json.Marshal(map[string]any{
+		"error": map[string]any{
+			"message": message,
+			"type":    errType,
+			"code":    code,
+		},
+	})
+	if err != nil {
+		return []byte(`{"error":{"message":"upstream error","type":"server_error","code":500}}`)
+	}
+	return body
+}
+
 // buildCommandcodeBody transforms OpenAI request payload into CommandCode schema
 // {threadId, memory, config, params} matching upstream openaiToCommandCodeRequest.
 func buildCommandcodeBody(body []byte, model string) ([]byte, error) {
+	return buildCommandcodeBodyForSession(body, model, "")
+}
+
+// buildCommandcodeBodyForSession is buildCommandcodeBody with a
+// conversation-stable threadId derived from the client session, so the
+// upstream prefix cache hits across turns of one conversation.
+func buildCommandcodeBodyForSession(body []byte, model, sessionID string) ([]byte, error) {
 	var m map[string]any
 	if err := json.Unmarshal(body, &m); err != nil {
 		return body, err
 	}
 
-	// If already wrapped in params, ensure required top-level fields
-	if _, hasParams := m["params"]; hasParams {
+	// Already wrapped in params: normalise, don't rebuild (lets callers
+	// send the exact upstream schema).
+	if rawParams, hasParams := m["params"]; hasParams {
+		p, ok := rawParams.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("buildCommandcodeBody: params must be an object")
+		}
+		params := map[string]any{}
+		for _, k := range []string{"messages", "stream", "temperature", "top_p", "tools", "reasoning_effort", "system"} {
+			if v, ok := p[k]; ok && v != nil {
+				params[k] = v
+			}
+		}
+		if _, ok := params["stream"]; !ok {
+			params["stream"] = true
+		}
+		if _, ok := params["messages"]; !ok {
+			params["messages"] = []any{}
+		}
+		params["model"] = model
+		params["max_tokens"] = commandcodeMaxTokens(p)
+		m["params"] = params
 		if _, hasThread := m["threadId"]; !hasThread {
-			m["threadId"] = uuid.New().String()
+			m["threadId"] = commandcodeSessionUUID(sessionID)
 		}
 		if _, hasMem := m["memory"]; !hasMem {
 			m["memory"] = ""
 		}
 		if _, hasCfg := m["config"]; !hasCfg {
 			m["config"] = map[string]any{
-				"workingDir":    "/",
+				"workingDir":    commandcodeWorkingDir,
 				"date":          time.Now().UTC().Format("2006-01-02"),
 				"environment":   runtime.GOOS,
 				"structure":     []any{},
@@ -279,69 +383,43 @@ func buildCommandcodeBody(body []byte, model string) ([]byte, error) {
 				"recentCommits": []any{},
 			}
 		}
-		return json.Marshal(m)
+		return marshalStable(m)
 	}
 
-	params := make(map[string]any, len(m))
-	for k, v := range m {
-		params[k] = v
+	params := map[string]any{
+		"model":      model,
+		"messages":   []any{},
+		"stream":     true,
+		"max_tokens": commandcodeMaxTokens(m),
 	}
-	if model != "" {
-		params["model"] = model
+	if temp, ok := m["temperature"]; ok && temp != nil {
+		params["temperature"] = temp
+	} else {
+		params["temperature"] = 0.3
 	}
-	params["stream"] = true
+	if top, ok := m["top_p"]; ok && top != nil {
+		params["top_p"] = top
+	}
+	if tools, ok := m["tools"].([]any); ok && len(tools) > 0 {
+		params["tools"] = commandcodeTools(convertOpenAIToolsToClaude(tools))
+	}
+	if effort, ok := m["reasoning_effort"]; ok && effort != nil {
+		params["reasoning_effort"] = effort
+	}
 
-	// CommandCode messages require content as array of blocks (never raw string)
 	if rawMsgs, ok := m["messages"].([]any); ok {
-		var systemTexts []string
-		convertedMsgs := make([]any, 0, len(rawMsgs))
-		for _, rawMsg := range rawMsgs {
-			msgMap, ok := rawMsg.(map[string]any)
-			if !ok {
-				continue
-			}
-			role, _ := msgMap["role"].(string)
-			contentVal := msgMap["content"]
-
-			if role == "system" || role == "developer" {
-				if s, ok := contentVal.(string); ok && s != "" {
-					systemTexts = append(systemTexts, s)
-				}
-				continue
-			}
-
-			var contentBlocks []any
-			if strContent, ok := contentVal.(string); ok {
-				contentBlocks = append(contentBlocks, map[string]any{
-					"type": "text",
-					"text": strContent,
-				})
-			} else if arrContent, ok := contentVal.([]any); ok {
-				contentBlocks = arrContent
-			} else {
-				contentBlocks = append(contentBlocks, map[string]any{
-					"type": "text",
-					"text": "",
-				})
-			}
-
-			convertedMsg := map[string]any{
-				"role":    role,
-				"content": contentBlocks,
-			}
-			convertedMsgs = append(convertedMsgs, convertedMsg)
-		}
-		params["messages"] = convertedMsgs
-		if len(systemTexts) > 0 {
-			params["system"] = strings.Join(systemTexts, "\n\n")
+		messages, system := commandcodeConvertMessages(rawMsgs)
+		params["messages"] = messages
+		if system != "" {
+			params["system"] = system
 		}
 	}
 
 	payload := map[string]any{
-		"threadId": uuid.New().String(),
+		"threadId": commandcodeSessionUUID(sessionID),
 		"memory":   "",
 		"config": map[string]any{
-			"workingDir":    "/",
+			"workingDir":    commandcodeWorkingDir,
 			"date":          time.Now().UTC().Format("2006-01-02"),
 			"environment":   runtime.GOOS,
 			"structure":     []any{},
@@ -354,10 +432,16 @@ func buildCommandcodeBody(body []byte, model string) ([]byte, error) {
 		"params": params,
 	}
 
-	return json.Marshal(payload)
+	// marshalStable, not json.Marshal: CommandCode is a prefix-caching
+	// upstream, so the same logical request must serialise byte-identically
+	// or every turn after the first misses the prompt cache. (json/v2
+	// randomises map member order without json.Deterministic.)
+	return marshalStable(payload)
 }
 
 // ForwardCommandcode forwards to CommandCode with NDJSON→SSE translation.
+// 502/503/504 (HTTP status or in-stream error before any byte is written)
+// are retried twice with a linear backoff, as upstream's executor does.
 func ForwardCommandcode(w http.ResponseWriter, req *Request) error {
 	var oreq struct {
 		Model string `json:"model"`
@@ -366,25 +450,61 @@ func ForwardCommandcode(w http.ResponseWriter, req *Request) error {
 		log.Warn("executor", "commandcode unmarshal body", "error", err)
 	}
 
-	reqBody, err := buildCommandcodeBody(req.Body, oreq.Model)
+	body := InjectReasoningContent(req.Body, "commandcode")
+	reqBody, err := buildCommandcodeBodyForSession(body, oreq.Model,
+		commandcodeSessionKey(body, req.SessionID, req.ConnectionID))
 	if err != nil {
 		return fmt.Errorf("marshal commandcode body: %w", err)
 	}
-	// Build request with custom headers (not using proxy.ForwardCommandcode)
 	ctx := req.Ctx
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	var envelope struct {
+		ThreadID string `json:"threadId"`
+	}
+	_ = json.Unmarshal(reqBody, &envelope)
+	for attempt := 0; ; attempt++ {
+		err = forwardCommandcodeOnce(ctx, w, req, reqBody, envelope.ThreadID, oreq.Model)
+		if attempt >= commandcodeMaxRetries || !isCommandcodeRetryable(err) {
+			return err
+		}
+		timer := time.NewTimer(time.Duration(attempt+1) * time.Second)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
+}
+
+func isCommandcodeRetryable(err error) bool {
+	var ue *proxy.UpstreamError
+	if !errors.As(err, &ue) {
+		return false
+	}
+	return ue.StatusCode == http.StatusBadGateway ||
+		ue.StatusCode == http.StatusServiceUnavailable ||
+		ue.StatusCode == http.StatusGatewayTimeout
+}
+
+func forwardCommandcodeOnce(ctx context.Context, w http.ResponseWriter, req *Request, reqBody []byte, threadID, model string) error {
 	r, err := http.NewRequestWithContext(ctx, "POST", req.Config.BaseURL, bytes.NewReader(reqBody))
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
 	}
 	r.Header.Set("Content-Type", "application/json")
 	r.Header.Set("Authorization", "Bearer "+req.APIKey)
-	r.Header.Set("x-session-id", uuid.New().String())
-	r.Header.Set("x-command-code-version", "0.25.7")
-	r.Header.Set("x-cli-environment", "cli")
-	r.Header.Set("User-Agent", "commandcode/0.25.7 (cli)")
+	r.Header.Set("x-session-id", threadID)
+	r.Header.Set("x-project-slug", commandcodeProjectSlug)
+	// Defaults mirror the registry StaticHeaders (command-code@1.88.0);
+	// the loop below lets a configured value win.
+	r.Header.Set("User-Agent", "cli")
+	r.Header.Set("x-command-code-version", "1.88.0")
+	r.Header.Set("x-cli-environment", "production")
+	r.Header.Set("x-cli-surface", "cli")
+	r.Header.Set("x-taste-learning", "false")
 	r.Header.Set("Accept", "text/event-stream")
 	if req.Config != nil && req.Config.StaticHeaders != nil {
 		for k, v := range req.Config.StaticHeaders {
@@ -405,7 +525,10 @@ func ForwardCommandcode(w http.ResponseWriter, req *Request) error {
 		return &proxy.UpstreamError{StatusCode: resp.StatusCode, Body: errBody}
 	}
 
-	return handleCommandcodeStream(w, req, resp.Body, oreq.Model)
+	if !req.IsStream {
+		return handleCommandcodeNonStream(w, req, resp.Body, model)
+	}
+	return handleCommandcodeStream(w, req, resp.Body, model)
 }
 
 // ForwardOpencode handles requests for opencode (free tier).

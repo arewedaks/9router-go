@@ -889,6 +889,29 @@ func ParseCommandCodeError(event map[string]any) (int, string) {
 	return statusCode, message
 }
 
+type sseCollectWriter struct {
+	buf bytes.Buffer
+}
+
+func (w *sseCollectWriter) Header() http.Header         { return http.Header{} }
+func (w *sseCollectWriter) WriteHeader(int)             {}
+func (w *sseCollectWriter) Write(b []byte) (int, error) { return w.buf.Write(b) }
+
+// handleCommandcodeNonStream answers a stream:false request by folding the
+// NDJSON→SSE frames into one chat.completion JSON, instead of handing the
+// client a text/event-stream body its JSON parser cannot read.
+func handleCommandcodeNonStream(w http.ResponseWriter, req *Request, upstream io.Reader, model string) error {
+	collect := &sseCollectWriter{}
+	if err := handleCommandcodeStream(collect, req, upstream, model); err != nil {
+		return err
+	}
+	folded, ok := sseToOpenAIJSON(collect.buf.Bytes())
+	if !ok {
+		return &proxy.UpstreamError{StatusCode: http.StatusBadGateway, Body: jsonErrorBody("no completion in stream", "upstream_error", http.StatusBadGateway)}
+	}
+	return jsonResponse(req.Ctx, w, bytes.NewReader(folded), req.TranslateResp, req.ResponseBuf)
+}
+
 func handleCommandcodeStream(w http.ResponseWriter, req *Request, upstream io.Reader, model string) error {
 	state := &CommandcodeStreamState{
 		ResponseID: fmt.Sprintf("chatcmpl-%d", time.Now().UnixNano()),

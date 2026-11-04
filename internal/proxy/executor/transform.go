@@ -662,7 +662,7 @@ func InjectReasoningContent(body []byte, provider string) []byte {
 	modelStr, _ := reqMap["model"].(string)
 	modelLower := strings.ToLower(modelStr)
 
-	isDeepSeek := strings.Contains(modelLower, "deepseek") || provider == "opencode" || provider == "opencode-go"
+	isDeepSeek := strings.Contains(modelLower, "deepseek") || provider == "opencode" || provider == "opencode-go" || provider == "commandcode"
 	isKimi := strings.HasPrefix(modelLower, "kimi-")
 
 	if !isDeepSeek && !isKimi {
