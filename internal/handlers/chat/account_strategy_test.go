@@ -33,21 +33,20 @@ func TestAccountStrategyFillFirstBeatsRotateStrategy(t *testing.T) {
 	}
 }
 
-// Blobs written before accountStrategy existed only carry the round-robin
-// toggle, and they must keep rotating.
 // A blob that predates accountStrategy carries only the legacy round-robin
-// toggle. Round-robin is no longer the default, so such a blob resolves to
-// fastest: with every account unmeasured the priority order is kept.
-func TestLegacyBlobWithoutAccountStrategyDefaultsToFastest(t *testing.T) {
+// toggle, or an unset strategy. It resolves to round-robin so requests
+// rotate evenly across all accounts.
+func TestLegacyBlobWithoutAccountStrategyDefaultsToRoundRobin(t *testing.T) {
 	h := NewChatHandler(nil)
 	h.ResetConnectionState("")
 
-	strat := db.ProviderStrategy{FallbackStrategy: "round-robin"}
-	first := h.ApplyConnectionStrategy("antigravity", threeConns(), strat)[0].ID
+	strat := db.ProviderStrategy{}
+	seen := map[string]bool{}
 	for i := 0; i < 3; i++ {
-		if got := h.ApplyConnectionStrategy("antigravity", threeConns(), strat)[0].ID; got != first {
-			t.Fatalf("call %d: default must not rotate, got %s want %s", i+2, got, first)
-		}
+		seen[h.ApplyConnectionStrategy("antigravity", threeConns(), strat)[0].ID] = true
+	}
+	if len(seen) != 3 {
+		t.Fatalf("default round-robin covered %d accounts, want 3: %v", len(seen), seen)
 	}
 }
 
@@ -146,17 +145,16 @@ func TestAccountModeResolution(t *testing.T) {
 		strat db.ProviderStrategy
 		want  string
 	}{
-		// Unset resolves to fastest: lowest measured latency first is the
-		// default, including for blobs that only carry the legacy toggle.
-		{db.ProviderStrategy{}, "fastest"},
+		// Unset resolves to round-robin by default to distribute load evenly.
+		{db.ProviderStrategy{}, "round-robin"},
 		{db.ProviderStrategy{AccountStrategy: "fill-first"}, "fill-first"},
 		{db.ProviderStrategy{AccountStrategy: " Round-Robin "}, "round-robin"},
 		{db.ProviderStrategy{AccountStrategy: "sticky"}, "sticky"},
 		{db.ProviderStrategy{AccountStrategy: "random"}, "random"},
 		{db.ProviderStrategy{AccountStrategy: " Fastest "}, "fastest"},
 		{db.ProviderStrategy{AccountStrategy: "least-latency"}, "fastest"},
-		{db.ProviderStrategy{AccountStrategy: "bogus"}, "fastest"},
-		{db.ProviderStrategy{FallbackStrategy: "round-robin"}, "fastest"},
+		{db.ProviderStrategy{AccountStrategy: "bogus"}, "round-robin"},
+		{db.ProviderStrategy{FallbackStrategy: "round-robin"}, "round-robin"},
 		{db.ProviderStrategy{AccountStrategy: "none", FallbackStrategy: "round-robin"}, "fill-first"},
 	}
 	for _, c := range cases {

@@ -6977,22 +6977,22 @@
   // accounts — accountStrategy keeps the two from fighting each other.
   //
   // Modes mirror ApplyConnectionStrategy: fastest (lowest measured latency
-  // first), fill-first (priority order), round-robin (spread), sticky (one
-  // account for N requests), random. Unset resolves to fastest, matching the
-  // backend default in ProviderStrategy.AccountMode.
+  // Modes mirror ApplyConnectionStrategy: round-robin (spread), fastest (lowest measured
+  // latency first), fill-first (priority order), sticky (one account for N requests), random.
+  // Unset resolves to round-robin, matching the backend default in ProviderStrategy.AccountMode.
   function accountStrategyControls(d) {
     const strat = (providerStrategies[d.provider] || {});
     let mode = strat.accountStrategy || "";
-    if (!mode) mode = "fastest";
-    const sticky = strat.stickyRoundRobinLimit || 3;
+    if (!mode) mode = "round-robin";
+    const sticky = strat.stickyRoundRobinLimit || (mode === "round-robin" ? 1 : 3);
     const count = (d.connections || []).length;
     const note = count < 2
       ? `<span class="acct-count-chip warn" title="Rotation takes effect when 2 or more accounts exist">1 account (needs 2+)</span>`
       : `<span class="acct-count-chip active" title="${count} accounts active in rotation">${count} accounts</span>`;
     const opts = [
+      ["round-robin", "Round Robin (spread across accounts)"],
       ["fastest", "Fastest (lowest latency first)"],
       ["fill-first", "Fill First (priority order)"],
-      ["round-robin", "Round Robin (spread across accounts)"],
       ["sticky", "Sticky (one account, N requests)"],
       ["random", "Random (random start)"],
     ].map(([v, label]) =>

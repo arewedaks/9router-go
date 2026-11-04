@@ -77,8 +77,8 @@ func TestAccountRoundRobinRotatesAcrossConnections(t *testing.T) {
 	}
 }
 
-// With the toggle off nothing may rotate: fill-first keeps the highest-priority
-// account, which is the behaviour every existing install relies on.
+// With the toggle off (fill-first) nothing may rotate: fill-first keeps the highest-priority
+// account.
 func TestAccountRotationOffKeepsPriorityOrder(t *testing.T) {
 	database, cleanup := setupChatTestDB(t)
 	defer cleanup()
@@ -86,8 +86,7 @@ func TestAccountRotationOffKeepsPriorityOrder(t *testing.T) {
 
 	seedConnections(t, repo, "ffprov", 3)
 	h := &ChatHandler{Repo: repo}
-	// No strategy at all is the default state.
-	strat := db.ProviderStrategy{}
+	strat := db.ProviderStrategy{AccountStrategy: "fill-first"}
 
 	first := ""
 	for i := 0; i < 5; i++ {

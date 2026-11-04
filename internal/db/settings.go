@@ -92,9 +92,8 @@ func (p ProviderStrategy) WantsAccountRoundRobin() bool {
 // proxy-pool setting: "fill-first", "round-robin", "sticky", "random" or
 // "fastest". An explicit accountStrategy always wins. Anything unset — including
 // blobs written before the field existed, whose only hint is the legacy
-// round-robin toggle — resolves to "fastest": the default is lowest measured
-// latency first, because a healthy account answering in 300ms should not queue
-// behind a stale one just because it sits earlier in the list.
+// round-robin toggle — resolves to "round-robin": the default is to spread requests
+// evenly across accounts.
 func (p ProviderStrategy) AccountMode() string {
 	switch strings.ToLower(strings.TrimSpace(p.AccountStrategy)) {
 	case "round-robin", "roundrobin":
@@ -108,15 +107,18 @@ func (p ProviderStrategy) AccountMode() string {
 	case "fill-first", "fillfirst", "none", "off":
 		return "fill-first"
 	}
-	return "fastest"
+	return "round-robin"
 }
 
 // AccountStickyLimit returns how many consecutive requests one account serves
-// before the rotation advances. Defaults to 3 to match VansRouter, whose UI
-// seeds the field with 3 when the toggle is switched on.
+// before the rotation advances. Defaults to 3 for sticky mode to match VansRouter.
+// In round-robin mode without explicit limit, it defaults to 1 so requests rotate on every call.
 func (p ProviderStrategy) AccountStickyLimit() int {
 	if p.StickyRoundRobinLimit > 0 {
 		return p.StickyRoundRobinLimit
+	}
+	if p.AccountMode() == "round-robin" {
+		return 1
 	}
 	return defaultAccountStickyLimit
 }
