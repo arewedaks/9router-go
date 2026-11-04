@@ -143,7 +143,7 @@ var KnownProviders = map[string]ProviderConfig{
 		AuthScheme: "bearer",
 	},
 	"nace": {
-		BaseURL:    "https://console.nace.ai/v1",
+		BaseURL:    "https://console.nace.ai/v1/decisions",
 		AuthHeader: "Authorization",
 		AuthScheme: "bearer",
 	},

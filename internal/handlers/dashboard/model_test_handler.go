@@ -134,6 +134,16 @@ func (h *Handler) pingModelImpl(ctx context.Context, model, kind string) (modelT
 		return h.doJSONTest(ctx, client, base+"/v1/images/generations", body, apiKey, "image")
 
 	default: // llm
+		if strings.Contains(model, "drex") || strings.HasPrefix(model, "nc/") || strings.HasPrefix(model, "nace/") {
+			body, _ := json.Marshal(map[string]any{
+				"model": model,
+				"input": "ping test",
+				"questions": []map[string]any{
+					{"type": "predicate", "name": "ok", "instructions": "Is this a test?"},
+				},
+			})
+			return h.doJSONTest(ctx, client, base+"/v1/decisions", body, apiKey, "llm")
+		}
 		body, _ := json.Marshal(map[string]any{
 			"model":      model,
 			"max_tokens": 1024,

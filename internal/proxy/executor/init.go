@@ -54,6 +54,7 @@ func RegisterAll() {
 	Register("glm-cn", func() Executor { return ForwardOpenAI })
 	Register("glm", func() Executor { return ForwardOpenAI })
 	Register("nebius", func() Executor { return ForwardOpenAI })
+	Register("nace", func() Executor { return ForwardNace })
 	Register("minimax", func() Executor { return ForwardOpenAI })
 	Register("kimi", func() Executor { return ForwardOpenAI })
 	Register("clinepass", func() Executor { return ForwardOpenAI })

@@ -40,8 +40,14 @@ func multimodalPath(cfg *providers.ProviderConfig, path string) string {
 	case strings.HasPrefix(path, "/videos") && cfg.VideoURL != "":
 		return cfg.VideoURL
 	}
+	if strings.HasSuffix(cfg.BaseURL, path) {
+		return cfg.BaseURL
+	}
 	if strings.Contains(cfg.BaseURL, "/chat/completions") {
 		return strings.Replace(cfg.BaseURL, "/chat/completions", path, 1)
+	}
+	if strings.Contains(cfg.BaseURL, "/decisions") {
+		return strings.Replace(cfg.BaseURL, "/decisions", path, 1)
 	}
 	return strings.TrimRight(cfg.BaseURL, "/") + path
 }
