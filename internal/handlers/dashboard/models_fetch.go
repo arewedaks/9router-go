@@ -345,6 +345,11 @@ func (h *Handler) fetchUpstreamModels(providerID, data string, timeout time.Dura
 		return h.fetchQoderModels(canonical)
 	}
 
+	// Nace / Drex serves Decisions and System One models — see nace_catalog.go.
+	if canonical == "nace" || providerID == "nace" {
+		return h.fetchNaceModels(canonical, data, timeout)
+	}
+
 	client := &http.Client{Timeout: timeout}
 
 	// Branch 1 & 2: user-defined compatible endpoints need a base URL.
