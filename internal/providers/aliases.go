@@ -62,6 +62,8 @@ var ProviderAliasMap = map[string]string{
 	"mmf":            "mimo-free",
 	"nb":             "nanobanana",
 	"ne":             "nebius",
+	"nc":             "nace",
+	"drex":           "nace",
 	"nv":             "nvidia",
 	"ns":             "nous",
 	"oa":             "openai",

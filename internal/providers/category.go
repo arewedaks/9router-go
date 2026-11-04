@@ -232,6 +232,7 @@ var providerRegistry = map[string]ProviderMeta{
 	"fish-audio":           {ID: "fish-audio", Name: "Fish Audio", Alias: "fish", Category: CategoryAPIKey, AuthType: "apikey", Website: "https://fish.audio"},
 	"alitp-intl":           {ID: "alitp-intl", Name: "Alibaba Token Plan", Alias: "alitp-intl", Category: CategoryAPIKey, AuthType: "apikey", Priority: 11, Icon: "cloud", Color: "#FF6A00", ServiceKinds: []string{"webSearch"}, Website: "https://www.alibabacloud.com/campaign/ai-landing-page-token"},
 	"xquik":                {ID: "xquik", Name: "Xquik", Alias: "xquik", Category: CategoryAPIKey, AuthType: "apikey", Website: "https://docs.xquik.com"},
+	"nace":                 {ID: "nace", Name: "Nace", Alias: "nc", Category: CategoryAPIKey, AuthType: "apikey", Description: "Nace Drex decisions and reasoning models", Priority: 142, Icon: "psychology", Color: "#6366F1", ServiceKinds: []string{"llm"}, Website: "https://console.nace.ai"},
 	"zcode":                {ID: "zcode", Name: "ZCode", Alias: "zc", Category: CategoryOAuth, AuthType: "oauth", Description: "Z.ai ZCode start plan (free Start Plan / Weekend Build quota)", Priority: 141, Icon: "terminal", Color: "#2563EB", ServiceKinds: []string{"llm"}, Website: "https://zcode.z.ai"},
 	"zenmux":               {ID: "zenmux", Name: "ZenMux", Alias: "zenmux", Category: CategoryAPIKey, AuthType: "apikey", Priority: 116, Icon: "layers", Color: "#6366F1", ServiceKinds: []string{"llm", "embedding", "image"}, Website: "https://zenmux.ai"},
 

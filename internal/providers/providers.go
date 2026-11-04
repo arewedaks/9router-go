@@ -142,6 +142,11 @@ var KnownProviders = map[string]ProviderConfig{
 		AuthHeader: "Authorization",
 		AuthScheme: "bearer",
 	},
+	"nace": {
+		BaseURL:    "https://console.nace.ai/v1",
+		AuthHeader: "Authorization",
+		AuthScheme: "bearer",
+	},
 	"deepinfra": {
 		BaseURL:    "https://api.deepinfra.com/v1/openai/chat/completions",
 		AuthHeader: "Authorization",

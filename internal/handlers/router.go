@@ -64,6 +64,8 @@ func SetupRoutes(r interface {
 	r.Post("/embeddings", mediaH.HandleEmbeddings)
 	r.Post("/responses", mediaH.HandleResponses)
 	r.Post("/responses/compact", mediaH.HandleResponsesCompact)
+	r.Post("/decisions", mediaH.HandleDecisions)
+	r.Post("/systemone", mediaH.HandleSystemOne)
 	r.Post("/images/generations", mediaH.HandleImages)
 	r.Post("/audio/speech", mediaH.HandleAudioSpeech)
 	r.Get("/audio/voices", mediaH.HandleAudioVoices)

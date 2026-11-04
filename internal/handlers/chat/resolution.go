@@ -427,6 +427,11 @@ func (h *ChatHandler) resolveModel(modelStr string) (*ModelInfo, error) {
 			}
 		}
 
+		// 3.6 Check well-known model families
+		if strings.HasPrefix(modelStr, "drex-") {
+			return &ModelInfo{Provider: "nace", Model: modelStr}, nil
+		}
+
 		// 4. Check common providers as a fallback
 		for _, provider := range []string{"openai", "anthropic", "deepseek"} {
 			conns, err := h.Repo.GetProviderConnections(provider, true)

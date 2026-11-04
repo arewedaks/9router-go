@@ -221,6 +221,30 @@ func (h *MediaHandler) HandleResponsesCompact(w http.ResponseWriter, r *http.Req
 	h.forwardMediaRequest(w, r, body, "gpt-4o", "/responses/compact")
 }
 
+// HandleDecisions handles OpenAI Decisions API (/v1/decisions).
+func (h *MediaHandler) HandleDecisions(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		handlerutil.WriteJSONError(w, http.StatusBadRequest, "failed to read body")
+		return
+	}
+	defer r.Body.Close()
+
+	h.forwardMediaRequest(w, r, body, "drex-latest", "/decisions")
+}
+
+// HandleSystemOne handles Nace System One API (/v1/systemone).
+func (h *MediaHandler) HandleSystemOne(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		handlerutil.WriteJSONError(w, http.StatusBadRequest, "failed to read body")
+		return
+	}
+	defer r.Body.Close()
+
+	h.forwardMediaRequest(w, r, body, "drex-latest", "/systemone")
+}
+
 // HandleImages handles /v1/images/generations.
 func (h *MediaHandler) HandleImages(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(r.Body)
