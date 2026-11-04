@@ -41,6 +41,8 @@ type Request struct {
 	// COSY payload, not from the token: a per-request UUID is rejected with 403
 	// "Login expired". These come from the sign-in stored on the connection.
 	QoderIdentity QoderIdentity
+	// ConnData carries provider-specific connection data (e.g. deviceId, sessionSeed, accountUUID).
+	ConnData map[string]any
 }
 
 // Executor forwards a request upstream and writes the response.

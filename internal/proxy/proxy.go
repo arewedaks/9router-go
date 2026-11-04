@@ -24,6 +24,8 @@ type UpstreamError struct {
 	// it left cooldowns at the classifier's short default instead of the real
 	// window.
 	RetryAfter int
+	// Header carries the upstream's HTTP response headers.
+	Header http.Header
 }
 
 // retryAfterSeconds parses a Retry-After header value. Only the delta-seconds
@@ -100,7 +102,7 @@ func DoRequest(ctx context.Context, client *http.Client, method, url string, hea
 		if readErr != nil {
 			return nil, fmt.Errorf("upstream returned %d and body read failed: %w", resp.StatusCode, readErr)
 		}
-		return nil, &UpstreamError{StatusCode: resp.StatusCode, Body: errBody, RetryAfter: retryAfterSeconds(resp.Header)}
+		return nil, &UpstreamError{StatusCode: resp.StatusCode, Body: errBody, RetryAfter: retryAfterSeconds(resp.Header), Header: resp.Header}
 	}
 	return resp, nil
 }

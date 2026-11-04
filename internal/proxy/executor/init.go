@@ -11,7 +11,7 @@ func RegisterAll() {
 	// by the fallback (IsClaudeFormat), and ForwardOpenAI translates the Claude
 	// response back for OpenAI-format clients.
 	Register("agentrouter", func() Executor { return ForwardOpenAI })
-	Register("zcode", func() Executor { return ForwardOpenAI })
+	Register("zcode", func() Executor { return ForwardZcode })
 	Register("deepinfra", func() Executor { return ForwardOpenAI })
 	Register("zenmux", func() Executor { return ForwardOpenAI })
 	Register("groq", func() Executor { return ForwardOpenAI })

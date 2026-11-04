@@ -174,6 +174,11 @@ func SetupRoutes(r interface {
 	r.Get("/api/oauth/kilocode/authorize", oauthH.HandleKilocodeAuthorize)
 	r.Post("/api/oauth/kilocode/exchange", oauthH.HandleKilocodeExchange)
 
+	// ZCode device flow (Start Plan / Weekend Build quota).
+	r.Get("/api/oauth/zcode/authorize", oauthH.HandleZcodeAuthorize)
+	r.Get("/api/oauth/zcode/flow", oauthH.HandleZcodeFlowInfo)
+	r.Post("/api/oauth/zcode/exchange", oauthH.HandleZcodeExchange)
+
 	// Generic OAuth flows, driven by a spec table (kimi, grok-cli, claude,
 	// iflow, gitlab, xai, cursor, codex). Registered AFTER the specific routes
 	// above so a provider with a dedicated handler — Antigravity's loopback

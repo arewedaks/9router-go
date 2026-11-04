@@ -129,17 +129,13 @@ var KnownProviders = map[string]ProviderConfig{
 			"X-App":             "cli",
 		},
 	},
-	// ZCode is Z.ai's coding plan, also Messages-format. The API key rides in
-	// x-api-key alongside the Claude headers.
+	// zcode: ZCode start-plan lane. Auth is the plan JWT stored on each
+	// connection (device-flow login), never a shared key. Format=claude: the plan
+	// endpoint speaks Anthropic Messages, so the dispatcher converts OpenAI
+	// bodies and flags the reply lane.
 	"zcode": {
-		BaseURL:    "https://api.z.ai/api/anthropic/v1/messages",
-		AuthHeader: "x-api-key",
-		AuthScheme: "raw",
-		Format:     FormatClaude,
-		StaticHeaders: map[string]string{
-			"anthropic-version": "2023-06-01",
-			"Anthropic-Beta":    "claude-code-20250219,interleaved-thinking-2025-05-14",
-		},
+		BaseURL: "https://zcode.z.ai/api/v1/zcode-plan/anthropic/v1/messages",
+		Format:  FormatClaude,
 	},
 	"deepseek": {
 		BaseURL:    "https://api.deepseek.com/chat/completions",

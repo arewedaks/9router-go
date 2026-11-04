@@ -436,6 +436,11 @@ func (h *ChatHandler) tryForwardWithConnection(
 	httpClient := h.getClientForConnection(connData)
 	sessionID := handlerutil.GetSessionID(ctx)
 
+	var connPSD map[string]any
+	if connData != nil && len(connData.ProviderSpecificData) > 0 {
+		connPSD = connData.ProviderSpecificData
+	}
+
 	if exec := executor.GetForConfig(provider, providerCfg); exec != nil {
 		fwdErr = exec(w, &executor.Request{
 			Ctx:              ctx,
@@ -458,6 +463,7 @@ func (h *ChatHandler) tryForwardWithConnection(
 			PerchWorkspaceID: connData.PerchWorkspaceID,
 			ZedUserID:        connData.ZedUserID,
 			QoderIdentity:    qoderIdentity,
+			ConnData:         connPSD,
 		})
 	} else if providerCfg.IsGeminiNative() {
 		fwdErr = h.forwardGeminiNativeRequest(ctx, w, provider, providerCfg, apiKey, connectionID, pipedBody, isStream, translateResponse, metrics)
@@ -487,6 +493,7 @@ func (h *ChatHandler) tryForwardWithConnection(
 					ResponseBuf:    &metrics.ResponseBuf,
 					StartTime:      start,
 					TTFT:           &metrics.TTFT,
+					ConnData:       connPSD,
 				})
 			} else if providerCfg.IsGeminiNative() {
 				fwdErr = h.forwardGeminiNativeRequest(ctx, w, provider, providerCfg, apiKey, connectionID, pipedBody, isStream, translateResponse, metrics)
