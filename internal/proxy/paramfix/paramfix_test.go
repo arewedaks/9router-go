@@ -333,3 +333,65 @@ func TestNormalizeDeepSeekReasoning_MediumToHigh(t *testing.T) {
 		t.Errorf("empty chat_template_kwargs must be dropped: %v", gotEmpty)
 	}
 }
+
+// Top-level invalid reasoning_effort (not medium/low/high/xhigh/max/int) is dropped
+func TestNormalizeDeepSeekReasoning_DropsInvalid(t *testing.T) {
+	got := apply(t, "adcode", "deepseek-v4.1", map[string]any{
+		"model":            "deepseek-v4.1",
+		"reasoning_effort": "efficient",
+	})
+	if _, present := got["reasoning_effort"]; present {
+		t.Errorf("invalid reasoning_effort must be dropped at top level: %v", got)
+	}
+
+	gotKwargs := apply(t, "adcode", "deepseek-v4.1", map[string]any{
+		"model":              "deepseek-v4.1",
+		"chat_template_kwargs": map[string]any{"reasoning_effort": "efficient"},
+	})
+	if _, present := gotKwargs["chat_template_kwargs"]; present {
+		t.Errorf("empty chat_template_kwargs must be dropped: %v", gotKwargs)
+	}
+
+	// Both locations at once
+	gotBoth := apply(t, "adcode", "deepseek-v4.1", map[string]any{
+		"model":              "deepseek-v4.1",
+		"reasoning_effort":   "efficient",
+		"chat_template_kwargs": map[string]any{"reasoning_effort": "efficient"},
+	})
+	if _, present := gotBoth["reasoning_effort"]; present {
+		t.Errorf("top-level reasoning_effort must be dropped: %v", gotBoth)
+	}
+	if _, present := gotBoth["chat_template_kwargs"]; present {
+		t.Errorf("empty chat_template_kwargs must be dropped: %v", gotBoth)
+	}
+}
+
+// DropMessageFields strips reasoning_effort from assistant messages for adcode
+func TestDropMessageFields_AdCodeAssistantReasoning(t *testing.T) {
+	got := apply(t, "adcode", "deepseek-v4.1", map[string]any{
+		"model": "deepseek-v4.1",
+		"messages": []any{
+			map[string]any{"role": "user", "content": "hello"},
+			map[string]any{
+				"role":             "assistant",
+				"content":          "pong",
+				"reasoning_effort": "efficient",
+				"reasoning":        "some reasoning",
+			},
+			map[string]any{"role": "user", "content": "again"},
+		},
+	})
+	msgs := got["messages"].([]any)
+	a2 := msgs[1].(map[string]any)
+	if _, present := a2["reasoning_effort"]; present {
+		t.Errorf("reasoning_effort must be dropped from assistant message: %v", a2)
+	}
+	if _, present := a2["reasoning"]; present {
+		t.Errorf("reasoning must be dropped from assistant message: %v", a2)
+	}
+	// User messages must survive untouched
+	u0 := msgs[0].(map[string]any)
+	if u0["content"] != "hello" {
+		t.Errorf("user message must survive: %v", u0)
+	}
+}

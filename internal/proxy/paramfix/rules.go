@@ -33,16 +33,21 @@ var Rules = []Rule{
 		Drop: []string{"thinking", "reasoning_effort"},
 	},
 
-	// ─── Strict OpenAI-compatible validators ────────────────────────────────
-	// These reject unknown assistant-message fields outright. Agent clients that
-	// talk to reasoning models (Hermes and friends) echo the previous turn's
-	// reasoning back on every assistant message; the strict validators answer
-	// 400/422 ("extra_forbidden"), which removes the provider from every
-	// multi-turn conversation. Providers that REQUIRE the field (DeepSeek, Kimi)
+	// Providers that REQUIRE the field (DeepSeek, Kimi)
 	// are deliberately absent — they are handled by the reasoning injector.
 	{Provider: "groq", DropMessageFields: []string{"reasoning_content", "reasoning", "reasoning_details"}},
 	{Provider: "mistral", DropMessageFields: []string{"reasoning_content", "reasoning", "reasoning_details"}},
 	{Provider: "cerebras", DropMessageFields: []string{"reasoning_content", "reasoning", "reasoning_details"}},
+
+	// DeepSeek V4.1 / ADCode / Alysis reject reasoning_effort echoed back in
+	// assistant messages by coding harnesses (e.g. Pi replays prior turns with
+	// the field attached). Drop it from assistant messages on these providers
+	// so multi-turn conversations don't 400.
+	{Provider: "adcode", DropMessageFields: []string{"reasoning_effort", "reasoning"}},
+	{Provider: "adc", DropMessageFields: []string{"reasoning_effort", "reasoning"}},
+	{Provider: "alysis", DropMessageFields: []string{"reasoning_effort", "reasoning"}},
+	{Provider: "alys", DropMessageFields: []string{"reasoning_effort", "reasoning"}},
+	{MatchSubstr: "deepseek", DropMessageFields: []string{"reasoning_effort", "reasoning"}},
 
 	// Mistral rejects `store` at the top level with a 422:
 	//   {"type":"extra_forbidden","loc":["body","store"],
