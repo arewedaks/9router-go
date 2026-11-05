@@ -334,11 +334,12 @@ func TestNormalizeDeepSeekReasoning_MediumToHigh(t *testing.T) {
 	}
 }
 
-// ADCode/Alysis reject `store` with a field-less 400 "Send a supported chat
+// ADCode rejects `store` with a field-less 400 "Send a supported chat
 // request."; OpenAI SDK clients set store:false by default, so it must be
-// dropped for the whole provider.
+// dropped for the whole provider. Alysis is deliberately excluded — it
+// answered 200 with store present.
 func TestStripsStoreForAdCode(t *testing.T) {
-	for _, provider := range []string{"adcode", "adc", "alysis", "alys"} {
+	for _, provider := range []string{"adcode", "adc"} {
 		got := apply(t, provider, "deepseek-v4.1-flash-unc", map[string]any{
 			"model":    "deepseek-v4.1-flash-unc",
 			"store":    false,
@@ -352,12 +353,21 @@ func TestStripsStoreForAdCode(t *testing.T) {
 			t.Errorf("%s: unrelated params must survive: %v", provider, got)
 		}
 	}
+
+	// Alysis must keep store: it never refused it.
+	kept := apply(t, "alysis", "deepseek-flash", map[string]any{
+		"model": "deepseek-flash", "store": false,
+	})
+	if _, present := kept["store"]; !present {
+		t.Errorf("alysis: store must survive (it answered 200 with it), got %v", kept)
+	}
 }
 
-// ADCode/Alysis also accept message content only as a plain string; the
-// content-part array most agent SDKs send answers invalid-messages.
+// ADCode also accepts message content only as a plain string; the
+// content-part array most agent SDKs send answers invalid-messages. Alysis
+// accepts both, so its content must be left alone.
 func TestFlattensContentForAdCode(t *testing.T) {
-	for _, provider := range []string{"adcode", "adc", "alysis", "alys"} {
+	for _, provider := range []string{"adcode", "adc"} {
 		got := apply(t, provider, "deepseek-v4.1-flash-unc", map[string]any{
 			"model": provider + "-probe",
 			"messages": []any{
@@ -375,6 +385,19 @@ func TestFlattensContentForAdCode(t *testing.T) {
 		if content != "hello world" {
 			t.Errorf("%s: flattened content = %q, want %q", provider, content, "hello world")
 		}
+	}
+
+	// Alysis keeps its content array (images survive).
+	alysisGot := apply(t, "alysis", "deepseek-flash", map[string]any{
+		"model": "deepseek-flash",
+		"messages": []any{
+			map[string]any{"role": "user", "content": []any{
+				map[string]any{"type": "image_url", "image_url": map[string]any{"url": "https://x/y.png"}},
+			}},
+		},
+	})
+	if _, isString := alysisGot["messages"].([]any)[0].(map[string]any)["content"].(string); isString {
+		t.Error("alysis content must not be flattened: it serves image parts")
 	}
 }
 

@@ -59,10 +59,12 @@ var Rules = []Rule{
 	// to be dropped up front. OpenAI SDK clients (and the Pi harness) set
 	// store:false by default on every request, so without this rule every
 	// harness call to these providers fails while curl probes pass.
+	//
+	// ADCode only, not alysis: the alysis gateway answered 200 with store and
+	// a content array present (measured the same day), so it has no such
+	// refusal and a rule there would be an unearned behaviour change.
 	{Provider: "adcode", Drop: []string{"store"}},
 	{Provider: "adc", Drop: []string{"store"}},
-	{Provider: "alysis", Drop: []string{"store"}},
-	{Provider: "alys", Drop: []string{"store"}},
 
 	// Mistral rejects `store` at the top level with a 422:
 	//   {"type":"extra_forbidden","loc":["body","store"],
@@ -105,18 +107,20 @@ var Rules = []Rule{
 	// the OpenAI content-part array. (9Router #1926)
 	{Provider: "cloudflare-ai", FlattenContent: true},
 
-	// ADCode's Tagflow gateway and the Alysis gateway also accept message
-	// content only as a plain string. A content-part array — what the Pi
-	// harness and most agent SDKs send for every user turn — answers:
+	// ADCode's Tagflow gateway also accepts message content only as a plain
+	// string. A content-part array — what the Pi harness and most agent SDKs
+	// send for every user turn — answers:
 	//   {"error":{"code":"invalid-messages","message":"Included AI could not
 	//    read this conversation's message format. Start a fresh conversation,
 	//    or switch model."}}
 	// Measured 2026-11-05: the same prompt as a string is 200, as
 	// [{"type":"text","text":…}] is 400, with and without tools.
+	//
+	// ADCode only: alysis answered 200 to both shapes, and flattenContent
+	// drops every non-text part, so extending it there would silently discard
+	// images on a gateway that serves them.
 	{Provider: "adcode", FlattenContent: true},
 	{Provider: "adc", FlattenContent: true},
-	{Provider: "alysis", FlattenContent: true},
-	{Provider: "alys", FlattenContent: true},
 
 	// ─── Output-cap ceilings ────────────────────────────────────────────────
 	// VolcEngine Ark: the GLM-5 line is capped below its advertised ceiling.
