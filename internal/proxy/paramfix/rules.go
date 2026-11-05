@@ -49,6 +49,21 @@ var Rules = []Rule{
 	{Provider: "alys", DropMessageFields: []string{"reasoning_effort", "reasoning"}},
 	{MatchSubstr: "deepseek", DropMessageFields: []string{"reasoning_effort", "reasoning"}},
 
+	// ADCode's Tagflow gateway (and the Alysis gateway that fronts the same
+	// DeepSeek V4.1 tokenizer) rejects any request carrying `store` with a
+	// bare, field-less 400:
+	//   {"error":{"code":"bad-request","message":"Send a supported chat request."}}
+	// Measured 2026-11-05: store:false and store:true both 400; removing it
+	// answers 200 in both stream modes. The message names no parameter, so
+	// paramfix.ForwardWithRepair cannot classify it and retry — the field has
+	// to be dropped up front. OpenAI SDK clients (and the Pi harness) set
+	// store:false by default on every request, so without this rule every
+	// harness call to these providers fails while curl probes pass.
+	{Provider: "adcode", Drop: []string{"store"}},
+	{Provider: "adc", Drop: []string{"store"}},
+	{Provider: "alysis", Drop: []string{"store"}},
+	{Provider: "alys", Drop: []string{"store"}},
+
 	// Mistral rejects `store` at the top level with a 422:
 	//   {"type":"extra_forbidden","loc":["body","store"],
 	//    "msg":"Extra inputs are not permitted"}
@@ -89,6 +104,19 @@ var Rules = []Rule{
 	// Its oneOf root schema accepts content only as a plain string and rejects
 	// the OpenAI content-part array. (9Router #1926)
 	{Provider: "cloudflare-ai", FlattenContent: true},
+
+	// ADCode's Tagflow gateway and the Alysis gateway also accept message
+	// content only as a plain string. A content-part array — what the Pi
+	// harness and most agent SDKs send for every user turn — answers:
+	//   {"error":{"code":"invalid-messages","message":"Included AI could not
+	//    read this conversation's message format. Start a fresh conversation,
+	//    or switch model."}}
+	// Measured 2026-11-05: the same prompt as a string is 200, as
+	// [{"type":"text","text":…}] is 400, with and without tools.
+	{Provider: "adcode", FlattenContent: true},
+	{Provider: "adc", FlattenContent: true},
+	{Provider: "alysis", FlattenContent: true},
+	{Provider: "alys", FlattenContent: true},
 
 	// ─── Output-cap ceilings ────────────────────────────────────────────────
 	// VolcEngine Ark: the GLM-5 line is capped below its advertised ceiling.

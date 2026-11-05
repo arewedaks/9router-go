@@ -334,6 +334,50 @@ func TestNormalizeDeepSeekReasoning_MediumToHigh(t *testing.T) {
 	}
 }
 
+// ADCode/Alysis reject `store` with a field-less 400 "Send a supported chat
+// request."; OpenAI SDK clients set store:false by default, so it must be
+// dropped for the whole provider.
+func TestStripsStoreForAdCode(t *testing.T) {
+	for _, provider := range []string{"adcode", "adc", "alysis", "alys"} {
+		got := apply(t, provider, "deepseek-v4.1-flash-unc", map[string]any{
+			"model":    "deepseek-v4.1-flash-unc",
+			"store":    false,
+			"stream":   true,
+			"messages": []any{map[string]any{"role": "user", "content": "hi"}},
+		})
+		if _, present := got["store"]; present {
+			t.Errorf("%s: store must be dropped, got %v", provider, got)
+		}
+		if got["stream"] != true {
+			t.Errorf("%s: unrelated params must survive: %v", provider, got)
+		}
+	}
+}
+
+// ADCode/Alysis also accept message content only as a plain string; the
+// content-part array most agent SDKs send answers invalid-messages.
+func TestFlattensContentForAdCode(t *testing.T) {
+	for _, provider := range []string{"adcode", "adc", "alysis", "alys"} {
+		got := apply(t, provider, "deepseek-v4.1-flash-unc", map[string]any{
+			"model": provider + "-probe",
+			"messages": []any{
+				map[string]any{"role": "user", "content": []any{
+					map[string]any{"type": "text", "text": "hello "},
+					map[string]any{"type": "text", "text": "world"},
+				}},
+			},
+		})
+		msgs := got["messages"].([]any)
+		content, ok := msgs[0].(map[string]any)["content"].(string)
+		if !ok {
+			t.Fatalf("%s: content must be flattened to a string, got %T", provider, msgs[0].(map[string]any)["content"])
+		}
+		if content != "hello world" {
+			t.Errorf("%s: flattened content = %q, want %q", provider, content, "hello world")
+		}
+	}
+}
+
 // Top-level invalid reasoning_effort (not medium/low/high/xhigh/max/int) is dropped
 func TestNormalizeDeepSeekReasoning_DropsInvalid(t *testing.T) {
 	got := apply(t, "adcode", "deepseek-v4.1", map[string]any{

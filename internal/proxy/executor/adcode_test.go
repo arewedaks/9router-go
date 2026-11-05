@@ -9,6 +9,8 @@ import (
 	"sync/atomic"
 	"testing"
 
+	json "encoding/json/v2"
+
 	"9router/proxy/internal/providers"
 )
 
@@ -95,6 +97,87 @@ func TestForwardAdCodeExchangesRefreshToken(t *testing.T) {
 	}
 	if ua, _ := gotUA.Load().(string); !strings.Contains(ua, "ADCode/") {
 		t.Errorf("User-Agent = %q, want the desktop client agent (Cloudflare rejects Go's)", ua)
+	}
+}
+
+// The gateway rejects `store` (any value) and content-part arrays with a bare
+// 400, so a harness request must be repaired before it leaves the router. Pin
+// both drops at the wire: mock the gateway's own rejections and assert the
+// forwarded body no longer carries them.
+func TestForwardAdCodeDropsStoreAndFlattensContent(t *testing.T) {
+	var lastBody []byte
+
+	tokenSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"id_token":"minted","expires_in":"3600"}`)
+	}))
+	t.Cleanup(tokenSrv.Close)
+
+	chatSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		lastBody, _ = io.ReadAll(r.Body)
+		var m map[string]any
+		_ = json.Unmarshal(lastBody, &m)
+		// Reproduce the gateway's two refusals.
+		if _, ok := m["store"]; ok {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = io.WriteString(w, `{"error":{"code":"bad-request","message":"Send a supported chat request."}}`)
+			return
+		}
+		if msgs, ok := m["messages"].([]any); ok {
+			for _, raw := range msgs {
+				if msg, ok := raw.(map[string]any); ok {
+					if _, isList := msg["content"].([]any); isList {
+						w.WriteHeader(http.StatusBadRequest)
+						_, _ = io.WriteString(w, `{"error":{"code":"invalid-messages","message":"Included AI could not read this conversation's message format."}}`)
+						return
+					}
+				}
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"id":"x","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"pong"},"finish_reason":"stop"}]}`)
+	}))
+	t.Cleanup(chatSrv.Close)
+
+	origTok := providers.AdCodeTokenURL
+	providers.AdCodeTokenURL = tokenSrv.URL
+	t.Cleanup(func() { providers.AdCodeTokenURL = origTok })
+	providers.ResetAdCodeTokenCache()
+
+	cfg := providers.KnownProviders["adcode"]
+	cfg.BaseURL = chatSrv.URL
+
+	body := `{"model":"deepseek-v4.1-flash-unc","store":false,"stream":true,` +
+		`"messages":[{"role":"user","content":[{"type":"text","text":"say "},{"type":"text","text":"OK"}]}]}`
+
+	rec := httptest.NewRecorder()
+	err := ForwardAdCode(rec, &Request{
+		Ctx:      context.Background(),
+		Client:   chatSrv.Client(),
+		Config:   &cfg,
+		APIKey:   "refresh-token",
+		Body:     []byte(body),
+		Provider: "adcode",
+	})
+	if err != nil {
+		t.Fatalf("ForwardAdCode: %v", err)
+	}
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d: %s (body sent: %s)", rec.Code, rec.Body.String(), lastBody)
+	}
+	var sent map[string]any
+	if err := json.Unmarshal(lastBody, &sent); err != nil {
+		t.Fatalf("upstream body not JSON: %v", err)
+	}
+	if _, ok := sent["store"]; ok {
+		t.Error("store reached the upstream; the gateway rejects it with a field-less 400")
+	}
+	msgs, _ := sent["messages"].([]any)
+	if len(msgs) == 0 {
+		t.Fatal("messages missing from the forwarded body")
+	}
+	if content, ok := msgs[0].(map[string]any)["content"].(string); !ok || content != "say OK" {
+		t.Errorf("content must be flattened to a string, got %#v", msgs[0].(map[string]any)["content"])
 	}
 }
 
