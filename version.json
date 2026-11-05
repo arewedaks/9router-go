@@ -1,5 +1,5 @@
 {
   "latestVersion": "1.10.11",
   "downloadUrl": "https://github.com/arewedaks/9router-go/releases/latest",
-  "releaseNotes": "- chore: bump version to 1.10.10 (719ab40)\n- style(dashboard): perbagus toolbar kuota dan bulk actions koneksi (86975ef)\n- feat(antigravity): optimasi kuota weekly dan 5 hours dengan dropdown akun (6219b48)\n- fix(alysis): normalisasi reasoning_effort dan floor min output untuk luna (0de3c9a)\n- fix(adcode): normalisasi reasoning_effort untuk DeepSeek V4.1 di chat_template_kwargs (600e6c2)\n- chore(release): version.json -> v1.10.9 (245ef6f)\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
+  "releaseNotes": "- chore: bump version to 1.10.11 (20f77fd)\n- fix(adcode): drop empty chat_template_kwargs after reasoning_effort cleanup to avoid 'Send a supported chat request' 400 from harness requests (afd15a8)\n- chore(release): version.json -> v1.10.10 (84bd5fe)\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
 }
