@@ -1,5 +1,5 @@
 {
   "latestVersion": "1.10.13",
   "downloadUrl": "https://github.com/arewedaks/9router-go/releases/latest",
-  "releaseNotes": "- fix(adcode): drop store dan flatten content parts agar harness bisa memakai ADCode (b608362)\n- fix(adcode): batasi rule store/flatten ke ADCode saja, alysis tidak terpengaruh (5624dba)\n- fix(adcode): drop reasoning_effort dari assistant messages dan top-level untuk 400 harness ADCode/alysis (19b82fe)\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
+  "releaseNotes": "- chore: bump version to 1.10.13 (b816d59)\n- fix(adcode): batasi rule store/flatten ke ADCode saja, alysis tidak terpengaruh (5624dba)\n- fix(adcode): drop store dan flatten content parts agar harness bisa memakai ADCode (b608362)\n- chore(release): version.json -> v1.10.12 (d9cf72e)\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
 }
