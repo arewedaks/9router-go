@@ -7065,13 +7065,16 @@
   // from the proxy pool rotation below, which balances egress IPs rather than
   // accounts — accountStrategy keeps the two from fighting each other.
   //
-  // Modes mirror ApplyConnectionStrategy: fastest (lowest measured latency
-  // Modes mirror ApplyConnectionStrategy: round-robin (spread), fastest (lowest measured
-  // latency first), fill-first (priority order), sticky (one account for N requests), random.
+  // Modes mirror ApplyConnectionStrategy: round-robin (spread), fastest (lowest
+  // measured latency first), fill-first (priority order).
   // Unset resolves to round-robin, matching the backend default in ProviderStrategy.AccountMode.
   function accountStrategyControls(d) {
     const strat = (providerStrategies[d.provider] || {});
     let mode = strat.accountStrategy || "";
+    // A saved sticky/random (both removed) is shown as round-robin: that is the
+    // surviving mode with the same walk, and it keeps the sticky input visible
+    // instead of leaving the select blank.
+    if (mode === "sticky" || mode === "random") mode = "round-robin";
     if (!mode) mode = "round-robin";
     const sticky = strat.stickyRoundRobinLimit || (mode === "round-robin" ? 1 : 3);
     const count = (d.connections || []).length;
@@ -7082,11 +7085,9 @@
       ["round-robin", "Round Robin (spread across accounts)"],
       ["fastest", "Fastest (lowest latency first)"],
       ["fill-first", "Fill First (priority order)"],
-      ["sticky", "Sticky (one account, N requests)"],
-      ["random", "Random (random start)"],
     ].map(([v, label]) =>
       `<option value="${v}" ${v === mode ? "selected" : ""}>${label}</option>`).join("");
-    const showSticky = mode === "round-robin" || mode === "sticky";
+    const showSticky = mode === "round-robin";
     return `
       <div class="acct-strat-left">
         <span class="acct-strat-title"><span class="msym acct-strat-icon">sync_alt</span>Account Rotation</span>
@@ -7173,8 +7174,6 @@
   const PROXY_STRATEGIES = [
     { value: "none", label: "None (direct / static)" },
     { value: "round-robin", label: "Round-Robin (rotate active pools)" },
-    { value: "random", label: "Random (rotate active pools)" },
-    { value: "sticky", label: "Sticky (stay on one pool)" },
   ];
 
   function proxyScopeNote(d) {
@@ -7185,7 +7184,10 @@
 
   function renderNoAuthProxyCard(d) {
     const strat = (providerStrategies[d.provider] || {});
-    const strategy = strat.rotateStrategy || "none";
+    // A saved random/sticky pool strategy (both removed) falls back to
+    // round-robin, the surviving rotation mode.
+    let strategy = strat.rotateStrategy || "none";
+    if (strategy === "random" || strategy === "sticky") strategy = "round-robin";
     const poolId = strat.proxyPoolId || "__none__";
     const targets = Array.isArray(strat.targetProxyPoolIds) ? strat.targetProxyPoolIds : [];
 

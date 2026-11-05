@@ -222,8 +222,9 @@ func TestUIEndpointOmitsPortForDefaultScheme(t *testing.T) {
 }
 
 // The provider page must expose the account rotation mode selector, not just a
-// round-robin on/off switch: the backend has four modes (fill-first,
-// round-robin, sticky, random) and the old toggle reached only two of them.
+// round-robin on/off switch. The surviving modes are fill-first, round-robin
+// and fastest; sticky/random were removed as unused, so the test asserts they
+// are gone as well as that the rest are present.
 func TestUIProviderPageHasAccountRotationModes(t *testing.T) {
 	ui := readEmbeddedUI(t)
 
@@ -234,14 +235,43 @@ func TestUIProviderPageHasAccountRotationModes(t *testing.T) {
 		"function saveAccountStrategy",
 		`["fill-first", "Fill First (priority order)"]`,
 		`["round-robin", "Round Robin (spread across accounts)"]`,
-		`["sticky", "Sticky (one account, N requests)"]`,
-		`["random", "Random (random start)"]`,
 		`["fastest", "Fastest (lowest latency first)"]`,
 		"accountStrategy: mode",
 		"stickyRoundRobinLimit",
 	} {
 		if !strings.Contains(ui, need) {
 			t.Errorf("account rotation control missing: %s", need)
+		}
+	}
+
+	// Removed modes must not be offered anywhere in the account-rotation control.
+	if strings.Contains(ui, `["sticky", "Sticky (one account, N requests)"]`) {
+		t.Error("removed account mode 'sticky' is still offered in the UI")
+	}
+	if strings.Contains(ui, `["random", "Random (random start)"]`) {
+		t.Error("removed account mode 'random' is still offered in the UI")
+	}
+}
+
+// The proxy-pool rotation selector must offer only the modes that survive:
+// none and round-robin.
+func TestUIProxyStrategyHasNoRemovedModes(t *testing.T) {
+	ui := readEmbeddedUI(t)
+
+	for _, need := range []string{
+		`{ value: "none", label: "None (direct / static)" }`,
+		`{ value: "round-robin", label: "Round-Robin (rotate active pools)" }`,
+	} {
+		if !strings.Contains(ui, need) {
+			t.Errorf("proxy strategy option missing: %s", need)
+		}
+	}
+	for _, gone := range []string{
+		`{ value: "random", label: "Random (rotate active pools)" }`,
+		`{ value: "sticky", label: "Sticky (stay on one pool)" }`,
+	} {
+		if strings.Contains(ui, gone) {
+			t.Errorf("removed proxy strategy still offered: %s", gone)
 		}
 	}
 }

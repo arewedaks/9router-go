@@ -4,7 +4,6 @@ import (
 	"crypto/rand"
 	json "encoding/json/v2"
 	"fmt"
-	"math/big"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -262,9 +261,10 @@ var (
 // to those ids. Returns "" when nothing is eligible, which callers treat as
 // "direct connection".
 //
-// Strategies mirror VansRouter: "fill-first" (and any unknown) takes the first
-// eligible pool; "round-robin" and "smart" advance a per-key cursor; "random"
-// picks uniformly. "none" is handled by callers before reaching here.
+// Strategies: "none" is handled by callers before reaching here; "round-robin"
+// (and the legacy "smart"/"sticky" spellings a saved blob may still carry)
+// advances a per-key cursor; anything else takes the first eligible pool.
+// "random" was removed from the UI as unused.
 func PickProxyPoolID(eligible, targets []string, strategy, providerID string) string {
 	candidates := filterTargetPoolIDs(eligible, targets)
 	if len(candidates) == 0 {
@@ -284,12 +284,6 @@ func PickProxyPoolID(eligible, targets []string, strategy, providerID string) st
 		poolCursors[key] = (idx + 1) % uint64(len(candidates))
 		poolCursorsMu.Unlock()
 		return candidates[idx]
-	case "random":
-		n, err := rand.Int(rand.Reader, big.NewInt(int64(len(candidates))))
-		if err != nil {
-			return candidates[0]
-		}
-		return candidates[n.Int64()]
 	default:
 		return candidates[0]
 	}

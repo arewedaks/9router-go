@@ -13,7 +13,6 @@ import (
 	"9router/proxy/internal/translator"
 	json "encoding/json/v2"
 	"fmt"
-	"math/rand/v2"
 	"net/http"
 	"net/url"
 	"sort"
@@ -681,8 +680,6 @@ func (h *ChatHandler) applyConnectionStrategyFor(provider, model string, conns [
 		// Same sticky walk: round-robin is sticky with limit 1 (see
 		// combo.go), sticky keeps one account for AccountStickyLimit requests.
 		return h.rotateConnectionsSticky(provider, conns, strat.AccountStickyLimit())
-	case "random":
-		return rotateConnectionsRandom(conns)
 	case "fastest":
 		// Lowest measured latency first. Accounts that have never answered go
 		// first so each one is sampled once and the ranking can self-correct.
@@ -704,13 +701,11 @@ func (h *ChatHandler) applyConnectionStrategyFor(provider, model string, conns [
 		return h.rotateConnectionsSticky(provider, conns, stickyLimit)
 
 	case "sticky":
+		// Legacy pool value, kept working: same walk, honouring the limit.
 		if stickyLimit <= 0 {
 			stickyLimit = 1
 		}
 		return h.rotateConnectionsSticky(provider, conns, stickyLimit)
-
-	case "random":
-		return rotateConnectionsRandom(conns)
 
 	default:
 		// "none", "fallback", or empty: keep DB priority order
@@ -742,17 +737,6 @@ func orderConnectionsByLatency(conns []*models.ProviderConnection) []*models.Pro
 		return priorityOf(a) < priorityOf(b)
 	})
 	return ordered
-}
-
-// rotateConnectionsRandom starts the list at a random account and keeps the
-// remaining priority order. Stateless: no per-account bookkeeping, no persistence.
-func rotateConnectionsRandom(conns []*models.ProviderConnection) []*models.ProviderConnection {
-	offset := rand.IntN(len(conns))
-	rotated := make([]*models.ProviderConnection, len(conns))
-	for i := range conns {
-		rotated[i] = conns[(offset+i)%len(conns)]
-	}
-	return rotated
 }
 
 // lastUsedTime parses a connection's lastUsedAt for chronological comparison.

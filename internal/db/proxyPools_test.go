@@ -234,11 +234,13 @@ func TestPickProxyPoolID_Strategies(t *testing.T) {
 		}
 	}
 
-	// random stays within the candidate set.
+	// A removed strategy ("random") now takes the default path and still stays
+	// within the candidate set — it must never return "" or an out-of-set id.
+	// The UI no longer offers it; this guards a stale saved blob.
 	for i := 0; i < 20; i++ {
 		got := PickProxyPoolID(eligible, nil, "random", "p")
 		if got != "a" && got != "b" && got != "c" {
-			t.Fatalf("random returned out-of-set pool %q", got)
+			t.Fatalf("removed strategy returned out-of-set pool %q", got)
 		}
 	}
 
