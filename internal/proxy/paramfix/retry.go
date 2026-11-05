@@ -102,6 +102,7 @@ var safeToDrop = map[string]bool{
 	"reasoning_effort": true, // deprecated by several vendors, ignored by others
 	"service_tier":     true, // billing hint; has no effect on the answer
 	"prompt_cache_key": true, // cache routing hint, purely an optimisation
+	"chat_template_kwargs": true, // DeepSeek V4.1 kwargs structure; safe to drop when upstream rejects it
 }
 
 // IsSafeToDrop reports whether the auto-retry may remove this field.

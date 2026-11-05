@@ -323,4 +323,13 @@ func TestNormalizeDeepSeekReasoning_MediumToHigh(t *testing.T) {
 	if gotAlysis["reasoning_effort"] != "high" {
 		t.Errorf("alysis reasoning_effort = %v, want high", gotAlysis["reasoning_effort"])
 	}
+
+	// chat_template_kwargs emptied by normalization is dropped entirely
+	gotEmpty := apply(t, "adcode", "deepseek-v4.1", map[string]any{
+		"model":              "deepseek-v4.1",
+		"chat_template_kwargs": map[string]any{"reasoning_effort": "auto"},
+	})
+	if _, present := gotEmpty["chat_template_kwargs"]; present {
+		t.Errorf("empty chat_template_kwargs must be dropped: %v", gotEmpty)
+	}
 }

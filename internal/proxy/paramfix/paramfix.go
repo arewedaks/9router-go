@@ -306,6 +306,14 @@ func normalizeDeepSeekReasoning(m map[string]any) bool {
 				changed = true
 			}
 		}
+		// An empty chat_template_kwargs is not a valid request input: the
+		// DeepSeek V4.1 tokenizer rejects it with "Send a supported chat
+		// request." Drop the whole key once reasoning_effort has been stripped
+		// from it, so the upstream never sees an empty object.
+		if len(kwargs) == 0 {
+			delete(m, "chat_template_kwargs")
+			changed = true
+		}
 	}
 	return changed
 }
