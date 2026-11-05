@@ -94,7 +94,7 @@ func (h *ChatHandler) handleAccountFallback(
 			if strat, ok := settings.ProviderStrategies[provider]; ok {
 				poolRotation := strat.RotateStrategy != "" && strat.RotateStrategy != "none"
 				if poolRotation || strat.WantsAccountRoundRobin() {
-					allConns = h.applyConnectionStrategy(provider, allConns, strat)
+					allConns = h.applyConnectionStrategyFor(provider, model, allConns, strat)
 				}
 			}
 		}

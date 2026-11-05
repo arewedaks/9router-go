@@ -213,6 +213,12 @@ func (r *Repo) GetConnectionBackoffLevel(connID string) int {
 // replacement for the old kv-based IsProviderHealthy, matching Next.js's
 // isModelLockActive + filterAvailableAccounts flow.
 // Returns true when no connections exist (optimistic default for no-auth providers).
+//
+// The lock lives inside each row's data blob, so the check runs over the rows
+// already fetched: one query for the pool, not one per account. The previous
+// form called IsConnectionModelLocked in the loop, which issued a SELECT per
+// connection and made a 1000-account provider cost ~3.5 ms per request before
+// any account was even tried.
 func (r *Repo) IsProviderAvailable(provider, model string) bool {
 	if provider == "" {
 		return true
@@ -221,13 +227,38 @@ func (r *Repo) IsProviderAvailable(provider, model string) bool {
 	if err != nil || len(conns) == 0 {
 		return true
 	}
+	if model == "" {
+		return true
+	}
+	now := time.Now().UTC()
 	for _, c := range conns {
-		locked, err := r.IsConnectionModelLocked(c.ID, model)
-		if err == nil && !locked {
+		if !connectionDataModelLocked(c.Data, model, now) {
 			return true
 		}
 	}
 	return false
+}
+
+// connectionDataModelLocked reads a modelLock_<model> entry straight out of a
+// connection's raw data blob. Unparseable or missing data counts as unlocked,
+// matching IsConnectionModelLocked.
+func connectionDataModelLocked(data, model string, now time.Time) bool {
+	if data == "" || model == "" {
+		return false
+	}
+	var raw map[string]any
+	if err := json.Unmarshal([]byte(data), &raw); err != nil {
+		return false
+	}
+	str, ok := raw[modelLockPrefix+model].(string)
+	if !ok || str == "" {
+		return false
+	}
+	t, err := time.Parse(time.RFC3339, str)
+	if err != nil {
+		return false
+	}
+	return now.Before(t)
 }
 
 // ResetProviderHealth clears modelLock_* fields on connections, matching

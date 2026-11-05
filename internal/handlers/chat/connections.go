@@ -59,6 +59,48 @@ func (h *ChatHandler) isConnectionModelLocked(provider, connectionID, model stri
 	return false
 }
 
+// connectionLockedForModel reports whether an already-loaded connection is
+// locked for this model, reading the lock out of the row's own data blob.
+//
+// This is the batch-safe form of isConnectionModelLocked: that one issues a
+// SELECT per connection, so filtering a 1000-account pool through it cost
+// ~3.5 ms per request. The caller already holds the parsed rows, and the lock
+// lives inside their data column, so no extra query is needed.
+func (h *ChatHandler) connectionLockedForModel(provider string, conn *models.ProviderConnection, model string) bool {
+	if conn == nil || model == "" {
+		return false
+	}
+	lockKey := canonicalLockModel(provider, model)
+	if connModelLocked(conn.Data, lockKey) {
+		return true
+	}
+	if lockKey != model {
+		return connModelLocked(conn.Data, model)
+	}
+	return false
+}
+
+// connModelLocked reads a modelLock_<model> entry from a connection's raw data
+// blob. Unparseable data counts as unlocked, matching IsConnectionModelLocked.
+func connModelLocked(data, model string) bool {
+	if data == "" || model == "" {
+		return false
+	}
+	var raw map[string]any
+	if err := json.Unmarshal([]byte(data), &raw); err != nil {
+		return false
+	}
+	str, ok := raw["modelLock_"+model].(string)
+	if !ok || str == "" {
+		return false
+	}
+	t, err := time.Parse(time.RFC3339, str)
+	if err != nil {
+		return false
+	}
+	return time.Now().UTC().Before(t)
+}
+
 // GetBestConnection retrieves the highest-priority active connection for a provider.
 // When connectionID is non-empty, it fetches that specific connection directly.
 func (h *ChatHandler) GetBestConnection(provider string, connectionID string, excludeIDs []string, model string) (*models.ProviderConnection, *ConnectionData, error) {
@@ -129,7 +171,7 @@ func (h *ChatHandler) getBestConnection(provider string, connectionID string, ex
 				if strat, ok := settings.ProviderStrategies[provider]; ok {
 					poolRotation := strat.RotateStrategy != "" && strat.RotateStrategy != "none"
 					if poolRotation || strat.WantsAccountRoundRobin() {
-						connections = h.applyConnectionStrategy(provider, connections, strat)
+						connections = h.applyConnectionStrategyFor(provider, model, connections, strat)
 					}
 				}
 			}
@@ -587,9 +629,44 @@ func (h *ChatHandler) ApplyConnectionStrategy(provider string, conns []*models.P
 	return h.applyConnectionStrategy(provider, conns, strat)
 }
 
+// applyConnectionStrategy rotates the whole pool, ignoring model locks. Used
+// when there is no model to scope by (tests, pool-level inspection).
 func (h *ChatHandler) applyConnectionStrategy(provider string, conns []*models.ProviderConnection, strat db.ProviderStrategy) []*models.ProviderConnection {
+	return h.applyConnectionStrategyFor(provider, "", conns, strat)
+}
+
+// applyConnectionStrategyFor rotates over the accounts that can actually serve
+// model. Ordering the locked ones too is not harmless: rotateConnectionsSticky
+// writes lastUsedAt for the account it *chooses*, while the caller then skips
+// that account because of the lock and serves a later one. The chosen account's
+// timestamp advances without it ever serving, so it stops looking "oldest" and
+// the walk hands the same free account every turn — with most of a large pool
+// locked, one account serves everything and the rest never rotate (measured:
+// 15 of 20 locked -> one account served 16 turns in a row, while prod showed
+// 273 active accounts with only 1 ever used).
+func (h *ChatHandler) applyConnectionStrategyFor(provider, model string, conns []*models.ProviderConnection, strat db.ProviderStrategy) []*models.ProviderConnection {
 	if len(conns) <= 1 {
 		return conns
+	}
+
+	if model != "" && h.Repo != nil {
+		available := make([]*models.ProviderConnection, 0, len(conns))
+		for _, c := range conns {
+			if h.connectionLockedForModel(provider, c, model) {
+				continue
+			}
+			if provider == "antigravity" && IsAntigravityModelBlocked(c.ID, model) {
+				continue
+			}
+			available = append(available, c)
+		}
+		if len(available) > 0 {
+			conns = available
+		} else {
+			// Everything is locked: keep the full list so the caller can report
+			// the real reason instead of "no connections".
+			return conns
+		}
 	}
 
 	// Account rotation is a separate switch from proxy-pool rotation. When the
@@ -678,6 +755,33 @@ func rotateConnectionsRandom(conns []*models.ProviderConnection) []*models.Provi
 	return rotated
 }
 
+// lastUsedTime parses a connection's lastUsedAt for chronological comparison.
+//
+// It must NOT be compared as a raw string: lastUsedAt is written with
+// time.RFC3339Nano, which trims trailing zeros from the fractional second, so
+// "….12345678Z" (780 ns) sorts *after* "….123456789Z" (789 ns) lexically while
+// being genuinely earlier. Comparing strings therefore picks the newer account
+// as "oldest" whenever the timestamps land in that shape — rare, but it
+// silently stalls the rotation for one round each time it happens.
+//
+// ok is false when the value is empty or unparseable (a never-used account, or
+// a row written by an older build); callers treat that as "oldest of all".
+func lastUsedTime(conn *models.ProviderConnection) (time.Time, bool) {
+	if conn == nil || conn.LastUsedAt == "" {
+		return time.Time{}, false
+	}
+	t, err := time.Parse(time.RFC3339Nano, conn.LastUsedAt)
+	if err != nil {
+		// Fall back to the other precision in use (RFC3339 writes no fractional
+		// part when the nanosecond field is zero).
+		t, err = time.Parse(time.RFC3339, conn.LastUsedAt)
+		if err != nil {
+			return time.Time{}, false
+		}
+	}
+	return t, true
+}
+
 // rotateConnectionsSticky orders conns so the account that should serve next is
 // first. The choice follows VansRouter's auth.js: sort by lastUsedAt, stay on
 // the most recent account while it has served fewer than stickyLimit requests,
@@ -703,22 +807,25 @@ func (h *ChatHandler) rotateConnectionsSticky(provider string, conns []*models.P
 	}
 
 	// Sort by recency. Never-used connections sort last so they claim a turn
-	// before anyone who has already served.
+	// before anyone who has already served. Comparison is on parsed instants,
+	// not the RFC3339Nano strings (see lastUsedTime).
 	byOldest := make([]*models.ProviderConnection, len(conns))
 	copy(byOldest, conns)
 	sort.SliceStable(byOldest, func(i, j int) bool {
 		a, b := byOldest[i], byOldest[j]
-		if a.LastUsedAt == "" && b.LastUsedAt == "" {
+		ta, aOK := lastUsedTime(a)
+		tb, bOK := lastUsedTime(b)
+		if !aOK && !bOK {
 			return priorityOf(a) < priorityOf(b)
 		}
-		if a.LastUsedAt == "" {
+		if !aOK {
 			return true
 		}
-		if b.LastUsedAt == "" {
+		if !bOK {
 			return false
 		}
-		if a.LastUsedAt != b.LastUsedAt {
-			return a.LastUsedAt < b.LastUsedAt
+		if !ta.Equal(tb) {
+			return ta.Before(tb)
 		}
 		return priorityOf(a) < priorityOf(b)
 	})
