@@ -58,6 +58,19 @@ func (h *Handler) HandleProviderQuota(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// When connectionId is supplied, query only that account to stay fast and avoid throttling.
+	targetConnID := strings.TrimSpace(r.URL.Query().Get("connectionId"))
+	if targetConnID != "" {
+		filtered := make([]*models.ProviderConnection, 0, 1)
+		for _, c := range conns {
+			if c.ID == targetConnID {
+				filtered = append(filtered, c)
+				break
+			}
+		}
+		conns = filtered
+	}
+
 	ctx, cancel := context.WithTimeout(r.Context(), quotaFetchTimeout)
 	defer cancel()
 

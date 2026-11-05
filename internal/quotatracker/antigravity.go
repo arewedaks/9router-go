@@ -114,6 +114,8 @@ func (s antigravitySubscription) isFreeTier() bool {
 }
 
 // fetchAntigravity returns the live quota for one Antigravity connection.
+// It retrieves the Weekly and 5 Hours family buckets only (no per-model quotas)
+// to ensure fast response times and clean display.
 func fetchAntigravity(ctx context.Context, client *http.Client, creds Credentials) (Result, error) {
 	if creds.AccessToken == "" {
 		return Result{Message: "Antigravity access token not available."}, nil
@@ -128,41 +130,23 @@ func fetchAntigravity(ctx context.Context, client *http.Client, creds Credential
 		projectID = sub.ProjectID
 	}
 
-	quotas := map[string]Quota{}
-
-	// Per-model quotas are a paid-tier concept (see the package comment).
-	if !sub.isFreeTier() {
-		models, status, err := fetchAntigravityModelQuotas(ctx, client, creds, projectID)
-		switch {
-		case err != nil:
-			// Not fatal: the weekly overlay below can still say something useful.
-			quotas = map[string]Quota{}
-		case status == http.StatusForbidden:
-			return Result{Message: "Antigravity quota API access forbidden. Chat may still work."}, nil
-		case status == http.StatusUnauthorized:
-			return Result{Message: "Antigravity quota API authentication expired. Chat may still work."}, nil
-		case status != http.StatusOK:
-			return Result{Message: fmt.Sprintf("Antigravity quota API error: %d.", status)}, nil
-		default:
-			quotas = models
-		}
+	weekly, status, err := fetchAntigravityWeeklyBuckets(ctx, client, creds, projectID)
+	switch {
+	case err != nil:
+		return Result{Plan: planLabel(sub), Message: err.Error()}, nil
+	case status == http.StatusForbidden:
+		return Result{Message: "Antigravity quota API access forbidden. Chat may still work."}, nil
+	case status == http.StatusUnauthorized:
+		return Result{Message: "Antigravity quota API authentication expired. Chat may still work."}, nil
+	case status != 0 && status != http.StatusOK:
+		return Result{Message: fmt.Sprintf("Antigravity quota API error: %d.", status)}, nil
 	}
 
-	// Weekly + 5h overlay. Best-effort by design: a failure here must not
-	// discard the per-model rows that already answered.
-	weekly := fetchAntigravityWeeklyBuckets(ctx, client, creds, projectID)
-	reconcileAntigravitySessionRows(quotas, weekly)
-	for k, v := range weekly {
-		if _, taken := quotas[k]; !taken {
-			quotas[k] = v
-		}
-	}
-
-	if len(quotas) == 0 {
+	if len(weekly) == 0 {
 		return Result{Plan: planLabel(sub), Message: "No quota reported for this account."}, nil
 	}
 
-	return Result{Plan: planLabel(sub), Quotas: quotas}, nil
+	return Result{Plan: planLabel(sub), Quotas: weekly}, nil
 }
 
 func planLabel(sub antigravitySubscription) string {
@@ -316,9 +300,9 @@ func fetchAntigravityModelQuotas(ctx context.Context, client *http.Client, creds
 
 // fetchAntigravityWeeklyBuckets reads the weekly + 5h summary and normalises it
 // into the same Quota shape.
-func fetchAntigravityWeeklyBuckets(ctx context.Context, client *http.Client, creds Credentials, projectID string) map[string]Quota {
+func fetchAntigravityWeeklyBuckets(ctx context.Context, client *http.Client, creds Credentials, projectID string) (map[string]Quota, int, error) {
 	if creds.UsageURL == "" {
-		return nil
+		return nil, 0, nil
 	}
 	reqBody := map[string]any{}
 	if projectID != "" {
@@ -326,13 +310,16 @@ func fetchAntigravityWeeklyBuckets(ctx context.Context, client *http.Client, cre
 	}
 	body, err := json.Marshal(reqBody)
 	if err != nil {
-		return nil
+		return nil, 0, err
 	}
 	status, raw, err := antigravityPostAnyHost(ctx, client, creds, antigravitySummaryEndpoint, body)
-	if err != nil || status != http.StatusOK {
-		return nil
+	if err != nil {
+		return nil, status, err
 	}
-	return parseAntigravityBuckets(raw)
+	if status != http.StatusOK {
+		return nil, status, nil
+	}
+	return parseAntigravityBuckets(raw), status, nil
 }
 
 // parseAntigravityBuckets classifies weekly vs 5h-session buckets into stable
@@ -418,9 +405,9 @@ func parseAntigravityBuckets(raw []byte) map[string]Quota {
 			}
 			if isSession {
 				if isGemini {
-					key, label = "gemini_session", "Gemini (5h)"
+					key, label = "gemini_session", "Gemini (5 Hours)"
 				} else {
-					key, label = "claude_gpt_session", "Claude & GPT (5h)"
+					key, label = "claude_gpt_session", "Claude & GPT (5 Hours)"
 				}
 			}
 

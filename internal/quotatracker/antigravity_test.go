@@ -63,6 +63,7 @@ func newAntigravityServer(t *testing.T) *antigravityServer {
 			_ = json.MarshalWrite(w, map[string]any{"models": as.models})
 
 		case strings.HasSuffix(r.URL.Path, ":retrieveUserQuotaSummary"):
+			as.lastUserAgent = r.Header.Get("User-Agent")
 			w.WriteHeader(as.weeklyStatus)
 			if as.weeklyStatus != http.StatusOK {
 				return
@@ -98,26 +99,12 @@ func quotaFor(fraction float64) map[string]any {
 	}
 }
 
-// A paid account gets per-model rows plus the family buckets.
-func TestAntigravityPaidTierReportsModelsAndBuckets(t *testing.T) {
+// A paid account gets weekly and 5h session family buckets without querying per-model quotas.
+func TestAntigravityPaidTierReportsWeeklyAndSessionBuckets(t *testing.T) {
 	as := newAntigravityServer(t)
-	as.models = map[string]any{
-		"gemini-3.8-flash-high": quotaFor(0.75),
-		"claude-sonnet-4-6":     quotaFor(0.5),
-		// Callable but absent from the retired hardcoded allow-list: the bug was
-		// that this model's allowance was hidden. It must be reported now.
-		"gemini-3.8-flash-tiered": quotaFor(0.25),
-		"gemini-3.1-flash-lite":   quotaFor(0.6),
-		// Non-chat surfaces and internal slots stay out.
-		"gemini-3.1-flash-image":  quotaFor(0.9),
-		"tab_flash_lite_preview":  quotaFor(0.9),
-		"chat_20706":              quotaFor(0.9),
-		"gemini-3.6-flash-high":   quotaFor(0.9), // retired id
-		"gemini-3.8-flash-medium": map[string]any{"isInternal": true, "quotaInfo": map[string]any{"remainingFraction": 0.9}},
-		"gemini-3.8-flash-low":    map[string]any{"displayName": "no quota info"},
-	}
 	as.weekly = `{"groups":[{"displayName":"Gemini Models","buckets":[
-		{"bucketId":"gemini-weekly","displayName":"Gemini Weekly","remainingFraction":0.9,"resetTime":"2099-01-01T00:00:00Z"}
+		{"bucketId":"gemini-weekly","displayName":"Gemini Weekly","remainingFraction":0.9,"resetTime":"2099-01-01T00:00:00Z"},
+		{"bucketId":"gemini-5h","displayName":"Five Hour Limit Remaining","window":"5h","remainingFraction":0.75}
 	]}]}`
 
 	res, err := fetchAntigravity(context.Background(), as.Client(), as.creds())
@@ -127,45 +114,15 @@ func TestAntigravityPaidTierReportsModelsAndBuckets(t *testing.T) {
 	if res.Plan != "premium" {
 		t.Errorf("plan = %q, want premium", res.Plan)
 	}
-	if !as.modelsCalled {
-		t.Error("a paid account must query per-model quotas")
+	if as.modelsCalled {
+		t.Error("must not query per-model quotas (weekly + 5h only for speed and clean display)")
 	}
 
-	hi, ok := res.Quotas["gemini-3.8-flash-high"]
-	if !ok {
-		t.Fatalf("missing per-model quota; got %v", keysOf(res.Quotas))
-	}
-	// 0.75 of the 1000 base.
-	if hi.Used != 250 || hi.Total != 1000 {
-		t.Errorf("gemini-3.8-flash-high = used %v total %v, want 250/1000", hi.Used, hi.Total)
-	}
-	if _, ok := res.Quotas["claude-sonnet-4-6"]; !ok {
-		t.Error("claude model missing")
-	}
-	// Every callable model is reported, whether or not it appears in the picker's
-	// static catalogue: a hardcoded allow-list here had gone stale and hid seven
-	// models the operator could actually call.
-	for _, m := range []string{"gemini-3.8-flash-tiered", "gemini-3.1-flash-lite"} {
-		if _, ok := res.Quotas[m]; !ok {
-			t.Errorf("callable model %q was hidden", m)
-		}
-	}
-	// Non-chat surfaces, retired ids, internal slots and entries without quota
-	// data stay out.
-	for _, m := range []string{
-		"gemini-3.1-flash-image",  // image surface
-		"tab_flash_lite_preview",  // tab preview
-		"chat_20706",              // internal slot
-		"gemini-3.6-flash-high",   // retired
-		"gemini-3.8-flash-medium", // isInternal
-		"gemini-3.8-flash-low",    // no quotaInfo
-	} {
-		if _, ok := res.Quotas[m]; ok {
-			t.Errorf("%q must not be reported", m)
-		}
-	}
 	if _, ok := res.Quotas["gemini_weekly"]; !ok {
 		t.Error("weekly bucket missing")
+	}
+	if _, ok := res.Quotas["gemini_session"]; !ok {
+		t.Error("5h session bucket missing")
 	}
 }
 
@@ -232,7 +189,7 @@ func TestAntigravityAuthFailuresReportMessage(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			as := newAntigravityServer(t)
-			as.modelsStatus = tc.status
+			as.weeklyStatus = tc.status
 
 			res, err := fetchAntigravity(context.Background(), as.Client(), as.creds())
 			if err != nil {
@@ -245,21 +202,6 @@ func TestAntigravityAuthFailuresReportMessage(t *testing.T) {
 				t.Errorf("message = %q, want it to mention %q", res.Message, tc.want)
 			}
 		})
-	}
-}
-
-// A failing weekly overlay must not discard the per-model rows that answered.
-func TestAntigravityWeeklyFailureKeepsModelRows(t *testing.T) {
-	as := newAntigravityServer(t)
-	as.models = map[string]any{"gemini-3.8-flash-high": quotaFor(0.75)}
-	as.weeklyStatus = http.StatusInternalServerError
-
-	res, err := fetchAntigravity(context.Background(), as.Client(), as.creds())
-	if err != nil {
-		t.Fatalf("fetchAntigravity: %v", err)
-	}
-	if _, ok := res.Quotas["gemini-3.8-flash-high"]; !ok {
-		t.Errorf("a failed weekly overlay dropped the model rows: %v", keysOf(res.Quotas))
 	}
 }
 
@@ -285,7 +227,7 @@ func TestParseAntigravityBuckets(t *testing.T) {
 	if q := got["gemini_weekly"]; q.Used != 200 {
 		t.Errorf("gemini_weekly used = %v, want 200 (0.8 remaining of 1000)", q.Used)
 	}
-	if q := got["gemini_session"]; q.DisplayName != "Gemini (5h)" {
+	if q := got["gemini_session"]; q.DisplayName != "Gemini (5 Hours)" {
 		t.Errorf("gemini_session label = %q, want a human label", q.DisplayName)
 	}
 	if q := got["gemini_session"]; q.ResetAt == "" {
@@ -363,10 +305,12 @@ func TestReconcileAntigravitySessionRowsEmptyFamily(t *testing.T) {
 }
 
 // The subscription lookup's project id is used when the connection does not
-// carry one, and a per-model 403 is surfaced as a message.
+// carry one, and a weekly quota response is returned.
 func TestAntigravityProjectFallbackAndForbidden(t *testing.T) {
 	as := newAntigravityServer(t)
-	as.models = map[string]any{"gemini-3.8-flash-high": quotaFor(0.5)}
+	as.weekly = `{"groups":[{"displayName":"Gemini Models","buckets":[
+		{"bucketId":"gemini-weekly","displayName":"Gemini Weekly","remainingFraction":0.5}
+	]}]}`
 
 	creds := as.creds()
 	creds.ProjectID = "" // force the loadCodeAssist fallback
@@ -374,8 +318,8 @@ func TestAntigravityProjectFallbackAndForbidden(t *testing.T) {
 	if err != nil {
 		t.Fatalf("fetchAntigravity: %v", err)
 	}
-	if _, ok := res.Quotas["gemini-3.8-flash-high"]; !ok {
-		t.Errorf("per-model quotas missing after a project fallback: %v", keysOf(res.Quotas))
+	if _, ok := res.Quotas["gemini_weekly"]; !ok {
+		t.Errorf("weekly quota missing after a project fallback: %v", keysOf(res.Quotas))
 	}
 }
 
@@ -421,15 +365,15 @@ func TestAntigravityQuotaLabelsAreDeterministic(t *testing.T) {
 			"gemini-3.1-pro-high": map[string]any{"displayName": "Gemini 3.1 Pro (High)", "quotaInfo": quotaFor(0.5)},
 			"gemini-pro-agent":    map[string]any{"displayName": "Gemini 3.1 Pro (High)", "quotaInfo": quotaFor(0.5)},
 		}
-		res, err := fetchAntigravity(context.Background(), as.Client(), as.creds())
-		if err != nil {
-			t.Fatalf("fetchAntigravity: %v", err)
+		quotas, status, err := fetchAntigravityModelQuotas(context.Background(), as.Client(), as.creds(), "proj-123")
+		if err != nil || status != http.StatusOK {
+			t.Fatalf("fetchAntigravityModelQuotas: status=%d err=%v", status, err)
 		}
 		// The canonical id keeps the bare label; the alias carries the suffix.
-		if got := res.Quotas["gemini-3.1-pro-high"].DisplayName; got != "Gemini 3.1 Pro (High)" {
+		if got := quotas["gemini-3.1-pro-high"].DisplayName; got != "Gemini 3.1 Pro (High)" {
 			t.Fatalf("iteration %d: canonical label = %q", i, got)
 		}
-		if got := res.Quotas["gemini-pro-agent"].DisplayName; got != "Gemini 3.1 Pro (High) · gemini-pro-agent" {
+		if got := quotas["gemini-pro-agent"].DisplayName; got != "Gemini 3.1 Pro (High) · gemini-pro-agent" {
 			t.Fatalf("iteration %d: alias label = %q", i, got)
 		}
 	}
@@ -445,11 +389,11 @@ func TestAntigravityHumanizesTieredModelIDs(t *testing.T) {
 			"quotaInfo": map[string]any{"remainingFraction": 1.0, "resetTime": "2099-01-01T00:00:00Z"},
 		},
 	}
-	res, err := fetchAntigravity(context.Background(), as.Client(), as.creds())
-	if err != nil {
-		t.Fatalf("fetchAntigravity: %v", err)
+	quotas, status, err := fetchAntigravityModelQuotas(context.Background(), as.Client(), as.creds(), "proj-123")
+	if err != nil || status != http.StatusOK {
+		t.Fatalf("fetchAntigravityModelQuotas: status=%d err=%v", status, err)
 	}
-	if got := res.Quotas["gemini-3.8-flash-tiered"].DisplayName; got != "Gemini 3.8 Flash Tiered" {
+	if got := quotas["gemini-3.8-flash-tiered"].DisplayName; got != "Gemini 3.8 Flash Tiered" {
 		t.Errorf("DisplayName = %q, want %q", got, "Gemini 3.8 Flash Tiered")
 	}
 }
