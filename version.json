@@ -1,5 +1,5 @@
 {
   "latestVersion": "1.10.15",
   "downloadUrl": "https://github.com/arewedaks/9router-go/releases/latest",
-  "releaseNotes": "- feat(strategy): buang mode random dan sticky dari dropdown strategi (4bf57a5)\n- test(chat): buktikan round-robin utamakan akun baru dan fallback saat akun mati (0b51d0a)\n- test(chat): kunci perilaku fill-first pada pool besar (b8b264a)\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
+  "releaseNotes": "- chore: bump version to 1.10.15 (e464e74)\n- feat(strategy): buang mode random dan sticky dari dropdown strategi (4bf57a5)\n- test(chat): buktikan round-robin utamakan akun baru dan fallback saat akun mati (0b51d0a)\n- test(chat): kunci perilaku fill-first pada pool besar (b8b264a)\n- chore(release): version.json -> v1.10.14 (439f6c6)\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
 }
