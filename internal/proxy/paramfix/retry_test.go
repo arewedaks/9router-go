@@ -44,6 +44,11 @@ func TestUnknownArgumentFromErrorBody(t *testing.T) {
 			want: "response_format.type",
 		},
 		{
+			name: "deepseek chat_template_kwargs reasoning_effort",
+			body: `{"error":{"message":"DeepSeek V4.1 reasoning_effort must be low, high, xhigh, max, or an integer within [1, 100] in chat_template_kwargs"}}`,
+			want: "reasoning_effort",
+		},
+		{
 			name: "a different 400 is not a parameter rejection",
 			body: `{"error":{"message":"context length exceeded","type":"invalid_request_error"}}`,
 			want: "",

@@ -19,8 +19,10 @@ import (
 // gateways such as Mistral. Both mean the same thing: a field the client sent
 // has no counterpart upstream and the whole request was refused because of it.
 var (
-	unrecognizedRe = regexp.MustCompile(`(?i)unrecognized request arguments? supplied:\s*([A-Za-z0-9_.]+)`)
-	forbiddenLocRe = regexp.MustCompile(`"loc"\s*:\s*\[\s*"body"\s*,\s*"([A-Za-z0-9_.]+)"\s*\]`)
+	unrecognizedRe          = regexp.MustCompile(`(?i)unrecognized request arguments? supplied:\s*([A-Za-z0-9_.]+)`)
+	forbiddenLocRe          = regexp.MustCompile(`"loc"\s*:\s*\[\s*"body"\s*,\s*"([A-Za-z0-9_.]+)"\s*\]`)
+	chatTemplateKwargsRe    = regexp.MustCompile(`(?i)\b([a-zA-Z0-9_]+)\s+must be [^.]+in chat_template_kwargs`)
+	reasoningEffortMustBeRe = regexp.MustCompile(`(?i)\b(reasoning_effort)\b\s+must be\b`)
 )
 
 // UnknownArgumentFromErrorBody extracts the offending field name from an upstream
@@ -38,6 +40,12 @@ func UnknownArgumentFromErrorBody(body []byte) string {
 		return string(m[1])
 	}
 	if m := forbiddenLocRe.FindSubmatch(body); m != nil {
+		return string(m[1])
+	}
+	if m := chatTemplateKwargsRe.FindSubmatch(body); m != nil {
+		return string(m[1])
+	}
+	if m := reasoningEffortMustBeRe.FindSubmatch(body); m != nil {
 		return string(m[1])
 	}
 	return ""

@@ -135,7 +135,7 @@ func TestEveryRuleIsScopedAndHasAnEffect(t *testing.T) {
 			t.Errorf("Rules[%d]: unscoped rules would rewrite all traffic", i)
 		}
 		hasEffect := len(r.Drop) > 0 || len(r.DropMessageFields) > 0 || r.FlattenContent ||
-			r.MaxOutputCap > 0 || r.MinOutput > 0 || r.ClampToModelCeiling
+			r.MaxOutputCap > 0 || r.MinOutput > 0 || r.ClampToModelCeiling || r.NormalizeDeepSeekReasoning
 		if !hasEffect {
 			t.Errorf("Rules[%d] matches but changes nothing", i)
 		}
@@ -259,5 +259,59 @@ func TestStripsStoreForFreebuff(t *testing.T) {
 		if got["stream"] != true || got["messages"] == nil {
 			t.Errorf("unrelated params must survive for %s", provider)
 		}
+	}
+}
+
+func TestNormalizeDeepSeekReasoning_MediumToHigh(t *testing.T) {
+	// DeepSeek V4.1 on ADCode rejects "medium" with 400; must be mapped to "high"
+	got := apply(t, "adcode", "deepseek-v4.1", map[string]any{
+		"model":            "deepseek-v4.1",
+		"reasoning_effort": "medium",
+	})
+	if got["reasoning_effort"] != "high" {
+		t.Errorf("reasoning_effort = %v, want high", got["reasoning_effort"])
+	}
+
+	// Valid values survive
+	for _, val := range []string{"low", "high", "xhigh", "max"} {
+		gotValid := apply(t, "adcode", "deepseek-v4.1", map[string]any{
+			"model":            "deepseek-v4.1",
+			"reasoning_effort": val,
+		})
+		if gotValid["reasoning_effort"] != val {
+			t.Errorf("reasoning_effort = %v, want %s", gotValid["reasoning_effort"], val)
+		}
+	}
+
+	// Integer [1, 100] survives
+	gotInt := apply(t, "adcode", "deepseek-v4.1", map[string]any{
+		"model":            "deepseek-v4.1",
+		"reasoning_effort": 50,
+	})
+	if gotInt["reasoning_effort"] != float64(50) { // unmarshaled JSON number
+		t.Errorf("reasoning_effort = %v, want 50", gotInt["reasoning_effort"])
+	}
+
+	// Invalid string values are dropped
+	for _, invalid := range []string{"auto", "default", "none", "", "bogus"} {
+		gotInvalid := apply(t, "adcode", "deepseek-v4.1", map[string]any{
+			"model":            "deepseek-v4.1",
+			"reasoning_effort": invalid,
+		})
+		if _, present := gotInvalid["reasoning_effort"]; present {
+			t.Errorf("invalid reasoning_effort %q must be dropped", invalid)
+		}
+	}
+
+	// chat_template_kwargs also normalized
+	gotKwargs := apply(t, "adcode", "deepseek-v4.1", map[string]any{
+		"model": "deepseek-v4.1",
+		"chat_template_kwargs": map[string]any{
+			"reasoning_effort": "medium",
+		},
+	})
+	kwargs, ok := gotKwargs["chat_template_kwargs"].(map[string]any)
+	if !ok || kwargs["reasoning_effort"] != "high" {
+		t.Errorf("chat_template_kwargs.reasoning_effort = %v, want high", kwargs["reasoning_effort"])
 	}
 }

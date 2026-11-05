@@ -55,6 +55,9 @@ type Rule struct {
 	// ClampToModelCeiling lowers the cap to the model's advertised max output, so
 	// a client asking for more than the model can emit does not get a 400.
 	ClampToModelCeiling bool
+	// NormalizeDeepSeekReasoning repairs reasoning_effort for DeepSeek V4.1 / ADCode models
+	// where chat_template_kwargs accepts only "low", "high", "xhigh", "max", or integer [1, 100].
+	NormalizeDeepSeekReasoning bool
 }
 
 // ruleMatch reports whether the rule applies to this provider/model pair.
@@ -130,6 +133,9 @@ func Apply(provider, model string, body []byte) []byte {
 		}
 		if rule.MinOutput > 0 {
 			changed = raiseOutputTokens(m, rule.MinOutput) || changed
+		}
+		if rule.NormalizeDeepSeekReasoning && normalizeDeepSeekReasoning(m) {
+			changed = true
 		}
 	}
 
@@ -283,4 +289,64 @@ func flattenContent(m map[string]any) bool {
 		changed = true
 	}
 	return changed
+}
+
+// normalizeDeepSeekReasoning normalizes reasoning_effort for DeepSeek V4.1 / ADCode models:
+// maps "medium" -> "high", keeps "low"/"high"/"xhigh"/"max" or integer [1, 100], and drops invalid values.
+func normalizeDeepSeekReasoning(m map[string]any) bool {
+	changed := false
+	if _, ok := m["reasoning_effort"]; ok {
+		if fixReasoningEffortVal(m, "reasoning_effort") {
+			changed = true
+		}
+	}
+	if kwargs, ok := m["chat_template_kwargs"].(map[string]any); ok {
+		if _, ok := kwargs["reasoning_effort"]; ok {
+			if fixReasoningEffortVal(kwargs, "reasoning_effort") {
+				changed = true
+			}
+		}
+	}
+	return changed
+}
+
+func fixReasoningEffortVal(m map[string]any, key string) bool {
+	raw, ok := m[key]
+	if !ok {
+		return false
+	}
+	switch v := raw.(type) {
+	case string:
+		s := strings.ToLower(strings.TrimSpace(v))
+		switch s {
+		case "low", "high", "xhigh", "max":
+			if s != v {
+				m[key] = s
+				return true
+			}
+			return false
+		case "medium":
+			m[key] = "high"
+			return true
+		default:
+			delete(m, key)
+			return true
+		}
+	case float64:
+		n := int(v)
+		if n >= 1 && n <= 100 {
+			return false
+		}
+		delete(m, key)
+		return true
+	case int:
+		if v >= 1 && v <= 100 {
+			return false
+		}
+		delete(m, key)
+		return true
+	default:
+		delete(m, key)
+		return true
+	}
 }
