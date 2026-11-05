@@ -114,8 +114,9 @@ var Rules = []Rule{
 	{Provider: "opencode", MatchSubstr: "n-1.3-contributor", MinOutput: 16},
 	{Provider: "opencode-go", MatchSubstr: "n-1.2-contributor", MinOutput: 16},
 	{Provider: "opencode-go", MatchSubstr: "n-1.3-contributor", MinOutput: 16},
+	{MatchSubstr: "luna", MinOutput: 16},
 
-	// ─── DeepSeek / ADCode reasoning_effort ─────────────────────────────────
+	// ─── DeepSeek / ADCode / Alysis reasoning_effort ────────────────────────
 	// DeepSeek V4.1's tokenizer chat template validates reasoning_effort inside
 	// chat_template_kwargs: it accepts only "low", "high", "xhigh", "max", or an
 	// integer within [1, 100]. Standard OpenAI clients send "medium" (the default),
@@ -124,5 +125,7 @@ var Rules = []Rule{
 	// Map "medium" to "high", preserve valid values, and drop invalid strings.
 	{Provider: "adcode", NormalizeDeepSeekReasoning: true},
 	{Provider: "adc", NormalizeDeepSeekReasoning: true},
+	{Provider: "alysis", NormalizeDeepSeekReasoning: true},
+	{Provider: "alys", NormalizeDeepSeekReasoning: true},
 	{MatchSubstr: "deepseek", NormalizeDeepSeekReasoning: true},
 }

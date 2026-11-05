@@ -314,4 +314,13 @@ func TestNormalizeDeepSeekReasoning_MediumToHigh(t *testing.T) {
 	if !ok || kwargs["reasoning_effort"] != "high" {
 		t.Errorf("chat_template_kwargs.reasoning_effort = %v, want high", kwargs["reasoning_effort"])
 	}
+
+	// Provider alysis also normalized
+	gotAlysis := apply(t, "alysis", "deepseek-flash", map[string]any{
+		"model":            "deepseek-flash",
+		"reasoning_effort": "medium",
+	})
+	if gotAlysis["reasoning_effort"] != "high" {
+		t.Errorf("alysis reasoning_effort = %v, want high", gotAlysis["reasoning_effort"])
+	}
 }
