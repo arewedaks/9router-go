@@ -787,6 +787,7 @@
       align-items: center;
       gap: 8px;
       margin-left: auto;
+      flex-wrap: wrap;
     }
     .acct-count-chip {
       font-size: 0.7rem;
@@ -1472,8 +1473,96 @@
     .detail-tab .msym { font-size: 16px; }
 
     /* Quota panel: one card per account, one bar per credit package. */
-    .quota-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
-    .quota-toolbar span { flex: 1; }
+    .quota-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+      background: var(--glass);
+      border: 1px solid var(--glass-border);
+      border-radius: var(--radius);
+      padding: 9px 13px;
+      margin-bottom: 14px;
+      box-shadow: var(--glass-shadow);
+    }
+    .quota-strat-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .quota-strat-title {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: #ededed;
+    }
+    .quota-strat-icon {
+      font-size: 16px;
+      color: var(--primary);
+    }
+    .quota-account-select {
+      height: 31px;
+      padding: 0 28px 0 10px !important;
+      font-size: 0.78rem !important;
+      background: var(--panel) !important;
+      color: #ededed !important;
+      border: 1px solid var(--border) !important;
+      border-radius: 6px !important;
+      cursor: pointer;
+      min-width: 220px;
+      max-width: 340px;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5'%3E%3Cpath d='M0 0l4 5 4-5z' fill='%239ca3af'/%3E%3C/svg%3E") !important;
+      background-repeat: no-repeat !important;
+      background-position: right 10px center !important;
+      appearance: none !important;
+      -webkit-appearance: none !important;
+      transition: border-color 0.15s, box-shadow 0.15s;
+      box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.25);
+    }
+    .quota-account-select:hover {
+      border-color: rgba(255, 255, 255, 0.22) !important;
+    }
+    .quota-account-select:focus {
+      border-color: var(--primary) !important;
+      outline: none;
+      box-shadow: 0 0 0 2px rgba(229, 106, 74, 0.2);
+    }
+    .quota-strat-right {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-left: auto;
+    }
+    .quota-toolbar-sub {
+      font-size: 0.73rem;
+      color: var(--muted);
+    }
+    @media (max-width: 640px) {
+      .quota-toolbar {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 8px;
+      }
+      .quota-strat-left {
+        width: 100%;
+      }
+      .quota-account-select {
+        min-width: 0;
+        max-width: 100%;
+        width: 100% !important;
+      }
+      .quota-strat-right {
+        margin-left: 0;
+        justify-content: flex-end;
+      }
+      .quota-toolbar-sub {
+        display: none;
+      }
+    }
     .quota-card { background: var(--glass); border: 1px solid var(--glass-border); border-radius: var(--radius); padding: 14px; margin-bottom: 10px; }
     /* The account header is a disclosure control. Seven accounts x fifteen rows
        is a 6000px column, so an operator comparing accounts has to scroll past
@@ -7369,16 +7458,18 @@
       return `<option value="${escapeHtml(c.id)}"${sel}>${escapeHtml(label)}</option>`;
     }).join("");
 
-    const toolbar = `<div class="quota-toolbar" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; gap:12px; flex-wrap:wrap;">
-        <div style="display:flex; align-items:center; gap:8px;">
-          <label for="quota-account-select" style="font-size:0.8rem; color:var(--muted); font-weight:500;">Account:</label>
-          <select id="quota-account-select" class="profile-select" onchange="changeQuotaAccount(this.value)" style="min-width:200px; max-width:340px;">
+    const toolbar = `<div class="quota-toolbar">
+        <div class="quota-strat-left">
+          <span class="quota-strat-title"><span class="msym quota-strat-icon">account_circle</span>Account</span>
+          <select id="quota-account-select" class="quota-account-select" onchange="changeQuotaAccount(this.value)">
             ${opts}
           </select>
         </div>
-        <div style="display:flex; align-items:center; gap:8px;">
-          <span style="font-size:0.75rem; color:var(--muted);">Live balances from provider billing API</span>
-          <button class="btn btn-sm" onclick="refreshQuota()">Refresh</button>
+        <div class="quota-strat-right">
+          <span class="quota-toolbar-sub">Live billing balances</span>
+          <button class="btn btn-sm" onclick="refreshQuota()" title="Refresh Quota Balances">
+            <span class="msym" style="font-size:14px; vertical-align:-2px;">refresh</span><span class="btn-text"> Refresh</span>
+          </button>
         </div>
       </div>`;
 
@@ -7626,28 +7717,22 @@
           ${showKeyForm ? `<button class="btn btn-sm btn-primary" onclick="openAddConnModal('${d.provider}')">
             <span class="msym">add</span><span class="btn-text"> ${addConnLabel}</span>
           </button>` : ''}
-          <button class="btn btn-sm" onclick="testAllConnections('${d.provider}');">
-            <span class="msym">science</span><span class="btn-text"> Test All Accounts</span>
-          </button>
-          <span id="conn-test-progress" class="conn-test-progress"></span>
-          <div style="margin-left:auto; display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
-            <button type="button" class="btn btn-sm" id="conn-invert-btn" style="display:none;" onclick="invertConnSelection()"><span class="msym">swap_horiz</span><span class="btn-text"> Invert</span></button>
+          <div class="conn-select-bar" style="margin-left:auto; display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+            <button type="button" class="btn btn-sm" id="conn-select-all" style="display:none;" onclick="toggleSelectAllConns()" title="Select All"><span class="msym">select_all</span><span class="btn-text" id="conn-select-all-text"> Select All</span></button>
+            <button type="button" class="btn btn-sm" id="conn-invert-btn" style="display:none;" onclick="invertConnSelection()" title="Invert Selection"><span class="msym">swap_horiz</span><span class="btn-text"> Invert</span></button>
             <button class="btn btn-sm" id="conn-bulk-enable-btn" style="display:none;" onclick="toggleSelectedConns(1)"><span class="msym">check_circle</span><span class="btn-text"> Enable (<span class="conn-selected-count">0</span>)</span></button>
             <button class="btn btn-sm" id="conn-bulk-disable-btn" style="display:none;" onclick="toggleSelectedConns(0)"><span class="msym">block</span><span class="btn-text"> Disable (<span class="conn-selected-count">0</span>)</span></button>
             <button class="btn btn-sm btn-danger" id="conn-bulk-delete-btn" style="display:none;" onclick="deleteSelectedConns()"><span class="msym">delete</span><span class="btn-text"> Delete (<span class="conn-selected-count" id="conn-selected-count">0</span>)</span></button>
           </div>
         </div>
-        <div class="conn-header-divider"></div>
+        <div class="conn-header-divider" id="conn-header-divider" style="${showKeyForm ? '' : 'display:none;'}"></div>
         <div class="acct-strat-card">
           ${accountStrategyControls(d)}
           <div class="acct-strat-right">
-            ${(d.connections || []).length > 1 ? `
-            <div class="conn-select-bar">
-              <label class="conn-select-label" title="Select all accounts for bulk operations">
-                <input type="checkbox" id="conn-select-all" onchange="toggleSelectAllConns(this.checked)" style="cursor:pointer;accent-color:var(--primary);">
-                <span>Select All</span>
-              </label>
-            </div>` : ''}
+            <button class="btn btn-sm" onclick="testAllConnections('${d.provider}');" title="Test All Accounts">
+              <span class="msym">science</span><span class="btn-text"> Test All Accounts</span>
+            </button>
+            <span id="conn-test-progress" class="conn-test-progress"></span>
           </div>
         </div>
       </div>
@@ -12099,26 +12184,39 @@
     const disBtn = document.getElementById("conn-bulk-disable-btn");
     const invertBtn = document.getElementById("conn-invert-btn");
     const countEls = document.querySelectorAll(".conn-selected-count");
-    const allCb = document.getElementById("conn-select-all");
+    const allBtn = document.getElementById("conn-select-all");
+    const allBtnText = document.getElementById("conn-select-all-text");
 
     const display = count > 0 ? "inline-flex" : "none";
     if (delBtn) delBtn.style.display = display;
     if (enBtn) enBtn.style.display = display;
     if (disBtn) disBtn.style.display = display;
     if (invertBtn) invertBtn.style.display = display;
+    if (allBtn) {
+      allBtn.style.display = display;
+      const allSelected = cbs.length > 0 && count === cbs.length;
+      if (allBtnText) allBtnText.textContent = allSelected ? " Deselect All" : " Select All";
+      allBtn.title = allSelected ? "Deselect All" : "Select All";
+    }
+
+    const divider = document.getElementById("conn-header-divider");
+    const testBar = document.querySelector(".conn-test-bar");
+    if (divider) {
+      const hasAddBtn = testBar && testBar.querySelector(".btn-primary");
+      divider.style.display = (hasAddBtn || count > 0) ? "" : "none";
+    }
 
     countEls.forEach(el => { el.textContent = count; });
     const legacyCountEl = document.getElementById("conn-selected-count");
     if (legacyCountEl) legacyCountEl.textContent = count;
-
-    if (allCb) {
-      allCb.checked = cbs.length > 0 && count === cbs.length;
-      allCb.indeterminate = count > 0 && count < cbs.length;
-    }
   }
 
   function toggleSelectAllConns(checked) {
     const cbs = document.querySelectorAll(".conn-select-cb");
+    if (checked === undefined) {
+      const allSelected = cbs.length > 0 && Array.from(cbs).every(cb => cb.checked);
+      checked = !allSelected;
+    }
     cbs.forEach(cb => { cb.checked = !!checked; });
     updateConnSelectionUI();
   }

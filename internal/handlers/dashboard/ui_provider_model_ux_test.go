@@ -69,6 +69,18 @@ func TestUIProviderAndModelUX(t *testing.T) {
 		}
 	}
 
+	// Quota toolbar card and account select styling
+	quotaToolbarChecks := []string{
+		`class="quota-toolbar"`,
+		`class="quota-strat-title"`,
+		`class="quota-account-select"`,
+	}
+	for _, need := range quotaToolbarChecks {
+		if !strings.Contains(ui, need) {
+			t.Errorf("missing expected quota toolbar styling: %s", need)
+		}
+	}
+
 	// Account rotation strategy card in Connections tab
 	stratChecks := []string{
 		`class="acct-strat-card"`,
