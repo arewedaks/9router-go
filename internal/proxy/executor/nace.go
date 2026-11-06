@@ -42,6 +42,13 @@ func ForwardNace(w http.ResponseWriter, req *Request) error {
 
 	if isDecisionsWire {
 		outBody = req.Body
+		// If questions is a JSON map (object) or state is used, route to /v1/systemone.
+		// If questions is a JSON list (array) or input is used, route to /v1/decisions.
+		if _, isMap := reqMap["questions"].(map[string]any); isMap || reqMap["state"] != nil {
+			if strings.HasSuffix(targetURL, "/decisions") {
+				targetURL = strings.TrimSuffix(targetURL, "/decisions") + "/systemone"
+			}
+		}
 	} else {
 		// Adapt chat completions to Decisions format
 		input, instructions := extractNaceInputAndInstructions(reqMap["messages"])

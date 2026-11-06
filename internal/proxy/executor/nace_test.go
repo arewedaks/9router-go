@@ -186,3 +186,44 @@ func TestForwardNace_DecisionsPassthrough(t *testing.T) {
 		t.Errorf("expected passthrough body, got: %s", rec.Body.String())
 	}
 }
+
+func TestForwardNace_SystemonePassthrough(t *testing.T) {
+	var gotPath string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"model":"drex-v2.0","answers":{"is_urgent":{"type":"noul","noul":0.7161}}}`))
+	}))
+	defer upstream.Close()
+
+	cfg := &providers.ProviderConfig{
+		BaseURL: upstream.URL + "/decisions",
+	}
+
+	sys1Body := `{"model":"drex-v2.0","state":"Help!","questions":{"is_urgent":{"type":"noul","instructions":"urgent?"}}}`
+	req := &Request{
+		Ctx:       context.Background(),
+		Client:    upstream.Client(),
+		Config:    cfg,
+		APIKey:    "nace_...ey",
+		Body:      []byte(sys1Body),
+		ModelName: "drex-v2.0",
+	}
+
+	rec := httptest.NewRecorder()
+	err := ForwardNace(rec, req)
+	if err != nil {
+		t.Fatalf("ForwardNace: %v", err)
+	}
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	if gotPath != "/systemone" {
+		t.Errorf("gotPath = %q, want /systemone", gotPath)
+	}
+	if !strings.Contains(rec.Body.String(), `"is_urgent"`) {
+		t.Errorf("expected systemone answers body, got: %s", rec.Body.String())
+	}
+}
