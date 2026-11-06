@@ -1,5 +1,5 @@
 {
   "latestVersion": "1.10.17",
   "downloadUrl": "https://github.com/arewedaks/9router-go/releases/latest",
-  "releaseNotes": "- fix(nace): samakan daftar model dengan yang benar-benar dilayani, hide antar-alias (2a85543)\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
+  "releaseNotes": "- chore: bump version to 1.10.17 (d430fdc)\n- fix(nace): samakan daftar model dengan yang benar-benar dilayani (hide antar-alias) (2a85543)\n- chore(release): version.json -> v1.10.16 (d223a36)\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
 }
