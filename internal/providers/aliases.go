@@ -113,7 +113,26 @@ func ResolveAlias(alias string) string {
 // ProviderToAliasMap maps canonical provider IDs to their primary short alias.
 var ProviderToAliasMap = map[string]string{}
 
+// preferredProviderAliases pins the alias GetProviderAlias must return when a
+// canonical id has more than one. Without it the winner is whichever map entry
+// the (deliberately randomised) range reached first, so /v1/models served a
+// different prefix on every restart — nace appeared as nc/, drex/ and nace/
+// across three deploys of the same build. For nace the flip also collided with
+// its own model ids: the alias "drex" produced "drex/drex-v2.0".
+//
+// A provider with a single alias needs no entry here.
+var preferredProviderAliases = map[string]string{
+	"nace": "nc", // alias "drex" collides with the drex-* model ids
+}
+
 func init() {
+	for canonical, preferred := range preferredProviderAliases {
+		// Only honoured when the alias actually resolves to that provider, so a
+		// typo here cannot invent a mapping.
+		if ProviderAliasMap[preferred] == canonical {
+			ProviderToAliasMap[canonical] = preferred
+		}
+	}
 	for alias, provider := range ProviderAliasMap {
 		if _, exists := ProviderToAliasMap[provider]; !exists {
 			ProviderToAliasMap[provider] = alias

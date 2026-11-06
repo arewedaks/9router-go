@@ -235,6 +235,13 @@ func (h *Handler) doJSONTest(ctx context.Context, client *http.Client, url strin
 	default: // llm
 		choices, _ := parsed["choices"].([]any)
 		if len(choices) == 0 {
+			// A Decisions upstream (Nace/Drex) answers with `answers`, not
+			// `choices`. The model test posts the Decisions body for those
+			// models, so treat a non-empty answers array as a valid completion
+			// instead of reporting "no completion choices" on a working model.
+			if answers, ok := parsed["answers"].([]any); ok && len(answers) > 0 {
+				return modelTestResult{OK: true, Status: resp.StatusCode}, nil
+			}
 			return modelTestResult{OK: false, Status: resp.StatusCode,
 				Error: "Provider returned no completion choices for this model"}, nil
 		}

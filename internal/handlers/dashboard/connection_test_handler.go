@@ -751,11 +751,25 @@ func (h *Handler) probeGenericConnection(ctx context.Context, raw map[string]any
 	ctx, cancel := context.WithTimeout(ctx, connectionTestTimeout())
 	defer cancel()
 
-	body, _ := json.Marshal(map[string]any{
-		"model":      h.probeModel(out.Provider),
-		"max_tokens": 1,
-		"messages":   []map[string]any{{"role": "user", "content": "ping"}},
-	})
+	var body []byte
+	if providers.ResolveAlias(out.Provider) == "nace" {
+		// Drex has no chat surface: its endpoints take {state|input, questions}.
+		// A chat body answers 422 "input: is required", which reads as a
+		// rejected credential while the key is fine.
+		body, _ = json.Marshal(map[string]any{
+			"model": h.probeModel(out.Provider),
+			"input": "ping",
+			"questions": []map[string]any{
+				{"type": "predicate", "name": "ok", "instructions": "Is this a test?"},
+			},
+		})
+	} else {
+		body, _ = json.Marshal(map[string]any{
+			"model":      h.probeModel(out.Provider),
+			"max_tokens": 1,
+			"messages":   []map[string]any{{"role": "user", "content": "ping"}},
+		})
+	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, cfg.BaseURL, bytes.NewReader(body))
 	if err != nil {
@@ -1070,6 +1084,9 @@ var genericProbeModels = map[string]string{
 	// ADCode's included AI rejects ids outside its catalogue; the free lane id is
 	// the one every signed-in account can call.
 	"adcode": "tagflow-code-27b",
+	// Drex answers only the Decisions shape (input + questions); a chat body
+	// returns 422 "input: is required".
+	"nace": "drex-v2.0",
 }
 
 // setProbeAuthHeader applies the provider's configured auth header/scheme.
