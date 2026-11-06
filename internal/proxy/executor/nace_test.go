@@ -102,6 +102,53 @@ func TestForwardNace_ChatCompletionsAdaptedToDecisions(t *testing.T) {
 	if len(chatResp.Choices) == 0 || chatResp.Choices[0].Message.Role != "assistant" {
 		t.Errorf("invalid choices: %+v", chatResp.Choices)
 	}
+	content := chatResp.Choices[0].Message.Content
+	if strings.Contains(content, `[{"type"`) {
+		t.Errorf("content leaked raw JSON: %q", content)
+	}
+	if !strings.Contains(content, "Yes") || !strings.Contains(content, "95.0%") {
+		t.Errorf("content = %q, want formatted 'Yes (probability: 95.0%%)'", content)
+	}
+}
+
+func TestExtractNaceInputAndInstructions_FiltersBoilerplate(t *testing.T) {
+	msgs := []any{
+		map[string]any{
+			"role":    "system",
+			"content": "You are an AI agent. You have access to the following tools: bash command, exec_command, workspace.",
+		},
+		map[string]any{
+			"role":    "user",
+			"content": "Is the invoice approved?",
+		},
+	}
+	input, instr := extractNaceInputAndInstructions(msgs)
+	if input != "Is the invoice approved?" {
+		t.Errorf("input = %q, want 'Is the invoice approved?'", input)
+	}
+	if instr != "Is the statement true or the question answered affirmatively?" {
+		t.Errorf("instructions = %q, want default affirmative check", instr)
+	}
+}
+
+func TestExtractNaceInputAndInstructions_KeepsCustomTask(t *testing.T) {
+	msgs := []any{
+		map[string]any{
+			"role":    "system",
+			"content": "Is the customer sentiment positive?",
+		},
+		map[string]any{
+			"role":    "user",
+			"content": "I really love the quick delivery!",
+		},
+	}
+	input, instr := extractNaceInputAndInstructions(msgs)
+	if input != "I really love the quick delivery!" {
+		t.Errorf("input = %q, want user content", input)
+	}
+	if instr != "Is the customer sentiment positive?" {
+		t.Errorf("instructions = %q, want custom task prompt", instr)
+	}
 }
 
 func TestForwardNace_DecisionsPassthrough(t *testing.T) {

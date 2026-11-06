@@ -15,7 +15,7 @@ import (
 // ForwardNace forwards requests for Nace (Drex decision models).
 // If the payload already has a "questions" field, it is forwarded directly to the Decisions API.
 // If it is a standard Chat Completions request (messages array), it adapts the messages to input + questions,
-// calls the Decisions API, and maps the structured decision answers back to an OpenAI chat.completion response.
+// calls the Decisions API, and maps the structured decision answers to a readable OpenAI chat.completion response.
 func ForwardNace(w http.ResponseWriter, req *Request) error {
 	ctx := req.Ctx
 	if ctx == nil {
@@ -44,7 +44,7 @@ func ForwardNace(w http.ResponseWriter, req *Request) error {
 		outBody = req.Body
 	} else {
 		// Adapt chat completions to Decisions format
-		input := extractChatInput(reqMap["messages"])
+		input, instructions := extractNaceInputAndInstructions(reqMap["messages"])
 		model := req.ModelName
 		if model == "" {
 			if m, ok := reqMap["model"].(string); ok {
@@ -65,7 +65,7 @@ func ForwardNace(w http.ResponseWriter, req *Request) error {
 				{
 					"type":         "predicate",
 					"name":         "evaluation",
-					"instructions": "Evaluate the input statement or question.",
+					"instructions": instructions,
 				},
 			},
 		}
@@ -125,8 +125,7 @@ func ForwardNace(w http.ResponseWriter, req *Request) error {
 	}
 	_ = json.Unmarshal(respBody, &decResp)
 
-	answersJSON, _ := json.Marshal(decResp.Answers)
-	contentStr := string(answersJSON)
+	contentStr := formatNaceAnswers(decResp.Answers)
 
 	if req.IsStream {
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -138,6 +137,12 @@ func ForwardNace(w http.ResponseWriter, req *Request) error {
 		chunkID := "chatcmpl-" + decResp.RequestID
 		if decResp.RequestID == "" {
 			chunkID = fmt.Sprintf("chatcmpl-drex-%d", created)
+		}
+		if req.TTFT != nil && *req.TTFT == 0 && req.StartTime.Unix() > 0 {
+			*req.TTFT = time.Since(req.StartTime).Milliseconds()
+		}
+		if req.ResponseBuf != nil {
+			req.ResponseBuf.Write([]byte(contentStr))
 		}
 
 		// Emit delta role
@@ -164,7 +169,7 @@ func ForwardNace(w http.ResponseWriter, req *Request) error {
 		})
 		_, _ = fmt.Fprintf(w, "data: %s\n\n", contentChunk)
 
-		// Emit finish
+		// Emit finish with usage
 		finishChunk, _ := json.Marshal(map[string]any{
 			"id":      chunkID,
 			"object":  "chat.completion.chunk",
@@ -172,6 +177,11 @@ func ForwardNace(w http.ResponseWriter, req *Request) error {
 			"model":   decResp.Model,
 			"choices": []map[string]any{
 				{"index": 0, "delta": map[string]any{}, "finish_reason": "stop"},
+			},
+			"usage": map[string]any{
+				"prompt_tokens":     decResp.Usage.InputTokens,
+				"completion_tokens": decResp.Usage.OutputTokens,
+				"total_tokens":      decResp.Usage.TotalTokens,
 			},
 		})
 		_, _ = fmt.Fprintf(w, "data: %s\n\ndata: [DONE]\n\n", finishChunk)
@@ -212,34 +222,175 @@ func ForwardNace(w http.ResponseWriter, req *Request) error {
 	return nil
 }
 
-func extractChatInput(rawMessages any) string {
+// extractNaceInputAndInstructions separates conversation messages into
+// the Drex state input and the evaluation instruction question.
+func extractNaceInputAndInstructions(rawMessages any) (string, string) {
 	msgs, ok := rawMessages.([]any)
 	if !ok || len(msgs) == 0 {
-		return "hello"
+		return "hello", "Is the statement true or the question answered affirmatively?"
 	}
-	var texts []string
+
+	var userTexts []string
+	var systemInstruction string
+
 	for _, m := range msgs {
 		msgMap, ok := m.(map[string]any)
 		if !ok {
 			continue
 		}
-		switch c := msgMap["content"].(type) {
-		case string:
-			if strings.TrimSpace(c) != "" {
-				texts = append(texts, strings.TrimSpace(c))
+		role, _ := msgMap["role"].(string)
+		text := extractMessageContent(msgMap["content"])
+		if text == "" {
+			continue
+		}
+
+		if role == "system" {
+			// If it's a short task-specific system prompt (not an agent harness boilerplate),
+			// use it as custom instructions.
+			if len(text) <= 1000 && !isAgentHarnessBoilerplate(text) {
+				systemInstruction = text
 			}
-		case []any:
-			for _, part := range c {
-				if partMap, ok := part.(map[string]any); ok {
-					if t, ok := partMap["text"].(string); ok && strings.TrimSpace(t) != "" {
-						texts = append(texts, strings.TrimSpace(t))
-					}
+		} else {
+			userTexts = append(userTexts, text)
+		}
+	}
+
+	input := strings.Join(userTexts, "\n\n")
+	if strings.TrimSpace(input) == "" {
+		if systemInstruction != "" {
+			input = systemInstruction
+		} else {
+			input = "hello"
+		}
+	}
+
+	instructions := "Is the statement true or the question answered affirmatively?"
+	if systemInstruction != "" {
+		instructions = systemInstruction
+	}
+
+	return input, instructions
+}
+
+// isAgentHarnessBoilerplate checks if system text is generic coding agent boilerplate.
+func isAgentHarnessBoilerplate(s string) bool {
+	lower := strings.ToLower(s)
+	markers := []string{
+		"you are an ai agent",
+		"you are a helpful assistant",
+		"you have access to the following tools",
+		"tool_call",
+		"bash command",
+		"exec_command",
+		"terminal",
+		"workspace",
+	}
+	for _, m := range markers {
+		if strings.Contains(lower, m) {
+			return true
+		}
+	}
+	return false
+}
+
+func extractMessageContent(content any) string {
+	switch c := content.(type) {
+	case string:
+		return strings.TrimSpace(c)
+	case []any:
+		var parts []string
+		for _, part := range c {
+			if partMap, ok := part.(map[string]any); ok {
+				if t, ok := partMap["text"].(string); ok && strings.TrimSpace(t) != "" {
+					parts = append(parts, strings.TrimSpace(t))
 				}
 			}
 		}
+		return strings.Join(parts, "\n")
 	}
-	if len(texts) == 0 {
-		return "hello"
+	return ""
+}
+
+// formatNaceAnswers renders decision answers into human/agent-readable text
+// instead of dumping raw internal JSON.
+func formatNaceAnswers(answers []any) string {
+	if len(answers) == 0 {
+		return "No decision answers returned."
 	}
-	return strings.Join(texts, "\n\n")
+
+	var lines []string
+	for _, raw := range answers {
+		ans, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		typ, _ := ans["type"].(string)
+		switch strings.ToLower(typ) {
+		case "predicate", "noul":
+			prob := getNumber(ans, "probability")
+			if prob == 0 {
+				prob = getNumber(ans, "noul")
+			}
+			verdict := "No"
+			if prob >= 0.5 {
+				verdict = "Yes"
+			}
+			name, _ := ans["name"].(string)
+			if name != "" && name != "eval" && name != "evaluation" && name != "answer" {
+				lines = append(lines, fmt.Sprintf("%s: %s (probability: %.1f%%)", name, verdict, prob*100))
+			} else {
+				lines = append(lines, fmt.Sprintf("%s (probability: %.1f%%)", verdict, prob*100))
+			}
+		case "choice":
+			choice, _ := ans["choice"].(string)
+			conf := getNumber(ans, "confidence")
+			name, _ := ans["name"].(string)
+			prefix := ""
+			if name != "" && name != "choice" {
+				prefix = name + ": "
+			}
+			if conf > 0 {
+				lines = append(lines, fmt.Sprintf("%s%s (confidence: %.1f%%)", prefix, choice, conf*100))
+			} else {
+				lines = append(lines, fmt.Sprintf("%s%s", prefix, choice))
+			}
+		case "score":
+			score := getNumber(ans, "score")
+			conf := getNumber(ans, "confidence")
+			name, _ := ans["name"].(string)
+			prefix := ""
+			if name != "" && name != "score" {
+				prefix = name + ": "
+			}
+			if conf > 0 {
+				lines = append(lines, fmt.Sprintf("%sScore: %.2f (confidence: %.1f%%)", prefix, score, conf*100))
+			} else {
+				lines = append(lines, fmt.Sprintf("%sScore: %.2f", prefix, score))
+			}
+		default:
+			b, _ := json.Marshal(ans)
+			lines = append(lines, string(b))
+		}
+	}
+
+	if len(lines) == 0 {
+		b, _ := json.Marshal(answers)
+		return string(b)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func getNumber(m map[string]any, key string) float64 {
+	switch v := m[key].(type) {
+	case float64:
+		return v
+	case int:
+		return float64(v)
+	case string:
+		var f float64
+		if _, err := fmt.Sscanf(v, "%g", &f); err == nil {
+			return f
+		}
+	}
+	return 0
 }
