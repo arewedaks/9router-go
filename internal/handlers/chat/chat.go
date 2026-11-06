@@ -527,7 +527,12 @@ func (h *ChatHandler) buildModelsList() []ModelInfoObject {
 			cachedLimits := h.cachedModelLimits(provID, outputAlias)
 			for _, mID := range modelList {
 				// Honour an explicit operator removal before doing any work.
-				if isHidden([]string{provID, outputAlias}, mID) {
+				// hiddenModelKeys fans out over every spelling (canonical id,
+				// this render's alias, and the rest), because a row hidden while
+				// another alias was primary would otherwise stay served — and
+				// the model then 400s with "was removed from provider" even
+				// though /v1/models lists it.
+				if isHidden(h.hiddenModelKeys(provID), mID) {
 					continue
 				}
 				fullID := outputAlias + "/" + mID

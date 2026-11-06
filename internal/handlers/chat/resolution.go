@@ -151,14 +151,36 @@ func (h *ChatHandler) resolveModelEntry(entry string) *ModelInfo {
 }
 
 // hiddenModelKeys returns the provider keys a hidden marker may be recorded
-// under for provID: the id itself, its aliases, and any node prefix it
-// advertises models under. Removal writes to every one of these, so a lookup
-// has to check them all or a model removed under one alias keeps routing under
-// another.
+// under for provID: the id itself, its canonical id, every alias of both, and
+// any node prefix it advertises models under. Removal writes to every one of
+// these, so a lookup has to check them all or a model removed under one alias
+// keeps routing under another.
+//
+// The canonical resolution is load-bearing: callers pass a provider id that may
+// itself be an alias ("nc"), and AliasesFor only matches the canonical name, so
+// without it the lookup saw only "nc" while the markers lived under nace|/drex|.
 func (h *ChatHandler) hiddenModelKeys(provID string) []string {
-	keys := []string{provID}
-	keys = append(keys, providers.AliasesFor(provID)...)
-	return keys
+	canonical := providers.ResolveAlias(provID)
+	keys := []string{provID, canonical}
+	for _, a := range providers.AliasesFor(provID) {
+		keys = append(keys, a)
+	}
+	if canonical != provID {
+		for _, a := range providers.AliasesFor(canonical) {
+			keys = append(keys, a)
+		}
+	}
+	// Deduplicate while preserving order, so a debug print stays readable.
+	seen := make(map[string]bool, len(keys))
+	out := keys[:0]
+	for _, k := range keys {
+		if k == "" || seen[k] {
+			continue
+		}
+		seen[k] = true
+		out = append(out, k)
+	}
+	return out
 }
 
 // isModelHidden reports whether the operator removed modelID from provID.
