@@ -1,5 +1,5 @@
 {
-  "latestVersion": "1.10.17",
+  "latestVersion": "1.10.18",
   "downloadUrl": "https://github.com/arewedaks/9router-go/releases/latest",
-  "releaseNotes": "- chore: bump version to 1.10.17 (d430fdc)\n- fix(nace): samakan daftar model dengan yang benar-benar dilayani (hide antar-alias) (2a85543)\n- chore(release): version.json -> v1.10.16 (d223a36)\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
+  "releaseNotes": "- feat(dashboard): tombol Hide All untuk hapus massal model terlihat (d9dfb11)\n- feat(nace): route otomatis ke /v1/systemone saat payload memakai state + object questions (c75ebef)\n- fix(nace): format respon Drex ke teks natural dan saring boilerplate agent harness (3031547)\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
 }
