@@ -7915,8 +7915,8 @@
           </div>
           <div class="model-filter-actions">
             <span class="model-visible-count" id="model-visible-count">Showing ${countTotal} models</span>
-            <button type="button" class="btn btn-sm" onclick="copyFilteredModelIDs(this)" title="Copy all visible model IDs (one per line)">
-              <span class="msym" style="font-size:14px; vertical-align:-2px;">content_copy</span><span class="btn-text"> Copy Visible</span>
+            <button type="button" class="btn btn-sm btn-danger" id="hide-all-models-btn" onclick="hideAllVisibleModels(this)" title="Remove all visible models from the provider cache (bulk delete)">
+              <span class="msym" style="font-size:14px; vertical-align:-2px;">visibility_off</span><span class="btn-text"> Hide All</span>
             </button>
           </div>
         </div>
@@ -8291,6 +8291,42 @@
       }
     } catch (_) {
       appPrompt("Copy visible model IDs:", { title: "Copy manually", input: ids.join("\n"), okText: "Done" });
+    }
+  }
+
+  // Hide All: bulk-removes every currently visible (filtered) model — the same
+  // DELETE endpoint as the per-row Remove button, fanned across all visible
+  // rows. The confirm names the count because this is a mass removal.
+  async function hideAllVisibleModels(btn) {
+    const container = document.getElementById("models-list-container");
+    if (!container) return;
+    const ids = [];
+    container.querySelectorAll(".model-row").forEach(r => {
+      if (r.style.display !== "none") {
+        const raw = r.getAttribute("id") || "";
+        if (raw.startsWith("model-row-")) ids.push(raw.slice("model-row-".length));
+      }
+    });
+    if (!ids.length) { toast("No visible models to hide", false); return; }
+    if (!(await appConfirm(`Remove ${ids.length} visible model(s) from this provider?\n\nThis cannot be undone.`, { title: "Hide all models", okText: "Remove all", danger: true }))) return;
+    const providerId = lastProviderDetail ? lastProviderDetail.provider : null;
+    if (!providerId) return;
+    if (btn) btn.disabled = true;
+    const removedModelIds = new Set();
+    try {
+      for (const mid of ids) {
+        try {
+          const res = await api(`/api/dashboard/providers/${encodeURIComponent(providerId)}/models?modelId=${encodeURIComponent(mid)}`, { method: "DELETE" });
+          if (res.ok) {
+            removedModelIds.add(mid);
+            dropRemovedRowsFromCache(providerId, removedModelIds);
+            renderProviderDetailRefresh();
+          }
+        } catch (_) {}
+      }
+    } finally {
+      if (btn) btn.disabled = false;
+      renderProviderDetailRefresh();
     }
   }
 

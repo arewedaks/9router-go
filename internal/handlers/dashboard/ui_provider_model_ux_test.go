@@ -23,7 +23,7 @@ func TestUIProviderAndModelUX(t *testing.T) {
 		`function handleModelSearch(`,
 		`function clearModelSearch()`,
 		`function setModelFilterCategory(`,
-		`function copyFilteredModelIDs(`,
+		`function hideAllVisibleModels(`,
 	}
 	for _, need := range modelControls {
 		if !strings.Contains(ui, need) {
