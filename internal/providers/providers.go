@@ -162,6 +162,14 @@ var KnownProviders = map[string]ProviderConfig{
 			"X-DeepAI-Code-Theos": "4",
 		},
 		UsageURL: "https://api.deepai.org/get_usage_summary",
+		// gpt-6-astra is the one lane model the catalog marks
+		// api=openai-responses: /chat/completions answers 400
+		// "not available on this endpoint" for it, while the other 17 ids
+		// serve fine on chat. ForModel routes just that id to /responses via
+		// the codex executor.
+		ModelFormats: map[string]string{
+			"gpt-6-astra": FormatOpenAIResponses,
+		},
 	},
 	"deepinfra": {
 		BaseURL:    "https://api.deepinfra.com/v1/openai/chat/completions",
