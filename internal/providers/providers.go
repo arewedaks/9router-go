@@ -161,7 +161,7 @@ var KnownProviders = map[string]ProviderConfig{
 		StaticHeaders: map[string]string{
 			"X-DeepAI-Code-Theos": "4",
 		},
-		UsageURL: "https://api.deepai.org/get_usage_summary",
+		UsageURL: "https://api.deepai.org/deepai_code/theos",
 		// gpt-6-astra is the one lane model the catalog marks
 		// api=openai-responses: /chat/completions answers 400
 		// "not available on this endpoint" for it, while the other 17 ids

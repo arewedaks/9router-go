@@ -93,6 +93,7 @@ var registry = map[string]Handler{
 	"workbuddy":      fetchCodeBuddy,
 	"antigravity":    fetchAntigravity,
 	"antigravity-go": fetchAntigravity,
+	"deepai":         fetchDeepAI,
 	"wally":          fetchWally,
 }
 
