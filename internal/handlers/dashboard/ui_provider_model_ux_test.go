@@ -58,9 +58,11 @@ func TestUIProviderAndModelUX(t *testing.T) {
 		}
 	}
 
-	// Quota tab must only be shown for OAuth & CLI session providers
+	// The Quota tab follows the provider, not just the sign-in method: a key
+	// provider whose balance the tracker can read (DeepAI's daily Theos) must
+	// keep the tab, so the server-reported quotaSupported is part of the gate.
 	quotaChecks := []string{
-		`const showQuotaTab = d.category === "oauth" || d.authType === "oauth";`,
+		`const showQuotaTab = !!d.quotaSupported || d.category === "oauth" || d.authType === "oauth";`,
 		`${quotaTabBtn}`,
 	}
 	for _, need := range quotaChecks {

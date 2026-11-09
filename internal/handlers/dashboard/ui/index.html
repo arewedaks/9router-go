@@ -7954,10 +7954,11 @@
       ? `<div id="dt-proxy" style="display:${activeDetailTab === 'proxy' ? 'block' : 'none'};">${renderNoAuthProxyCard(d)}</div>`
       : "";
 
-    // Quota panel is relevant only for OAuth & CLI session providers that report
-    // live account allowances/credits. For API key, free, and compatible nodes,
-    // the tab is omitted.
-    const showQuotaTab = d.category === "oauth" || d.authType === "oauth";
+    // The Quota tab follows the provider: the server reports whether a quota
+    // handler exists for it (quotaSupported), which covers both OAuth session
+    // providers and API-key providers whose balance is readable (DeepAI's daily
+    // Theos). Gating on the category alone hid the tab for the latter.
+    const showQuotaTab = !!d.quotaSupported || d.category === "oauth" || d.authType === "oauth";
     if (!showQuotaTab && activeDetailTab === "quota") {
       activeDetailTab = "conn";
     }

@@ -26,6 +26,7 @@ import (
 	"9router/proxy/internal/models"
 	"9router/proxy/internal/providers"
 	proxoauth "9router/proxy/internal/proxy/oauth"
+	"9router/proxy/internal/quotatracker"
 	"9router/proxy/internal/tokensaver"
 )
 
@@ -809,6 +810,14 @@ type ProviderDetail struct {
 	// these so an operator can see — and verify — the URL a node actually
 	// points at, which is otherwise invisible after creation.
 	Node *ProviderNodeInfo `json:"node,omitempty"`
+
+	// QuotaSupported reports whether a quota/credit handler exists for this
+	// provider. The UI gates the Quota tab on this rather than on the category:
+	// the allowance belongs to the provider, not to how the operator signed in,
+	// and a key provider whose balance the tracker can read (DeepAI's daily
+	// Theos) would otherwise lose the tab the moment it moved out of the OAuth
+	// section.
+	QuotaSupported bool `json:"quotaSupported,omitempty"`
 }
 
 // ProviderNodeInfo is the read-only view of a compatible node, mirroring the
@@ -900,6 +909,12 @@ func (h *Handler) HandleProviderDetail(w http.ResponseWriter, r *http.Request) {
 	} else {
 		detail.DisplayName = raw
 	}
+
+	// The quota tab belongs to any provider the tracker can read a balance for,
+	// not only OAuth ones: DeepAI keeps its daily-Theos allowance on an API key,
+	// and gating on the category hid the tab as soon as it moved to the key
+	// section.
+	detail.QuotaSupported = quotatracker.Supported(canonical)
 
 	// Connections: collect across canonical ID and the raw key supplied.
 	all, err := h.repo.GetAllProviderConnections()
