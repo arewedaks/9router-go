@@ -7647,7 +7647,7 @@
       // A provider whose flow is driven by the generic spec table on the server.
       { ids: ["kimi", "kimi-coding", "grok-cli", "gcli", "gb", "grok-build", "claude", "cc",
               "iflow", "if", "gitlab", "gl", "xai", "cursor", "cu", "codex", "cx",
-              "nous", "ns", "zcode", "zc", "deepai", "dai"],
+              "nous", "ns", "zcode", "zc"],
         render: p => genericOAuthPanelHtml(p) },
       // ADCode signs in inside its own desktop app and leaves a Firebase refresh
       // token; the generic panel's import branch asks for exactly that.
@@ -10404,13 +10404,24 @@
     const authType = d ? d.authType : "";
     const isCookie = authType === "cookie";
     const isOauth = authType === "oauth";
-    const secretLabel = isCookie ? "Cookie" : isOauth ? "Refresh Token" : (authType === "none" ? "Optional Token" : "API Key");
-    const secretPh = isCookie
+    // DeepAI Code is a paste-only API key: its browser sign-in happens inside
+    // the vendor's own desktop app, not here, so the field names what the
+    // operator actually pastes instead of a bare "API Key".
+    const isDeepAI = providerId === "deepai" || providerId === "dai";
+    const secretLabel = isDeepAI ? "API key (DeepAI Code)"
+      : isCookie ? "Cookie"
+      : isOauth ? "Refresh Token"
+      : (authType === "none" ? "Optional Token" : "API Key");
+    const secretPh = isDeepAI
+      ? "the key DeepAI Code stored when you signed in"
+      : isCookie
       ? "sso=... or __Secure-next-auth.session-token=..."
       : isOauth
       ? "Paste the provider's long-lived refresh token"
       : "sk-... (leave blank for no-auth providers)";
-    const secretHint = isCookie
+    const secretHint = isDeepAI
+      ? "Sign in once in the DeepAI Code app, then paste the key it stored (its deepai-account credential)."
+      : isCookie
       ? "Paste the session cookie the provider's web UI uses."
       : isOauth
       ? "The router exchanges it for a fresh access token automatically."

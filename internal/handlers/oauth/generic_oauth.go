@@ -285,21 +285,6 @@ var oauthSpecs = map[string]oauthSpec{
 		Kind:       flowImport,
 		ImportHint: "Paste the access token from your Codex CLI login (~/.codex/auth.json).",
 	},
-
-	// DeepAI Code: the desktop IDE signs in with an RFC 8252 loopback OAuth
-	// flow and hands out a long-lived static gateway key (deepai sign-in
-	// response `api_key`, stored in the IDE's `deepai-account` credential). The
-	// loopback callback the flow needs belongs to the IDE, not this server, so
-	// the router cannot run the sign-in itself — it imports the key the IDE
-	// already holds, exactly as it does for a CLI desktop app. That key rides
-	// the `Api-Key` header on the managed lane, and the connection may also
-	// carry `machineId` (the box's identifier) for the per-machine allowance.
-	"deepai": {
-		Provider:    "deepai",
-		Kind:        flowImport,
-		ImportLabel: "API key",
-		ImportHint:  "Paste the API key from your DeepAI Code sign-in (stored in the IDE's deepai-account credential).",
-	},
 }
 
 // Endpoints for the ADCode sign-in. Variables rather than literals so a test can
