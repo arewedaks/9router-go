@@ -26,6 +26,47 @@ import (
 	"9router/proxy/internal/translator"
 )
 
+// readPeekedBody reads the first chunk so ParseBareErrorBody can check it; a
+// replayable reader then serves the same bytes to the stream. The buffered
+// reader holds them so the executor can swap resp.Body for the peeked one and
+// lose nothing.
+func readPeekedBody(body io.ReadCloser) ([]byte, io.ReadCloser) {
+	buf := make([]byte, 8192)
+	n, err := body.Read(buf)
+	if n == 0 && err != nil {
+		return nil, body
+	}
+	return buf[:n], &peekedReadCloser{Reader: bufio.NewReaderSize(&peekedSrc{data: buf[:n], src: body}, 8192), Closer: body}
+}
+
+type peekedSrc struct {
+	data []byte
+	src  io.Reader
+	off  int
+}
+
+func (p *peekedSrc) Read(b []byte) (int, error) {
+	if p.off < len(p.data) {
+		n := copy(b, p.data[p.off:])
+		p.off += n
+		if p.off < len(p.data) {
+			return n, nil
+		}
+		m, err := p.src.Read(b[n:])
+		return n + m, err
+	}
+	return p.src.Read(b)
+}
+
+type peekedReadCloser struct {
+	io.Reader
+	io.Closer
+}
+
+func readPeekedBare(body io.ReadCloser) io.ReadCloser {
+	return &peekedReadCloser{Reader: body, Closer: body}
+}
+
 // ---- Provider-specific executors ----
 
 // ForwardGrokCLI forwards to grok-cli using Responses API format.
@@ -664,6 +705,24 @@ func ForwardOpencode(w http.ResponseWriter, req *Request) error {
 		return fmt.Errorf("ForwardOpencode: %w", err)
 	}
 	defer resp.Body.Close()
+
+	// A 200 whose body is one bare error object (OpenCode's free-tier gate
+	// answering FreeUsageLimitError at generation time, not at the HTTP
+	// layer) must surface as an upstream error, not be streamed verbatim or
+	// collapsed into a completion. Otherwise a strict OpenAI streaming
+	// client (the Pi harness) sees a stream with no finish_reason and fails
+	// with "Stream ended without finish_reason" instead of the real cause,
+	// and fallback never gets to retry. Peek before writing anything.
+	if resp.StatusCode == http.StatusOK {
+		chunk, replay := readPeekedBody(resp.Body)
+		if err := proxy.ParseBareErrorBody(chunk); err != nil {
+			if ue, ok := err.(*proxy.UpstreamError); ok {
+				return ue
+			}
+			return err
+		}
+		resp.Body = replay
+	}
 
 	if req.IsStream {
 		return execSSEStream(w, resp.Body, req)

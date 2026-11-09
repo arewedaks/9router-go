@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -79,7 +80,22 @@ func (h *ChatHandler) forwardRequest(
 	}
 	if isStream {
 		contentType := resp.Header.Get("Content-Type")
-		if !strings.HasPrefix(strings.ToLower(contentType), "text/event-stream") {
+		// An upstream that answers 200 with a bare error object (OpenCode's
+		// FreeUsageLimitError: the free-tier gate fires at generation time,
+		// not at the HTTP layer) hides the error in the body instead of the
+		// status. SSECopy would pass it through verbatim: a strict OpenAI
+		// streaming client sees a stream with no finish_reason and fails with
+		// "Stream ended without finish_reason" rather than the real cause. Peek
+		// the first bytes *before* the SSE headers are written so fallback
+		// and the model lock still run.
+		if strings.HasPrefix(strings.ToLower(contentType), "text/event-stream") {
+			if ue, buffered := peekBareErrorEvent(resp.Body); ue != nil {
+				resp.Body.Close()
+				return ue
+			} else if buffered != nil {
+				resp.Body = buffered
+			}
+		} else {
 			// Upstream returned non-streaming response (e.g. JSON error with 200 OK)
 			log.Warn("stream", "non-stream response", "contentType", contentType)
 			return h.handleJSONResponse(ctx, w, resp.Body, translateResponse, metrics)
@@ -90,6 +106,62 @@ func (h *ChatHandler) forwardRequest(
 		return h.handleStreamResponse(ctx, w, stallReader, translateResponse, start, metrics)
 	}
 	return h.handleJSONResponse(ctx, w, resp.Body, translateResponse, metrics)
+}
+
+// peekBareErrorEvent reads the first bytes of an "SSE" body and checks it
+// against the 200-with-bare-error-object shape OpenCode's free-tier gate
+// returns at generation time (FreeUsageLimitError): a single JSON object,
+// NOT `data:`-framed, so SSECopy would pass it verbatim and a strict
+// streaming client would hang on a stream with no finish_reason. It returns
+// the matching upstream error, or nil and a buffered reader the caller must
+// substitute for the original body. Anything it cannot classify passes
+// through unchanged.
+type bufferedReadCloser struct {
+	io.Reader
+	io.Closer
+}
+
+// peekBareErrorEventStream is the stream-facing twin: the upstream may be a
+// generic io.Reader (stall reader, executor body), not an http body. It wraps
+// it so handleStreamResponse can peek before the SSE headers go out, which is
+// what lets OpenCode's 200-with-error go through fallback and the model lock.
+func peekBareErrorEventStream(body io.Reader) (*upstreamError, io.Reader) {
+	closer, _ := body.(io.Closer)
+	if closer == nil {
+		closer = io.NopCloser(bytes.NewReader(nil))
+	}
+	return peekBareErrorEventFrom(body, closer)
+}
+
+func peekBareErrorEventFrom(body io.Reader, closer io.Closer) (*upstreamError, io.ReadCloser) {
+	buffered := bufio.NewReader(body)
+	raw, err := buffered.Peek(2048)
+	if err != nil {
+		if short, serr := buffered.Peek(64); serr == nil {
+			raw = short
+		} else {
+			return nil, &bufferedReadCloser{Reader: buffered, Closer: closer}
+		}
+	}
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || trimmed[0] != '{' {
+		return nil, &bufferedReadCloser{Reader: buffered, Closer: closer}
+	}
+	if bytes.HasPrefix(trimmed, []byte("data:")) {
+		return nil, &bufferedReadCloser{Reader: buffered, Closer: closer}
+	}
+	if !bytes.Contains(trimmed, []byte(`"type":"error"`)) {
+		return nil, &bufferedReadCloser{Reader: buffered, Closer: closer}
+	}
+	full, _ := io.ReadAll(buffered)
+	if ue := upstreamErrorFromBody(full); ue != nil {
+		return ue, nil
+	}
+	return nil, &bufferedReadCloser{Reader: bytes.NewReader(full), Closer: closer}
+}
+
+func peekBareErrorEvent(body io.ReadCloser) (*upstreamError, io.ReadCloser) {
+	return peekBareErrorEventFrom(body, body)
 }
 
 // upstreamErrorFromBody promotes a 200 response whose body is a bare error
@@ -124,7 +196,8 @@ func upstreamErrorFromBody(body []byte) *upstreamError {
 	switch {
 	case strings.Contains(text, "rate") && (strings.Contains(text, "limit") || strings.Contains(text, "exceed")):
 		status = http.StatusTooManyRequests
-	case strings.Contains(text, "quota"), strings.Contains(text, "credit"), strings.Contains(text, "balance"):
+	case strings.Contains(text, "quota"), strings.Contains(text, "credit"), strings.Contains(text, "balance"),
+		strings.Contains(text, "free usage"), strings.Contains(text, "free tier"), strings.Contains(text, "free models"):
 		status = http.StatusTooManyRequests
 	case strings.Contains(text, "auth"), strings.Contains(text, "invalid api key"), strings.Contains(text, "unauthorized"):
 		status = http.StatusUnauthorized
@@ -162,18 +235,31 @@ func errorInsideContent(body []byte) *upstreamError {
 }
 
 // handleStreamResponse pipes SSE chunks from upstream to the client.
+//
+// A 200 whose body is a single bare error object (OpenCode's
+// FreeUsageLimitError: the free-tier gate answers `{"type":"error",...}` with
+// no SSE framing and no finish_reason) used to be passed verbatim by SSECopy
+// — a strict streaming client hangs on the answer that follows. Peek before
+// the SSE headers are written so fallback can retry the request.
 func (h *ChatHandler) handleStreamResponse(ctx context.Context, w http.ResponseWriter, upstream io.Reader, translate bool, startTime time.Time, metrics *streamMetrics) error {
+	if ue, buffered := peekBareErrorEventStream(upstream); ue != nil {
+		return ue
+	} else if buffered != nil {
+		upstream = buffered
+	}
+
 	hw := internalproxy.NewHeartbeatWriter(ctx, w, 0)
 	defer hw.Close()
 	flusher := internalproxy.WriteSSEHeaders(hw)
 
 	if !translate {
-		return internalproxy.SSECopy(hw, upstream, flusher, func(chunk []byte) {
+		err := internalproxy.SSECopy(hw, upstream, flusher, func(chunk []byte) {
 			if metrics.TTFT == 0 {
 				metrics.TTFT = time.Since(startTime).Milliseconds()
 			}
 			metrics.ResponseBuf.Write(chunk)
 		})
+		return err
 	}
 
 	sessionKey := fmt.Sprintf("stream-%d", time.Now().UnixNano())

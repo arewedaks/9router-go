@@ -3,9 +3,11 @@ package proxy
 import (
 	"bytes"
 	"context"
+	stdjson "encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
@@ -22,6 +24,76 @@ func WriteSSEHeaders(w http.ResponseWriter) http.Flusher {
 		f.Flush()
 	}
 	return f
+}
+
+// ParseBareErrorBody promotes a 200 response whose body is a single bare
+// error object (no SSE framing) into an error. This is the case OpenCode's
+// free-tier gate answers at generation time with FreeUsageLimitError — a
+// `{"type":"error",...}` object served with HTTP 200 — and relays that hand
+// back a throttle as `{"error":...}`. The `data:`-framed bytes of a real
+// stream, and any tool payload, pass through (return nil).
+func ParseBareErrorBody(raw []byte) error {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || trimmed[0] != '{' {
+		return nil
+	}
+	if bytes.HasPrefix(trimmed, []byte("data:")) {
+		return nil
+	}
+	if !bytes.Contains(trimmed, []byte(`"type":"error"`)) {
+		return nil
+	}
+	return detectBareErrorEvent(trimmed)
+}
+
+// detectBareErrorEvent inspects one raw upstream chunk for the 200-with-bare-
+// error-object shape (OpenCode's FreeUsageLimitError at generation time):
+// one JSON object, no `data:` framing, a top-level "type":"error". Ordinary
+// tool payloads and completions, and any SSE framing, pass through: only this
+// exact shape is promoted to an error so SSECopy can return it to the caller
+// instead of writing it verbatim onto the client stream.
+func detectBareErrorEvent(chunk []byte) error {
+	raw := chunk
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || trimmed[0] != '{' {
+		return nil
+	}
+	if !bytes.Contains(trimmed, []byte(`"type":"error"`)) {
+		return nil
+	}
+	// The frame is already here in memory (this chunk is the whole body for a
+	// bare object); unmarshal the object directly rather than through the
+	// handler's upstreamErrorFromBody, which lives in the chat layer.
+	var probe struct {
+		Error *struct {
+			Message string `json:"message"`
+			Type    string `json:"type"`
+			Code    any    `json:"code"`
+		} `json:"error"`
+		Choices []any `json:"choices"`
+	}
+	if err := jsonUnmarshal(trimmed, &probe); err != nil {
+		return nil
+	}
+	if probe.Error == nil || len(probe.Choices) > 0 {
+		return nil
+	}
+	text := strings.ToLower(probe.Error.Type + " " + probe.Error.Message + " " + fmt.Sprint(probe.Error.Code))
+	status := 502
+	switch {
+	case strings.Contains(text, "rate") && (strings.Contains(text, "limit") || strings.Contains(text, "exceed")):
+		status = 429
+	case strings.Contains(text, "quota"), strings.Contains(text, "credit"), strings.Contains(text, "balance"),
+		strings.Contains(text, "free usage"), strings.Contains(text, "free tier"), strings.Contains(text, "free models"):
+		status = 429
+	case strings.Contains(text, "auth"), strings.Contains(text, "invalid api key"), strings.Contains(text, "unauthorized"):
+		status = 401
+	}
+	return &UpstreamError{StatusCode: status, Body: chunk}
+}
+
+func jsonUnmarshal(data []byte, v any) error {
+	return stdjson.Unmarshal(data, v)
 }
 
 // SSECopy reads from upstream in a raw loop and writes each chunk to the client.
@@ -45,6 +117,20 @@ func SSECopy(w http.ResponseWriter, upstream io.Reader, flusher http.Flusher, on
 		n, err := upstream.Read(buf)
 		if n > 0 {
 			chunk := buf[:n]
+			// A 200 whose body is a single bare error object in OpenCode's
+			// FreeUsageLimitError shape — one JSON object, no `data:` framing
+			// — is not a stream no matter what Content-Type claims. Passing
+			// it verbatim leaves strict OpenAI streaming clients (Pi harness)
+			// on a stream with no finish_reason, and the fallback loop never
+			// sees the throttle. But the fail only landed on continue
+			// passthrough of one frame on opencode's keyless gateway, so the
+			// client got raw error JSON instead of a governable error.
+			// Detect this before the first write/flush so the error propagates
+			// as a proper upstream error and fallback can retry.
+			bare := detectBareErrorEvent(chunk)
+			if bare != nil {
+				return bare
+			}
 			if onChunk != nil {
 				onChunk(chunk)
 			}
