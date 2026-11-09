@@ -42,6 +42,10 @@ const (
 	flowDeviceCode flowKind = "device_code"
 	flowAuthCode   flowKind = "authorization_code"
 	flowImport     flowKind = "import_token"
+	// flowDeviceCodeClixad is the Clixad variant of a device grant: the
+	// session id stands in for the device code and the poll response carries
+	// {status, token, ...} instead of a grant exchange.
+	flowDeviceCodeClixad flowKind = "device_code_clixad"
 )
 
 // oauthSpec describes one provider's sign-in flow.
@@ -205,9 +209,11 @@ var oauthSpecs = map[string]oauthSpec{
 	// so specFor hands out an import spec. The dedicated Clixad provider keeps
 	// portal clixad.io separate and signs in via the GitHub device page.
 	"clixad": {
-		Provider:   "clixad",
-		Kind:       flowImport,
-		ImportHint: "Run the Clixad CLI once to sign in (it opens github.com/login/device), then paste the session token it stored in ~/.clixad/config.json.",
+		Provider:      "clixad",
+		Kind:          flowDeviceCodeClixad,
+		DeviceCodeURL: "https://clixad.onrender.com/v1/auth/device/start",
+		TokenURL:      "https://clixad.onrender.com/v1/auth/device/poll",
+		StartHint:     "Clixad signs in with GitHub. Click Sign in, then enter the code below at github.com/login/device with the account you want to use in this gateway.",
 	},
 
 	// ---- authorization code ----
@@ -443,7 +449,7 @@ func (h *OAuthHandler) HandleGenericAuthorize(w http.ResponseWriter, r *http.Req
 	}
 
 	switch spec.Kind {
-	case flowDeviceCode:
+	case flowDeviceCode, flowDeviceCodeClixad:
 		h.startDeviceCode(w, r, spec)
 	case flowAuthCode:
 		h.startAuthCode(w, r, spec)
@@ -479,6 +485,8 @@ func (h *OAuthHandler) HandleGenericExchange(w http.ResponseWriter, r *http.Requ
 	switch spec.Kind {
 	case flowDeviceCode:
 		h.pollDeviceCode(w, r, spec)
+	case flowDeviceCodeClixad:
+		h.pollClixadSession(w, r, spec)
 	case flowAuthCode:
 		h.exchangeAuthCode(w, r, spec)
 	case flowImport:
@@ -486,10 +494,200 @@ func (h *OAuthHandler) HandleGenericExchange(w http.ResponseWriter, r *http.Requ
 	}
 }
 
+// startClixadSignIn runs Clixad's own device grant (not RFC 8628). The vendor
+// returns a session id in place of a device code and a user_code the operator
+// types at github.com/login/device; the browser opens that page, we keep
+// polling with the session id until it returns {status: complete, token}.
+func (h *OAuthHandler) startClixadSignIn(w http.ResponseWriter, r *http.Request, spec oauthSpec) {
+	req, err := http.NewRequest(http.MethodPost, spec.DeviceCodeURL, strings.NewReader("{}"))
+	if err != nil {
+		handlerutil.WriteJSONError(w, http.StatusInternalServerError, "failed to build request")
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	raw, status, err := doRequest(req)
+	if err != nil {
+		log.Warn("oauth", "clixad sign-in start failed", "error", err)
+		handlerutil.WriteJSONError(w, http.StatusBadGateway, "could not start sign-in")
+		return
+	}
+	if status != http.StatusOK {
+		handlerutil.WriteJSONError(w, http.StatusBadGateway,
+			fmt.Sprintf("clixad sign-in request failed (HTTP %d): %s", status, truncateForOAuth(string(raw), 200)))
+		return
+	}
+
+	var parsed struct {
+		Session         string `json:"session"`
+		UserCode        string `json:"user_code"`
+		VerificationURI string `json:"verification_uri"`
+		ExpiresIn       int    `json:"expires_in"`
+		Interval        int    `json:"interval"`
+	}
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		handlerutil.WriteJSONError(w, http.StatusBadGateway, "invalid sign-in response")
+		return
+	}
+	if parsed.Session == "" {
+		handlerutil.WriteJSONError(w, http.StatusBadGateway, "clixad returned no session")
+		return
+	}
+	interval := parsed.Interval
+	if interval <= 0 {
+		interval = 5
+	}
+	expiresIn := parsed.ExpiresIn
+	if expiresIn <= 0 {
+		expiresIn = 300
+	}
+	authURL := strings.TrimSpace(parsed.VerificationURI)
+	if authURL == "" {
+		authURL = "https://github.com/login/device"
+	}
+
+	handlerutil.WriteJSON(w, http.StatusOK, map[string]any{
+		"provider":       spec.Provider,
+		"deviceCode":     parsed.Session,
+		"userCode":       parsed.UserCode,
+		"authUrl":        authURL,
+		"interval":       interval,
+		"expiresIn":      expiresIn,
+		"pollIntervalMs": interval * 1000,
+	})
+}
+
+// pollClixadSession polls the gateway until it returns {status: complete,
+// token, ...}. The session id (carried in deviceCode) is the handle; the
+// token is the credential the chat path authenticates with.
+func (h *OAuthHandler) pollClixadSession(w http.ResponseWriter, r *http.Request, spec oauthSpec) {
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if err != nil {
+		handlerutil.WriteJSONError(w, http.StatusBadRequest, "failed to read body")
+		return
+	}
+	var req struct {
+		DeviceCode string `json:"deviceCode"`
+		Name       string `json:"name"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		handlerutil.WriteJSONError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	session := strings.TrimSpace(req.DeviceCode)
+	if session == "" {
+		handlerutil.WriteJSONError(w, http.StatusBadRequest, "missing deviceCode")
+		return
+	}
+
+	payload, _ := json.Marshal(map[string]string{"session": session})
+	pollReq, err := http.NewRequest(http.MethodPost, spec.tokenURLFor(), bytes.NewReader(payload))
+	if err != nil {
+		handlerutil.WriteJSONError(w, http.StatusInternalServerError, "failed to build request")
+		return
+	}
+	pollReq.Header.Set("Content-Type", "application/json")
+	pollReq.Header.Set("Accept", "application/json")
+
+	raw, status, err := doRequest(pollReq)
+	if err != nil {
+		handlerutil.WriteJSONError(w, http.StatusBadGateway, "poll failed")
+		return
+	}
+
+	var parsed struct {
+		Status  string `json:"status"`
+		Error   string `json:"error"`
+		Token   string `json:"token"`
+		Email   string `json:"email"`
+		Login   string `json:"login"`
+		UserID  string `json:"userId"`
+		Message string `json:"message"`
+	}
+	_ = json.Unmarshal(raw, &parsed)
+
+	switch strings.ToLower(strings.TrimSpace(parsed.Status)) {
+	case "pending", "authorization_pending", "slow_down", "":
+		if parsed.Token == "" && parsed.Status != "complete" {
+			handlerutil.WriteJSON(w, http.StatusOK, map[string]any{
+				"success": false,
+				"pending": true,
+				"error":   parsed.Error,
+			})
+			return
+		}
+	case "closed", "expired", "denied":
+		msg := parsed.Message
+		if msg == "" {
+			msg = parsed.Status
+		}
+		handlerutil.WriteJSONError(w, http.StatusBadGateway, "sign-in closed: "+msg)
+		return
+	case "error":
+		msg := parsed.Error
+		if msg == "" {
+			msg = fmt.Sprintf("HTTP %d", status)
+		}
+		handlerutil.WriteJSONError(w, http.StatusBadGateway, "sign-in failed: "+msg)
+		return
+	}
+
+	token := strings.TrimSpace(parsed.Token)
+	if token == "" {
+		if status >= 200 && status < 300 {
+			handlerutil.WriteJSON(w, http.StatusOK, map[string]any{
+				"success": false, "pending": true,
+			})
+			return
+		}
+		handlerutil.WriteJSONError(w, http.StatusBadGateway,
+			fmt.Sprintf("sign-in failed (HTTP %d): %s", status, truncateForOAuth(string(raw), 200)))
+		return
+	}
+
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		name = strings.TrimSpace(parsed.Login)
+	}
+	if name == "" {
+		name = strings.TrimSpace(parsed.Email)
+	}
+	if name == "" {
+		name = shortTokenFingerprint(token)
+	}
+
+	data, err := json.Marshal(map[string]any{
+		"accessToken":  token,
+		"tokenGateway": "https://clixad.onrender.com",
+		"email":        parsed.Email,
+		"login":        parsed.Login,
+		"userId":       parsed.UserID,
+	})
+	if err != nil {
+		handlerutil.WriteJSONError(w, http.StatusInternalServerError, "failed to encode connection data")
+		return
+	}
+	connID, err := h.insertOAuthConnection(spec.Provider, name, parsed.Email, string(data))
+	if err != nil {
+		log.Error("oauth", "save clixad connection failed", "error", err)
+		handlerutil.WriteJSONError(w, http.StatusInternalServerError, "failed to save connection")
+		return
+	}
+	handlerutil.WriteJSON(w, http.StatusOK, map[string]any{
+		"success":    true,
+		"connection": map[string]any{"id": connID, "provider": spec.Provider, "email": parsed.Email},
+	})
+}
+
 // ---- device code ----
 
 // startDeviceCode requests a device code and returns the verification URL.
 func (h *OAuthHandler) startDeviceCode(w http.ResponseWriter, r *http.Request, spec oauthSpec) {
+	if spec.Kind == flowDeviceCodeClixad {
+		h.startClixadSignIn(w, r, spec)
+		return
+	}
 	clientID := spec.clientID()
 	if clientID == "" {
 		handlerutil.WriteJSONError(w, http.StatusInternalServerError, spec.Provider+" OAuth client not configured")
