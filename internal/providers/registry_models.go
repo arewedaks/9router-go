@@ -131,7 +131,18 @@ var ProviderModels = map[string][]string{
 	"nace":   {"drex-max", "drex-max-v1.1", "drex-max-finance", "drex-v2.0", "drex-latest"},
 	"nc":     {"drex-max", "drex-max-v1.1", "drex-max-finance", "drex-v2.0", "drex-latest"},
 	"drex":   {"drex-max", "drex-max-v1.1", "drex-max-finance", "drex-v2.0", "drex-latest"},
-	"nvidia": {"minimaxai/minimax-m2.7", "minimaxai/minimax-m3", "z-ai/glm-5.2", "deepseek-ai/deepseek-v4-pro", "deepseek-ai/deepseek-v4-flash", "moonshotai/kimi-k2.6", "nvidia/nemotron-3-ultra-550b-a55b", "nvidia/nv-embedqa-e5-v5", "nvidia/parakeet-ctc-1.1b-asr", "fastpitch", "tacotron2"},
+	// Probed one by one against integrate.api.nvidia.com/v1/chat/completions
+	// on 2026-11-09 (non-streaming, max_tokens:1). The old catalogue was mostly
+	// dead: minimax-m2.7, minimax-m3, glm-5.2, deepseek-v4-pro and
+	// deepseek-v4-flash now return 410 Gone; kimi-k2.6, nemotron-3-super,
+	// nemotron-4-340b and llama-3.1-nemotron-* answer 404 "Function ... Not
+	// found for account" (they need Public API Endpoints permission); and the
+	// TTS/ASR ids (nv-embedqa-e5-v5, parakeet-ctc-1.1b-asr, fastpitch,
+	// tacotron2) are not chat models. deepseek-v4.1-flash, glm-5.3-flash,
+	// gpt-oss-20b and mistral-large-4-1t-a52b timed out from this connection
+	// and were left out rather than listed on faith; minimax-m3.1-flash is slow
+	// (tens of seconds) but answers. Only the five that returned content stay.
+	"nvidia": {"nvidia/nemotron-3-ultra-550b-a55b", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning", "nvidia/nemotron-3.5-lightning-30b-a3b", "nvidia/nemotron-3.5-bolt-e4b", "minimaxai/minimax-m3.1-flash"},
 	"oc": {"muse-spark-1.2-contributor-free", "muse-spark-1.3-contributor-free"},
 	"ollama": {"gpt-oss:120b", "kimi-k2.5", "glm-5", "minimax-m2.5", "glm-4.7-flash", "qwen3.5", "minimax-m3"},
 	"openai": {"gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gpt-5.2", "gpt-5.1", "gpt-5", "gpt-5-mini", "gpt-5-nano", "gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano", "o3", "o3-mini", "o3-pro", "o4-mini", "o1", "o1-mini", "text-embedding-3-large", "text-embedding-3-small", "text-embedding-ada-002", "tts-1", "tts-1-hd", "gpt-4o-mini-tts", "whisper-1", "gpt-4o-transcribe", "gpt-4o-mini-transcribe", "gpt-image-2.5", "gpt-image-2.5-flare", "gpt-image-2.5-sunburst", "gpt-image-1", "dall-e-3", "dall-e-2"},
