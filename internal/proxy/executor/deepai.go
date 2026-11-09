@@ -48,9 +48,9 @@ const DeepAIDefaultModel = "glm-5.3-flash"
 const deepAILaneVersion = "4"
 
 // applyDeepAIHeaders injects the lane/machine headers and a default model. It
-// never fails the request: a missing machine id is normal off macOS/Windows and
-// the upstream accepts that, and a body it cannot parse is handed to the generic
-// path so the real error surfaces instead of being masked here.
+// never fails the request: a missing machine id is normal on a host that exposes
+// none and the upstream accepts that, and a body it cannot parse is handed to the
+// generic path so the real error surfaces instead of being masked here.
 func applyDeepAIHeaders(req *Request) {
 	if req.Config == nil {
 		return
@@ -62,8 +62,8 @@ func applyDeepAIHeaders(req *Request) {
 		req.Config.StaticHeaders["X-DeepAI-Code-Theos"] = deepAILaneVersion
 	}
 	if _, ok := req.Config.StaticHeaders["X-DeepAI-Code-Machine"]; !ok {
-		if id := cachedDeepAIMachineID(); id.available {
-			req.Config.StaticHeaders["X-DeepAI-Code-Machine"] = id.value
+		if value, ok := deepAIMachineHeaderValue(req.ConnData); ok {
+			req.Config.StaticHeaders["X-DeepAI-Code-Machine"] = value
 		}
 	}
 	if len(req.Body) == 0 {
@@ -79,6 +79,33 @@ func applyDeepAIHeaders(req *Request) {
 			req.Body = b
 		}
 	}
+}
+
+// DeepAIMachineIDKey is the per-connection override for the machine id, read
+// from the connection's providerSpecificData.
+//
+// The upstream buckets its daily allowance per machine, so a pool that fronts
+// several DeepAI accounts under one host id would make them share (and starve on)
+// a single allowance. Setting this on a connection gives that account its own
+// bucket — the value is the raw machine id, hashed exactly as the vendor hashes
+// its own (sha256 of the lowercased string), so putting the UUID the operator's
+// Windows box reports reproduces what the IDE would send there.
+const DeepAIMachineIDKey = "deepaiMachineId"
+
+// deepAIMachineHeaderValue returns the header value: the connection's own machine
+// id when one is configured, else the local host's digest, else not ok.
+func deepAIMachineHeaderValue(connData map[string]any) (string, bool) {
+	if connData != nil {
+		if raw, ok := connData[DeepAIMachineIDKey].(string); ok {
+			if raw = strings.TrimSpace(raw); raw != "" {
+				return sha256Hex(strings.ToLower(raw)), true
+			}
+		}
+	}
+	if id := cachedDeepAIMachineID(); id.available {
+		return id.value, true
+	}
+	return "", false
 }
 
 // DeepAIModelsURL is the lane's model catalogue endpoint: the sibling /models of
@@ -99,15 +126,15 @@ func DeepAIModelsURL(cfg *providers.ProviderConfig) string {
 func DeepAIUsesSystemone(string) bool { return false }
 
 // deepAIModelsHeaders are the headers every lane request needs, with the machine
-// digest when this host has one. Shared by the fetch path and any future probe.
-func deepAIModelsHeaders(apiKey string) map[string]string {
+// digest when a connection override or this host provides one.
+func deepAIModelsHeaders(apiKey string, connData map[string]any) map[string]string {
 	h := map[string]string{
 		"Content-Type":        "application/json",
 		"Accept":              "application/json",
 		"X-DeepAI-Code-Theos": deepAILaneVersion,
 	}
-	if id := cachedDeepAIMachineID(); id.available {
-		h["X-DeepAI-Code-Machine"] = id.value
+	if value, ok := deepAIMachineHeaderValue(connData); ok {
+		h["X-DeepAI-Code-Machine"] = value
 	}
 	if apiKey != "" {
 		h["Api-Key"] = apiKey
@@ -123,7 +150,7 @@ func fetchDeepAIModels(ctx context.Context, client *http.Client, cfg *providers.
 	if client == nil {
 		client = http.DefaultClient
 	}
-	r, err := proxy.DoRequest(ctx, client, "POST", DeepAIModelsURL(cfg), deepAIModelsHeaders(apiKey), []byte("{}"))
+	r, err := proxy.DoRequest(ctx, client, "POST", DeepAIModelsURL(cfg), deepAIModelsHeaders(apiKey, nil), []byte("{}"))
 	if err != nil {
 		return nil, err
 	}

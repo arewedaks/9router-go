@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -105,6 +106,96 @@ func TestParseMachineUUIDs(t *testing.T) {
 	}
 	if sha256Hex("abc") != "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad" {
 		t.Error("sha256Hex mismatch")
+	}
+}
+
+// TestLinuxProductUUIDMatchesWindowsDigest is the point of the Linux lane: the
+// kernel's product_uuid is the same SMBIOS UUID Windows' Win32_ComputerSystemProduct
+// returns, so hashing it must land on the identical digest — the header a router
+// sends equals the one the IDE would send for the same physical box.
+func TestLinuxProductUUIDMatchesWindowsDigest(t *testing.T) {
+	const board = "ec2f35eb-78e4-5590-b423-9ca713037288"
+
+	if got := parseSmbiosUUID(board + "\n"); got != board {
+		t.Fatalf("linux product_uuid parsed as %q, want %q", got, board)
+	}
+
+	// Whatever case the kernel or a PowerShell line reports, the digest is the
+	// same one: the vendor lowercases before hashing on every platform.
+	asWindows := parseSmbiosUUID("UUID\nEC2F35EB-78E4-5590-B423-9CA713037288\n")
+	if asWindows != board {
+		t.Fatalf("uppercase SMBIOS parsed as %q", asWindows)
+	}
+	if sha256Hex(parseSmbiosUUID(board)) != sha256Hex(asWindows) {
+		t.Error("linux and windows digests differ for one board")
+	}
+
+	// The injected header must carry that digest when the host has an id.
+	orig := deepAIMachineIDOnce
+	deepAIMachineIDOnce = deepAIMachineID{value: sha256Hex(board), available: true}
+	defer func() { deepAIMachineIDOnce = orig }()
+
+	cfg := &providers.ProviderConfig{BaseURL: "https://api.deepai.org/deepai_code/chat/completions"}
+	req := &Request{Config: cfg, Body: []byte(`{"model":"glm-5.3-flash","messages":[]}`)}
+	applyDeepAIHeaders(req)
+	if got := cfg.StaticHeaders["X-DeepAI-Code-Machine"]; got != sha256Hex(board) {
+		t.Errorf("X-DeepAI-Code-Machine = %q, want %q", got, sha256Hex(board))
+	}
+}
+
+// TestDetectRawMachineID_LinuxPath exercises the file seam so the Linux branch
+// is covered even when the tests run elsewhere.
+func TestDetectRawMachineID_LinuxPath(t *testing.T) {
+	orig := readFileFn
+	defer func() { readFileFn = orig }()
+	readFileFn = func(string) ([]byte, error) {
+		return []byte("ec2f35eb-78e4-5590-b423-9ca713037288\n"), nil
+	}
+	if runtime.GOOS != "linux" {
+		t.Skip("linux-only branch")
+	}
+	if got := detectRawMachineID(); got != "ec2f35eb-78e4-5590-b423-9ca713037288" {
+		t.Errorf("detectRawMachineID = %q", got)
+	}
+}
+
+// TestDeepAIMachineHeaderValue_PerConnectionOverride proves a connection's own
+// machine id wins over the host: that is what keeps two pooled accounts from
+// sharing one per-machine allowance. The value is the raw UUID the operator's
+// Windows box reports, hashed the vendor's way.
+func TestDeepAIMachineHeaderValue_PerConnectionOverride(t *testing.T) {
+	const winBox = "EC2F35EB-78E4-5590-B423-9CA713037288"
+
+	got, ok := deepAIMachineHeaderValue(map[string]any{DeepAIMachineIDKey: winBox})
+	if !ok {
+		t.Fatal("override not honoured")
+	}
+	if got != sha256Hex(strings.ToLower(winBox)) {
+		t.Errorf("override digest = %q, want %q", got, sha256Hex(strings.ToLower(winBox)))
+	}
+
+	// Two connections with different ids must not collide.
+	a, _ := deepAIMachineHeaderValue(map[string]any{DeepAIMachineIDKey: "aaaaaaaa-0000-0000-0000-000000000001"})
+	b, _ := deepAIMachineHeaderValue(map[string]any{DeepAIMachineIDKey: "bbbbbbbb-0000-0000-0000-000000000002"})
+	if a == b || a == "" {
+		t.Error("distinct machine ids produced the same digest")
+	}
+
+	// A blank override falls back to the host digest rather than sending garbage.
+	if _, ok := deepAIMachineHeaderValue(map[string]any{DeepAIMachineIDKey: "  "}); ok != cachedDeepAIMachineID().available {
+		t.Error("blank override should fall back to the host id")
+	}
+
+	// And it reaches the wire through applyDeepAIHeaders.
+	cfg := &providers.ProviderConfig{BaseURL: "https://api.deepai.org/deepai_code/chat/completions"}
+	req := &Request{
+		Config:   cfg,
+		Body:     []byte(`{"model":"glm-5.3-flash","messages":[]}`),
+		ConnData: map[string]any{DeepAIMachineIDKey: winBox},
+	}
+	applyDeepAIHeaders(req)
+	if cfg.StaticHeaders["X-DeepAI-Code-Machine"] != got {
+		t.Errorf("header = %q, want %q", cfg.StaticHeaders["X-DeepAI-Code-Machine"], got)
 	}
 }
 
