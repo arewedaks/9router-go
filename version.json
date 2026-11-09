@@ -1,5 +1,5 @@
 {
-  "latestVersion": "1.10.18",
+  "latestVersion": "1.10.19",
   "downloadUrl": "https://github.com/arewedaks/9router-go/releases/latest",
-  "releaseNotes": "- chore: bump version to 1.10.18 (0cffd30)\n- feat(dashboard): tombol Hide All untuk hapus massal model terlihat (d9dfb11)\n- feat(nace): otomatis route ke /v1/systemone jika payload memakai format state dan object questions (c75ebef)\n- fix(nace): format respon drex ke teks natural dan saring boilerplate agent (3031547)\n- chore(release): version.json -> v1.10.17 (cfd6958)\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
+  "releaseNotes": "- feat(deepai): provider DeepAI Code baru (hasil reverse engineering app desktop) (517d882)\n- fix(deepai): deteksi machine id di Linux + per-koneksi, tiap akun dapat jatah Theos sendiri (a6b4f0d)\n- feat(deepai): icon brand asli dari icns app + quota checker daily Theos (8c5b392)\n- fix(deepai): katalog model pakai GET (POST -> 403) dan daftar 18 model asli (f38aaa5)\n- fix(deepai): gpt-6-astra dirutekan ke /responses (08da2dc)\n- refactor(deepai): dipindah ke kategori API Key Provider (cfabefe)\n- fix(dashboard): hilangkan duplikat textbox Account name; field Machine ID hanya tampil bila provider memerlukannya (13502d6, b185684)\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
 }
