@@ -7684,6 +7684,11 @@
       // OmniRush's device flow is served by its own routes (JSON authorize body,
       // 428 while pending); the panel's device branch renders it unchanged.
       { ids: ["omnirush", "omr", "orush"], render: p => genericOAuthPanelHtml(p) },
+      // Clixad's gateway is not generic OAuth either (it mints a session token
+      // through device/start + device/poll, with the origin frozen next to it in
+      // ~/.clixad/config.json). The one honest in-dashboard path is pasting
+      // that session token, which the generic panel's import branch accepts.
+      { ids: ["clixad", "clix"], render: p => genericOAuthPanelHtml(p) },
     ];
     const panelEntry = OAUTH_PANELS.find(e => e.ids.includes(d.provider));
     const oauthPanel = panelEntry ? panelEntry.render(d.provider) : '';

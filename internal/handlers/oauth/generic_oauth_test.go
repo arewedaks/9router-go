@@ -22,6 +22,7 @@ func TestHandleGenericFlowInfo_ReportsKind(t *testing.T) {
 		{"xai", flowAuthCode, false},
 		{"cursor", flowImport, false},
 		{"codex", flowImport, false},
+		{"clixad", flowImport, false},
 		// gitlab ships no built-in OAuth app, so the panel must ask for one.
 		{"gitlab", flowAuthCode, true},
 	}
@@ -77,7 +78,7 @@ func TestGenericSpecs_OmitUnsupportedFlows(t *testing.T) {
 // a 200 with an empty body would leave the panel waiting forever.
 func TestHandleGenericAuthorize_ImportProviderRejected(t *testing.T) {
 	h := NewOAuthHandler(nil)
-	for _, provider := range []string{"cursor", "codex"} {
+	for _, provider := range []string{"cursor", "codex", "clixad"} {
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest("GET", "/api/oauth/"+provider+"/authorize", nil)
 		req.SetPathValue("provider", provider)

@@ -194,6 +194,22 @@ var oauthSpecs = map[string]oauthSpec{
 		DeviceCodeBody: map[string]string{"scope": "inference:invoke inference:mint_agent_key"},
 	},
 
+	// Clixad: a GitHub device grant against the vendor's gateway. The CLI ships
+	// the same shape (POST /v1/auth/device/start returns {session, user_code,
+	// verification_uri, interval, expires_in}; POST /v1/auth/device/poll with
+	// {session} returns {status: pending|complete|closed, token, ...}). The
+	// gateway is not generic OAuth — it mints its own session token and stores
+	// it with liveness in ~/.clixad/config.json (field tokenGateway, binding
+	// the token to the gateway that minted it). There is no token endpoint to
+	// exchange and no refresh; the flow is driven by the custom provider below,
+	// so specFor hands out an import spec. The dedicated Clixad provider keeps
+	// portal clixad.io separate and signs in via the GitHub device page.
+	"clixad": {
+		Provider:   "clixad",
+		Kind:       flowImport,
+		ImportHint: "Run the Clixad CLI once to sign in (it opens github.com/login/device), then paste the session token it stored in ~/.clixad/config.json.",
+	},
+
 	// ---- authorization code ----
 
 	// Claude Code subscription (Pro/Max). PKCE, JSON token exchange, and the
