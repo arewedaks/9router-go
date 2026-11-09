@@ -87,7 +87,7 @@ var knownModelFetchers = map[string]modelFetcher{
 	// key cannot list it — but with one it returns the per-request priced ids.
 	"deepai": {
 		url:        "https://api.deepai.org/deepai_code/models",
-		method:     http.MethodPost,
+		method:     http.MethodGet,
 		authHeader: "Api-Key",
 		headers:    map[string]string{"X-DeepAI-Code-Theos": "4"},
 	},

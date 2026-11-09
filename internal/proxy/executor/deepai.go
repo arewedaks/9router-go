@@ -150,7 +150,7 @@ func fetchDeepAIModels(ctx context.Context, client *http.Client, cfg *providers.
 	if client == nil {
 		client = http.DefaultClient
 	}
-	r, err := proxy.DoRequest(ctx, client, "POST", DeepAIModelsURL(cfg), deepAIModelsHeaders(apiKey, nil), []byte("{}"))
+	r, err := proxy.DoRequest(ctx, client, "GET", DeepAIModelsURL(cfg), deepAIModelsHeaders(apiKey, nil), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -160,18 +160,24 @@ func fetchDeepAIModels(ctx context.Context, client *http.Client, cfg *providers.
 		return nil, fmt.Errorf("deepai models: status %d: %s", r.StatusCode, strings.TrimSpace(string(raw)))
 	}
 	var parsed struct {
-		Data []struct {
-			ID string `json:"id"`
-		} `json:"data"`
+		Models []struct {
+			ID          string `json:"id"`
+			Name        string `json:"name"`
+			ContextWin  int    `json:"contextWindow"`
+			MaxTokens   int    `json:"maxTokens"`
+			TheosPerReq string `json:"theosPerRequest"`
+		} `json:"models"`
 	}
 	if err := json.Unmarshal(raw, &parsed); err == nil {
-		out := make([]string, 0, len(parsed.Data))
-		for _, m := range parsed.Data {
+		out := make([]string, 0, len(parsed.Models))
+		for _, m := range parsed.Models {
 			if m.ID != "" {
 				out = append(out, m.ID)
 			}
 		}
-		return out, nil
+		if len(out) > 0 {
+			return out, nil
+		}
 	}
 	return nil, nil
 }
