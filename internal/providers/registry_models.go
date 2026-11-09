@@ -35,6 +35,16 @@ var ProviderModels = map[string][]string{
 	"cl": {"anthropic/claude-opus-4.7", "anthropic/claude-sonnet-4.6", "anthropic/claude-opus-4.6", "openai/gpt-5.3-codex", "openai/gpt-5.4", "google/gemini-3.1-pro-preview", "google/gemini-3.1-flash-lite-preview", "kwaipilot/kat-coder-pro"},
 	"claude": {"claude-opus-5", "claude-fable-5-1", "claude-fable-5", "claude-sonnet-5", "claude-haiku-4-5-20251001"},
 	"cline": {"anthropic/claude-opus-4.7", "anthropic/claude-sonnet-4.6", "anthropic/claude-opus-4.6", "openai/gpt-5.3-codex", "openai/gpt-5.4", "google/gemini-3.1-pro-preview", "google/gemini-3.1-flash-lite-preview", "kwaipilot/kat-coder-pro"},
+	// The gateway's public GET /v1/models (clixad 0.0.1-beta.50) lists 14 ids
+	// in cheap/mid/premium tiers. Five are free (daily allowance):
+	// gpt-5-nano, gemini-2.5-flash-lite, claude-haiku-5.5, deepseek-v4-flash
+	// and gemini-3.5-flash-lite. Retired ids (claude-opus-5->claude-opus-5.5,
+	// kimi-k2->claude-haiku-5.5, gpt-5.2/gpt-5.5->gpt-6-sol,
+	// gemini-3.6-flash->gemini-3.8-flash,
+	// gemini-3.1-flash-lite->gemini-3.5-flash-lite, claude-sonnet-5->
+	// claude-sonnet-5.5, claude-haiku-4.5->claude-haiku-5.5) are not
+	// advertised. The rest are metered by the same ad-fundable credits.
+	"clixad": {"gpt-5-nano", "gemini-2.5-flash-lite", "claude-haiku-5.5", "deepseek-v4-flash", "gemini-3.5-flash-lite", "glm-5.3-flash", "kimi-k2.5", "gemini-3.8-flash", "kimi-k2.7-code", "claude-sonnet-5.5", "gpt-6-sol", "kimi-k3", "claude-opus-5.5", "claude-fable-5.1"},
 	"clinepass": {"cline-pass/glm-5.2", "cline-pass/kimi-k2.7-code", "cline-pass/kimi-k2.6", "cline-pass/deepseek-v4-pro", "cline-pass/deepseek-v4-flash", "cline-pass/mimo-v2.5", "cline-pass/mimo-v2.5-pro", "cline-pass/minimax-m3", "cline-pass/qwen3.7-max", "cline-pass/qwen3.7-plus"},
 	"cloudflare-ai": {"@cf/meta/llama-3.2-1b-instruct", "@cf/meta/llama-3.2-3b-instruct", "@cf/meta/llama-3.1-8b-instruct-fp8-fast", "@cf/meta/llama-3.1-8b-instruct-awq", "@cf/mistralai/mistral-small-3.1-24b-instruct", "@cf/meta/llama-3.1-70b-instruct-fp8-fast", "@cf/meta/llama-3.3-70b-instruct-fp8-fast", "@cf/deepseek-ai/deepseek-r1-distill-qwen-32b", "@cf/moonshotai/kimi-k2.5", "@cf/moonshotai/kimi-k2.6", "@cf/zai-org/glm-4.7-flash", "@cf/qwen/qwq-32b", "@cf/qwen/qwen2.5-coder-32b-instruct", "@cf/black-forest-labs/flux-2-klein-9b", "@cf/black-forest-labs/flux-2-klein-4b", "@cf/black-forest-labs/flux-2-dev", "@cf/leonardo/lucid-origin", "@cf/leonardo/phoenix-1.0", "@cf/black-forest-labs/flux-1-schnell", "@cf/bytedance/stable-diffusion-xl-lightning", "@cf/lykon/dreamshaper-8-lcm", "@cf/runwayml/stable-diffusion-v1-5-img2img", "@cf/runwayml/stable-diffusion-v1-5-inpainting", "@cf/stabilityai/stable-diffusion-xl-base-1.0"},
 	"codebuddy-cn": {"glm-5.2", "glm-5.1", "glm-5v-turbo", "minimax-m3", "kimi-k2.7", "kimi-k2.6", "hy3", "hy4-preview", "glm-5.3", "glm-5.3-flash", "kimi-k3-1", "deepseek-v4-pro", "deepseek-v4.1-flash"},

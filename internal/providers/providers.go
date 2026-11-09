@@ -187,6 +187,23 @@ var KnownProviders = map[string]ProviderConfig{
 		AuthHeader: "Authorization",
 		AuthScheme: "bearer",
 	},
+	// Clixad: a coding-agent gateway (npm clixad, GitHub clixad/cli) whose
+	// metering gateway at clixad.onrender.com serves OpenAI-shape chat behind
+	// a Bearer token minted by GitHub device flow (stored by the CLI in
+	// ~/.clixad/config.json alongside the origin it was minted on —
+	// tokenGateway — which the gateway binds the token to, so the origin is
+	// part of the credential, not an install detail). The token answers
+	// /v1/chat/completions with a Bearer header; GET /v1/models is public and
+	// lists the free/budget/premium tiers and retired-models mapping. There is
+	// no credit/usage endpoint: the gateway bills against ad-fundable credits
+	// and returns the balance only in the data.clixad block of a chat response,
+	// so there is no quota handler. Probe model gpt-5-nano is the cheapest
+	// free id every entitled key can call.
+	"clixad": {
+		BaseURL:    "https://clixad.onrender.com/v1/chat/completions",
+		AuthHeader: "Authorization",
+		AuthScheme: "bearer",
+	},
 	"nvidia": {
 		BaseURL:    "https://integrate.api.nvidia.com/v1/chat/completions",
 		AuthHeader: "Authorization",

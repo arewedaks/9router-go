@@ -131,6 +131,13 @@ var knownModelFetchers = map[string]modelFetcher{
 		method: http.MethodGet,
 		bearer: true,
 	},
+	// Clixad's model list is public, but sending the stored token costs
+	// nothing and keeps the request identical to every other fetcher.
+	"clixad": {
+		url:    "https://clixad.onrender.com/v1/models",
+		method: http.MethodGet,
+		bearer: true,
+	},
 	"xai": {
 		url:    "https://api.x.ai/v1/models",
 		method: http.MethodGet,

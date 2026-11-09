@@ -16,6 +16,7 @@ func RegisterAll() {
 	Register("zenmux", func() Executor { return ForwardOpenAI })
 	Register("groq", func() Executor { return ForwardOpenAI })
 	Register("nvidia", func() Executor { return ForwardOpenAI })
+	Register("clixad", func() Executor { return ForwardOpenAI })
 	Register("openrouter", func() Executor { return ForwardOpenAI })
 	Register("cerebras", func() Executor { return ForwardOpenAI })
 	Register("together", func() Executor { return ForwardOpenAI })

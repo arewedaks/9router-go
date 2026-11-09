@@ -1090,6 +1090,9 @@ var genericProbeModels = map[string]string{
 	// ADCode's included AI rejects ids outside its catalogue; the free lane id is
 	// the one every signed-in account can call.
 	"adcode": "tagflow-code-27b",
+	// Clixad's cheapest free id is the one account's daily allowance is
+	// guaranteed to cover; any premium id would fail for a free-only key.
+	"clixad": "gpt-5-nano",
 	// Drex answers only the Decisions shape (input + questions); a chat body
 	// returns 422 "input: is required".
 	"nace": "drex-v2.0",
