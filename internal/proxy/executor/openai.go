@@ -1,6 +1,7 @@
 package executor
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json/v2"
@@ -96,11 +97,59 @@ func execSSEStream(w http.ResponseWriter, upstream io.Reader, req *Request) erro
 	return sseStream(w, upstream, req.TranslateResp, startTime, req.TTFT, req.ResponseBuf, req.Ctx, req.ToolNameMap)
 }
 
+// peekBareForExecutor is the executor-facing twin of the chat-layer peek.
+// It reads the first upstream bytes (before SSE headers are committed) and
+// promotes a 200 whose body is one bare error object (OpenCode's
+// FreeUsageLimitError, not `data:`-framed) to an upstream error so the
+// fallback loop sees the throttle instead of the client hanging on a
+// finish_reason-less stream. Returns the replaceable reader when it is not
+// an error, so callers can lose nothing.
+func peekBareForExecutor(body io.Reader) (error, io.Reader) {
+	buffered := bufio.NewReader(body)
+	raw, err := buffered.Peek(2048)
+	if err != nil {
+		if short, serr := buffered.Peek(64); serr == nil {
+			raw = short
+		} else {
+			return nil, &peekedReadCloser{Reader: buffered}
+		}
+	}
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || trimmed[0] != '{' {
+		return nil, &peekedReadCloser{Reader: buffered}
+	}
+	if bytes.HasPrefix(trimmed, []byte("data:")) {
+		return nil, &peekedReadCloser{Reader: buffered}
+	}
+	if !bytes.Contains(trimmed, []byte(`"type":"error"`)) {
+		return nil, &peekedReadCloser{Reader: buffered}
+	}
+	full, _ := io.ReadAll(buffered)
+	if err := proxy.ParseBareErrorBody(full); err != nil {
+		return err, nil
+	}
+	return nil, &peekedReadCloser{Reader: bytes.NewReader(full)}
+}
+
+func peekedReaderRead(b []byte) { _ = b }
+
 // sseStream pipes SSE chunks to client with optional format translation.
 func sseStream(w http.ResponseWriter, upstream io.Reader, translate bool, startTime time.Time, ttft *int64, buf io.Writer, ctx context.Context, toolNameMap map[string]string) error {
 	hw := proxy.NewHeartbeatWriter(ctx, w, 0)
 	defer hw.Close()
-	flusher := proxy.WriteSSEHeaders(hw)
+
+	// Peek the first upstream bytes *before* SSE headers are written. A 200
+	// whose body is one bare error object (OpenCode's FreeUsageLimitError)
+	// is not a stream at all: committing the headers first would leave the
+	// client on a finish_reason-less stream and the fallback loop would
+	// never see the throttle. Return the error uncommitted instead.
+	if ue, buffered := peekBareForExecutor(upstream); ue != nil {
+		return ue
+	} else if buffered != nil {
+		upstream = buffered
+	}
+
+	flusher := proxy.FlushAndWrite(hw)
 
 	if !translate {
 		if toolNameMap != nil {

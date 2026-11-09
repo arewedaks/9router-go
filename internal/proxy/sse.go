@@ -12,18 +12,34 @@ import (
 	"time"
 )
 
-// WriteSSEHeaders sets standard SSE headers on the response and writes HTTP 200.
-// Returns the http.Flusher if the ResponseWriter supports it.
-func WriteSSEHeaders(w http.ResponseWriter) http.Flusher {
+// SetSSEHeaders sets SSE headers without writing them.
+// Callers that must inspect the first upstream bytes before committing the
+// response call this, peek, and only then WriteHeader(200) via FlushAndWrite
+// or Commit. Forcing the status through a separate step is what lets the
+// fallback loop retry a bare-error body instead of failing with a
+// finish_reason-less stream after headers have already gone out.
+func SetSSEHeaders(w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
+}
+
+// FlushAndWrite commits the response with HTTP 200 and returns its flusher.
+// It pairs with a prior SetSSEHeaders call.
+func FlushAndWrite(w http.ResponseWriter) http.Flusher {
 	w.WriteHeader(http.StatusOK)
 	f, _ := w.(http.Flusher)
 	if f != nil {
 		f.Flush()
 	}
 	return f
+}
+
+// WriteSSEHeaders sets standard SSE headers on the response and writes HTTP 200.
+// Returns the http.Flusher if the ResponseWriter supports it.
+func WriteSSEHeaders(w http.ResponseWriter) http.Flusher {
+	SetSSEHeaders(w)
+	return FlushAndWrite(w)
 }
 
 // ParseBareErrorBody promotes a 200 response whose body is a single bare
