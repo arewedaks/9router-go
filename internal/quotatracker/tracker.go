@@ -42,6 +42,11 @@ type Quota struct {
 	// the stable identifier (a model id, "gemini_weekly"), which is not always
 	// readable; the UI prefers this when present and falls back to the key.
 	DisplayName string `json:"displayName,omitempty"`
+	// LimitOnly marks an allowance the provider publishes without any usage
+	// counter — the per-key cap Wally returns as an x-ratelimit-* header. There
+	// is no "used" to draw a bar from, so the UI shows the cap alone instead of
+	// "0 / total (100% left)", which would read as an untouched balance.
+	LimitOnly bool `json:"limitOnly,omitempty"`
 }
 
 // Result is the outcome for one connection. Exactly one of Message or Quotas is
@@ -88,6 +93,9 @@ type Credentials struct {
 	// with a per-account machine-id override reads the same value the request
 	// path uses.
 	ProviderSpecificData map[string]any
+	// BaseURL is the provider's chat-completions endpoint, used by handlers whose
+	// limits are only published as response headers on a real completion.
+	BaseURL string
 }
 
 // Handler fetches quota for one provider.

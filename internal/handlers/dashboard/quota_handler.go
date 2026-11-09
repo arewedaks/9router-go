@@ -174,6 +174,9 @@ func quotaCredentialsFor(c *models.ProviderConnection) (quotatracker.Credentials
 		creds.StaticHeader = cfg.StaticHeaders
 		creds.UsageURL = cfg.UsageURL
 		creds.SubscriptionURL = cfg.SubscriptionURL
+		// BaseURL is the chat endpoint. Only header-derived handlers (Wally)
+		// use it; the rest read a dedicated usage endpoint.
+		creds.BaseURL = cfg.BaseURL
 	}
 	return creds, true
 }

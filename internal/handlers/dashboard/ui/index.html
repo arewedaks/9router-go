@@ -7515,7 +7515,32 @@
     }
 
     const bars = entries.map(([label, q]) => {
-      const usedPct = q.total > 0 ? Math.min(100, (q.used / q.total) * 100) : 0;
+      // An allowance with no published ceiling is a measurement, not a
+      // fraction: dividing by a 0 total drew "9,880,385 / 0 tokens (100% left)"
+      // under a full bar. Render the count alone and skip the bar, because
+      // there is no proportion to draw.
+      if (q.unlimited || !(q.total > 0)) {
+        const noCeilUnit = q.unit ? ` ${escapeHtml(q.unit)}` : "";
+        return `<div class="quota-row">
+        <div class="quota-label">
+          <span>${escapeHtml(q.displayName || label)}</span>
+          <span class="quota-nums">${fmtQuotaNum(q.used)}${noCeilUnit} used</span>
+        </div>
+      </div>`;
+      }
+      // A cap the provider publishes without a usage counter (Wally's
+      // x-ratelimit-* headers): there is no "used", so show the cap alone
+      // rather than "0 / cap (100% left)", which reads as an untouched balance.
+      if (q.limitOnly) {
+        const capUnit = q.unit ? ` ${escapeHtml(q.unit)}` : "";
+        return `<div class="quota-row">
+        <div class="quota-label">
+          <span>${escapeHtml(q.displayName || label)}</span>
+          <span class="quota-nums">${fmtQuotaNum(q.total)}${capUnit}</span>
+        </div>
+      </div>`;
+      }
+      const usedPct = Math.min(100, (q.used / q.total) * 100);
       const leftPct = 100 - usedPct;
       const cls = usedPct >= 90 ? "crit" : (usedPct >= 70 ? "warn" : "");
       const reset = q.resetAt ? relativeReset(q.resetAt) : "";
