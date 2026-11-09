@@ -147,6 +147,22 @@ var KnownProviders = map[string]ProviderConfig{
 		AuthHeader: "Authorization",
 		AuthScheme: "bearer",
 	},
+	// DeepAI Code: the desktop IDE's managed LLM lane. The auth header is
+	// `Api-Key` (not Authorization), and the lane is versioned by
+	// `X-DeepAI-Code-Theos` — the server refuses a metered call with
+	// `machine_required` when that lane header is missing, and buckets the
+	// per-machine daily allowance by `X-DeepAI-Code-Machine`. Verified live:
+	// POST https://api.deepai.org/deepai_code/chat/completions with no key
+	// answers {"error":{"type":"auth_required"}}. Default model glm-5.3-flash.
+	"deepai": {
+		BaseURL:    "https://api.deepai.org/deepai_code/chat/completions",
+		AuthHeader: "Api-Key",
+		AuthScheme: "raw",
+		StaticHeaders: map[string]string{
+			"X-DeepAI-Code-Theos": "4",
+		},
+		UsageURL: "https://api.deepai.org/get_usage_summary",
+	},
 	"deepinfra": {
 		BaseURL:    "https://api.deepinfra.com/v1/openai/chat/completions",
 		AuthHeader: "Authorization",

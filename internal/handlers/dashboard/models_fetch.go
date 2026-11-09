@@ -82,6 +82,15 @@ var knownModelFetchers = map[string]modelFetcher{
 		authHeader: "x-api-key",
 		headers:    map[string]string{"anthropic-version": "2023-06-01"},
 	},
+	// DeepAI Code's lane catalogue. It is behind the same auth as a call
+	// (keyless answers 403) and carries the lane header, so a probe without a
+	// key cannot list it — but with one it returns the per-request priced ids.
+	"deepai": {
+		url:        "https://api.deepai.org/deepai_code/models",
+		method:     http.MethodPost,
+		authHeader: "Api-Key",
+		headers:    map[string]string{"X-DeepAI-Code-Theos": "4"},
+	},
 	"gemini": {
 		url:       "https://generativelanguage.googleapis.com/v1beta/models",
 		method:    http.MethodGet,
