@@ -7644,10 +7644,10 @@
       // Qoder mints its own nonce/PKCE identity and approves on
       // qoder.com/device/selectAccounts, which /api/oauth/qoder/* serves.
       { ids: ["qoder", "qd"], render: p => genericOAuthPanelHtml(p) },
-      // Providers whose flow is driven by the generic spec table on the server.
+      // A provider whose flow is driven by the generic spec table on the server.
       { ids: ["kimi", "kimi-coding", "grok-cli", "gcli", "gb", "grok-build", "claude", "cc",
               "iflow", "if", "gitlab", "gl", "xai", "cursor", "cu", "codex", "cx",
-              "nous", "ns", "zcode", "zc"],
+              "nous", "ns", "zcode", "zc", "deepai", "dai"],
         render: p => genericOAuthPanelHtml(p) },
       // ADCode signs in inside its own desktop app and leaves a Firebase refresh
       // token; the generic panel's import branch asks for exactly that.
