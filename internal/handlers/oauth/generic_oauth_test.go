@@ -11,9 +11,9 @@ import (
 // Probing /authorize instead would mint a device code just to learn the kind.
 func TestHandleGenericFlowInfo_ReportsKind(t *testing.T) {
 	cases := []struct {
-		provider  string
-		wantKind  flowKind
-		wantApp   bool
+		provider string
+		wantKind flowKind
+		wantApp  bool
 	}{
 		{"kimi", flowDeviceCode, false},
 		{"grok-cli", flowDeviceCode, false},
@@ -278,5 +278,28 @@ func TestStartAuthCode_FixedRedirectIgnoresRequestHost(t *testing.T) {
 	}
 	if strings.Contains(body, "9999") {
 		t.Errorf("request host leaked into the redirect: %s", body)
+	}
+}
+
+// TestShortTokenFingerprint proves the auto name is distinguishable per
+// credential and never contains the credential itself.
+func TestShortTokenFingerprint(t *testing.T) {
+	a := shortTokenFingerprint("key-aaaa-1111")
+	b := shortTokenFingerprint("key-bbbb-2222")
+	if a == b {
+		t.Fatal("two different credentials produced the same label")
+	}
+	if shortTokenFingerprint("key-aaaa-1111") != a {
+		t.Error("label must be stable for one credential")
+	}
+	if strings.Contains(a, "key-aaaa") || strings.Contains(a, "1111") {
+		t.Errorf("label leaked the credential: %q", a)
+	}
+	if !strings.HasPrefix(a, "#") || len(a) != 7 {
+		t.Errorf("label shape = %q, want #RRGGBB-ish 7 chars", a)
+	}
+	// Empty credential still yields a usable label rather than an empty name.
+	if shortTokenFingerprint("") != "import" {
+		t.Errorf("empty token label = %q", shortTokenFingerprint(""))
 	}
 }

@@ -9576,7 +9576,7 @@
         <div class="add-form-grid oauth-grid" id="g-oauth-start-row" style="display:none;">
           <div>
             <label class="field-label">Account name (optional)</label>
-            <input type="text" id="g-oauth-name" placeholder="auto-filled from the provider">
+            <input type="text" id="g-oauth-start-name" placeholder="auto-filled from the provider">
           </div>
           <div style="display:flex; align-items:flex-end; gap:6px;">
             ${adcodeMethodButtons(providerId)}
@@ -9603,10 +9603,14 @@
           <input type="password" id="g-oauth-client-secret" placeholder="leave blank for PKCE-only apps">
         </div>
         <div id="g-oauth-import" style="display:none; margin-top:10px;">
-          <label class="field-label" id="g-oauth-import-label">Access token</label>
+          <label class="field-label">Account name (optional)</label>
+          <input type="text" id="g-oauth-name" placeholder="a label to tell this account apart">
+          <label class="field-label" style="margin-top:8px;" id="g-oauth-import-label">Access token</label>
           <input type="password" id="g-oauth-token" placeholder="paste the credential">
-          <label class="field-label" style="margin-top:8px;">Machine ID (Cursor only)</label>
-          <input type="text" id="g-oauth-machine" placeholder="leave blank unless the provider asks for it">
+          <div id="g-oauth-machine-row" style="margin-top:8px;">
+            <label class="field-label">Machine ID</label>
+            <input type="text" id="g-oauth-machine" placeholder="required by this provider">
+          </div>
           <div style="margin-top:8px;">
             <button class="btn btn-primary" onclick="submitGenericImport('${providerId}')">Add account</button>
           </div>
@@ -9744,7 +9748,7 @@
       redirectUri: genericOAuthCtx.redirectUri,
       clientId: (document.getElementById("g-oauth-client-id") || {}).value || "",
       clientSecret: (document.getElementById("g-oauth-client-secret") || {}).value || "",
-      name: (document.getElementById("g-oauth-name") || {}).value || "",
+      name: (document.getElementById("g-oauth-start-name") || {}).value || "",
     };
     if (/^https?:\/\//i.test(raw)) { body.callbackUrl = raw; } else { body.code = raw; }
 
@@ -9823,11 +9827,20 @@
       }
       if (data.kind === "import_token") {
         intro.textContent = data.hint || "Paste the credential your CLI stored.";
+        // The header row (label + account name) belongs with the credential
+        // fields for an import, not the sign-in button that imports never use.
+        document.getElementById("g-oauth-start-row").style.display = "grid";
         // Some providers hand out a refresh token rather than a ready-to-use
         // access token; the server names the field so the operator pastes the
         // right value instead of guessing.
         const label = document.getElementById("g-oauth-import-label");
         if (label && data.label) label.textContent = data.label;
+        // The machine-id field is only meaningful for a provider whose API
+        // demands one (Cursor). For everyone else it is hidden, because the
+        // router derives what it needs and a blank box next to the credential
+        // reads as a required field the operator cannot fill.
+        const machineRow = document.getElementById("g-oauth-machine-row");
+        if (machineRow && !data.machineId) machineRow.style.display = "none";
         document.getElementById("g-oauth-import").style.display = "block";
         return;
       }

@@ -19,7 +19,9 @@ package oauth
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	json "encoding/json/v2"
 	"fmt"
 	"io"
@@ -409,6 +411,12 @@ func (h *OAuthHandler) HandleGenericFlowInfo(w http.ResponseWriter, r *http.Requ
 	}
 	if spec.ImportLabel != "" {
 		resp["label"] = spec.ImportLabel
+	}
+	// A provider whose API authenticates with a machine id as well as the
+	// credential needs the field; everyone else has it hidden, so a blank box
+	// does not read as a required field the operator cannot fill.
+	if spec.Provider == "cursor" {
+		resp["machineId"] = true
 	}
 	// A provider whose flow needs an operator-registered OAuth application has
 	// no usable built-in client id, so the panel must ask for one before the
@@ -1037,7 +1045,11 @@ func (h *OAuthHandler) importToken(w http.ResponseWriter, r *http.Request, spec 
 
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
-		name = spec.Provider + " import"
+		// A distinguishable default: a pool where every row reads
+		// "<provider> import" is exactly the "accounts get mixed up" case, so
+		// the fallback carries a short credential fingerprint. Not a secret —
+		// it is an identifier for the operator, not a credential.
+		name = spec.Provider + " " + shortTokenFingerprint(token)
 	}
 
 	connID, err := h.insertOAuthConnection(spec.Provider, name, "", string(encoded))
@@ -1050,6 +1062,19 @@ func (h *OAuthHandler) importToken(w http.ResponseWriter, r *http.Request, spec 
 		"success":    true,
 		"connection": map[string]any{"id": connID, "provider": spec.Provider},
 	})
+}
+
+// shortTokenFingerprint returns a short, non-reversible label for a credential,
+// used only to make an auto-generated account name distinguishable. It hashes
+// the token rather than showing any part of it, so the derived label is not a
+// credential and cannot be used to authenticate.
+func shortTokenFingerprint(token string) string {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return "import"
+	}
+	sum := sha256.Sum256([]byte(token))
+	return "#" + hex.EncodeToString(sum[:])[:6]
 }
 
 // ---- shared ----
