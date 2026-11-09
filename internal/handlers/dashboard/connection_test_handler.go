@@ -1081,6 +1081,12 @@ var genericProbeModels = map[string]string{
 	// was withdrawn ("This model is no longer free" -> 404), so probe on the
 	// current free preview instead.
 	"nous": "meituan/longcat-2.5-preview:free",
+	// NVIDIA NIM has no OpenAI free tier: the generic gpt-4o-mini default is
+	// not in its catalogue and answers 404 (verified against
+	// integrate.api.nvidia.com on 2026-11-09), while the served Nim models
+	// answer 200. nemotron-3.5-bolt-e4b is the cheapest built-in Nim id that
+	// any entitled key can call, so it keeps healthy accounts green.
+	"nvidia": "nvidia/nemotron-3.5-bolt-e4b",
 	// ADCode's included AI rejects ids outside its catalogue; the free lane id is
 	// the one every signed-in account can call.
 	"adcode": "tagflow-code-27b",

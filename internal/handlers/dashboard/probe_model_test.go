@@ -40,4 +40,9 @@ func TestProbeModelPrefersPinnedPerProviderModel(t *testing.T) {
 	if got := h.probeModel("wally"); got != genericProbeModel("wally") {
 		t.Fatalf("wally probe model = %q, want the built-in default", got)
 	}
+	// NVIDIA NIM serves no gpt-4o-mini, so the generic default answers 404 on
+	// every healthy key; the provider must pin its own served Nim id.
+	if got := h.probeModel("nvidia"); got != "nvidia/nemotron-3.5-bolt-e4b" {
+		t.Fatalf("nvidia probe model = %q, want a served Nim id", got)
+	}
 }
