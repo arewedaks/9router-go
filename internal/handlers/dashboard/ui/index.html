@@ -9827,9 +9827,9 @@
       }
       if (data.kind === "import_token") {
         intro.textContent = data.hint || "Paste the credential your CLI stored.";
-        // The header row (label + account name) belongs with the credential
-        // fields for an import, not the sign-in button that imports never use.
-        document.getElementById("g-oauth-start-row").style.display = "grid";
+        // An import never signs in, so the sign-in row (and its account-name
+        // field) is left hidden: the import block carries its own name field,
+        // and showing both put two identical "Account name" boxes on screen.
         // Some providers hand out a refresh token rather than a ready-to-use
         // access token; the server names the field so the operator pastes the
         // right value instead of guessing.
