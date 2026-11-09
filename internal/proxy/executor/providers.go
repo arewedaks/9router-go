@@ -621,7 +621,8 @@ func ForwardOpencode(w http.ResponseWriter, req *Request) error {
 			}
 			cfg.BaseURL = baseURL + "/responses"
 		}
-		cfg.StaticHeaders = proxy.BuildOpenCodeHeaders(cfg.StaticHeaders, req.SessionID, req.IsStream)
+		hint := opencodeSessionHint(req, true)
+		cfg.StaticHeaders = proxy.BuildOpenCodeHeaders(cfg.StaticHeaders, hint, true)
 
 		ctx := req.Ctx
 		if ctx == nil {
@@ -655,7 +656,8 @@ func ForwardOpencode(w http.ResponseWriter, req *Request) error {
 			}
 			messagesURL = base + "/messages"
 		}
-		headers := proxy.BuildOpenCodeHeaders(nil, req.SessionID, req.IsStream)
+		hint := opencodeSessionHint(req, true)
+		headers := proxy.BuildOpenCodeHeaders(nil, hint, req.IsStream)
 		headers["anthropic-version"] = "2023-06-01"
 		ctx := req.Ctx
 		if ctx == nil {
@@ -688,7 +690,8 @@ func ForwardOpencode(w http.ResponseWriter, req *Request) error {
 	w = NewToolNameRestoringWriter(w, toolNameMap)
 
 	cfg := *req.Config
-	cfg.StaticHeaders = proxy.BuildOpenCodeHeaders(cfg.StaticHeaders, req.SessionID, req.IsStream)
+	hint := opencodeSessionHint(req, true)
+	cfg.StaticHeaders = proxy.BuildOpenCodeHeaders(cfg.StaticHeaders, hint, true)
 
 	ctx := req.Ctx
 	if ctx == nil {
