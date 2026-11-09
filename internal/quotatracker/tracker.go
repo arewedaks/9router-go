@@ -112,6 +112,7 @@ var registry = map[string]Handler{
 	"antigravity-go": fetchAntigravity,
 	"deepai":         fetchDeepAI,
 	"wally":          fetchWally,
+	"clixad":         fetchClixad,
 }
 
 // Supported reports whether a provider has a quota handler.
