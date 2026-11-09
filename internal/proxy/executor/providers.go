@@ -759,10 +759,12 @@ func jsonFromSSE(ctx context.Context, w http.ResponseWriter, upstream io.Reader,
 		finish  string
 		tools   = map[int]*streamToolCall{}
 		order   []int
+		sawSSE  bool
 	)
 
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
+		sawSSE = sawSSE || strings.HasPrefix(line, "data:")
 		if line == "" || !strings.HasPrefix(line, "data:") {
 			continue
 		}
@@ -856,6 +858,15 @@ func jsonFromSSE(ctx context.Context, w http.ResponseWriter, upstream io.Reader,
 		message["tool_calls"] = calls
 	}
 
+	// A 200 whose body collapses to zero content is a failed generation,
+	// not a successful answer: upstream answered, but no delta ever
+	// arrived. This is the class that produced the empty stream the Pi
+	// harness reports as "Stream ended without finish_reason" — an
+	// honest upstream error, so fallback can retry another account.
+	if sawSSE && content.Len() == 0 && len(order) == 0 {
+		return &proxy.UpstreamError{StatusCode: 502, Body: []byte(`{"error":{"type":"empty_stream","message":"upstream returned an empty stream"}}`)}
+	}
+
 	if finish == "" {
 		finish = "stop"
 	}
@@ -870,7 +881,6 @@ func jsonFromSSE(ctx context.Context, w http.ResponseWriter, upstream io.Reader,
 			"finish_reason": finish,
 		}},
 	}
-
 	out, err := json.Marshal(body)
 	if err != nil {
 		return err
