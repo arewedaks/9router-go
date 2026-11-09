@@ -2,11 +2,14 @@ package quotatracker
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	json "encoding/json/v2"
 	"fmt"
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -42,6 +45,34 @@ func decimal(s string) (float64, bool) {
 	return f, true
 }
 
+// deepAIMachineHeaderValue mirrors the request path's machine-id choice so the
+// quota panel reads the same bucket the calls spend from: an explicit raw id in
+// providerSpecificData wins (hashed the vendor's way), otherwise the
+// connection-derived digest. Kept in sync with executor.deepAIMachineHeaderValue;
+// the two use the same prefix so one connection maps to one bucket either way.
+func deepAIMachineHeaderValue(creds Credentials) string {
+	if raw := deepAIMachineOverride(creds); raw != "" {
+		sum := sha256.Sum256([]byte(strings.ToLower(strings.TrimSpace(raw))))
+		return hex.EncodeToString(sum[:])
+	}
+	if creds.ConnectionID != "" {
+		sum := sha256.Sum256([]byte("9router:deepai:" + creds.ConnectionID))
+		return hex.EncodeToString(sum[:])
+	}
+	return ""
+}
+
+// deepAIMachineOverride reads the raw per-connection machine id, when present.
+func deepAIMachineOverride(creds Credentials) string {
+	if creds.ProviderSpecificData == nil {
+		return ""
+	}
+	if s, ok := creds.ProviderSpecificData["deepaiMachineId"].(string); ok {
+		return s
+	}
+	return ""
+}
+
 // fetchDeepAI reports the remaining daily Theos for one DeepAI Code connection.
 //
 // The allowance recurs daily (refresh_at is the next grant, not an expiry), so
@@ -69,6 +100,11 @@ func fetchDeepAI(ctx context.Context, client *http.Client, creds Credentials) (R
 	for k, v := range creds.StaticHeader {
 		req.Header.Set(k, v)
 	}
+	// The allowance is bucketed per machine, and this must match what the
+	// request path sends, or the panel reports one account's balance for all of
+	// them. An explicit per-connection override wins; otherwise the same
+	// connection-derived digest the executor uses.
+	req.Header.Set("X-DeepAI-Code-Machine", deepAIMachineHeaderValue(creds))
 
 	resp, err := client.Do(req)
 	if err != nil {

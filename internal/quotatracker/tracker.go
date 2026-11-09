@@ -79,6 +79,15 @@ type Credentials struct {
 	// different model set per profile, so a quota call that ignores it reports a
 	// different number of models than the picker the operator is looking at.
 	ClientProfile string
+	// ConnectionID identifies the account, so a provider whose allowance is
+	// bucketed per machine (DeepAI's daily Theos) can derive the same
+	// per-connection machine id the request path sends. Reading the host's own
+	// id here would report the first account's balance for every account.
+	ConnectionID string
+	// ProviderSpecificData carries the connection's own extras, so a provider
+	// with a per-account machine-id override reads the same value the request
+	// path uses.
+	ProviderSpecificData map[string]any
 }
 
 // Handler fetches quota for one provider.

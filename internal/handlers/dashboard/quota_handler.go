@@ -147,9 +147,10 @@ func (h *Handler) HandleProviderQuota(w http.ResponseWriter, r *http.Request) {
 // the billing call without the client fingerprint) and the quota endpoint.
 func quotaCredentialsFor(c *models.ProviderConnection) (quotatracker.Credentials, bool) {
 	var data struct {
-		APIKey      string `json:"apiKey"`
-		AccessToken string `json:"accessToken"`
-		ProjectID   string `json:"projectId"`
+		APIKey               string         `json:"apiKey"`
+		AccessToken          string         `json:"accessToken"`
+		ProjectID            string         `json:"projectId"`
+		ProviderSpecificData map[string]any `json:"providerSpecificData"`
 	}
 	if c.Data != "" {
 		_ = json.Unmarshal([]byte(c.Data), &data)
@@ -163,9 +164,11 @@ func quotaCredentialsFor(c *models.ProviderConnection) (quotatracker.Credentials
 	}
 
 	creds := quotatracker.Credentials{
-		Provider:    c.Provider,
-		AccessToken: token,
-		ProjectID:   data.ProjectID,
+		Provider:             c.Provider,
+		AccessToken:          token,
+		ProjectID:            data.ProjectID,
+		ConnectionID:         c.ID,
+		ProviderSpecificData: data.ProviderSpecificData,
 	}
 	if cfg, ok := providers.KnownProviders[c.Provider]; ok {
 		creds.StaticHeader = cfg.StaticHeaders

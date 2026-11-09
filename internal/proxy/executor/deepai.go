@@ -2,6 +2,8 @@ package executor
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	json "encoding/json/v2"
 	"fmt"
 	"io"
@@ -62,7 +64,7 @@ func applyDeepAIHeaders(req *Request) {
 		req.Config.StaticHeaders["X-DeepAI-Code-Theos"] = deepAILaneVersion
 	}
 	if _, ok := req.Config.StaticHeaders["X-DeepAI-Code-Machine"]; !ok {
-		if value, ok := deepAIMachineHeaderValue(req.ConnData); ok {
+		if value, ok := deepAIMachineHeaderValue(req.ConnectionID, req.ConnData); ok {
 			req.Config.StaticHeaders["X-DeepAI-Code-Machine"] = value
 		}
 	}
@@ -81,26 +83,58 @@ func applyDeepAIHeaders(req *Request) {
 	}
 }
 
+// DeepAIDerivedMachineID returns the stable per-connection machine id used when
+// a connection has no explicit `deepaiMachineId` override.
+//
+// DeepAI grants its daily Theos once per machine, keyed by the
+// X-DeepAI-Code-Machine digest. A pool that sends the router host's own digest
+// for every account therefore gives the *first* account the whole allowance and
+// leaves the rest at granted=0 — measured live: account 2 answered
+// granted=0.00000 with the host digest and 50.00000 with any other, and the
+// upstream turns granted=0 into the 403 "could not identify this computer" on a
+// metered model.
+//
+// Deriving the value from the connection id keeps one account per bucket and is
+// stable across restarts, which matters because the grant is only issued once
+// per id: a value that changed per request would never accumulate a balance.
+// Same sha256 shape the vendor computes for a real machine id, so the header is
+// indistinguishable on the wire.
+func DeepAIDerivedMachineID(connectionID string) string {
+	sum := sha256.Sum256([]byte("9router:deepai:" + connectionID))
+	return hex.EncodeToString(sum[:])
+}
+
 // DeepAIMachineIDKey is the per-connection override for the machine id, read
 // from the connection's providerSpecificData.
 //
-// The upstream buckets its daily allowance per machine, so a pool that fronts
-// several DeepAI accounts under one host id would make them share (and starve on)
-// a single allowance. Setting this on a connection gives that account its own
-// bucket — the value is the raw machine id, hashed exactly as the vendor hashes
-// its own (sha256 of the lowercased string), so putting the UUID the operator's
-// Windows box reports reproduces what the IDE would send there.
+// The upstream buckets its daily allowance per machine, so this is the
+// authoritative value when set — the raw machine id the operator's own box
+// reports (or any per-account value), hashed exactly as the vendor hashes its
+// own: sha256 of the lowercased string.
 const DeepAIMachineIDKey = "deepaiMachineId"
 
-// deepAIMachineHeaderValue returns the header value: the connection's own machine
-// id when one is configured, else the local host's digest, else not ok.
-func deepAIMachineHeaderValue(connData map[string]any) (string, bool) {
+// deepAIMachineHeaderValue returns the header value for one request, in
+// priority order:
+//
+//  1. the connection's explicit `deepaiMachineId` override (an operator's own
+//     box id, or any value they want that account bucketed under);
+//  2. a stable digest derived from the connection id, so each account gets its
+//     OWN bucket instead of all of them sharing the router host's;
+//  3. the local host's digest, when there is no connection id at all.
+//
+// Step 2 exists because the host digest is a single bucket: with it, only the
+// first account ever receives the daily grant (measured — see
+// DeepAIDerivedMachineID).
+func deepAIMachineHeaderValue(connectionID string, connData map[string]any) (string, bool) {
 	if connData != nil {
 		if raw, ok := connData[DeepAIMachineIDKey].(string); ok {
 			if raw = strings.TrimSpace(raw); raw != "" {
 				return sha256Hex(strings.ToLower(raw)), true
 			}
 		}
+	}
+	if connectionID != "" {
+		return DeepAIDerivedMachineID(connectionID), true
 	}
 	if id := cachedDeepAIMachineID(); id.available {
 		return id.value, true
@@ -127,13 +161,13 @@ func DeepAIUsesSystemone(string) bool { return false }
 
 // deepAIModelsHeaders are the headers every lane request needs, with the machine
 // digest when a connection override or this host provides one.
-func deepAIModelsHeaders(apiKey string, connData map[string]any) map[string]string {
+func deepAIModelsHeaders(apiKey, connectionID string) map[string]string {
 	h := map[string]string{
 		"Content-Type":        "application/json",
 		"Accept":              "application/json",
 		"X-DeepAI-Code-Theos": deepAILaneVersion,
 	}
-	if value, ok := deepAIMachineHeaderValue(connData); ok {
+	if value, ok := deepAIMachineHeaderValue(connectionID, nil); ok {
 		h["X-DeepAI-Code-Machine"] = value
 	}
 	if apiKey != "" {
@@ -150,7 +184,7 @@ func fetchDeepAIModels(ctx context.Context, client *http.Client, cfg *providers.
 	if client == nil {
 		client = http.DefaultClient
 	}
-	r, err := proxy.DoRequest(ctx, client, "GET", DeepAIModelsURL(cfg), deepAIModelsHeaders(apiKey, nil), nil)
+	r, err := proxy.DoRequest(ctx, client, "GET", DeepAIModelsURL(cfg), deepAIModelsHeaders(apiKey, ""), nil)
 	if err != nil {
 		return nil, err
 	}

@@ -166,7 +166,7 @@ func TestDetectRawMachineID_LinuxPath(t *testing.T) {
 func TestDeepAIMachineHeaderValue_PerConnectionOverride(t *testing.T) {
 	const winBox = "EC2F35EB-78E4-5590-B423-9CA713037288"
 
-	got, ok := deepAIMachineHeaderValue(map[string]any{DeepAIMachineIDKey: winBox})
+	got, ok := deepAIMachineHeaderValue("conn-1", map[string]any{DeepAIMachineIDKey: winBox})
 	if !ok {
 		t.Fatal("override not honoured")
 	}
@@ -175,15 +175,16 @@ func TestDeepAIMachineHeaderValue_PerConnectionOverride(t *testing.T) {
 	}
 
 	// Two connections with different ids must not collide.
-	a, _ := deepAIMachineHeaderValue(map[string]any{DeepAIMachineIDKey: "aaaaaaaa-0000-0000-0000-000000000001"})
-	b, _ := deepAIMachineHeaderValue(map[string]any{DeepAIMachineIDKey: "bbbbbbbb-0000-0000-0000-000000000002"})
+	a, _ := deepAIMachineHeaderValue("conn-a", map[string]any{DeepAIMachineIDKey: "aaaaaaaa-0000-0000-0000-000000000001"})
+	b, _ := deepAIMachineHeaderValue("conn-b", map[string]any{DeepAIMachineIDKey: "bbbbbbbb-0000-0000-0000-000000000002"})
 	if a == b || a == "" {
 		t.Error("distinct machine ids produced the same digest")
 	}
 
-	// A blank override falls back to the host digest rather than sending garbage.
-	if _, ok := deepAIMachineHeaderValue(map[string]any{DeepAIMachineIDKey: "  "}); ok != cachedDeepAIMachineID().available {
-		t.Error("blank override should fall back to the host id")
+	// A blank override falls back to the derived per-connection id (non-empty),
+	// never to garbage and never to an empty header.
+	if v, ok := deepAIMachineHeaderValue("conn-x", map[string]any{DeepAIMachineIDKey: "  "}); !ok || v == "" {
+		t.Error("blank override should fall back to the derived id")
 	}
 
 	// And it reaches the wire through applyDeepAIHeaders.
@@ -197,6 +198,39 @@ func TestDeepAIMachineHeaderValue_PerConnectionOverride(t *testing.T) {
 	if cfg.StaticHeaders["X-DeepAI-Code-Machine"] != got {
 		t.Errorf("header = %q, want %q", cfg.StaticHeaders["X-DeepAI-Code-Machine"], got)
 	}
+}
+
+// TestDeepAIDerivedMachineID_PerConnectionBuckets is the fix for the measured
+// failure: two accounts sharing the router host's digest left the second one at
+// granted=0 and turned every metered call into 403 "could not identify this
+// computer". A distinct, stable id per connection gives each account its own
+// daily bucket.
+func TestDeepAIDerivedMachineID_PerConnectionBuckets(t *testing.T) {
+	a := DeepAIDerivedMachineID("deepai-oauth-AAA")
+	b := DeepAIDerivedMachineID("deepai-oauth-BBB")
+	if a == b {
+		t.Fatal("two connections derived the same machine id")
+	}
+	if DeepAIDerivedMachineID("deepai-oauth-AAA") != a {
+		t.Error("derivation must be stable across calls (the grant is issued once per id)")
+	}
+	if len(a) != 64 || !hexOK(a) {
+		t.Errorf("derived id must be a sha256 hex digest, got %q", a)
+	}
+	// Without a connection id the host digest still answers, so a direct call
+	// keeps working when the caller could not supply one.
+	if v, ok := deepAIMachineHeaderValue("", nil); ok != cachedDeepAIMachineID().available || (ok && v != cachedDeepAIMachineID().value) {
+		t.Error("no-connection-id path must fall back to the host digest")
+	}
+}
+
+func hexOK(s string) bool {
+	for _, c := range s {
+		if !strings.ContainsRune("0123456789abcdef", c) {
+			return false
+		}
+	}
+	return true
 }
 
 // TestForwardDeepAI_LaneRefusalSurfaces proves an upstream refusal is not
