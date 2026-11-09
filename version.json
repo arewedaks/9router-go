@@ -1,5 +1,5 @@
 {
   "latestVersion": "1.10.20",
   "downloadUrl": "https://github.com/arewedaks/9router-go/releases/latest",
-  "releaseNotes": "- fix(dashboard): tab Quota kembali tampil untuk provider API key yang saldo-nya bisa dibaca (DeepAI daily Theos) - gate kini memakai quotaSupported dari server, bukan kategori (c2de904)\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
+  "releaseNotes": "- chore: bump version to 1.10.20 (b8c5db0)\n- fix(dashboard): tab Quota hilang saat provider pindah ke kategori API Key (c2de904)\n- chore(release): version.json -> v1.10.19 (9c2c158)\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
 }
