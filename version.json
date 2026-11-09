@@ -1,5 +1,5 @@
 {
   "latestVersion": "1.10.21",
   "downloadUrl": "https://github.com/arewedaks/9router-go/releases/latest",
-  "releaseNotes": "- chore: bump version to 1.10.20 (b8c5db0)\n- fix(dashboard): tab Quota hilang saat provider pindah ke kategori API Key (c2de904)\n- chore(release): version.json -> v1.10.19 (9c2c158)\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
+  "releaseNotes": "- chore: bump version to 1.10.21 (2de8f0f)\n- feat(clixad): ikon brand (pixel duck) + quota checker /v1/wallet (8943321)\n- feat(clixad): Sign in langsung ke browser (device grant custom) (8161fde)\n- feat(clixad): panel Sign-in ala OAuth lain (import_token) (bb0129c)\n- fix(clixad): pindah ke kategori Oauth sesuai alur auth aslinya (3446855)\n- feat(clixad): provider Clixad (gateway metering, bearer token) (321c56c)\n- fix(nvidia): pin model probe NIM agar Test Connection tidak selalu fail (5b1ca0b)\n- fix(nvidia): katalog model diselaraskan dgn yg benar-benar dilayani (c6cc040)\n- fix(quota): Wally tampilkan konsumsi + cap rate-limit, bukan total 0 (ed2ac10)\n- chore(release): version.json -> v1.10.20 (77a1abe)\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
 }
