@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha1"
 	json "encoding/json/v2"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -30,39 +31,59 @@ import (
 //   - any other value → injects reasoning_summary="auto" so CodeBuddy
 //     surfaces the model's reasoning output.
 func ForwardCodebuddyCN(w http.ResponseWriter, req *Request) error {
-	return forwardCodebuddy(w, req, nil)
+	// Same identity fingerprint as the intl lane: the CN gateway blocks the
+	// account when the client headers do not match the official CLI either.
+	return forwardCodebuddyWithIdentity(w, req)
 }
 
 // ForwardCodebuddyIntl handles codebuddy-intl and workbuddy. The intl gateway
 // added "channel verification" (issue #4892): requests without the
 // X-Conversation-* header family are rejected with HTTP 400 code 11128
 // "conversation id missing". codebuddy-cn is not gated yet.
+//
+// Full identity headers are required to avoid account blocking: the gateway
+// fingerprints client identity via User-Agent, X-IDE-Type, X-Product, etc.
+// Missing or wrong values trigger "unapproved channel" blocks (code 11128).
 func ForwardCodebuddyIntl(w http.ResponseWriter, req *Request) error {
-	extra := codebuddyConversationHeaders(req)
-	return forwardCodebuddy(w, req, extra)
+	return forwardCodebuddyWithIdentity(w, req)
 }
 
-func forwardCodebuddy(w http.ResponseWriter, req *Request, extraHeaders map[string]string) error {
+// forwardCodebuddyWithIdentity is the shared body of both CodeBuddy lanes:
+// transform, apply the CLI identity fingerprint, forward as a stream.
+func forwardCodebuddyWithIdentity(w http.ResponseWriter, req *Request) error {
 	body, err := transformCodebuddyBody(req.Body)
 	if err != nil {
 		return fmt.Errorf("transform codebuddy body: %w", err)
 	}
 
 	cfg := req.Config
-	if len(extraHeaders) > 0 {
-		cfg = cloneConfigWithHeaders(cfg, extraHeaders)
+	merged := make(map[string]string, len(cfg.StaticHeaders)+25)
+	for k, v := range cfg.StaticHeaders {
+		merged[k] = v
 	}
+	delete(merged, "x-requested-with")
+	delete(merged, "x-codebuddy-request")
+
+	for k, v := range codebuddyIdentityHeaders(req, cfg, body) {
+		merged[k] = v
+	}
+	cfgCopy := *cfg
+	cfgCopy.StaticHeaders = merged
+	cfg = &cfgCopy
 
 	ctx := req.Ctx
-	// Always forward as stream — CodeBuddy rejects stream=false
 	resp, err := proxy.ForwardOpenAI(ctx, req.Client, cfg, req.APIKey, body, true)
 	if err != nil {
+		var ue *proxy.UpstreamError
+		if errors.As(err, &ue) && isCodebuddyRateLimit(ue.Body) {
+			ue.StatusCode = http.StatusTooManyRequests
+		}
 		return fmt.Errorf("ForwardCodebuddy upstream: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if req.IsStream {
-		stallReader := proxy.NewStallReaderWithContext(req.Ctx, resp.Body, 0, "codebuddy")
+		stallReader := proxy.NewStallReaderWithContext(ctx, resp.Body, 0, "codebuddy-intl")
 		defer stallReader.Close()
 		return execSSEStream(w, stallReader, req)
 	}
@@ -72,8 +93,124 @@ func forwardCodebuddy(w http.ResponseWriter, req *Request, extraHeaders map[stri
 	}
 	if converted, ok := sseToOpenAIJSON(data); ok {
 		data = converted
+	} else if isCodebuddyRateLimit(data) {
+		return &proxy.UpstreamError{StatusCode: http.StatusTooManyRequests, Body: []byte(`"CodeBuddy frequency limit"`)}
 	}
-	return jsonResponse(req.Ctx, w, bytes.NewReader(data), req.TranslateResp, req.ResponseBuf)
+	return jsonResponse(ctx, w, bytes.NewReader(data), req.TranslateResp, req.ResponseBuf)
+}
+
+// codebuddyIdentityHeaders builds the full identity header set for CodeBuddy Intl.
+// These headers fingerprint the client as a legitimate CLI tool — missing or
+// incorrect values cause account-level blocks (HTTP 400 code 11128).
+func codebuddyIdentityHeaders(req *Request, cfg *providers.ProviderConfig, body []byte) map[string]string {
+	sessionKey := req.SessionID
+	if sessionKey == "" && req.ConnData != nil {
+		if m, ok := req.ConnData["sessionId"].(string); ok {
+			sessionKey = m
+		}
+	}
+	if sessionKey == "" {
+		sessionKey = firstUserText(body)
+	}
+	var convID string
+	if sessionKey != "" {
+		convID = stableUuidFrom("codebuddy:" + sessionKey)
+	} else {
+		convID = uuid.NewString()
+	}
+
+	domain := "www.codebuddy.ai"
+	if req.ConnData != nil {
+		if d, ok := req.ConnData["domain"].(string); ok && d != "" {
+			domain = d
+		}
+	}
+	if domain == "www.codebuddy.ai" && cfg != nil && (strings.Contains(cfg.BaseURL, "tencent.com") || strings.Contains(cfg.BaseURL, "copilot.")) {
+		domain = "copilot.tencent.com"
+	}
+	if req.Provider == "codebuddy-cn" && domain == "www.codebuddy.ai" {
+		domain = "www.codebuddy.cn"
+	}
+
+	return codebuddyIdentityHeadersFor(convID, req.APIKey, domain)
+}
+
+// CodebuddyIdentityHeadersFor builds the identity header set for a caller that
+// has a stable key (a connection id) but no executor Request, so the per-account
+// connection test sends the SAME fingerprint a live chat request sends. A probe
+// without it is refused like an unapproved channel and a healthy account looks
+// blocked.
+func CodebuddyIdentityHeadersFor(stableKey, apiKey, domain string) map[string]string {
+	if domain == "" {
+		domain = "www.codebuddy.ai"
+	}
+	return codebuddyIdentityHeadersFor(stableUuidFrom("codebuddy:"+stableKey), apiKey, domain)
+}
+
+// codebuddyIdentityHeadersFor is the single source of the CLI fingerprint.
+func codebuddyIdentityHeadersFor(convID, apiKey, domain string) map[string]string {
+	reqID := strings.ReplaceAll(uuid.NewString(), "-", "")
+	convReqID := strings.ReplaceAll(uuid.NewString(), "-", "")
+	h := map[string]string{
+		"Content-Type":                "application/json; charset=utf-8",
+		"User-Agent":                  "CLI/2.108.1 CodeBuddy/2.108.1",
+		"X-Product":                   "SaaS",
+		"X-App":                       "cli",
+		"X-IDE-Type":                  "CLI",
+		"X-IDE-Name":                  "CLI",
+		"X-IDE-Version":               "2.108.1",
+		"X-Private-Data":              "false",
+		"X-Requested-With":            "XMLHttpRequest",
+		"X-CodeBuddy-Request":         "1",
+		"X-Domain":                    domain,
+		"X-Stainless-Runtime":         "node",
+		"X-Stainless-Runtime-Version": "v24.11.1",
+		"X-Stainless-Lang":            "js",
+		"X-Stainless-Arch":            "x64",
+		"X-Stainless-Os":              "Windows",
+		"X-Stainless-Package-Version": "6.25.0",
+		"X-Stainless-Helper-Method":   "stream",
+		"X-Stainless-Retry-Count":     "0",
+		"X-Request-ID":                reqID,
+		"X-Conversation-ID":           convID,
+		"X-Conversation-Request-ID":   convReqID,
+		"X-Conversation-Message-ID":   reqID,
+		"X-Agent-Intent":              "craft",
+		"X-Agent-Purpose":             "conversation",
+	}
+	if strings.HasPrefix(apiKey, "ck_") {
+		h["Authorization"] = "Bearer " + apiKey
+		h["X-API-Key"] = apiKey
+		delete(h, "X-Domain")
+	}
+	return h
+}
+
+// isCodebuddyRateLimit detects CodeBuddy rate-limit responses that should be
+// promoted to HTTP 429 for fallback retry instead of being treated as hard errors.
+func isCodebuddyRateLimit(body []byte) bool {
+	if len(body) == 0 {
+		return false
+	}
+	var data struct {
+		Code    int    `json:"code"`
+		Msg     string `json:"msg"`
+		Message string `json:"message"`
+		Error   struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(body, &data); err != nil {
+		return false
+	}
+	msg := data.Msg
+	if msg == "" {
+		msg = data.Message
+	}
+	if msg == "" {
+		msg = data.Error.Message
+	}
+	return data.Code == 6004 || strings.Contains(strings.ToLower(msg), "frequency limit") || strings.Contains(msg, "超出频率限制") || strings.Contains(msg, "限额")
 }
 
 // cloneConfigWithHeaders returns a shallow copy of cfg with extra headers
@@ -194,9 +331,19 @@ const codebuddyRequiredSystemPrompt = "You are CodeBuddy Code."
 // cleanly while keeping all agent instructions intact.
 var claudeCodeBlockedPromptRegex = regexp.MustCompile(`(?i)official\s+CLI\s+for\s+Claude`)
 
+// codebuddyChannelMarkerRegex catches the remaining competitor-CLI fingerprints
+// the intl gateway scrubs for (vendor JS reference `sanitizeChannelMarkers`):
+// other vendors' agent identity lines, the cc_entrypoint marker, and the
+// OhMyOpenCode fork banner. A request that still carries one reads as a
+// non-CLI client and the ACCOUNT is blocked, not just the request.
+var codebuddyChannelMarkerRegex = regexp.MustCompile(`(?i)you are (?:cursor|windsurf|cline|aider|continue|copilot|cody)|cc_entrypoint\s*=\s*(?:cli|vscode|jetbrains|gui)|OhMyOpenCode`)
+
 func sanitizeCodebuddyPrompt(s string) string {
 	if claudeCodeBlockedPromptRegex.MatchString(s) {
-		return claudeCodeBlockedPromptRegex.ReplaceAllString(s, "CLI for Claude")
+		s = claudeCodeBlockedPromptRegex.ReplaceAllString(s, "CLI for Claude")
+	}
+	if codebuddyChannelMarkerRegex.MatchString(s) {
+		s = codebuddyChannelMarkerRegex.ReplaceAllString(s, "[external-client-identity]")
 	}
 	return s
 }

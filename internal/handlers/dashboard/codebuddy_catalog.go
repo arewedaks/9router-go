@@ -274,14 +274,19 @@ func (h *Handler) probeCodebuddyAgainstURL(ctx context.Context, baseURL, connID,
 		out.Error = "Could not build CodeBuddy probe request: " + err.Error()
 		return out
 	}
-	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "text/event-stream")
-	req.Header.Set("Authorization", "Bearer "+token)
+	// The full CLI identity fingerprint, not just the conversation headers: the
+	// gateway blocks the ACCOUNT when the client headers do not match the
+	// official CLI, so a probe missing them makes a healthy account look broken.
+	identity := executor.CodebuddyIdentityHeadersFor(connID, token, codebuddyProbeDomain(provider...))
+	for k, v := range identity {
+		req.Header.Set(k, v)
+	}
+	if token != "" && identity["Authorization"] == "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
 	if ua := cfg.StaticHeaders["User-Agent"]; ua != "" {
 		req.Header.Set("User-Agent", ua)
-	}
-	for k, v := range executor.CodebuddyConversationHeadersFor(connID) {
-		req.Header.Set(k, v)
 	}
 
 	resp, err := client.Do(req)
@@ -334,4 +339,12 @@ func (h *Handler) probeCodebuddyAgainstURL(ctx context.Context, baseURL, connID,
 		out.Error = fmt.Sprintf("HTTP %d: %s", resp.StatusCode, truncate(sanitizeUpstreamText(text), 240))
 	}
 	return out
+}
+
+// codebuddyProbeDomain mirrors the live executor's X-Domain choice for the probe.
+func codebuddyProbeDomain(provider ...string) string {
+	if len(provider) > 0 && provider[0] == "codebuddy-cn" {
+		return "www.codebuddy.cn"
+	}
+	return "www.codebuddy.ai"
 }
