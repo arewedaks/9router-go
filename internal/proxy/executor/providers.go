@@ -628,7 +628,14 @@ func ForwardOpencode(w http.ResponseWriter, req *Request) error {
 		if ctx == nil {
 			ctx = context.Background()
 		}
-		resp, err := forwardOpencodeRequest(ctx, req.Client, &cfg, apiKey, transformedBody, req.IsStream)
+		baseHeaders := cfg.StaticHeaders
+		resp, err := forwardOpenCodeRotating(ctx, func() (*http.Response, error) {
+			return forwardOpencodeRequest(ctx, req.Client, &cfg, apiKey, transformedBody, req.IsStream)
+		}, func() (*http.Response, error) {
+			return forwardOpencodeRequestDirect(ctx, &cfg, apiKey, transformedBody, req.IsStream)
+		}, rotateOpencodeStableSession(opencodeStableSessionKey(req, true), hint, func(session string) {
+			cfg.StaticHeaders = proxy.BuildOpenCodeHeaders(baseHeaders, session, req.IsStream)
+		}))
 		if err != nil {
 			return fmt.Errorf("ForwardOpencode (muse-spark responses): %w", err)
 		}
@@ -702,8 +709,14 @@ func ForwardOpencode(w http.ResponseWriter, req *Request) error {
 	// The upstream call must therefore ask for SSE regardless of what the client
 	// wanted, and a non-streaming caller gets the SSE collapsed back into one
 	// JSON body below.
-	upstreamStream := req.IsStream || bodyRequestsStream(body)
-	resp, err := forwardOpencodeRequest(ctx, req.Client, &cfg, apiKey, body, upstreamStream)
+	baseHeaders := cfg.StaticHeaders
+	resp, err := forwardOpenCodeRotating(ctx, func() (*http.Response, error) {
+		return forwardOpencodeRequest(ctx, req.Client, &cfg, apiKey, body, true)
+	}, func() (*http.Response, error) {
+		return forwardOpencodeRequestDirect(ctx, &cfg, apiKey, body, true)
+	}, rotateOpencodeStableSession(opencodeStableSessionKey(req, true), hint, func(session string) {
+		cfg.StaticHeaders = proxy.BuildOpenCodeHeaders(baseHeaders, session, true)
+	}))
 	if err != nil {
 		return fmt.Errorf("ForwardOpencode: %w", err)
 	}
@@ -730,11 +743,9 @@ func ForwardOpencode(w http.ResponseWriter, req *Request) error {
 	if req.IsStream {
 		return execSSEStream(w, resp.Body, req)
 	}
-	// Upstream answered with SSE but the client asked for one JSON body.
-	if upstreamStream {
-		return jsonFromSSE(ctx, w, resp.Body, req)
-	}
-	return jsonResponse(req.Ctx, w, resp.Body, req.TranslateResp, req.ResponseBuf)
+	// We always force stream=true upstream for the free-tier gate; collapse SSE
+	// to one JSON body when the client asked for non-stream.
+	return jsonFromSSE(ctx, w, resp.Body, req)
 }
 
 // jsonFromSSE collapses an upstream SSE stream into a single Chat Completions
