@@ -1,14 +1,14 @@
 package executor
 
 import (
+	"9router/proxy/internal/providers"
+	"9router/proxy/internal/proxy"
 	json "encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"9router/proxy/internal/providers"
-	"9router/proxy/internal/proxy"
 )
 
 func TestInjectReasoningContent(t *testing.T) {
@@ -128,6 +128,32 @@ func TestForwardOpencodeGo_OpenAIRouting(t *testing.T) {
 		t.Errorf("expected status 200, got %d", rec.Code)
 	}
 }
+func TestForwardOpencode_ErrorBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Upstream returns 200 with FreeUsageLimitError bare body
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"type":"error","error":{"type":"FreeUsageLimitError","message":"Free usage limit reached. Free models work in OpenCode (https://opencode.ai); subscribe to OpenCode Go to keep going: https://opencode.ai/go"}}`))
+	}))
+	defer srv.Close()
+
+	cfg := &providers.ProviderConfig{BaseURL: srv.URL}
+	rec := httptest.NewRecorder()
+	req := &Request{
+		Client:        srv.Client(),
+		Config:        cfg,
+		APIKey:        "public",
+		Body:          []byte(`{"model":"deepseek-v4-flash-free","messages":[{"role":"assistant","content":"prev"}]}`),
+		IsStream:      false,
+		TranslateResp: false,
+	}
+
+	err := ForwardOpencode(rec, req)
+	// When upstream returns 200 with error body, ForwardOpencode should return an error
+	if err == nil {
+		t.Error("expected ForwardOpencode to return error for 200-with-FreeUsageLimitError body, got nil")
+	}
+}
 
 func TestForwardOpencode_MuseSparkResponsesRouting(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -192,7 +218,7 @@ func TestForwardOpencode_MuseSpark13_ResponsesRouting(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := &Request{
 		Client: srv.Client(), Config: cfg, APIKey: "",
-		Body: []byte(`{"model":"oc/muse-spark-1.3-contributor-free","messages":[{"role":"user","content":"hi"}],"stream":false}`),
+		Body:     []byte(`{"model":"oc/muse-spark-1.3-contributor-free","messages":[{"role":"user","content":"hi"}],"stream":false}`),
 		IsStream: false, TranslateResp: false,
 	}
 	if err := ForwardOpencode(rec, req); err != nil {
@@ -216,7 +242,7 @@ func TestForwardOpencode_MuseSpark_OCPrefix(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := &Request{
 		Client: srv.Client(), Config: cfg, APIKey: "",
-		Body: []byte(`{"model":"oc/muse-spark-1.3-contributor-free","messages":[{"role":"user","content":"hi"}]}`),
+		Body:     []byte(`{"model":"oc/muse-spark-1.3-contributor-free","messages":[{"role":"user","content":"hi"}]}`),
 		IsStream: false, TranslateResp: false,
 	}
 	if err := ForwardOpencode(rec, req); err != nil {
@@ -345,10 +371,10 @@ func TestForwardOpencode_UnionAlpha_InjectsMaxTokens(t *testing.T) {
 	cfg := &providers.ProviderConfig{BaseURL: srv.URL + "/chat/completions"}
 	rec := httptest.NewRecorder()
 	req := &Request{
-		Client: srv.Client(),
-		Config: cfg,
-		APIKey: "test-key",
-		Body:   []byte(`{"model":"ag/union-alpha","messages":[{"role":"user","content":"hi"}]}`),
+		Client:   srv.Client(),
+		Config:   cfg,
+		APIKey:   "test-key",
+		Body:     []byte(`{"model":"ag/union-alpha","messages":[{"role":"user","content":"hi"}]}`),
 		IsStream: false,
 	}
 
