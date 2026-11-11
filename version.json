@@ -1,5 +1,5 @@
 {
-  "latestVersion": "1.10.22",
+  "latestVersion": "1.10.23",
   "downloadUrl": "https://github.com/arewedaks/9router-go/releases/latest",
   "releaseNotes": "- chore: bump version to 1.10.22 (5afce14)\n- fix(codebuddy): identity fingerprint penuh (intl+cn) + probe pakai header sama (34cfded)\n- feat(opencode): forwardOpenCodeRotating + direct retry (parity luqman-v1) (9f0e122)\n- test(opencode): add TestForwardOpencode_ErrorBody to verify error detection from 200-with-error-body upstream (6070d6e)\n- feat(opencode): adopsi session rotation + stable hint dari luqman-v1 (b75708d)\n- fix(ssestream): stream kosong pasca fallback -> 502 upstream error (Pi harness) (b872ba6)\n- fix(sse): executor peek 200-with-error sebelum stream (Pi harness finish_reason) (36dff90)\n- fix(opencode): executor peek 200-with-error sebelum stream (Pi harness finish_reason) (40ad3d5)\n- chore(release): version.json -> v1.10.21 (ca9efe0)\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
 }
