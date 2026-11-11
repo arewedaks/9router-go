@@ -298,6 +298,15 @@ func (h *Handler) fetchUpstreamModels(providerID, data string, timeout time.Dura
 		return h.fetchCodebuddyModels(canonical)
 	}
 
+	// free-pi publishes its catalogue at GET /client-version, not an OpenAI-style
+// /models route, and the shapes do not overlap: the response is
+// {"min","latest","models":[{"id","name"}]}. Without this branch the generic
+// registry lookup reports "does not support models listing" and Import caches
+// nothing — see free_pi_catalog.go.
+	if canonical == providers.FreePiProviderID || providerID == providers.FreePiProviderID {
+		return h.fetchFreePiModels(data, timeout)
+	}
+
 	// Perch has no /models route either: the CLI asks for a default model and
 	// then names the model per request. Served from the verified Starter
 	// catalogue — see perch_catalog.go.

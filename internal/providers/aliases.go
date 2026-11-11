@@ -126,6 +126,13 @@ var ProviderToAliasMap = map[string]string{}
 // A provider with a single alias needs no entry here.
 var preferredProviderAliases = map[string]string{
 	"nace": "nc", // alias "drex" collides with the drex-* model ids
+	// free-pi publishes two aliases ("fp" and "freepi"), so without this the
+	// winner is whichever map iteration reached first. That is not cosmetic here:
+	// the imported model cache is keyed by whichever alias the importer resolved,
+	// and /v1/models renders under whichever alias this returns, so a flip
+	// between the two makes an imported catalogue invisible — the exact failure
+	// nace hit. "fp" is the short form the provider's own CLI conventions use.
+	"free-pi": "fp",
 }
 
 func init() {
