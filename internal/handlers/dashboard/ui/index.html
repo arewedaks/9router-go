@@ -6074,6 +6074,10 @@
       // The generic OAuth panel discovers its own flow kind from the server, so
       // it needs one probe after the markup exists.
       initGenericOAuthPanel(d.provider);
+      // free-pi's panel renders a consent gate before the sign-in button, and the
+      // text has to come from the server (the words read and the words recorded
+      // must be the same).
+      if (["free-pi", "fp", "freepi"].includes(d.provider)) loadFreePiConsent();
     } catch (e) {
       box.innerHTML = `<div style="color:#ff7b72; padding:20px;">Error: ${escapeHtml(String(e))}</div>`;
     }
@@ -7666,6 +7670,11 @@
       // Alysis signs in with an RFC 8628 device code at alysiscode.com/activate;
       // the generic panel's device branch drives it unmodified.
       { ids: ["alysis", "alys"], render: p => genericOAuthPanelHtml(p) },
+      // free-pi's sign-in is a GitHub device flow, but it is gated behind a
+      // consent screen the operator must read first (training on prompts/code,
+      // no opt-out), so it gets its own panel: the accept checkbox has to be
+      // part of the sign-in path, not a footnote the browser can skip.
+      { ids: ["free-pi", "fp", "freepi"], render: p => freePiOAuthPanelHtml(p) },
       // Qoder mints its own nonce/PKCE identity and approves on
       // qoder.com/device/selectAccounts, which /api/oauth/qoder/* serves.
       { ids: ["qoder", "qd"], render: p => genericOAuthPanelHtml(p) },
@@ -9361,6 +9370,153 @@
         </div>
         <div id="fb-oauth-msg" style="font-size:0.75rem; margin-top:8px; color:var(--muted);"></div>
       </div>`;
+  }
+
+  // ----------------------------------------------------------------
+  // free-pi panel.
+  //
+  // The consent text is fetched from the server rather than written here: the
+  // words the operator reads and the words the server records must be the same
+  // words, and a change to the gate has to ship with the text it enforces. That
+  // also means this panel cannot render a stale copy after upstream raises the
+  // consent version — the server answers with the current one either way.
+  // ----------------------------------------------------------------
+  function freePiOAuthPanelHtml(providerId) {
+    return `
+      <div class="add-form oauth-form">
+        <div class="add-form-title"><span class="msym">passkey</span>Add via free-pi sign-in</div>
+        <div id="fp-consent-block" style="font-size:0.72rem; color:var(--muted); margin-bottom:8px; white-space:pre-wrap;">Loading terms…</div>
+        <label style="display:flex; gap:8px; align-items:flex-start; font-size:0.75rem; margin-bottom:10px;">
+          <input type="checkbox" id="fp-consent-accept" style="margin-top:2px;">
+          <span>I have read and accept these terms. <b>This cannot be undone</b> — prompts and code are
+          used to train models and may be shared with third parties.</span>
+        </label>
+        <div class="add-form-grid oauth-grid">
+          <div>
+            <label class="field-label">Account name (optional)</label>
+            <input type="text" id="fp-oauth-name" placeholder="auto-filled from your GitHub account">
+          </div>
+          <div style="display:flex; align-items:flex-end;">
+            <button class="btn btn-primary" id="fp-oauth-start" onclick="startFreePiOAuth('${providerId}')">Sign in</button>
+          </div>
+        </div>
+        <div id="fp-oauth-step2" style="display:none; margin-top:10px;">
+          <div style="font-size:0.75rem;">
+            Enter this code on GitHub: <b id="fp-oauth-code" style="font-family:monospace;"></b>
+          </div>
+          <div style="font-size:0.72rem; color:var(--muted); margin-top:4px;">
+            Browser did not open? <a id="fp-oauth-link" href="#" target="_blank" rel="noopener" style="color:var(--accent);">Open the sign-in page</a>
+            — this panel keeps polling on its own.
+          </div>
+        </div>
+        <div id="fp-oauth-msg" style="font-size:0.75rem; margin-top:8px; color:var(--muted);"></div>
+      </div>`;
+  }
+
+  // Pending free-pi login. flowId invalidates a poll loop whose panel was
+  // restarted underneath it.
+  let freePiOAuthCtx = null;
+
+  // loadFreePiConsent fills the panel with the server's current consent text and
+  // records the version so the accept can be asserted against the same revision.
+  async function loadFreePiConsent() {
+    const block = document.getElementById("fp-consent-block");
+    if (!block) return;
+    try {
+      const res = await api("/api/oauth/free-pi/consent");
+      const data = await res.json();
+      block.textContent = data.text || "(terms unavailable)";
+      if (freePiOAuthCtx) freePiOAuthCtx.consentVersion = data.version || "";
+      else freePiOAuthCtx = { consentVersion: data.version || "" };
+    } catch (e) {
+      block.textContent = "Could not load the free-pi terms: " + String(e);
+    }
+  }
+
+  async function startFreePiOAuth(providerId) {
+    const msg = document.getElementById("fp-oauth-msg");
+    msg.style.color = "var(--muted)";
+    const accept = document.getElementById("fp-consent-accept");
+    if (!accept || !accept.checked) {
+      msg.style.color = "var(--danger)";
+      msg.textContent = "Accept the terms first — the sign-in is not sent otherwise.";
+      return;
+    }
+    msg.textContent = "Requesting a device code…";
+    try {
+      const res = await api("/api/oauth/free-pi/initiate", {
+        method: "POST",
+        body: JSON.stringify({
+          consentAccepted: true,
+          consentVersion: (freePiOAuthCtx && freePiOAuthCtx.consentVersion) || "",
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        msg.style.color = "var(--danger)";
+        msg.textContent = errorMessage(data, res.status);
+        return;
+      }
+      const flowId = ((freePiOAuthCtx && freePiOAuthCtx.flowId) || 0) + 1;
+      freePiOAuthCtx = {
+        sessionId: data.sessionId,
+        consentVersion: data.consentVersion || (freePiOAuthCtx && freePiOAuthCtx.consentVersion) || "",
+        flowId,
+        // The server's own interval, and a deadline bounded by its code expiry:
+        // a loop that outlives the operator's attention only burns requests.
+        intervalMs: (data.interval || 5) * 1000,
+        deadline: Date.now() + ((data.expiresIn || 900) * 1000),
+      };
+      const step2 = document.getElementById("fp-oauth-step2");
+      if (step2) step2.style.display = "block";
+      const codeEl = document.getElementById("fp-oauth-code");
+      if (codeEl) codeEl.textContent = data.userCode || "";
+      const link = document.getElementById("fp-oauth-link");
+      if (link) link.href = data.verificationUriComplete || data.verificationUri || "#";
+      msg.style.color = "var(--muted)";
+      msg.textContent = "Waiting for you to authorize on GitHub…";
+      if (data.verificationUriComplete) window.open(data.verificationUriComplete, "_blank", "noopener");
+      pollFreePiConnection(providerId, flowId);
+    } catch (e) {
+      msg.style.color = "var(--danger)";
+      msg.textContent = String(e);
+    }
+  }
+
+  async function pollFreePiConnection(providerId, flowId) {
+    const msg = document.getElementById("fp-oauth-msg");
+    while (freePiOAuthCtx && freePiOAuthCtx.flowId === flowId && Date.now() < freePiOAuthCtx.deadline) {
+      await new Promise(res => setTimeout(res, freePiOAuthCtx.intervalMs));
+      if (!freePiOAuthCtx || freePiOAuthCtx.flowId !== flowId) return;
+      try {
+        const res = await api("/api/oauth/free-pi/poll", {
+          method: "POST",
+          body: JSON.stringify({
+            sessionId: freePiOAuthCtx.sessionId,
+            consentVersion: freePiOAuthCtx.consentVersion,
+            name: (document.getElementById("fp-oauth-name") || {}).value || "",
+          }),
+        });
+        const data = await res.json();
+        if (res.ok && data.pending) continue;
+        if (!res.ok || !data.success) {
+          msg.style.color = "var(--danger)";
+          msg.textContent = errorMessage(data, res.status);
+          freePiOAuthCtx = null;
+          return;
+        }
+        msg.style.color = "var(--accent)";
+        msg.textContent = "Account added.";
+        freePiOAuthCtx = null;
+        document.getElementById("fp-oauth-step2").style.display = "none";
+        openProviderDetail(providerId);
+        return;
+      } catch (e) { /* transient: keep polling until the deadline */ }
+    }
+    if (freePiOAuthCtx && freePiOAuthCtx.flowId === flowId) {
+      msg.style.color = "var(--muted)";
+      msg.textContent = "Timed out. Click Sign in again for a new code.";
+    }
   }
 
   // Pending Freebuff login. flowId guards against a stale poll loop writing into
