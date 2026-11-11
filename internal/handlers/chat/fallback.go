@@ -219,6 +219,18 @@ func (h *ChatHandler) lockConnectionOnUpstreamError(provider, model, connID stri
 		return 0
 	}
 	errorText := extractErrorText(ue.Body)
+
+	// An ad gate is not a failing account: upstream answered in full and simply
+	// refuses to run inference until an ad has loaded in the operator's own CLI.
+	// Locking the connection for a cooldown (the generic 403 path) would report a
+	// healthy account as unhealthy and hide the real remedy behind "provider is
+	// unhealthy" — which is what happened the moment the gate was first surfaced
+	// as a 403. No lock, no backoff: the next request is allowed to try again.
+	if ue.StatusCode == http.StatusForbidden && isAdGateBody(errorText) {
+		log.Warn("fallback", "ad gate: not locking the connection", "conn", connID, "provider", provider, "model", model)
+		return 0
+	}
+
 	classification := providers.ClassifyError(ue.StatusCode, errorText, h.Repo.GetConnectionBackoffLevel(connID))
 	cooldownSec := int((classification.CooldownMs + 999) / 1000) // ceil to seconds
 	// Precedence: Retry-After header > body-embedded reset time > classifier
@@ -1026,4 +1038,22 @@ func formatRetryAfter(isoTimestamp string) string {
 		parts = append(parts, fmt.Sprintf("%ds", s))
 	}
 	return "reset after " + strings.Join(parts, " ")
+}
+
+// isAdGateBody reports whether an upstream error body is a provider's ad gate
+// rather than a genuine upstream failure.
+//
+// The load-bearing part is the JSON `"code"`: free-pi labels the gate
+// "ad_gate", and that marker comes from our own executor rather than from
+// upstream prose, so it cannot be spoofed by a model that merely talks about
+// ads. The phrase check is a fallback for the 403 variant, in case upstream
+// ever serves the gate under its documented status instead of a 200 body.
+func isAdGateBody(errorText string) bool {
+	if errorText == "" {
+		return false
+	}
+	if strings.Contains(errorText, `"code":"ad_gate"`) || strings.Contains(errorText, `"code": "ad_gate"`) {
+		return true
+	}
+	return providers.FreePiIsAdGate(errorText)
 }
