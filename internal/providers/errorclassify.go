@@ -239,6 +239,21 @@ var ErrorRules = []ErrorRule{
 	// which is what this cooldown family is for.
 	{Text: "free allowance", CooldownMs: QuotaExhaustedCooldownMs, Quota: true},
 
+	// --- free-pi: the two 429s mean different things (checked before the
+	// generic backoff rules, which would otherwise swallow both) ---
+	//
+	// The daily-allowance codes must never enter the backoff family: the
+	// allowance does not clear until 00:00, so a growing cooldown that re-arms
+	// the account just burns the retry budget on a limit that cannot lift.
+	{Text: FreePiCodeDailyCreditLimited, CooldownMs: cooldownLong},
+	{Text: "insufficient_quota", CooldownMs: cooldownLong},
+	{Text: FreePiCodeBillingError, CooldownMs: cooldownLong},
+	{Text: FreePiCodeBudgetLimitError, CooldownMs: cooldownLong},
+	{Text: FreePiCodeGoUsageLimitError, CooldownMs: cooldownLong},
+	// The hourly cap is a throttle and clears within the hour: a short fixed
+	// lock plus rotation is right, and a growing backoff is not.
+	{Text: FreePiCodeRateLimitExceeded, CooldownMs: cooldownShort},
+
 	// --- Text-based rules (checked first, order = priority) ---
 	{Text: "no credentials", CooldownMs: cooldownLong},
 	{Text: "request not allowed", CooldownMs: cooldownShort},

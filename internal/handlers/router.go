@@ -110,6 +110,15 @@ func SetupRoutes(r interface {
 	r.Get("/api/oauth/omnirush/flow", oauthH.HandleOmniRushFlow)
 	r.Get("/api/oauth/omnirush/authorize", oauthH.HandleOmniRushAuthorize)
 	r.Post("/api/oauth/omnirush/exchange", oauthH.HandleOmniRushExchange)
+
+	// free-pi: GitHub device flow. initiate() refuses to call upstream unless the
+	// consent screen was accepted, so the operator sees the training/ads terms
+	// before any request carries their identity.
+	r.Get("/api/oauth/free-pi/consent", oauthH.HandleFreePiConsent)
+	r.Post("/api/oauth/free-pi/initiate", oauthH.HandleFreePiInitiate)
+	r.Post("/api/oauth/free-pi/poll", oauthH.HandleFreePiPoll)
+	// The dashboard equivalent of free-pi-cli's /close-other-session.
+	r.Post("/api/oauth/free-pi/session/reset", oauthH.HandleFreePiSessionReset)
 	r.Post("/api/oauth/{provider}/import", oauthH.HandleOAuthImport)
 	r.Get("/api/oauth/kiro/social-authorize", oauthH.HandleOAuthKiroSocialAuthorize)
 	r.Post("/api/oauth/kiro/social-exchange", oauthH.HandleOAuthKiroSocialExchange)
@@ -224,6 +233,13 @@ func SetupRoutes(r interface {
 // API-key protected routes (all engine + admin routes) on the chi router.
 func SetupServerRouter(r chi.Router, repo *db.Repo, ts *TokenSaverConfig) {
 	dashH := dashboard.NewHandler(repo, ts)
+
+	// free-pi ad surface. The creative is served to the dashboard, and the
+	// impression is reported only from the client's paint event — an impression
+	// for an ad nobody saw is a false report to the advertiser whose spend funds
+	// the inference.
+	r.Get("/api/free-pi/ad", dashH.HandleGetFreePiAd)
+	r.Post("/api/free-pi/ad/impression", dashH.HandleFreePiImpression)
 
 	// Login/session endpoints are public by necessity: the login form cannot
 	// require a session. Each handler enforces its own rule (login is rate

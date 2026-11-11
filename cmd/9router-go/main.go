@@ -249,6 +249,13 @@ func runServer(cCtx *cli.Context) error {
 		return fmt.Errorf("database schema: %w", err)
 	}
 
+	// upstream_leases backs cross-process coordination (free-pi session
+	// ownership). Best-effort: a process that cannot create it still serves
+	// traffic, it just cannot coordinate a session reset with a sibling.
+	if err := db.EnsureUpstreamLeases(conn); err != nil {
+		log.Printf("[startup] warning: upstream_leases unavailable, cross-process session coordination disabled: %v", err)
+	}
+
 	repo := db.NewRepo(conn)
 
 	// A keyless provider (OpenCode Free) has no connection row, and every model

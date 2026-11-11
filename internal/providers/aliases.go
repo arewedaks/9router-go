@@ -40,6 +40,8 @@ var ProviderAliasMap = map[string]string{
 	"zc":             "zcode",
 	"fish":           "fish-audio",
 	"fl":             "featherless",
+	"fp":             "free-pi",
+	"freepi":         "free-pi",
 	"fw":             "fireworks",
 	"gb":             "grok-cli",
 	"gc":             "gemini-cli",

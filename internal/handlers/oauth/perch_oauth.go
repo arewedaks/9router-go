@@ -34,6 +34,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
@@ -378,6 +379,16 @@ func shortID() string {
 	var b [6]byte
 	_, _ = rand.Read(b[:])
 	return base64.RawURLEncoding.EncodeToString(b[:])
+}
+
+// shortHash derives a stable, non-secret connection id suffix from a credential.
+//
+// It is a hash, not a truncation: the id ends up in the dashboard, in logs, and
+// in lease keys, and the free-pi token must never be recoverable from any of
+// them. Eight hex bytes is enough to keep ids distinct while staying readable.
+func shortHash(s string) string {
+	sum := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(sum[:8])
 }
 
 func truncateForMsg(s string) string {

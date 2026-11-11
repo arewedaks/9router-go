@@ -98,6 +98,14 @@ var ProviderModels = map[string][]string{
 	"featherless": {"deepseek-ai/DeepSeek-V4-Pro", "deepseek-ai/DeepSeek-V4-Flash", "zai-org/GLM-5.2", "zai-org/GLM-5.1", "moonshotai/Kimi-K2.7-Code", "moonshotai/Kimi-K2.6", "moonshotai/Kimi-K2.5"},
 	"fb": {"deepseek/deepseek-v4-flash", "deepseek/deepseek-v4-pro", "mimo/mimo-v2.5", "minimax/minimax-m3", "openai/gpt-5.6-luna", "z-ai/glm-5.2", "z-ai/glm-5.3-flash", "upstage/solar-pro4", "meta/muse-spark-1.2-contributor", "anthropic/claude-fable-5"},
 	"freebuff": {"deepseek/deepseek-v4-flash", "deepseek/deepseek-v4-pro", "mimo/mimo-v2.5", "minimax/minimax-m3", "openai/gpt-5.6-luna", "z-ai/glm-5.2", "z-ai/glm-5.3-flash", "upstage/solar-pro4", "meta/muse-spark-1.2-contributor", "anthropic/claude-fable-5"},
+	// free-pi publishes bare ids (no vendor prefix) at /client-version; the ids
+	// below were read from the live endpoint on 2026-11-11. The upstream commit
+	// seeded "deepseek/deepseek-v4-flash", which free-pi has never served — the
+	// first request would have answered model_not_found before the catalogue
+	// import ran.
+	"free-pi": {"particle", "deepseek-v4.1-flash", "glm-5.3-flash", "deepseek-v4-flash", "deepseek-v4-pro", "mimo-v2.6-flash", "kimi-k3.1-pro", "glm-4.7-flash-heretic"},
+	"fp":      {"particle", "deepseek-v4.1-flash", "glm-5.3-flash", "deepseek-v4-flash", "deepseek-v4-pro", "mimo-v2.6-flash", "kimi-k3.1-pro", "glm-4.7-flash-heretic"},
+	"freepi":  {"particle", "deepseek-v4.1-flash", "glm-5.3-flash", "deepseek-v4-flash", "deepseek-v4-pro", "mimo-v2.6-flash", "kimi-k3.1-pro", "glm-4.7-flash-heretic"},
 	"fireworks": {"accounts/fireworks/models/deepseek-v3p1", "accounts/fireworks/models/llama-v3p3-70b-instruct", "accounts/fireworks/models/qwen3-235b-a22b", "nomic-ai/nomic-embed-text-v1.5"},
 	"fish": {"s2.1-pro-free", "s2.1-pro", "s2-pro", "s1"},
 	"fish-audio": {"s2.1-pro-free", "s2.1-pro", "s2-pro", "s1"},

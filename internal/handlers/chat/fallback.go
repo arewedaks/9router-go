@@ -464,6 +464,7 @@ func (h *ChatHandler) tryForwardWithConnection(
 			ZedUserID:        connData.ZedUserID,
 			QoderIdentity:    qoderIdentity,
 			ConnData:         connPSD,
+			Leases:           h.leases,
 		})
 	} else if providerCfg.IsGeminiNative() {
 		fwdErr = h.forwardGeminiNativeRequest(ctx, w, provider, providerCfg, apiKey, connectionID, pipedBody, isStream, translateResponse, metrics)

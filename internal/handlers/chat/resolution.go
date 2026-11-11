@@ -76,6 +76,10 @@ func NewChatHandler(repo *db.Repo, ts ...*shared.TokenSaverConfig) *ChatHandler 
 			MaxEntryBytes: promptcache.DefaultMaxEntryBytes,
 		}),
 		stickyState: make(map[string]*comboStickyState),
+		// Cross-process session coordination (free-pi 409 recovery). Wired from
+		// the repo so every executor request carries it; nil is safe and means
+		// single-process mode.
+		leases: repo,
 	}
 }
 

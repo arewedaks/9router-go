@@ -1,0 +1,86 @@
+{
+  "_source": "GET https://api.freepi.ai/client-version (live capture)",
+  "_captured": "2026-11-11",
+  "_note": "UNAUTHENTICATED and account-independent. `min` is a forced-update floor applied to the x-client-version header; `latest` is what we send. models[].id is the value a request must put in `model` \u2014 bare ids, no vendor prefix.",
+  "min": "0.6.18",
+  "latest": "0.6.18",
+  "model": "DeepSeek V4 Flash",
+  "models": [
+    {
+      "id": "particle",
+      "name": "Particle \u00b7 \ud83d\udd25 Free Unlimited: limited time"
+    },
+    {
+      "id": "deepseek-v4.1-flash",
+      "name": "DeepSeek V4.1 Flash \u00b7 \ud83d\udd25 Free Unlimited: limited time"
+    },
+    {
+      "id": "glm-5.3-flash",
+      "name": "GLM 5.3 Flash \u00b7 \ud83d\udd25 Free Unlimited: limited time"
+    },
+    {
+      "id": "deepseek-v4-flash",
+      "name": "DeepSeek V4 Flash \u00b7 \ud83d\udd25 Free Unlimited: limited time"
+    },
+    {
+      "id": "abliterated-large-flash",
+      "name": "Abliterated Large Flash \u00b7 ~20x usage"
+    },
+    {
+      "id": "abliterated-large-v2",
+      "name": "Abliterated Large V2 \u00b7 ~60x usage"
+    },
+    {
+      "id": "deepseek-v4.1-flash-1017-ultrafast",
+      "name": "DeepSeek V4.1 Flash Ultrafast \ud83d\udd25\ud83d\udd25\ud83d\udd25 \u00b7 ~295x usage"
+    },
+    {
+      "id": "deepseek-v4.1-flash-abliterated",
+      "name": "DeepSeek V4.1 Flash Abliterated \u00b7 ~20x usage"
+    },
+    {
+      "id": "deepseek-v4-pro",
+      "name": "DeepSeek V4 Pro \u00b7 ~18x usage"
+    },
+    {
+      "id": "gemini-4-argon",
+      "name": "Gemini 4 Argon \u00b7 unavailable"
+    },
+    {
+      "id": "gemini-4-argon-flex",
+      "name": "Gemini 4 Argon Flex \u00b7 unavailable"
+    },
+    {
+      "id": "gemma-4-uncensored",
+      "name": "Gemma 4 Uncensored \u00b7 ~20x usage"
+    },
+    {
+      "id": "glm-4.7-flash-heretic",
+      "name": "GLM 4.7 Flash Heretic \u00b7 ~20x usage"
+    },
+    {
+      "id": "kimi-k3.1-pro",
+      "name": "Kimi K3.1 Pro \u00b7 daily limit \u00b7 ~41x usage"
+    },
+    {
+      "id": "mimo-v2.6-flash",
+      "name": "MiMo V2.6 Flash (Xiaomi) \u00b7 ~2.8x usage"
+    },
+    {
+      "id": "qwen3.5-35b-darkbloom",
+      "name": "Qwen3.5 35B (Darkbloom) \u00b7 ~2.9x usage"
+    },
+    {
+      "id": "qwen3.6-plus-uncensored",
+      "name": "Qwen 3.6 Plus Uncensored \u00b7 ~20x usage"
+    },
+    {
+      "id": "solar-pro-4",
+      "name": "Solar Pro 4 \u00b7 ~0.6x usage"
+    },
+    {
+      "id": "uncensored-1.2",
+      "name": "Uncensored 1.2 \u00b7 ~20x usage"
+    }
+  ]
+}

@@ -572,6 +572,15 @@ var KnownProviders = map[string]ProviderConfig{
 		AuthHeader: "Authorization",
 		AuthScheme: "bearer",
 	},
+	// free-pi (Free Pi). The bearer is a ~90-day GitHub-device-flow JWT minted at
+	// sign-in; the executor additionally sends the per-account headers the CLI
+	// always sends (x-session-id, x-client-version), which is why this is not on
+	// the default passthrough — see executor/free_pi.go.
+	"free-pi": {
+		BaseURL:    "https://api.freepi.ai/v1/chat/completions",
+		AuthHeader: "Authorization",
+		AuthScheme: "bearer",
+	},
 
 	"nebius": {
 		BaseURL:    "https://api.studio.nebius.ai/v1/chat/completions",

@@ -7,8 +7,18 @@ import (
 	"sync"
 	"time"
 
+	"9router/proxy/internal/db"
 	"9router/proxy/internal/providers"
 )
+
+// LeaseStore is the cross-process session coordination backend, implemented by
+// *db.Repo over the upstream_leases table. A nil store means single-process
+// mode: memory cache only, exactly like before.
+type LeaseStore interface {
+	ReadLease(scope, key string) (*db.Lease, error)
+	AcquireLease(scope, key, value string, ttl time.Duration) (bool, error)
+	ReleaseLease(scope, key, value string) error
+}
 
 // Request holds all inputs for an executor.
 type Request struct {
@@ -43,6 +53,9 @@ type Request struct {
 	QoderIdentity QoderIdentity
 	// ConnData carries provider-specific connection data (e.g. deviceId, sessionSeed, accountUUID).
 	ConnData map[string]any
+	// Leases is the cross-process coordination backend (free-pi session
+	// ownership). Nil means single-process mode: no sibling to coordinate with.
+	Leases LeaseStore
 }
 
 // Executor forwards a request upstream and writes the response.

@@ -7,6 +7,7 @@ import (
 	"9router/proxy/internal/db"
 	"9router/proxy/internal/handlers/shared"
 	"9router/proxy/internal/proxy"
+	"9router/proxy/internal/proxy/executor"
 	"9router/proxy/internal/promptcache"
 )
 
@@ -27,6 +28,9 @@ type ChatHandler struct {
 	PromptCache *promptcache.Cache
 	stickyMu    sync.Mutex
 	stickyState map[string]*comboStickyState
+	// leases backs cross-process coordination for providers that share one
+	// upstream session across processes (free-pi). Nil disables it.
+	leases executor.LeaseStore
 }
 
 // Type aliases for shared types
