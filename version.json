@@ -1,5 +1,5 @@
 {
   "latestVersion": "1.10.24",
   "downloadUrl": "https://github.com/arewedaks/9router-go/releases/latest",
-  "releaseNotes": "- chore: bump version to 1.10.23 (b9e5c95)\n- feat(deepai): Sign in via browser + kategori OAuth (device desktop handshake) (7509d49)\n- chore(release): version.json -> v1.10.22 (5be4303)\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
+  "releaseNotes": "- chore: bump version to 1.10.24 (77d654c)\n- fix(free-pi): gate iklan jangan mengunci akun sebagai \"unhealthy\" (818ced7)\n- fix(free-pi): gate iklan jadi error yang bisa ditindak, bukan jawaban palsu (17173b9)\n- fix(free-pi): logo resmi + import model yang sebelumnya mustahil (5ce0244)\n- fix(free-pi): panel poll berhenti di pending sehingga akun tidak pernah masuk (9a071be)\n- feat(free-pi): panel Sign-in dgn gerbang konsen di dashboard (6b6b7bd)\n- feat(providers): free-pi (fp) \u2014 device flow, session lease, iklan, + koreksi kontrak (be71d98)\n- fix(antigravity): samakan header & metadata dgn klien resmi (agy 1.5.5 / app 2.31.0) (b5aa505)\n- chore(release): version.json -> v1.10.23 (03815c9)\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
 }
