@@ -1,5 +1,5 @@
 {
-  "latestVersion": "1.10.23",
+  "latestVersion": "1.10.24",
   "downloadUrl": "https://github.com/arewedaks/9router-go/releases/latest",
   "releaseNotes": "- chore: bump version to 1.10.23 (b9e5c95)\n- feat(deepai): Sign in via browser + kategori OAuth (device desktop handshake) (7509d49)\n- chore(release): version.json -> v1.10.22 (5be4303)\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
 }
