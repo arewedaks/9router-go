@@ -19,6 +19,7 @@ package oauth
 
 import (
 	"bytes"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -27,6 +28,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -46,6 +48,12 @@ const (
 	// session id stands in for the device code and the poll response carries
 	// {status, token, ...} instead of a grant exchange.
 	flowDeviceCodeClixad flowKind = "device_code_clixad"
+	// flowDeepAI is DeepAI Code's desktop handshake. There is no OAuth client
+	// id, no PKCE and no token endpoint: the sign-in page is keyed by a state
+	// plus the loopback port the app is listening on, and the app finishes by
+	// POSTing the returned code to /deepai_code/desktop_auth/exchange/, which
+	// answers {"api_key": ...} — the credential the chat lane wants.
+	flowDeepAI flowKind = "deepai_desktop"
 )
 
 // oauthSpec describes one provider's sign-in flow.
@@ -307,6 +315,23 @@ var oauthSpecs = map[string]oauthSpec{
 		Kind:       flowImport,
 		ImportHint: "Paste the access token from your Codex CLI login (~/.codex/auth.json).",
 	},
+
+	// DeepAI Code signs in through its own collaborator's page, not an OAuth
+	// provider: https://api.deepai.org/deepai_code/desktop_auth/?state=…&port=…
+	// authenticates the operator (email/Google) and redirects to the loopback
+	// port the desktop app listens on. The app then POSTs the code to
+	// desktop_auth/exchange/ and receives {"api_key": …}. We mirror that
+	// handshake so the dashboard can offer a real Sign in button, and the
+	// browser target here is opencode's own sign-in page — no secret client.
+	// Reverse-engineered from the vendor bundle:
+	//   apps/server/dist/binCli-*.mjs: deepAISignInUrl() / exchangeDeepAICode()
+	"deepai": {
+		Provider:    "deepai",
+		Kind:        flowDeepAI,
+		StartHint:   "Sign in with the DeepAI account you use in the DeepAI Code app. The account is added automatically once you approve in the browser tab.",
+		ImportHint:  "Or paste the apiKey the DeepAI Code app stored in ~/.deepai-code/userdata/secrets/deepai-account.bin.",
+		ImportLabel: "API key (DeepAI Code)",
+	},
 }
 
 // Endpoints for the ADCode sign-in. Variables rather than literals so a test can
@@ -425,6 +450,14 @@ func (h *OAuthHandler) HandleGenericFlowInfo(w http.ResponseWriter, r *http.Requ
 	if spec.Provider == "cursor" {
 		resp["machineId"] = true
 	}
+	// DeepAI signs in at its own page and redirects to a loopback listener the
+	// vendor's desktop app owns. A remote dashboard cannot answer that callback,
+	// so the panel must offer the paste field as well as the Sign in button —
+	// same shape as Antigravity on a headless host.
+	if spec.Kind == flowDeepAI {
+		resp["callbackPaste"] = true
+		resp["callbackHint"] = "After approving in the browser tab, paste the full 127.0.0.1 address it landed on (it carries the sign-in code)."
+	}
 	// A provider whose flow needs an operator-registered OAuth application has
 	// no usable built-in client id, so the panel must ask for one before the
 	// Sign-in button can work.
@@ -453,6 +486,8 @@ func (h *OAuthHandler) HandleGenericAuthorize(w http.ResponseWriter, r *http.Req
 		h.startDeviceCode(w, r, spec)
 	case flowAuthCode:
 		h.startAuthCode(w, r, spec)
+	case flowDeepAI:
+		h.startDeepAISignIn(w, r, spec)
 	default:
 		handlerutil.WriteJSONError(w, http.StatusBadRequest,
 			"provider "+provider+" does not use a redirect flow; paste its credential instead")
@@ -489,9 +524,199 @@ func (h *OAuthHandler) HandleGenericExchange(w http.ResponseWriter, r *http.Requ
 		h.pollClixadSession(w, r, spec)
 	case flowAuthCode:
 		h.exchangeAuthCode(w, r, spec)
+	case flowDeepAI:
+		h.exchangeDeepAICode(w, r, spec)
 	case flowImport:
 		h.importToken(w, r, spec)
 	}
+}
+
+// DeepAI Code's browser handshake, reverse-engineered from the vendor bundle
+// (apps/server/dist/binCli-*.mjs: deepAISignInUrl / exchangeDeepAICode).
+//
+// It is not an OAuth grant, so it deliberately does not reuse startAuthCode:
+//
+//   - The sign-in page is https://api.deepai.org/deepai_code/desktop_auth/
+//     and is parameterised by `state` plus `port` — the loopback port the
+//     desktop app is listening on. There is no client_id, no scope, no PKCE.
+//   - The operator authenticates with email or Google on DeepAI's own page.
+//   - DeepAI redirects to http://127.0.0.1:<port>/auth/callback?code=…, which
+//     the desktop app catches and forwards to us.
+//   - POST /deepai_code/desktop_auth/exchange/ {"code": …} answers
+//     {"api_key":…,"username":…,"is_pro":…}. That api_key IS the credential the
+//     chat lane takes, sent as `Api-Key`.
+//
+// We cannot own the loopback listener on the operator's machine from a remote
+// server, so the operator pastes the address bar URL they landed on — the same
+// shape as the Zed and Antigravity panels — and the server does the exchange.
+var deepAIAPIOrigin = "https://api.deepai.org"
+
+// deepAISignInURL builds the page the browser opens. state is a fresh random
+// value the exchange is keyed by; port is cosmetic for us (DeepAI echoes it in
+// the redirect) but the vendor's own client always sends its listener.
+func deepAISignInURL(state string, port int) string {
+	q := url.Values{"state": {state}, "port": {strconv.Itoa(port)}}
+	return deepAIAPIOrigin + "/deepai_code/desktop_auth/?" + q.Encode()
+}
+
+func (h *OAuthHandler) startDeepAISignIn(w http.ResponseWriter, r *http.Request, spec oauthSpec) {
+	// DeepAI validates the shape of what it is handed and answers 400 "Invalid
+	// desktop sign-in request." for anything else, so both fields have to match
+	// the vendor's own client exactly:
+	//   state = crypto.randomBytes(32).toString("hex")  -> 64 lowercase hex
+	//   port  = a real listener port (the vendor binds one; it must be >1024)
+	// randomString() produces a 32-char alnum string, which DeepAI rejects, so
+	// the state is minted separately rather than reusing it.
+	stateBytes := make([]byte, 32)
+	if _, err := rand.Read(stateBytes); err != nil {
+		handlerutil.WriteJSONError(w, http.StatusInternalServerError, "failed to generate sign-in state")
+		return
+	}
+	state := hex.EncodeToString(stateBytes)
+
+	redirectURI := strings.TrimSpace(r.URL.Query().Get("redirectUri"))
+	if redirectURI == "" {
+		redirectURI = "http://127.0.0.1:20128/auth-callback"
+	}
+	// The state doubles as the flow key so the exchange can be matched back to
+	// this sign-in without trusting the client for anything but the code.
+	storeGenericFlow(state, genericFlow{
+		provider:    spec.Provider,
+		redirectURI: redirectURI,
+		createdAt:   time.Now(),
+	})
+	port := 20128
+	if p, err := strconv.Atoi(r.URL.Query().Get("port")); err == nil && p > 1024 && p < 65536 {
+		port = p
+	}
+
+	handlerutil.WriteJSON(w, http.StatusOK, map[string]any{
+		"provider":    spec.Provider,
+		"authUrl":     deepAISignInURL(state, port),
+		"state":       state,
+		"redirectUri": redirectURI,
+		"tokenUrl":    deepAIAPIOrigin + "/deepai_code/desktop_auth/exchange/",
+	})
+}
+
+// exchangeDeepAICode swaps the code DeepAI redirected with for the account's
+// apiKey. The request/response shape is the vendor's, not RFC 6749.
+func (h *OAuthHandler) exchangeDeepAICode(w http.ResponseWriter, r *http.Request, spec oauthSpec) {
+	var req struct {
+		Code        string `json:"code"`
+		CallbackURL string `json:"callbackUrl"`
+		State       string `json:"state"`
+		Name        string `json:"name"`
+	}
+	body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if err := json.Unmarshal(body, &req); err != nil {
+		handlerutil.WriteJSONError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	code := strings.TrimSpace(req.Code)
+	if code == "" && req.CallbackURL != "" {
+		// The operator pastes the whole address bar URL, so pull the code out of
+		// it rather than making them find the query value by hand.
+		parsed, err := url.Parse(strings.TrimSpace(req.CallbackURL))
+		if err != nil {
+			handlerutil.WriteJSONError(w, http.StatusBadRequest, "invalid callbackUrl")
+			return
+		}
+		q := parsed.Query()
+		code = q.Get("code")
+		if req.State == "" {
+			req.State = q.Get("state")
+		}
+		if e := q.Get("error"); e != "" {
+			handlerutil.WriteJSONError(w, http.StatusBadRequest, "authorization failed: "+e)
+			return
+		}
+		if code == "" {
+			handlerutil.WriteJSONError(w, http.StatusBadRequest, "no code in callbackUrl")
+			return
+		}
+	}
+	code = strings.TrimSpace(code)
+	if code == "" || len(code) > 4096 {
+		handlerutil.WriteJSONError(w, http.StatusBadRequest, "missing code")
+		return
+	}
+	// A code that was never issued by us is either a paste from another host or
+	// a replay; both must fail closed rather than be forwarded.
+	if req.State != "" && !consumeGenericFlow(req.State) {
+		handlerutil.WriteJSONError(w, http.StatusBadRequest, "unknown or expired sign-in state")
+		return
+	}
+
+	payload, _ := json.Marshal(map[string]string{"code": code})
+	exReq, err := http.NewRequestWithContext(r.Context(), http.MethodPost,
+		deepAIAPIOrigin+"/deepai_code/desktop_auth/exchange/", bytes.NewReader(payload))
+	if err != nil {
+		handlerutil.WriteJSONError(w, http.StatusInternalServerError, "failed to build request")
+		return
+	}
+	exReq.Header.Set("Content-Type", "application/json")
+	exReq.Header.Set("Accept", "application/json")
+
+	raw, status, err := doRequest(exReq)
+	if err != nil {
+		handlerutil.WriteJSONError(w, http.StatusBadGateway, "could not reach DeepAI to finish signing in")
+		return
+	}
+	if status != http.StatusOK {
+		// 400/401 is the vendor's "expired or already used" answer; anything else
+		// is an upstream fault. Neither is the operator's credential problem.
+		msg := "DeepAI could not finish signing in"
+		if status == http.StatusBadRequest || status == http.StatusUnauthorized {
+			msg = "this sign-in link expired or was already used — start sign-in again"
+		} else if status == http.StatusTooManyRequests {
+			msg = "too many sign-in attempts — wait a moment and try again"
+		}
+		handlerutil.WriteJSONError(w, http.StatusBadGateway, msg)
+		return
+	}
+
+	var parsed struct {
+		APIKey   string `json:"api_key"`
+		Username string `json:"username"`
+		IsPro    bool   `json:"is_pro"`
+	}
+	if err := json.Unmarshal(raw, &parsed); err != nil || strings.TrimSpace(parsed.APIKey) == "" {
+		handlerutil.WriteJSONError(w, http.StatusBadGateway, "DeepAI returned an invalid sign-in response")
+		return
+	}
+
+	// The executor reads the credential from either field and sends it as
+	// `Api-Key`; store it under apiKey so the non-OAuth lane and the OAuth import
+	// lane agree on one shape.
+	data, err := json.Marshal(map[string]any{
+		"apiKey":   parsed.APIKey,
+		"username": parsed.Username,
+		"isPro":    parsed.IsPro,
+	})
+	if err != nil {
+		handlerutil.WriteJSONError(w, http.StatusInternalServerError, "failed to encode connection data")
+		return
+	}
+
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		name = parsed.Username
+	}
+	if name == "" {
+		name = spec.Provider + " " + shortTokenFingerprint(parsed.APIKey)
+	}
+
+	connID, err := h.insertOAuthConnection(spec.Provider, name, "", string(data))
+	if err != nil {
+		handlerutil.WriteJSONError(w, http.StatusInternalServerError, "failed to save connection")
+		return
+	}
+	handlerutil.WriteJSON(w, http.StatusOK, map[string]any{
+		"success":    true,
+		"connection": map[string]any{"id": connID, "provider": spec.Provider, "name": name},
+	})
 }
 
 // startClixadSignIn runs Clixad's own device grant (not RFC 8628). The vendor

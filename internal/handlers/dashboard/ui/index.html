@@ -7689,6 +7689,11 @@
       // ~/.clixad/config.json). The one honest in-dashboard path is pasting
       // that session token, which the generic panel's import branch accepts.
       { ids: ["clixad", "clix"], render: p => genericOAuthPanelHtml(p) },
+      // DeepAI Code signs in inside its own desktop app and stores a per-account
+      // apiKey (~/.deepai-code/userdata/secrets/deepai-account.bin). The server
+      // declares an import_token spec for it, so the generic panel renders the
+      // paste form instead of the bare API-key modal.
+      { ids: ["deepai", "dai"], render: p => genericOAuthPanelHtml(p) },
     ];
     const panelEntry = OAUTH_PANELS.find(e => e.ids.includes(d.provider));
     const oauthPanel = panelEntry ? panelEntry.render(d.provider) : '';
@@ -9605,7 +9610,7 @@
           Checking how ${escapeHtml(providerId)} signs in…
         </div>
         <div class="add-form-grid oauth-grid" id="g-oauth-start-row" style="display:none;">
-          <div>
+          <div style="grid-column:1 / 3;">
             <label class="field-label">Account name (optional)</label>
             <input type="text" id="g-oauth-start-name" placeholder="auto-filled from the provider">
           </div>
@@ -9620,11 +9625,13 @@
             — this keeps polling on its own.
           </div>
         </div>
-        <div id="g-oauth-paste" style="display:none; margin-top:10px;">
-          <label class="field-label" id="g-oauth-paste-label">Callback URL (or raw code)</label>
-          <div class="auth-add">
+        <div id="g-oauth-paste" class="add-form-grid oauth-grid" style="display:none; margin-top:10px;">
+          <div style="grid-column:1 / 3;">
+            <label class="field-label" id="g-oauth-paste-label">Callback URL (or raw code)</label>
             <input type="text" id="g-oauth-paste-input" placeholder="">
-            <button class="btn btn-primary" onclick="finishGenericOAuth('${providerId}')">Finish</button>
+          </div>
+          <div style="display:flex; align-items:flex-end;">
+            <button class="btn btn-primary" onclick="finishGenericOAuth('${providerId}')">Add Connection</button>
           </div>
         </div>
         <div id="g-oauth-app" style="display:none; margin-top:10px;">
@@ -9706,7 +9713,10 @@
           redirectUri: data.redirectUri,
           tokenUrl: data.tokenUrl,
         };
-        document.getElementById("g-oauth-paste").style.display = "block";
+        // display:"grid", not "block": the row carries .add-form-grid so the
+        // textbox and the Add Connection button sit side by side. An inline
+        // "block" overrides the class and stacks them vertically.
+        document.getElementById("g-oauth-paste").style.display = "grid";
         msg.textContent = "Approve in the tab that opened, then paste the address bar URL below.";
         window.open(data.authUrl, "_blank", "noopener");
         return;
@@ -9886,6 +9896,18 @@
           ("Sign in with the account your " + providerId + " subscription uses.");
       }
       document.getElementById("g-oauth-start-row").style.display = "grid";
+      // Providers that redirect to a loopback listener we cannot answer (DeepAI
+      // Code's desktop handshake) need the paste row alongside the Sign in
+      // button: the browser lands on 127.0.0.1 on the operator's machine and the
+      // address bar URL is the only way the code reaches this server.
+      if (data.callbackPaste) {
+        const paste = document.getElementById("g-oauth-paste");
+        const label = document.getElementById("g-oauth-paste-label");
+        const input = document.getElementById("g-oauth-paste-input");
+        if (label && data.callbackHint) label.textContent = data.callbackHint;
+if (input) input.placeholder = "http://127.0.0.1:20128/auth-callback?code=…&state=…";
+        if (paste) paste.style.display = "grid";
+      }
     } catch (e) {
       msg.style.color = "var(--danger)";
       msg.textContent = String(e);
@@ -10439,19 +10461,19 @@
     // the vendor's own desktop app, not here, so the field names what the
     // operator actually pastes instead of a bare "API Key".
     const isDeepAI = providerId === "deepai" || providerId === "dai";
-    const secretLabel = isDeepAI ? "API key (DeepAI Code)"
+    const secretLabel = isDeepAI ? "Refresh Token"
       : isCookie ? "Cookie"
       : isOauth ? "Refresh Token"
       : (authType === "none" ? "Optional Token" : "API Key");
     const secretPh = isDeepAI
-      ? "the key DeepAI Code stored when you signed in"
+      ? "Paste the refresh token stored in ~/.deepai-code after signing in"
       : isCookie
       ? "sso=... or __Secure-next-auth.session-token=..."
       : isOauth
       ? "Paste the provider's long-lived refresh token"
       : "sk-... (leave blank for no-auth providers)";
     const secretHint = isDeepAI
-      ? "Sign in once in the DeepAI Code app, then paste the key it stored (its deepai-account credential)."
+      ? "Sign in once in the DeepAI Code app, then paste the refresh token it stored."
       : isCookie
       ? "Paste the session cookie the provider's web UI uses."
       : isOauth

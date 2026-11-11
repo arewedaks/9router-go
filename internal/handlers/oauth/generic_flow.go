@@ -55,3 +55,11 @@ func takeGenericFlow(state string) (genericFlow, bool) {
 	}
 	return f, ok
 }
+
+// consumeGenericFlow reports whether state names a pending flow, discarding it
+// on a match. The bool-only shape exists for flows that validate a state but
+// need nothing else out of it — DeepAI keys its handshake on the state alone.
+func consumeGenericFlow(state string) bool {
+	_, ok := takeGenericFlow(state)
+	return ok
+}

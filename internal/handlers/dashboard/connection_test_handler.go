@@ -1096,6 +1096,12 @@ var genericProbeModels = map[string]string{
 	// Drex answers only the Decisions shape (input + questions); a chat body
 	// returns 422 "input: is required".
 	"nace": "drex-v2.0",
+	// DeepAI Code serves only its own bundled ids (glm-5.3-flash, deepseek-v4.1-
+	// flash, mimo-2.6-flash, …). The generic gpt-4o-mini default is not on the
+	// lane and answers 400 model_not_found, which the probe reports as an
+	// inconclusive warning on a perfectly healthy key. glm-5.3-flash is the
+	// vendor's own bundled default, so every signed-in account can call it.
+	"deepai": "glm-5.3-flash",
 }
 
 // setProbeAuthHeader applies the provider's configured auth header/scheme.

@@ -737,13 +737,17 @@ func TestUIAddConnectionModalFollowsAuthType(t *testing.T) {
 		t.Error("the modal must read the provider's auth type")
 	}
 	// The label switches on auth type: cookie asks for a Cookie, oauth for a
-	// Refresh Token. The DeepAI branch is a paste-only API key, so it is a
-	// label override, not a change to how the auth-type branches work.
+	// Refresh Token. DeepAI Code also asks for a token-like credential, so it
+	// rides the same "Refresh Token" wording rather than a bespoke API-key
+	// label — its sign-in happens in the browser now, not in the modal.
 	if !strings.Contains(body, `: isCookie ? "Cookie"`) || !strings.Contains(body, `: isOauth ? "Refresh Token"`) {
 		t.Error("the credential label must switch on auth type (oauth asks for a refresh token)")
 	}
-	if !strings.Contains(body, `"API key (DeepAI Code)"`) {
-		t.Error("DeepAI's paste-only key must be labelled for what it is")
+	if strings.Contains(body, `"API key (DeepAI Code)"`) {
+		t.Error("DeepAI must not be labelled as a paste-only API key; it signs in through the browser")
+	}
+	if !strings.Contains(body, `{ ids: ["deepai", "dai"], render: p => genericOAuthPanelHtml(p) },`) {
+		t.Error("DeepAI must render the OAuth panel, not the bare API-key modal")
 	}
 	if !strings.Contains(body, `blob.refreshToken = secret;`) {
 		t.Error("an oauth provider's credential must be stored as refreshToken, not apiKey")
