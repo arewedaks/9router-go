@@ -1,5 +1,7 @@
 package providers
 
+import "strings"
+
 // Free-pi wire contract constants.
 //
 // Everything here is a fact about api.freepi.ai that more than one layer of this
@@ -39,15 +41,16 @@ const (
 
 	// FreePiClientVersion is the fallback for the x-client-version header. The
 	// server enforces a minimum (GET /client-version → `min`) and refuses older
-	// clients outright, so this must stay at or above that floor; at login we
-	// replace it with the server-reported `latest`.
+	// clients outright with HTTP 426 upgrade_required, so this must stay at or
+	// above that floor; at login we replace it with the server-reported `latest`.
 	//
-	// Measured live 2026-11-11: min == latest == "0.6.18". The upstream commit that
-	// introduced this provider pinned "0.7", a version free-pi has never published —
-	// it happens to survive only because the floor is currently below it. Tracking
-	// the real number keeps the header honest if the floor ever moves past a stale
-	// guess.
-	FreePiClientVersion = "0.6.18"
+	// This floor MOVES. It was 0.6.2 when the provider was ported, 0.6.18 the
+	// same evening, and 0.6.19 a few hours later — with 0.6.18 answering
+	// "below the required minimum (0.6.19)". A stale value bricks every request
+	// until it is raised, which is why sign-in overwrites it from the live
+	// response and why FreePiClientVersion only has to be a sane floor, not the
+	// newest number.
+	FreePiClientVersion = "0.6.19"
 
 	// FreePiDefaultModel is the id free-pi-cli's own provider config defaults to
 	// (MODEL_ID in src/provider.ts). The upstream commit used
@@ -124,7 +127,41 @@ func FreePiIsDailyQuotaCode(code string) bool {
 // (server.mjs:350).
 var FreePiImpressionHosts = []string{"trygravity.ai", "trygravity.com"}
 
-// FreePiAdGateMessage is the 403 the account receives when upstream will not
-// serve completions because no ad has been shown. We surface it verbatim rather
-// than inventing an impression to clear it.
-const FreePiAdGateMessage = "Ads aren't showing for this account"
+// FreePiAdGateMessage is how upstream refuses to serve a completion until its
+// ad requirement is met.
+//
+// It is NOT an HTTP error. Measured live (2026-11-11): the request answers HTTP
+// 200 with finish_reason "stop" and usage all zeroes, and the gate text arrives
+// as the assistant message. Two consequences follow, and both are why this is
+// matched as a marker rather than classified as a failure:
+//
+//   - a client that only checks the status code renders the instruction as if
+//     the model had said it (which is exactly what happened through the pi
+//     harness in front of this gateway);
+//   - because usage is zero, the request costs the account nothing, so the gate
+//     must never be mistaken for a real turn when counting spend.
+//
+// The 403 variant this constant used to hold ("Ads aren't showing for this
+// account") never appeared in any observed response and is retained only so an
+// older account state is still recognised.
+var FreePiAdGateMessages = []string{
+	"free-pi is free because it shows ads",
+	"ads aren't showing for this account",
+}
+
+// FreePiIsAdGate reports whether a response body is the ad gate rather than a
+// completion. Matching is case-insensitive and deliberately phrase-based: the
+// tail of the message (the `npx free-pi-cli@latest` advice) changes with the
+// client version, so only the stable opening clause is matched.
+func FreePiIsAdGate(text string) bool {
+	if text == "" {
+		return false
+	}
+	lower := strings.ToLower(text)
+	for _, m := range FreePiAdGateMessages {
+		if strings.Contains(lower, strings.ToLower(m)) {
+			return true
+		}
+	}
+	return false
+}

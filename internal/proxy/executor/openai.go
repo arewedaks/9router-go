@@ -121,6 +121,22 @@ func peekBareForExecutor(body io.Reader) (error, io.Reader) {
 	if bytes.HasPrefix(trimmed, []byte("data:")) {
 		return nil, &peekedReadCloser{Reader: buffered}
 	}
+	// free-pi's ad gate is served as a plain JSON completion object — not an SSE
+	// frame — even when the caller asked for stream=true. A streamed request
+	// would therefore commit SSE headers and then hand the client the gate's
+	// instruction as if the model had said it. Recognised here, before anything
+	// is written, so it fails as an upstream error instead.
+	//
+	// freePiAdGateBody requires both the gate's opening phrase AND an all-zero
+	// usage block, so a real completion that merely mentions free-pi's ads (and
+	// is billed for its tokens) is never mistaken for the gate.
+	if bytes.Contains(trimmed, []byte(`"usage"`)) {
+		full, _ := io.ReadAll(buffered)
+		if gate := freePiAdGateBody(full); gate != "" {
+			return freePiAdGateError(gate), nil
+		}
+		return nil, &peekedReadCloser{Reader: bytes.NewReader(full)}
+	}
 	if !bytes.Contains(trimmed, []byte(`"type":"error"`)) {
 		return nil, &peekedReadCloser{Reader: buffered}
 	}
@@ -275,6 +291,16 @@ func jsonResponse(ctx context.Context, w http.ResponseWriter, upstream io.Reader
 	if err != nil {
 		return fmt.Errorf("read upstream response: %w", err)
 	}
+	return jsonResponseBody(ctx, w, body, translate, buf)
+}
+
+// jsonResponseBody is jsonResponse for callers that already hold the bytes.
+//
+// It exists so a provider whose upstream signals a refusal INSIDE a 200 body
+// can inspect it before it is written: free-pi's ad gate answers 200 with the
+// gate instruction as the assistant message and zero usage, and handing that to
+// the client unchanged makes an instruction look like a model answer.
+func jsonResponseBody(ctx context.Context, w http.ResponseWriter, body []byte, translate bool, buf io.Writer) error {
 
 	body = translator.UnwrapClineEnvelope(body)
 

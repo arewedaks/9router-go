@@ -1,10 +1,14 @@
 package executor
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"io"
+	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -157,12 +161,130 @@ func FreePiSessionID(apiKey string) string {
 // /client-version, so the value stored at login (the server's own `latest`) is
 // preferred over the compiled-in floor.
 func freePiClientVersionFor(connData map[string]any) string {
+	stored := ""
 	if connData != nil {
-		if v, ok := connData["freePiClientVersion"].(string); ok && v != "" {
-			return v
+		if v, ok := connData["freePiClientVersion"].(string); ok {
+			stored = v
 		}
 	}
-	return providers.FreePiClientVersion
+	// Prefer the newest of: the compiled-in floor, the version recorded at
+	// sign-in, and what /client-version reports right now.
+	//
+	// The floor MOVES and it moves fast — 0.6.18 answered HTTP 426
+	// upgrade_required hours after sign-in wrote that number into the
+	// connection, so a stored value alone is a time bomb: the account keeps
+	// working until upstream raises its minimum, then every request fails with a
+	// message about a CLI the operator is not running. The catalogue endpoint is
+	// unauthenticated and cheap, so it is consulted (with a short cache) rather
+	// than trusted to a value frozen at login.
+	return newestVersion(providers.FreePiClientVersion, stored, freePiLiveClientVersion())
+}
+
+// freePiLiveClientVersion returns the version /client-version currently
+// advertises, memoised for a few minutes.
+//
+// A failure yields "": the gate is enforced by upstream, and a network blip on
+// a best-effort header must not turn into a request the operator cannot make.
+// The compiled-in floor still applies in that case.
+var (
+	freePiVersionMu     sync.Mutex
+	freePiVersionCache  string
+	freePiVersionExpiry time.Time
+)
+
+const freePiVersionTTL = 5 * time.Minute
+
+func freePiLiveClientVersion() string {
+	freePiVersionMu.Lock()
+	if time.Now().Before(freePiVersionExpiry) {
+		cached := freePiVersionCache
+		freePiVersionMu.Unlock()
+		return cached
+	}
+	freePiVersionMu.Unlock()
+
+	latest := ""
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if req, err := http.NewRequestWithContext(ctx, http.MethodGet, providers.FreePiOrigin+"/client-version", nil); err == nil {
+		req.Header.Set("Accept", "application/json")
+		if resp, err := freePiVersionClient.Do(req); err == nil {
+			defer resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				var parsed struct {
+					Latest string `json:"latest"`
+					Min    string `json:"min"`
+				}
+				if raw, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20)); err == nil {
+					if json.Unmarshal(raw, &parsed) == nil {
+						latest = newestVersion(parsed.Latest, parsed.Min)
+					}
+				}
+			}
+		}
+	}
+
+	freePiVersionMu.Lock()
+	freePiVersionCache = latest
+	// Cache a miss too, but briefly: hammering a down endpoint on every request
+	// would be worse than sending a floor that may be one revision old.
+	freePiVersionExpiry = time.Now().Add(freePiVersionTTL)
+	freePiVersionMu.Unlock()
+	return latest
+}
+
+// freePiVersionClient is a var so tests can point it at a local server.
+var freePiVersionClient = &http.Client{Timeout: 6 * time.Second}
+
+// newestVersion returns the highest of the given dotted version strings,
+// ignoring blanks. Comparison is numeric per component, which is what free-pi
+// publishes (0.6.19); a non-numeric component degrades to a string compare so an
+// unexpected scheme still yields a deterministic answer rather than a panic.
+func newestVersion(candidates ...string) string {
+	best := ""
+	for _, c := range candidates {
+		c = strings.TrimSpace(c)
+		if c == "" {
+			continue
+		}
+		if best == "" || compareVersion(c, best) > 0 {
+			best = c
+		}
+	}
+	return best
+}
+
+func compareVersion(a, b string) int {
+	as := strings.Split(a, ".")
+	bs := strings.Split(b, ".")
+	for i := 0; i < len(as) || i < len(bs); i++ {
+		var ai, bi string
+		if i < len(as) {
+			ai = as[i]
+		}
+		if i < len(bs) {
+			bi = bs[i]
+		}
+		if ai == bi {
+			continue
+		}
+		an, aerr := strconv.Atoi(ai)
+		bn, berr := strconv.Atoi(bi)
+		if aerr == nil && berr == nil {
+			if an != bn {
+				if an > bn {
+					return 1
+				}
+				return -1
+			}
+			continue
+		}
+		if ai > bi {
+			return 1
+		}
+		return -1
+	}
+	return 0
 }
 
 // freePiAutoResetEnabled reports whether the connection permits an automatic

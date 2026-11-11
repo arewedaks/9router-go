@@ -2,6 +2,7 @@ package executor
 
 import (
 	"encoding/base64"
+	"errors"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -251,7 +252,7 @@ func TestFreePiForward_Non200IsAnUpstreamError(t *testing.T) {
 		body   string
 	}{
 		{name: "unauthorized", status: http.StatusUnauthorized, body: `{"error":{"message":"unauthorized"}}`},
-		{name: "ad gate", status: http.StatusForbidden, body: `{"code":"ads_not_showing","message":"` + providers.FreePiAdGateMessage + `"}`},
+		{name: "ad gate 403 variant", status: http.StatusForbidden, body: `{"code":"ads_not_showing","message":"Ads aren't showing for this account"}`},
 		// Deliberately 500, not 502/503/504: those are retried inside
 		// proxy.DoRequest (retryTransientUpstream, with backoff), which would
 		// make this test spend nine seconds re-proving proxy's own behaviour.
@@ -293,5 +294,90 @@ func TestFreePiForward_RequiresToken(t *testing.T) {
 	req := &Request{Ctx: t.Context(), Client: http.DefaultClient, Config: &cfg, Body: []byte(`{}`)}
 	if err := ForwardFreePi(httptest.NewRecorder(), req); err == nil {
 		t.Fatal("expected an error for an empty credential")
+	}
+}
+
+// --- ad gate --------------------------------------------------------------
+
+// freePiAdGatePayload is the gate exactly as api.freepi.ai answers it
+// (captured 2026-11-11): HTTP 200, finish_reason "stop", zero usage, and the
+// instruction delivered as the assistant message.
+const freePiAdGatePayload = `{"id":"chatcmpl-freepi-x","object":"chat.completion","created":1,"model":"deepseek-v4-flash","choices":[{"index":0,"message":{"role":"assistant","content":"free-pi is free because it shows ads, and this session hasn't loaded any. Requests stay paused until ads load in the official free-pi CLI. Update with ` + "`npx free-pi-cli@latest`" + ` and start a new session. If you think this is a mistake, run /feedback. Your free-pi-cli is out of date: update with ` + "`npx free-pi-cli@latest`" + `."},"finish_reason":"stop"}],"usage":{"prompt_tokens":0,"completion_tokens":0,"total_tokens":0}}`
+
+// The gate must surface as a failure, not as an answer. Before this the pi
+// harness in front of the gateway displayed the instruction to the user as if
+// the model had produced it, because the status was 200 and nothing looked at
+// the body.
+func TestFreePiForward_AdGateBecomesAnErrorNotAnAnswer(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, freePiAdGatePayload)
+	}))
+	defer srv.Close()
+
+	req := freePiTestRequest(t, srv, freePiTestToken("user_gate"), nil, false)
+	rec := httptest.NewRecorder()
+
+	err := ForwardFreePi(rec, req)
+	if err == nil {
+		t.Fatal("the ad gate returned nil; it would reach the client as a normal completion")
+	}
+	var ue *proxy.UpstreamError
+	if !errors.As(err, &ue) {
+		t.Fatalf("gate error is %T, want *proxy.UpstreamError so the fallback layer can classify it", err)
+	}
+	if ue.StatusCode != http.StatusForbidden {
+		t.Errorf("status = %d, want 403 (the documented ad-gate status)", ue.StatusCode)
+	}
+	if !strings.Contains(string(ue.Body), "free-pi is free because it shows ads") {
+		t.Errorf("the provider's own wording must be preserved so the remedy is readable; got %s", ue.Body)
+	}
+	// Nothing may be written to the client: a 200 body here is the bug.
+	if rec.Body.Len() != 0 {
+		t.Errorf("handler wrote %q before failing; the gate must not be emitted as a completion", rec.Body.String())
+	}
+}
+
+// A real answer that merely mentions the phrase (with billed tokens) must pass
+// through untouched, or a model talking about the gateway's ads would be
+// reported as a gate.
+func TestFreePiAdGateDetection_RequiresZeroUsage(t *testing.T) {
+	real := `{"choices":[{"message":{"content":"free-pi is free because it shows ads, apparently."},"finish_reason":"stop"}],"usage":{"prompt_tokens":12,"completion_tokens":8,"total_tokens":20}}`
+	if got := freePiAdGateBody([]byte(real)); got != "" {
+		t.Errorf("a billed answer was misread as the gate: %q", got)
+	}
+	if got := freePiAdGateBody([]byte(freePiAdGatePayload)); got == "" {
+		t.Error("the real gate was not detected")
+	}
+	for _, notGate := range []string{``, `{}`, `not json`, `{"choices":[]}`} {
+		if got := freePiAdGateBody([]byte(notGate)); got != "" {
+			t.Errorf("body %q misread as the gate", notGate)
+		}
+	}
+}
+
+// The gate is not framed as SSE even on a streaming request: upstream answers a
+// plain JSON completion object. Without the peek, execSSEStream would commit
+// text/event-stream and then emit the gate's instruction as model output.
+func TestFreePiForward_AdGateOnStreamFailsBeforeHeaders(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, freePiAdGatePayload)
+	}))
+	defer srv.Close()
+
+	req := freePiTestRequest(t, srv, freePiTestToken("user_gate_stream"), nil, true)
+	rec := httptest.NewRecorder()
+
+	err := ForwardFreePi(rec, req)
+	if err == nil {
+		t.Fatal("streamed ad gate returned nil; the instruction would be streamed as the answer")
+	}
+	var ue *proxy.UpstreamError
+	if !errors.As(err, &ue) || ue.StatusCode != http.StatusForbidden {
+		t.Fatalf("error = %v (%T), want a 403 UpstreamError", err, err)
+	}
+	if ct := rec.Header().Get("Content-Type"); strings.HasPrefix(ct, "text/event-stream") {
+		t.Errorf("SSE headers were committed (%q) before the gate was noticed", ct)
 	}
 }
