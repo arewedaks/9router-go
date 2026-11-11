@@ -80,9 +80,6 @@ func antigravityPostAnyHost(ctx context.Context, client *http.Client, creds Cred
 	return status, raw, err
 }
 
-// antigravityClientName is the X-Client-Name every official client sends.
-const antigravityClientName = "antigravity"
-
 // antigravityUserAgentFor returns the fingerprint for the connection's profile.
 //
 // The backend keys the catalogue RPC on this header: the IDE profile answers 33
@@ -523,7 +520,6 @@ func antigravityPost(ctx context.Context, client *http.Client, url string, creds
 	req.Header.Set("Authorization", "Bearer "+creds.AccessToken)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", antigravityUserAgentFor(creds))
-	req.Header.Set("X-Client-Name", antigravityClientName)
 	for k, v := range creds.StaticHeader {
 		req.Header.Set(k, v)
 	}

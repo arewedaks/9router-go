@@ -61,8 +61,10 @@ var antigravityScopes = []string{
 // antigravityLCAMetadata is the IDE metadata block Google expects on the
 // loadCodeAssist/onboardUser RPCs.
 var antigravityLCAMetadata = map[string]any{
-	"ideType":    9, // ANTIGRAVITY
-	"platform":   2, // DARWIN_ARM64
+	"ideType": 9, // ANTIGRAVITY
+	// Derived from the identity we present (see providers.AntigravityPlatformEnum),
+	// not from the host, so it can never contradict our own User-Agent.
+	"platform":   providers.AntigravityPlatformEnum(),
 	"pluginType": 2, // GEMINI
 }
 
@@ -661,11 +663,12 @@ func antigravityLCACall(client *http.Client, endpoint, accessToken string, paylo
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+accessToken)
-	req.Header.Set("User-Agent", "google-api-nodejs-client/10.3.0")
-	req.Header.Set("X-Goog-Api-Client", "gl-node/22.21.1")
-	if meta, err := json.Marshal(antigravityLCAMetadata); err == nil {
-		req.Header.Set("Client-Metadata", string(meta))
-	}
+	// Match the official client exactly: it sends only these two headers and
+	// carries the metadata in the JSON body. `google-api-nodejs-client` and the
+	// X-Goog-Api-Client / Client-Metadata headers marked the call as a
+	// hand-rolled client (captured from `agy` 1.5.5, 2026-11-11).
+	req.Header.Set("User-Agent", providers.AntigravityUserAgent(
+		providers.NormalizeAntigravityClientProfile(nil)))
 
 	resp, err := client.Do(req)
 	if err != nil {

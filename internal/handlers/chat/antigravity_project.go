@@ -1,7 +1,6 @@
 package chat
 
 import (
-	"9router/proxy/internal/log"
 	"bytes"
 	"context"
 	json "encoding/json/v2"
@@ -12,6 +11,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"9router/proxy/internal/log"
+	"9router/proxy/internal/providers"
 )
 
 // vars (not consts) so tests can point them at a local server.
@@ -21,8 +23,12 @@ var loadCodeAssistURL = "https://cloudcode-pa.googleapis.com/v1internal:loadCode
 var onboardUserURL = "https://cloudcode-pa.googleapis.com/v1internal:onboardUser"
 
 var lcaMetadata = map[string]any{
-	"ideType":    9, // ANTIGRAVITY
-	"platform":   2, // DARWIN_ARM64
+	"ideType": 9, // ANTIGRAVITY
+	// platform must agree with the identity our User-Agent advertises, not with
+	// the host: it describes the client. It is derived from the same constants
+	// the CLI UA is built from, so the two can never drift into the
+	// contradiction that gets an account flagged.
+	"platform":   providers.AntigravityPlatformEnum(),
 	"pluginType": 2, // GEMINI
 }
 
@@ -146,14 +152,19 @@ func fetchAntigravityProjectID(ctx context.Context, client *http.Client, accessT
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("User-Agent", discoveryUserAgent(userAgent))
-	req.Header.Set("X-Goog-Api-Client", "google-cloud-sdk vscode_cloudshelleditor/0.1")
 
+	// The official client speaks this RPC with exactly these three headers
+	// (plus Go's transport-level Accept-Encoding): captured from `agy` 1.5.5,
+	// which sends no X-Goog-Api-Client and no Client-Metadata header at all —
+	// the metadata lives in the JSON body above. The old extra headers made the
+	// request look like a hand-rolled google-api client, which is the identity
+	// Google's anti-abuse checks key on.
 	clientMetadata, err := json.Marshal(lcaMetadata)
 	if err != nil {
 		log.Error("antigravity", "marshal metadata failed", "error", err)
 		return "", false, false
 	}
-	req.Header.Set("Client-Metadata", string(clientMetadata))
+	_ = clientMetadata // metadata travels in the body, not as a header
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -234,8 +245,9 @@ func onboardAntigravityUser(ctx context.Context, client *http.Client, accessToke
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+accessToken)
 		req.Header.Set("User-Agent", discoveryUserAgent(userAgent))
-		req.Header.Set("X-Goog-Api-Client", "google-cloud-sdk vscode_cloudshelleditor/0.1")
 
+		// Same three-header shape as loadCodeAssist above (captured from agy
+		// 1.5.5); the metadata stays in the JSON body.
 		clientMetadata, err := json.Marshal(lcaMetadata)
 		if err != nil {
 			log.Error("antigravity", "marshal metadata failed", "error", err)
@@ -244,7 +256,7 @@ func onboardAntigravityUser(ctx context.Context, client *http.Client, accessToke
 			}
 			continue
 		}
-		req.Header.Set("Client-Metadata", string(clientMetadata))
+		_ = clientMetadata
 
 		resp, err := client.Do(req)
 		if err != nil {

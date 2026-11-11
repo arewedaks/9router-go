@@ -30,25 +30,48 @@ const (
 // place, because a second copy is how the same binary ends up presenting two
 // different identities — see the note on AntigravityUserAgent.
 //
-// Track them against Google's own release feed. Antigravity 2.x is the desktop
-// app whose UA is the bare `antigravity/<version>` form; the IDE is a separate,
-// legacy product whose numbering restarted at 2.0.1; `agy` is the CLI.
+// Google ships THREE products on separate update feeds, all keyed by
+// `antigravity-*-auto-updater-974169037036.us-central1.run.app/releases`:
 //
-//	antigravity 2.0 app : 2.26.0  (2026-10-23)
-//	antigravity IDE     : 2.5.5   (legacy, superseded by the 2.0 app)
-//	antigravity CLI agy : 1.4.6   (2026-10-23)
+//	antigravity-hub : 2.31.0  — the desktop app (productName "Antigravity")
+//	antigravity-ide : 2.6.0   — the standalone IDE build
+//	antigravity-cli : 1.5.5   — the `agy` CLI
+//
+// The IDE profile below describes the *desktop* client. Its own bundle spawns
+// resources/bin/language_server with `--override_ide_version <app.getVersion()>`
+// and `--override_user_agent_name antigravity`, i.e. `antigravity/<appVersion>`;
+// the desktop app reports 2.31.0 (read from the shipped package.json in
+// Antigravity-x64/resources/app.asar, 2026-11-11).
+//
+// Both desktop flavours answer the same 23-model catalogue, so the version is
+// not what gates models — the client class is. Measured live against
+// cloudcode-pa with the same token:
+//
+//	ide (any 2.x) : 23 models
+//	cli (1.5.5)   : 27 models  (+gemini-4-argon-low/medium/high,
+//	                            +gemini-4-carbon-disabled)
+//
+// The CLI numbers were captured from a real `agy` 1.5.5 run, not inferred:
+//
+//	User-Agent: antigravity/cli/1.5.5 (aidev_client; os_type=linux;
+//	            arch=amd64; cl=1017970541; auth_method=consumer)
+//
+// A lying `cl=` is the risk here: Cloud Code reads it as a client-build marker,
+// and a build id that does not match the announced version is exactly the sort
+// of inconsistency that gets an account flagged (this file previously pinned
+// CLI 1.4.6 while the installed binary was 1.5.5).
 const (
-	antigravityIDEVersion = "2.26.0"
-	antigravityCLIVersion = "1.4.6"
+	antigravityIDEVersion = "2.31.0"
+	antigravityCLIVersion = "1.5.5"
 
-	antigravityOS  = "windows"
+	antigravityOS  = "linux"
 	antigravityCPU = "amd64"
 
 	// antigravityClientID is the `cl=` parameter the official CLI carries in its
 	// User-Agent. The Cloud Code backend reads it as a client-build marker; an
 	// identity without it is still answered, but the Argon lanes expect the
 	// full shape.
-	antigravityClientID = "1000494485"
+	antigravityClientID = "1017970541"
 )
 
 // NormalizeAntigravityClientProfile coerces an arbitrary stored value into a
@@ -120,3 +143,50 @@ func AntigravityUserAgent(profile AntigravityClientProfile) string {
 // User-Agent, for callers that build the header themselves: the MITM handler
 // writes `antigravity/<version>` and the matching metadata block.
 func AntigravityUserAgentIDEEdition() string { return antigravityIDEVersion }
+
+// AntigravityPlatformOS returns the os_type component the CLI fingerprint
+// advertises. Exported so the lcaMetadata builder can derive the Cloud Code
+// platform enum from the *client identity we present* rather than from the host
+// the router happens to run on.
+func AntigravityPlatformOS() string { return antigravityOS }
+
+// AntigravityPlatformCPU returns the arch component of the CLI identity.
+func AntigravityPlatformCPU() string { return antigravityCPU }
+
+// AntigravityPlatformEnum maps the client identity we present to the
+// Google Cloud Code ClientMetadata.Platform enum used by the loadCodeAssist and
+// onboardUser RPCs.
+//
+//	1 PLATFORM_DARWIN_AMD64     2 PLATFORM_DARWIN_ARM64
+//	3 PLATFORM_LINUX_AMD64      4 PLATFORM_LINUX_ARM64
+//	5 PLATFORM_WINDOWS_AMD64    0 PLATFORM_UNSPECIFIED
+//
+// Derived from the emulated identity, NOT from runtime.GOOS/GOARCH. The enum
+// describes the *client*, and the client we imitate announces itself in the
+// User-Agent (`os_type=…; arch=…`). Deriving it from the host would be a
+// contradiction the moment the two disagree — e.g. a linux/amd64 server
+// announcing `platform=DARWIN_ARM64` while its own UA says `os_type=linux`,
+// which is exactly the inconsistency anti-abuse scoring looks for.
+//
+// Upstream (luqman-v1/9router-go 5445d055) made this host-derived and called the
+// resulting mismatch a trigger. It is not: the server ignores the field
+// entirely (verified — byte-identical loadCodeAssist responses for platform 2,
+// 3, 5, 999, and omitted), and the real `agy` client sends no `platform` at all.
+// Keeping the value consistent with our own UA is the only thing that matters.
+func AntigravityPlatformEnum() int {
+	switch antigravityOS {
+	case "darwin":
+		if antigravityCPU == "arm64" {
+			return 2
+		}
+		return 1
+	case "linux":
+		if antigravityCPU == "arm64" {
+			return 4
+		}
+		return 3
+	case "windows":
+		return 5
+	}
+	return 0
+}
