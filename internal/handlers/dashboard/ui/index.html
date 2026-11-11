@@ -9498,10 +9498,17 @@
           }),
         });
         const data = await res.json();
-        if (res.ok && data.pending) continue;
-        if (!res.ok || !data.success) {
+        // The server reports the poll state as a `status` string: "pending"
+        // while GitHub has not answered yet, "connected" with a connectionId on
+        // success, "consent_required" when it has no record of the accept. The
+        // panel originally tested `data.pending` / `data.success`, neither of
+        // which the server sends — so the very first poll (always pending) was
+        // read as a failure, polling stopped, and the account never landed even
+        // though the authorization had gone through on GitHub.
+        if (res.ok && data.status === "pending") continue;
+        if (!res.ok || data.status !== "connected") {
           msg.style.color = "var(--danger)";
-          msg.textContent = errorMessage(data, res.status);
+          msg.textContent = data.message || errorMessage(data, res.status);
           freePiOAuthCtx = null;
           return;
         }

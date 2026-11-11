@@ -1,6 +1,7 @@
 package oauth
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -154,6 +155,54 @@ func TestFreePiPendingTTLOutlivesTheDeviceCode(t *testing.T) {
 	if diff := entry.expiresAt.Sub(wantDeadline); diff > 1e9 || diff < -1e9 {
 		t.Errorf("expiresAt = %v, want ~1m past the server's 120s deadline", entry.expiresAt)
 	}
+}
+
+// TestFreePiPoll_JSONContractMatchesThePanel pins the exact JSON keys the
+// dashboard poll loop branches on.
+//
+// This is the bug the user hit after authorizing on GitHub: the account never
+// landed. The server answers {"status":"pending"} then {"status":"connected"},
+// but the panel tested `data.pending` and `data.success` — keys this endpoint
+// has never sent. The very first poll (always pending) was therefore read as a
+// terminal failure: the loop printed an error, cleared its state, and stopped,
+// so the token that GitHub had already issued was never collected.
+//
+// The unit tests above cover the upstream shapes but not this response, which is
+// why nothing caught it. Pinning the serialized keys is the guard that would.
+func TestFreePiPoll_JSONContractMatchesThePanel(t *testing.T) {
+	f := newFakeFreePiAuth(t)
+	// Ask upstream to answer "not yet" for the first poll, so the handler takes
+	// the pending branch. The fake otherwise grants immediately.
+	f.tokenPolls = 1
+	h := &OAuthHandler{}
+
+	// A live pending login, so the handler reaches the pending branch rather
+	// than the 410 for an unknown session.
+	freePiResetPendingForTest()
+	freePiPendingStore("sess-contract", 5, 900)
+
+	rec := freePiPostJSON(t, h.HandleFreePiPoll, "/api/oauth/free-pi/poll", `{"sessionId":"sess-contract"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("response is not JSON: %v", err)
+	}
+	if payload["status"] != "pending" {
+		t.Errorf("pending reply status = %v, want \"pending\"", payload["status"])
+	}
+	// The keys the panel used to test for. If either ever appears, the panel can
+	// go back to a boolean check — but until it does, its loop must branch on
+	// `status`, and this asserts the endpoint keeps emitting that key.
+	for _, absent := range []string{"pending", "success"} {
+		if _, ok := payload[absent]; ok {
+			t.Errorf("response carries %q, which the panel does not use; update the loop instead", absent)
+		}
+	}
+
+	freePiResetPendingForTest()
 }
 
 var _ = providers.FreePiCodeConsentRequired
