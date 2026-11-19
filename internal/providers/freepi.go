@@ -147,6 +147,7 @@ var FreePiImpressionHosts = []string{"trygravity.ai", "trygravity.com"}
 var FreePiAdGateMessages = []string{
 	"free-pi is free because it shows ads",
 	"ads aren't showing for this account",
+	"ads_required",
 }
 
 // FreePiIsAdGate reports whether a response body is the ad gate rather than a

@@ -46,7 +46,7 @@ func newFakeFreePiAds(t *testing.T) *fakeFreePiAds {
 		"imp_url": "` + pixel.URL + `/imp.gif",
 		"click_url": "https://track.example/click",
 		"source": "gravity",
-		"creative": {"title": "Ship faster", "body": "Observability for teams", "cta": "Start free", "image_url": "https://cdn.example/c.png"}
+		"creative": {"headline": "Ship faster", "body": "Observability for teams", "cta": "Start free", "accent": "#fff"}
 	}`
 
 	f.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -316,7 +316,7 @@ func TestFreePiReportImpression_RefusesForeignPixel(t *testing.T) {
 		ClickToken: "ct_x",
 		ImpURL:     "https://evil.test/imp.gif",
 	}
-	err := freePiReportImpression(t.Context(), "free-pi-jwt", ads.srv.URL+"/v1/chat/completions", ad)
+	err := freePiReportImpression(t.Context(), "free-pi-jwt", ads.srv.URL+"/v1/chat/completions", ad, freePiAdMeta{})
 	if err == nil {
 		t.Fatal("expected a refusal for a non-allowlisted pixel host")
 	}

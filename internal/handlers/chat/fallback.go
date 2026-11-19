@@ -1055,5 +1055,8 @@ func isAdGateBody(errorText string) bool {
 	if strings.Contains(errorText, `"code":"ad_gate"`) || strings.Contains(errorText, `"code": "ad_gate"`) {
 		return true
 	}
+	if strings.Contains(errorText, `"code":"ads_required"`) || strings.Contains(errorText, `"code": "ads_required"`) || strings.Contains(strings.ToLower(errorText), "ads_required") {
+		return true
+	}
 	return providers.FreePiIsAdGate(errorText)
 }

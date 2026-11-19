@@ -8,6 +8,7 @@ import (
 	"9router/proxy/internal/handlerutil"
 	"9router/proxy/internal/log"
 	"9router/proxy/internal/providers"
+	"9router/proxy/internal/proxy/executor"
 )
 
 // freePiUsageCreds pulls the bearer credential off a connection's stored data.
@@ -66,8 +67,9 @@ func (h *Handler) HandleGetFreePiAd(w http.ResponseWriter, r *http.Request) {
 		handlerutil.WriteJSONError(w, http.StatusNotFound, "no free-pi connection with a credential for that id")
 		return
 	}
+	meta := h.freePiAdMetaFor(connID, token)
 
-	ad, err := freePiFetchAd(r.Context(), token, baseURL)
+	ad, err := freePiFetchAd(r.Context(), token, baseURL, meta)
 	if err != nil {
 		// An ad is decoration: a failure here must not look like a broken
 		// provider, so report "no ad" and log the cause.
@@ -82,6 +84,39 @@ func (h *Handler) HandleGetFreePiAd(w http.ResponseWriter, r *http.Request) {
 
 	freePiStorePendingAd(connID, *ad)
 	handlerutil.WriteJSON(w, http.StatusOK, map[string]any{"ad": ad})
+}
+
+// freePiAdMetaFor resolves the session/client identity headers for a connection.
+func (h *Handler) freePiAdMetaFor(connID, token string) freePiAdMeta {
+	meta := freePiAdMeta{SessionID: executor.FreePiSessionID(token), ClientVersion: providers.FreePiClientVersion}
+	if h == nil || h.repo == nil || connID == "" {
+		return meta
+	}
+	conn, err := h.repo.GetProviderConnectionByID(connID)
+	if err != nil || conn == nil || conn.Data == "" {
+		return meta
+	}
+	var data map[string]any
+	if err := json.Unmarshal([]byte(conn.Data), &data); err != nil {
+		return meta
+	}
+	_, _, psd := freePiUsageCreds(data)
+	if psd != nil {
+		if sid, _ := psd["freePiSessionId"].(string); sid != "" {
+			meta.SessionID = sid
+		}
+		if cv, _ := psd["freePiClientVersion"].(string); cv != "" {
+			meta.ClientVersion = cv
+		}
+	}
+	// Also accept top-level keys if present.
+	if sid, _ := data["freePiSessionId"].(string); sid != "" {
+		meta.SessionID = sid
+	}
+	if cv, _ := data["freePiClientVersion"].(string); cv != "" {
+		meta.ClientVersion = cv
+	}
+	return meta
 }
 
 // HandleFreePiImpression records that a served creative was actually painted.
@@ -125,7 +160,7 @@ func (h *Handler) HandleFreePiImpression(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if err := freePiReportImpression(r.Context(), token, baseURL, ad); err != nil {
+	if err := freePiReportImpression(r.Context(), token, baseURL, ad, h.freePiAdMetaFor(body.ConnectionID, token)); err != nil {
 		log.Warn("free-pi", "impression report failed", "conn", body.ConnectionID, "error", err)
 		handlerutil.WriteJSONError(w, http.StatusBadGateway, err.Error())
 		return

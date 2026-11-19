@@ -15,6 +15,7 @@ func TestIsAdGateBody(t *testing.T) {
 		`{"code": "ad_gate"}`,
 		`{"error":{"message":"free-pi is free because it shows ads, and this session hasn't loaded any. Requests stay paused until ads load in the official free-pi CLI."}}`,
 		`{"error":{"message":"Ads aren't showing for this account"}}`,
+		`{"error":{"code":"ads_required","message":"ad impression required"}}`,
 	}
 	for _, body := range gate {
 		if !isAdGateBody(body) {

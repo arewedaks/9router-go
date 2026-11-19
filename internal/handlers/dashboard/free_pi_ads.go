@@ -32,8 +32,11 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"runtime"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 
 	"9router/proxy/internal/log"
 	"9router/proxy/internal/providers"
@@ -64,12 +67,15 @@ var freePiAdClient = &http.Client{
 	Timeout:   freePiAdsTimeout,
 }
 
-// freePiCreative is the renderable part of an ad.
+// freePiCreative is the renderable part of an ad. Upstream has used both
+// `headline` and `title` for the lead line across revisions, so both are
+// accepted on the wire and the resolved text is exposed as `title`.
 type freePiCreative struct {
 	Title    string `json:"title,omitempty"`
 	Body     string `json:"body,omitempty"`
 	CTA      string `json:"cta,omitempty"`
 	ImageURL string `json:"imageUrl,omitempty"`
+	Accent   string `json:"accent,omitempty"`
 }
 
 // freePiAd is one ad as served by GET /ads/next?slot=banner. Only AdID and
@@ -85,6 +91,14 @@ type freePiAd struct {
 	Creative   freePiCreative `json:"creative"`
 	Source     string         `json:"source,omitempty"`
 	FetchedAt  time.Time      `json:"-"`
+}
+
+// freePiAdMeta carries the per-connection identity headers upstream expects on
+// ad requests. The ad impression is recorded against the same session that
+// drives chat, so the session and client identity must match.
+type freePiAdMeta struct {
+	SessionID     string
+	ClientVersion string
 }
 
 // freePiOriginFromBase maps a connection's base URL to the API root, so a
@@ -132,19 +146,35 @@ func freePiAdURLAllowed(raw string) bool {
 	return false
 }
 
+// freePiSetAdHeaders sets the session and client identity headers on an ad
+// request. Upstream records impressions against the session that drives chat, so
+// these must match what the executor sends.
+func freePiSetAdHeaders(req *http.Request, token string, meta freePiAdMeta) {
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Accept", "application/json")
+	if meta.SessionID != "" {
+		req.Header.Set("x-session-id", meta.SessionID)
+	}
+	req.Header.Set("x-client-version", firstNonEmpty(meta.ClientVersion, providers.FreePiClientVersion))
+	req.Header.Set("x-turn-id", uuid.NewString())
+	req.Header.Set("x-client-os", runtime.GOOS)
+	req.Header.Set("x-client-arch", runtime.GOARCH)
+	req.Header.Set("x-client-timezone", "UTC")
+	req.Header.Set("x-client-locale", "en-US")
+}
+
 // freePiFetchAd asks upstream for a banner ad.
 //
 // A 204 (or 200 with no ad id) means there is nothing to show, which is a normal
 // outcome and not an error: the dashboard simply renders no banner.
-func freePiFetchAd(ctx context.Context, token, baseURL string) (*freePiAd, error) {
+func freePiFetchAd(ctx context.Context, token, baseURL string, meta freePiAdMeta) (*freePiAd, error) {
 	endpoint := freePiOriginFromBase(baseURL) + "/ads/next?slot=banner"
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, fmt.Errorf("free-pi ad: build request: %w", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Accept", "application/json")
+	freePiSetAdHeaders(req, token, meta)
 
 	resp, err := freePiAdClient.Do(req)
 	if err != nil {
@@ -166,7 +196,7 @@ func freePiFetchAd(ctx context.Context, token, baseURL string) (*freePiAd, error
 
 	// The upstream field names are snake_case; the wire struct keeps them so a
 	// rename on their side fails loudly here instead of silently rendering a
-	// blank ad.
+	// blank ad. The lead line has been seen as both `headline` and `title`.
 	var wire struct {
 		AdID       string `json:"ad_id"`
 		ClickToken string `json:"click_token"`
@@ -174,10 +204,12 @@ func freePiFetchAd(ctx context.Context, token, baseURL string) (*freePiAd, error
 		ClickURL   string `json:"click_url"`
 		Source     string `json:"source"`
 		Creative   struct {
+			Headline string `json:"headline"`
 			Title    string `json:"title"`
 			Body     string `json:"body"`
 			CTA      string `json:"cta"`
 			ImageURL string `json:"image_url"`
+			Accent   string `json:"accent"`
 		} `json:"creative"`
 	}
 	if err := json.Unmarshal(raw, &wire); err != nil {
@@ -194,10 +226,11 @@ func freePiFetchAd(ctx context.Context, token, baseURL string) (*freePiAd, error
 		ClickURL:   wire.ClickURL,
 		Source:     wire.Source,
 		Creative: freePiCreative{
-			Title:    wire.Creative.Title,
+			Title:    firstNonEmpty(wire.Creative.Headline, wire.Creative.Title),
 			Body:     wire.Creative.Body,
 			CTA:      wire.Creative.CTA,
 			ImageURL: wire.Creative.ImageURL,
+			Accent:   wire.Creative.Accent,
 		},
 		FetchedAt: time.Now(),
 	}, nil
@@ -208,7 +241,7 @@ func freePiFetchAd(ctx context.Context, token, baseURL string) (*freePiAd, error
 // server-side record upstream gates on.
 //
 // Called only from the client's render event, never from a timer.
-func freePiReportImpression(ctx context.Context, token, baseURL string, ad freePiAd) error {
+func freePiReportImpression(ctx context.Context, token, baseURL string, ad freePiAd, meta freePiAdMeta) error {
 	if ad.AdID == "" || ad.ClickToken == "" {
 		return fmt.Errorf("free-pi ad: impression needs an ad id and click token")
 	}
@@ -243,7 +276,7 @@ func freePiReportImpression(ctx context.Context, token, baseURL string, ad freeP
 	if err != nil {
 		return fmt.Errorf("free-pi ad: build impression request: %w", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+token)
+	freePiSetAdHeaders(req, token, meta)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := freePiAdClient.Do(req)
