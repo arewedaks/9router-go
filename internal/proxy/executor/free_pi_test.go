@@ -120,6 +120,20 @@ func freePiTestRequest(t *testing.T, srv *httptest.Server, token string, connDat
 // --- P2: transport contract ----------------------------------------------
 
 func TestFreePiForward_SendsSessionHeadersAndLeavesBodyAlone(t *testing.T) {
+	// Pin the live /client-version lookup so the assertion stays deterministic.
+	// Production resolves the newest of floor/stored/live; an empty cached live
+	// value means "no live signal", so the compiled floor wins.
+	freePiVersionMu.Lock()
+	oldCache, oldExpiry := freePiVersionCache, freePiVersionExpiry
+	freePiVersionCache = ""
+	freePiVersionExpiry = time.Now().Add(time.Hour)
+	freePiVersionMu.Unlock()
+	defer func() {
+		freePiVersionMu.Lock()
+		freePiVersionCache, freePiVersionExpiry = oldCache, oldExpiry
+		freePiVersionMu.Unlock()
+	}()
+
 	var gotHeaders http.Header
 	var gotBody []byte
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

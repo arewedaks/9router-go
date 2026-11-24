@@ -9385,11 +9385,10 @@
     return `
       <div class="add-form oauth-form">
         <div class="add-form-title"><span class="msym">passkey</span>Add via free-pi sign-in</div>
-        <div id="fp-consent-block" style="font-size:0.72rem; color:var(--muted); margin-bottom:8px; white-space:pre-wrap;">Loading terms…</div>
-        <label style="display:flex; gap:8px; align-items:flex-start; font-size:0.75rem; margin-bottom:10px;">
-          <input type="checkbox" id="fp-consent-accept" style="margin-top:2px;">
-          <span>I have read and accept these terms. <b>This cannot be undone</b> — prompts and code are
-          used to train models and may be shared with third parties.</span>
+        <div id="fp-consent-block" style="font-size:0.72rem; line-height:1.45; color:var(--muted); margin:0 0 10px; white-space:pre-wrap; overflow-wrap:anywhere; word-break:break-word; max-height:140px; overflow:auto; padding:8px 10px; border:1px solid var(--border); border-radius:8px; text-align:left;">Loading terms…</div>
+        <label for="fp-consent-accept" style="display:flex; align-items:center; gap:8px; font-size:0.75rem; line-height:1.4; margin:0 0 12px; text-align:left; cursor:pointer; user-select:none;">
+          <input type="checkbox" id="fp-consent-accept" style="margin:0; width:16px; height:16px; min-width:16px; flex:0 0 16px; padding:0; border:none; border-radius:3px; background:none; box-shadow:none; appearance:auto; -webkit-appearance:checkbox; accent-color:var(--accent); cursor:pointer;">
+          <span>I accept the terms above.</span>
         </label>
         <div class="add-form-grid oauth-grid">
           <div>
