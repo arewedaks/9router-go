@@ -1,5 +1,5 @@
 {
   "latestVersion": "1.10.26",
   "downloadUrl": "https://github.com/arewedaks/9router-go/releases/latest",
-  "releaseNotes": "- fix(free-pi): kreatif headline/accent, header sesi iklan, deteksi gate ads_required (1b04cbaa)\n- chore: bump version to 1.10.25 (ee8276fc)\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
+  "releaseNotes": "- fix(dashboard): add update progress bar and clear failure/status UI (7807820)\n- chore: bump version to 1.10.26 (2e414e2)\n- test(free-pi): pin live client-version lookup for deterministic header assertion (3ad22dc)\n- chore(release): version.json release notes for v1.10.25 (5d86a0f)\n\n---\nUpdate from the dashboard (sidebar button) or run `9router-go --update`."
 }
